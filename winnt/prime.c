@@ -14,19 +14,20 @@
 #include <string.h>
 #include <sys/timeb.h>
 
-#include "cpuid.c"
-#include "speed.c"
-
 #define PORT	5
 #include "giants.h"
 #include "gwnum.h"
+#include "cpuid.c"
+#ifdef DEBUG
 #include "giants.c"
+#endif
 #include "gwnum.c"
 #include "commonb.c"
 #include "commonc.c"
 #include "ecm.c"
 #include "comm95b.c"
 #include "comm95c.c"
+#include "primenet.c"
 
 void title (char *msg)
 {

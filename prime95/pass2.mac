@@ -776,7 +776,7 @@ end_timer 3
 
 start_timer 4
 	mov	edi, sincos_complex	;; V - Load sine/cosine ptr
-	mov	al, 4			;; V - 4 iterations of 16
+	mov	eax, 4			;; V - 4 iterations of 16
 	IF	type EQ 1
 b4b:	disp four_complex_fft, dist1, 2*dist1, 4*dist1
 	ENDIF

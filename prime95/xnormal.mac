@@ -1,4 +1,4 @@
-; Copyright 2000-2001 - Just For Fun Software, Inc.
+; Copyright 2000-2002 - Just For Fun Software, Inc.
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -117,7 +117,7 @@ const	brute_force_mul_by_const xmm0, xmm4
 	unpcklpd xmm1, [esi+48]
 	addpd	xmm7, xmm1		;; sumout += values2
 	mulpd	xmm1, [ebp+64]		;; Mul values2 by two-to-minus-phi
-echk	brute_force_error_check xmm1, xmm4, xmm6
+echk	brute_force_error_check xmm1, xmm5, xmm6
 const	brute_force_mul_by_const xmm1, xmm5
 	addpd	xmm2, xmm0		;; x1 = values + carry
 	addpd	xmm3, xmm1		;; x2 = values + carry
@@ -463,9 +463,7 @@ xnorm012_2d MACRO
 	subpd	xmm0, xmm4		;; low carry = x1 - z1
 	mulpd	xmm5, XMM_LIMIT_INVERSE[eax];; high carry = shifted y1
 	subpd	xmm5, XMM_BIGVAL
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+0*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+0*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm0		;; low carry *= two-to-phi
 	_movsd	xmm0, [esi+0*16+8]	;; Load carry for next row
 	movapd	[esi+0*16], xmm4	;; Save low carry
@@ -485,9 +483,7 @@ xnorm012_2d MACRO
 	subpd	xmm1, xmm4		;; low carry = x1 - z1
 	mulpd	xmm5, XMM_LIMIT_INVERSE[eax];; high carry = shifted y1
 	subpd	xmm5, XMM_BIGVAL
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+1*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+1*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm1		;; low carry *= two-to-phi
 	_movsd	xmm1, [esi+1*16+8]	;; Load carry for next row
 	movapd	[esi+1*16], xmm4	;; Save low carry
@@ -507,9 +503,7 @@ xnorm012_2d MACRO
 	subpd	xmm2, xmm4		;; low carry = x1 - z1
 	mulpd	xmm5, XMM_LIMIT_INVERSE[eax];; high carry = shifted y1
 	subpd	xmm5, XMM_BIGVAL
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+2*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+2*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm2		;; low carry *= two-to-phi
 	_movsd	xmm2, [esi+2*16+8]	;; Load carry for next row
 	movapd	[esi+2*16], xmm4	;; Save low carry
@@ -529,9 +523,7 @@ xnorm012_2d MACRO
 	subpd	xmm3, xmm4		;; low carry = x1 - z1
 	mulpd	xmm5, XMM_LIMIT_INVERSE[eax];; high carry = shifted y1
 	subpd	xmm5, XMM_BIGVAL
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+3*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+3*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm3		;; low carry *= two-to-phi
 	_movsd	xmm3, [esi+3*16+8]	;; Load carry for next row
 	movapd	[esi+3*16], xmm4	;; Save low carry
@@ -726,10 +718,10 @@ xnorm_op_1d_cleanup MACRO
 	xnorm_rotate_carries xmm2, xmm3	;; Rotate the carries
 	movapd	xmm0, [ecx]		;; Load values1
 	movapd	xmm1, [ecx+32]		;; Load values2
-	subpd	xmm2, XMM_BIGVAL	;; Remove BIGVAL from carries
-	subpd	xmm3, XMM_BIGVAL
-	mulpd	xmm2, [ebp+16]		;; carry *= two-to-phi
-	mulpd	xmm3, [ebp+80]		;; carry *= two-to-phi
+	subpd	xmm3, XMM_BIGVAL	;; Remove BIGVAL from carries
+	subpd	xmm2, XMM_BIGVAL
+	mulpd	xmm3, [ebp+16]		;; carry *= two-to-phi
+	mulpd	xmm2, [ebp+80]		;; carry *= two-to-phi
 	addpd	xmm0, xmm3		;; value1 = values + carry
 	addpd	xmm1, xmm2		;; value2 = values + carry
 	movapd	[ecx], xmm0		;; Save new value1
@@ -948,10 +940,10 @@ xnorm_addsub_1d_cleanup MACRO
 	xnorm_rotate_carries xmm2, xmm3	;; Rotate the carries
 	movapd	xmm0, [esi]		;; Load values1
 	movapd	xmm1, [esi+32]		;; Load values2
-	subpd	xmm2, XMM_BIGVAL	;; Remove BIGVAL from carries
-	subpd	xmm3, XMM_BIGVAL
-	mulpd	xmm2, [ebx+16]		;; carry *= two-to-phi
-	mulpd	xmm3, [ebx+80]		;; carry *= two-to-phi
+	subpd	xmm3, XMM_BIGVAL	;; Remove BIGVAL from carries
+	subpd	xmm2, XMM_BIGVAL
+	mulpd	xmm3, [ebx+16]		;; carry *= two-to-phi
+	mulpd	xmm2, [ebx+80]		;; carry *= two-to-phi
 	addpd	xmm0, xmm3		;; value1 = values + carry
 	addpd	xmm1, xmm2		;; value2 = values + carry
 	movapd	[esi], xmm0		;; Save new value1
@@ -960,10 +952,10 @@ xnorm_addsub_1d_cleanup MACRO
 	xnorm_rotate_carries xmm6, xmm7	;; Rotate the carries
 	movapd	xmm0, [ebp]		;; Load values1
 	movapd	xmm1, [ebp+32]		;; Load values2
-	subpd	xmm6, XMM_BIGVAL	;; Remove BIGVAL from carries
-	subpd	xmm7, XMM_BIGVAL
-	mulpd	xmm6, [ebx+16]		;; carry *= two-to-phi
-	mulpd	xmm7, [ebx+80]		;; carry *= two-to-phi
+	subpd	xmm7, XMM_BIGVAL	;; Remove BIGVAL from carries
+	subpd	xmm6, XMM_BIGVAL
+	mulpd	xmm7, [ebx+16]		;; carry *= two-to-phi
+	mulpd	xmm6, [ebx+80]		;; carry *= two-to-phi
 	addpd	xmm0, xmm7		;; value1 = values + carry
 	addpd	xmm1, xmm6		;; value2 = values + carry
 	movapd	[ebp], xmm0		;; Save new value1
@@ -1109,56 +1101,41 @@ ttp	lea	ebx, [ebx+32]		;; Next column two-to-phi ptr
 ; back into the appropriate FFT values.
 ; esi = pointer to carries
 ; ebp = pointer to FFT data
-; edi = pointer to big/little flags
-; ebx = pointer two-to-power column multipliers
 ; edx = pointer two-to-power group multipliers
-; eax = big vs. little word flag #1
 ; xmm6 = XMM_BIGVAL
 ; xmm7 preserved
 
 xnorm_op012_2d MACRO
-	mov	al, [edi+0]		;; Load big vs. little flag
 	movhpd	xmm0, [esi+0*16]	;; Load high word of carry XMM reg
 	subpd	xmm0, xmm6
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+0*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+0*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm0		;; carry *= two-to-phi
 	_movsd	xmm0, [esi+0*16+8]	;; Load carry for next row
 	addpd	xmm4, [ebp+0*16]	;; Add in FFT data
 	movapd	[ebp+0*16], xmm4	;; Save FFT word
 	movapd	[esi+0*16], xmm6	;; Reset carry
 
-	mov	al, [edi+1]		;; Load big vs. little flag
 	movhpd	xmm1, [esi+1*16]	;; Load high word of carry XMM reg
 	subpd	xmm1, xmm6
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+1*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+1*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm1		;; carry *= two-to-phi
 	_movsd	xmm1, [esi+1*16+8]	;; Load carry for next row
 	addpd	xmm4, [ebp+1*16]	;; Add in FFT data
 	movapd	[ebp+1*16], xmm4	;; Save FFT word
 	movapd	[esi+1*16], xmm6	;; Reset carry
 
-	mov	al, [edi+2]		;; Load big vs. little flag
 	movhpd	xmm2, [esi+2*16]	;; Load high word of carry XMM reg
 	subpd	xmm2, xmm6
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+2*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+2*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm2		;; carry *= two-to-phi
 	_movsd	xmm2, [esi+2*16+8]	;; Load carry for next row
 	addpd	xmm4, [ebp+2*16]	;; Add in FFT data
 	movapd	[ebp+2*16], xmm4	;; Save FFT word
 	movapd	[esi+2*16], xmm6	;; Reset carry
 
-	mov	al, [edi+3]		;; Load big vs. little flag
 	movhpd	xmm3, [esi+3*16]	;; Load high word of carry XMM reg
 	subpd	xmm3, xmm6
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+3*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+3*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm3		;; carry *= two-to-phi
 	_movsd	xmm3, [esi+3*16+8]	;; Load carry for next row
 	addpd	xmm4, [ebp+3*16]	;; Add in FFT data
@@ -1400,12 +1377,9 @@ xnorm_as012_2d_part2 MACRO
 	ENDM
 
 xnorm_as012_2d MACRO
-	mov	al, [edi+0]		;; Load big vs. little flag
 	movhpd	xmm0, [esi+0*32]	;; Load high word of carry XMM reg
 	subpd	xmm0, xmm6
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+0*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+0*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm0		;; carry *= two-to-phi
 	_movsd	xmm0, [esi+0*32+8]	;; Load carry for next row
 	addpd	xmm4, [ebp+0*16]	;; Add in FFT data
@@ -1417,20 +1391,15 @@ xnorm_as012_2d MACRO
 	subpd	xmm5, xmm6
 	_movsd	xmm4, [esi+0*32+24]	;; Load carry for next row
 	_movsd	XMM_TMP2, xmm4
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+0*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+0*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm5		;; carry *= two-to-phi
 	addpd	xmm4, [ecx+0*16]	;; Add in FFT data
 	movapd	[ecx+0*16], xmm4	;; Save FFT word
 	movapd	[esi+0*32+16], xmm6	;; Reset carry
 
-	mov	al, [edi+1]		;; Load big vs. little flag
 	movhpd	xmm1, [esi+1*32]	;; Load high word of carry XMM reg
 	subpd	xmm1, xmm6
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+1*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+1*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm1		;; carry *= two-to-phi
 	_movsd	xmm1, [esi+1*32+8]	;; Load carry for next row
 	addpd	xmm4, [ebp+1*16]	;; Add in FFT data
@@ -1442,20 +1411,15 @@ xnorm_as012_2d MACRO
 	subpd	xmm5, xmm6
 	_movsd	xmm4, [esi+1*32+24]	;; Load carry for next row
 	_movsd	XMM_TMP2+8, xmm4
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+1*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+1*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm5		;; carry *= two-to-phi
 	addpd	xmm4, [ecx+1*16]	;; Add in FFT data
 	movapd	[ecx+1*16], xmm4	;; Save FFT word
 	movapd	[esi+1*32+16], xmm6	;; Reset carry
 
-	mov	al, [edi+2]		;; Load big vs. little flag
 	movhpd	xmm2, [esi+2*32]	;; Load high word of carry XMM reg
 	subpd	xmm2, xmm6
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+2*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+2*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm2		;; carry *= two-to-phi
 	_movsd	xmm2, [esi+2*32+8]	;; Load carry for next row
 	addpd	xmm4, [ebp+2*16]	;; Add in FFT data
@@ -1467,20 +1431,15 @@ xnorm_as012_2d MACRO
 	subpd	xmm5, xmm6
 	_movsd	xmm4, [esi+2*32+24]	;; Load carry for next row
 	_movsd	XMM_TMP3, xmm4
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+2*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+2*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm5		;; carry *= two-to-phi
 	addpd	xmm4, [ecx+2*16]	;; Add in FFT data
 	movapd	[ecx+2*16], xmm4	;; Save FFT word
 	movapd	[esi+2*32+16], xmm6	;; Reset carry
 
-	mov	al, [edi+3]		;; Load big vs. little flag
 	movhpd	xmm3, [esi+3*32]	;; Load high word of carry XMM reg
 	subpd	xmm3, xmm6
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+3*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+3*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm3		;; carry *= two-to-phi
 	_movsd	xmm3, [esi+3*32+8]	;; Load carry for next row
 	addpd	xmm4, [ebp+3*16]	;; Add in FFT data
@@ -1492,9 +1451,7 @@ xnorm_as012_2d MACRO
 	subpd	xmm5, xmm6
 	_movsd	xmm4, [esi+3*32+24]	;; Load carry for next row
 	_movsd	XMM_TMP3+8, xmm4
-	movapd	xmm4, [ebx+16]		;; col two-to-phi
-	mulpd	xmm4, XMM_TTP_FUDGE[eax];; mul by fudge two-to-phi
-	mulpd	xmm4, [edx+3*32+16]	;; mul by grp two-to-phi
+	movapd	xmm4, [edx+3*32+16]	;; mul by grp two-to-phi
 	mulpd	xmm4, xmm5		;; carry *= two-to-phi
 	addpd	xmm4, [ecx+3*16]	;; Add in FFT data
 	movapd	[ecx+3*16], xmm4	;; Save FFT word
@@ -1997,5 +1954,3 @@ xcopyz MACRO col, xmmreg, mem
 z_two:	subpd	xmmreg, xmmreg
 zdone:
 	ENDM
-
-

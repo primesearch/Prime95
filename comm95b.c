@@ -25,6 +25,20 @@ int isWindows95 ()
 	return (FALSE);
 }
 
+/* Is this Windows 2000 or a later Windows NT version? */
+
+int isWindows2000 ()
+{
+	OSVERSIONINFO info;
+
+	info.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
+	if (GetVersionEx (&info)) {
+		return (info.dwPlatformId == VER_PLATFORM_WIN32_NT &&
+			info.dwMajorVersion >= 5);
+	}
+	return (FALSE);
+}
+
 /* Set the thread priority correctly */
 
 void SetPriority ()
@@ -41,4 +55,277 @@ void SetPriority ()
 		THREAD_PRIORITY_HIGHEST);
 	if (CPU_AFFINITY != 99 && !isWindows95 ())
 		SetThreadAffinityMask (WORKER_THREAD, 1 << CPU_AFFINITY);
+}
+
+/* Enumerate processes so that we can pause if a user-specified process */
+/* is running.  This code is adapted from Microsoft's knowledge base article */
+/* Q175030. */
+
+/* This function uses the ToolHelp32 and PSAPI.DLL functions via */
+/* explicit linking, rather than the more common implicit linking.  This */
+/* technique is used so that the program will be binary compatible across */
+/* both Windows NT and Windows 95.  (For example, implicit linking of a */
+/* ToolHelp32 function would cause an EXE to fail to load and run under */
+/* Windows NT.) */
+
+#include <tlhelp32.h>
+#include <vdmdbg.h>
+
+typedef struct {
+	BOOL           match;
+} EnumInfoStruct ;
+
+BOOL WINAPI Enum16( DWORD dwThreadId, WORD hMod16, WORD hTask16,
+      PSZ pszModName, PSZ pszFileName, LPARAM lpUserDefined ) ;
+
+int checkPauseList ()
+{
+	int		retval = FALSE;
+	OSVERSIONINFO	osver;
+	HINSTANCE	hInstLib = NULL;
+	HINSTANCE	hInstLib2 = NULL;
+	BOOL		bFlag;
+	LPDWORD		lpdwPIDs = NULL;
+	DWORD		dwSize, dwSize2, dwIndex;
+	char		szFileName[ MAX_PATH ];
+
+// ToolHelp Function Pointers.
+
+	HANDLE (WINAPI *lpfCreateToolhelp32Snapshot)(DWORD,DWORD);
+	BOOL (WINAPI *lpfProcess32First)(HANDLE,LPPROCESSENTRY32);
+	BOOL (WINAPI *lpfProcess32Next)(HANDLE,LPPROCESSENTRY32);
+
+// PSAPI Function Pointers.
+
+	BOOL (WINAPI *lpfEnumProcesses)(DWORD *, DWORD, DWORD *);
+	BOOL (WINAPI *lpfEnumProcessModules)(HANDLE, HMODULE*, DWORD, LPDWORD);
+	DWORD (WINAPI *lpfGetModuleFileNameEx)(HANDLE, HMODULE, LPTSTR, DWORD);
+
+// VDMDBG Function Pointers.
+
+	INT (WINAPI *lpfVDMEnumTaskWOWEx)(DWORD, TASKENUMPROCEX, LPARAM);
+
+// Check to see if were running under Windows95 or Windows NT.
+
+	osver.dwOSVersionInfoSize = sizeof( osver );
+	if ( !GetVersionEx( &osver ) ) return FALSE;
+
+// If Windows NT:
+
+	if ( osver.dwPlatformId == VER_PLATFORM_WIN32_NT ) {
+
+// Load library and get the procedures explicitly. We do
+// this so that we don't have to worry about modules using
+// this code failing to load under Windows 95, because
+// it can't resolve references to the PSAPI.DLL.
+
+		hInstLib = LoadLibraryA( "PSAPI.DLL" );
+		if ( hInstLib == NULL ) goto ntdone;
+		hInstLib2 = LoadLibraryA( "VDMDBG.DLL" );
+		if ( hInstLib2 == NULL ) goto ntdone;
+
+// Get procedure addresses.
+
+		lpfEnumProcesses = (BOOL(WINAPI *)(DWORD *,DWORD,DWORD*))
+			GetProcAddress( hInstLib, "EnumProcesses" );
+		lpfEnumProcessModules = (BOOL(WINAPI *)(HANDLE, HMODULE *,
+			DWORD, LPDWORD)) GetProcAddress( hInstLib,
+			"EnumProcessModules" );
+		lpfGetModuleFileNameEx =(DWORD (WINAPI *)(HANDLE, HMODULE,
+			LPTSTR, DWORD )) GetProcAddress( hInstLib,
+			"GetModuleFileNameExA" );
+		lpfVDMEnumTaskWOWEx =(INT(WINAPI *)( DWORD, TASKENUMPROCEX,
+			LPARAM))GetProcAddress( hInstLib2,
+			"VDMEnumTaskWOWEx" );
+		if ( lpfEnumProcesses == NULL ||
+		     lpfEnumProcessModules == NULL ||
+		     lpfGetModuleFileNameEx == NULL ||
+		     lpfVDMEnumTaskWOWEx == NULL)
+			goto ntdone;
+
+// Call the PSAPI function EnumProcesses to get all of the
+// ProcID's currently in the system.
+// NOTE: In the documentation, the third parameter of
+// EnumProcesses is named cbNeeded, which implies that you
+// can call the function once to find out how much space to
+// allocate for a buffer and again to fill the buffer.
+// This is not the case. The cbNeeded parameter returns
+// the number of PIDs returned, so if your buffer size is
+// zero cbNeeded returns zero.
+// NOTE: The "HeapAlloc" loop here ensures that we
+// actually allocate a buffer large enough for all the
+// PIDs in the system.
+
+		dwSize2 = 256 * sizeof (DWORD);
+		do {
+			if (lpdwPIDs) {
+				HeapFree (GetProcessHeap(), 0, lpdwPIDs);
+				dwSize2 *= 2;
+			}
+			lpdwPIDs = (LPDWORD)
+				HeapAlloc (GetProcessHeap(), 0, dwSize2);
+			if (lpdwPIDs == NULL) goto ntdone;
+			if (!lpfEnumProcesses (lpdwPIDs, dwSize2, &dwSize))
+				goto ntdone;
+		} while (dwSize == dwSize2);
+
+// How many ProcID's did we get?
+
+		dwSize /= sizeof (DWORD);
+
+// Loop through each ProcID.
+
+		for (dwIndex = 0; dwIndex < dwSize; dwIndex++) {
+			HMODULE		hMod;
+			HANDLE		hProcess;
+
+// Open the process (if we can... security does not
+// permit every process in the system).
+
+			hProcess = OpenProcess(
+				PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+				FALSE, lpdwPIDs[ dwIndex ] );
+			if (!hProcess) continue;
+
+// Here we call EnumProcessModules to get only the
+// first module in the process this is important,
+// because this will be the .EXE module for which we
+// will retrieve the full path name in a second.
+
+			if (!lpfEnumProcessModules (hProcess, &hMod,
+					sizeof (hMod), &dwSize2)) {
+				CloseHandle (hProcess);
+				continue;
+			}
+
+// Get Full pathname:
+
+			if (!lpfGetModuleFileNameEx (hProcess,
+					hMod,
+					szFileName,
+					sizeof (szFileName))) {
+				CloseHandle (hProcess);
+				continue;
+			}
+
+			CloseHandle (hProcess);
+
+// Regardless of OpenProcess success or failure, we
+// still call the enum func with the ProcID.
+
+			if (isInPauseList (szFileName)) {
+				retval = TRUE;
+				goto ntdone;
+			}
+
+// Did we just bump into an NTVDM?
+
+			if (_stricmp (szFileName+(strlen(szFileName)-9),
+				"NTVDM.EXE")==0) {
+				EnumInfoStruct	sInfo;
+
+// Fill in some info for the 16-bit enum proc.
+
+				sInfo.match = FALSE;
+
+// Enum the 16-bit stuff.
+
+				lpfVDMEnumTaskWOWEx (lpdwPIDs[dwIndex],
+					(TASKENUMPROCEX) Enum16,
+					(LPARAM) &sInfo);
+
+// Did our main enum func say quit?
+
+				if (sInfo.match) {
+					retval = TRUE;
+					goto ntdone;
+				}
+			}
+		}
+ntdone:		if (lpdwPIDs) HeapFree (GetProcessHeap(), 0, lpdwPIDs);
+		if (hInstLib) FreeLibrary (hInstLib);
+		if (hInstLib2) FreeLibrary (hInstLib2);
+		return (retval);
+	}
+
+// If Windows 95:
+
+	else if (osver.dwPlatformId == VER_PLATFORM_WIN32_WINDOWS) {
+		HANDLE		hSnapShot = NULL;
+		PROCESSENTRY32	procentry;
+
+		hInstLib = LoadLibraryA ("Kernel32.DLL");
+		if (hInstLib == NULL) goto done95;
+
+// Get procedure addresses.
+// We are linking to these functions of Kernel32
+// explicitly, because otherwise a module using
+// this code would fail to load under Windows NT,
+// which does not have the Toolhelp32
+// functions in the Kernel 32.
+
+		lpfCreateToolhelp32Snapshot=
+			(HANDLE(WINAPI *)(DWORD,DWORD))
+				GetProcAddress( hInstLib,
+					"CreateToolhelp32Snapshot" );
+		lpfProcess32First=
+			(BOOL(WINAPI *)(HANDLE,LPPROCESSENTRY32))
+				GetProcAddress( hInstLib, "Process32First" );
+		lpfProcess32Next=
+			(BOOL(WINAPI *)(HANDLE,LPPROCESSENTRY32))
+				GetProcAddress( hInstLib, "Process32Next" );
+		if( lpfProcess32Next == NULL ||
+		    lpfProcess32First == NULL ||
+		    lpfCreateToolhelp32Snapshot == NULL ) goto done95;
+
+// Get a handle to a Toolhelp snapshot of the systems processes.
+
+		hSnapShot = lpfCreateToolhelp32Snapshot (
+			TH32CS_SNAPPROCESS, 0);
+		if (hSnapShot == INVALID_HANDLE_VALUE) {
+			hSnapShot = NULL;
+			goto done95;
+		}
+
+// Get the first process' information.
+
+		procentry.dwSize = sizeof (PROCESSENTRY32);
+		bFlag = lpfProcess32First (hSnapShot, &procentry);
+
+// While there are processes, keep looping.
+
+		while (bFlag) {
+
+// Call the enum func with the filename and ProcID.
+
+			if (isInPauseList (procentry.szExeFile)) {
+				retval = TRUE;
+				goto done95;
+			}
+			procentry.dwSize = sizeof(PROCESSENTRY32);
+			bFlag = lpfProcess32Next (hSnapShot, &procentry);
+		}
+
+// Free the library.
+
+done95:		if (hInstLib) FreeLibrary (hInstLib);
+		if (hSnapShot) CloseHandle (hSnapShot);
+		return (retval);
+	}
+
+// Unknown OS type
+
+	return (FALSE);
+}
+
+
+BOOL WINAPI Enum16 (DWORD dwThreadId, WORD hMod16, WORD hTask16,
+      PSZ pszModName, PSZ pszFileName, LPARAM lpUserDefined)
+{
+	EnumInfoStruct *psInfo = (EnumInfoStruct *) lpUserDefined;
+	if (isInPauseList (pszFileName)) {
+		psInfo->match = TRUE;
+		return (TRUE);
+	}
+	return (FALSE);
 }

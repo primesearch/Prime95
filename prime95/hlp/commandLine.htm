@@ -1,0 +1,107 @@
+<html xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+	<head>
+		<title>Command Line Arguments</title>
+		<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+		<meta name="ProgId" content="Word.Document">
+		<meta name="Generator" content="Microsoft Word 9">
+		<meta name="Originator" content="Microsoft Word 9">
+		<link rel="File-List" href="./commandLine_files/filelist.xml"> <!--[if gte mso 9]><xml>
+ <w:WordDocument>
+  <w:Zoom>88</w:Zoom>
+ </w:WordDocument>
+</xml><![endif]-->
+			<style> <!-- /* Font Definitions */ @font-face {font-family:"MS Mincho"; panose-1:2 2 6 9 4 2 5 8 3 4; mso-font-alt:"\FF2D\FF33 \660E\671D"; mso-font-charset:128; mso-generic-font-family:modern; mso-font-pitch:fixed; mso-font-signature:-1610612033 1757936891 16 0 131231 0;}
+	@font-face {font-family:"\@MS Mincho"; panose-1:2 2 6 9 4 2 5 8 3 4; mso-font-charset:128; mso-generic-font-family:modern; mso-font-pitch:fixed; mso-font-signature:-1610612033 1757936891 16 0 131231 0;}
+	@font-face {font-family:"Arial Unicode MS"; panose-1:2 11 6 4 2 2 2 2 2 4; mso-font-charset:128; mso-generic-font-family:swiss; mso-font-pitch:variable; mso-font-signature:-1 -369098753 63 0 4129023 0;}
+	@font-face {font-family:"\@Arial Unicode MS"; mso-font-charset:128; mso-generic-font-family:swiss; mso-font-pitch:variable; mso-font-signature:-1 -369098753 63 0 4129023 0;}
+	/* Style Definitions */ p.MsoNormal, li.MsoNormal, div.MsoNormal {mso-style-parent:""; margin:0in; margin-bottom:.0001pt; mso-pagination:widow-orphan; font-size:12.0pt; font-family:"Times New Roman"; mso-fareast-font-family:"Times New Roman";}
+	h1 {mso-style-next:Normal; margin-top:0in; margin-right:25.0pt; margin-bottom:0in; margin-left:0in; margin-bottom:.0001pt; mso-pagination:widow-orphan; page-break-after:avoid; mso-outline-level:1; font-size:10.0pt; font-family:"Times New Roman"; mso-fareast-font-family:"Times New Roman"; color:white; mso-font-kerning:0pt; font-weight:bold; font-style:italic;}
+	a:link, span.MsoHyperlink {color:blue; text-decoration:underline; text-underline:single;}
+	a:visited, span.MsoHyperlinkFollowed {color:purple; text-decoration:underline; text-underline:single;}
+	p.MsoPlainText, li.MsoPlainText, div.MsoPlainText {margin:0in; margin-bottom:.0001pt; mso-pagination:widow-orphan; font-size:10.0pt; font-family:"Courier New"; mso-fareast-font-family:"Times New Roman";}
+	p {margin-right:0in; mso-margin-top-alt:auto; mso-margin-bottom-alt:auto; margin-left:0in; mso-pagination:widow-orphan; font-size:12.0pt; font-family:"Arial Unicode MS";}
+	@page Section1 {size:8.5in 11.0in; margin:1.0in 29.25pt 1.0in 65.95pt; mso-header-margin:.5in; mso-footer-margin:.5in; mso-paper-source:0;}
+	div.Section1 {page:Section1;}
+	/* List Definitions */ @list l0 {mso-list-id:235550854; mso-list-type:hybrid; mso-list-template-ids:1275758004 -1037022722 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l0:level1 {mso-level-number-format:none; mso-level-text:-An; mso-level-tab-stop:.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l0:level2 {mso-level-tab-stop:1.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l0:level3 {mso-level-tab-stop:1.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l0:level4 {mso-level-tab-stop:2.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l0:level5 {mso-level-tab-stop:2.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l0:level6 {mso-level-tab-stop:3.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l0:level7 {mso-level-tab-stop:3.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l0:level8 {mso-level-tab-stop:4.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l0:level9 {mso-level-tab-stop:4.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l1 {mso-list-id:286353307; mso-list-type:hybrid; mso-list-template-ids:-1083960020 310677986 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l1:level1 {mso-level-number-format:none; mso-level-text:-Wdirectory; mso-level-tab-stop:1.25in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l2 {mso-list-id:822086393; mso-list-type:hybrid; mso-list-template-ids:791723648 -1582130722 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l2:level1 {mso-level-number-format:none; mso-level-text:-t; mso-level-tab-stop:1.25in; mso-level-number-position:left; margin-left:1.25in; text-indent:-1.05in;}
+	@list l3 {mso-list-id:837965615; mso-list-type:hybrid; mso-list-template-ids:-308774666 -258591434 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l3:level1 {mso-level-number-format:none; mso-level-text:-An; mso-level-tab-stop:1.25in; mso-level-number-position:left; margin-left:1.25in; text-indent:-1.05in;}
+	@list l4 {mso-list-id:1506553899; mso-list-type:hybrid; mso-list-template-ids:1099846036 -1037022722 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l4:level1 {mso-level-number-format:none; mso-level-text:-An; mso-level-tab-stop:.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l5 {mso-list-id:1820730061; mso-list-type:hybrid; mso-list-template-ids:-1138473754 -1582130722 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l5:level1 {mso-level-number-format:none; mso-level-text:-t; mso-level-tab-stop:1.25in; mso-level-number-position:left; margin-left:1.25in; text-indent:-1.05in;}
+	@list l6 {mso-list-id:1997997376; mso-list-type:hybrid; mso-list-template-ids:1398332510 -1458772476 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l6:level1 {mso-level-number-format:none; mso-level-text:-Wdirectory; mso-level-tab-stop:1.25in; mso-level-number-position:left; margin-left:1.25in; text-indent:-1.05in;}
+	ol {margin-bottom:0in;}
+	ul {margin-bottom:0in;}
+	--></style>
+		<!--[if gte mso 9]><xml>
+ <o:shapedefaults v:ext="edit" spidmax="1027">
+  <o:colormru v:ext="edit" colors="#fc9"/>
+  <o:colormenu v:ext="edit" fillcolor="none"/>
+ </o:shapedefaults></xml><![endif]-->  <!--[if gte mso 9]><xml>
+ <o:shapelayout v:ext="edit">
+  <o:idmap v:ext="edit" data="1"/>
+ </o:shapelayout></xml><![endif]-->
+	</head>
+	<body lang="EN-US" link="blue" vlink="purple" style='tab-interval:.5in'>
+		<div class="Section1">
+			<p class="MsoPlainText"><b><span style="FONT-SIZE:16pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'"><U>COMMAND 
+							LINE ARGUMENTS</U></span></b><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+				</span></p>
+			<![if !supportEmptyParas]><![endif]>
+			<p class="MsoPlainText"><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">&nbsp;<![if !supportLists]><o:p></o:p></span></p>
+			<p style='MARGIN-LEFT:1.25in;TEXT-INDENT:-1.05in;mso-list:l3 level1 lfo4;tab-stops:list 1.25in'><span style="FONT-SIZE:10pt;
+COLOR:black;
+FONT-FAMILY:'Times New Roman';
+mso-fareast-font-family:'MS Mincho'">-An<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">This is used to run two or
+more copies of prime95 from the same directory.<span style="mso-spacerun:
+yes">&nbsp; </span>Using this command line argument causes Prime95 to use a
+different set of filenames for the INI files, the results file, the log file,
+and the spool file.<span style="mso-spacerun: yes">&nbsp; </span>Just use a
+different value of n for each copy of prime95.exe you start.<o:p></o:p></span></p>
+			<p style='MARGIN-LEFT:1.25in;TEXT-INDENT:-1.05in;mso-list:l5 level1 lfo6;tab-stops:list 1.25in'><![if 
+				!supportLists]><span style="FONT-SIZE:10pt;
+COLOR:black;
+FONT-FAMILY:'Times New Roman';
+mso-fareast-font-family:'MS Mincho'">-t<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">Run the torture test.<span style="mso-spacerun: yes">&nbsp; </span>Same as Options/Torture Test.<o:p></o:p></span></p>
+			<p style='MARGIN-LEFT:1.25in;TEXT-INDENT:-1.05in;mso-list:l6 level1 lfo8;tab-stops:list 1.25in'><![if 
+				!supportLists]><span style="FONT-SIZE:10pt;
+COLOR:black;
+FONT-FAMILY:'Times New Roman';
+mso-fareast-font-family:'MS Mincho'">-Wdirectory<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">This tells Prime95 to find all
+its files in a different directory than the executable.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><span style='mso-tab-count:2'></span>
+				</span><![if !supportEmptyParas]><![endif]><![if 
+				!supportEmptyParas]><![endif]><![if !supportEmptyParas]><![endif]><![if 
+				!supportEmptyParas]><![endif]><![if !supportEmptyParas]><![endif]><![if 
+				!supportEmptyParas]><![endif]><![if !supportEmptyParas]><![endif]><![if 
+				!supportEmptyParas]><![endif]><![if !supportEmptyParas]><![endif]><![if 
+				!supportEmptyParas]><![endif]><![if !supportEmptyParas]><![endif]><![if 
+				!supportEmptyParas]><![endif]><![if !supportEmptyParas]><![endif]><![if 
+				!supportEmptyParas]><![endif]><![if !supportEmptyParas]><![endif]><![if 
+				!supportEmptyParas]><![endif]><![if !supportEmptyParas]><![endif]><![if 
+				!supportEmptyParas]><![endif]><![if !supportEmptyParas]><![endif]><![if 
+				!supportEmptyParas]><![endif]><![if !supportEmptyParas]><![endif]><![if 
+				!supportEmptyParas]><![endif]><![if !supportEmptyParas]><![endif]><![if 
+				!supportEmptyParas]><![endif]><![if !supportEmptyParas]><![endif]><![if 
+				!supportEmptyParas]><![endif]><![if !supportEmptyParas]><![endif]><![if 
+				!supportEmptyParas]><![endif]><![if !supportEmptyParas]><![endif]></p>
+		</div>
+	</body>
+</html>

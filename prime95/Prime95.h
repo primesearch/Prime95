@@ -6,11 +6,10 @@
 #endif
 
 #include "resource.h"       // main symbols
-#include "cpuid.h"
-#include "speed.h"
 //#define SERVER_TESTING
 #define NO_GUI		0
 #define EXTERNC		extern "C"
+#include "cpuid.h"
 #include "gwnum.h"
 #include "commona.h"
 #include "commonb.h"
@@ -30,7 +29,6 @@ class CPrime95App : public CWinApp
 public:
 	CPrime95App();
 	void TrayMessage (UINT, LPCSTR, UINT);
-	virtual void WinHelp( DWORD dwData, UINT nCmd = HELP_CONTEXT ); 
 
 // Overrides
 	// ClassWizard generated virtual function overrides
@@ -57,7 +55,9 @@ public:
 
 // Global variables
 
-extern int THREAD_ACTIVE;		// True if a thread is active
+extern HANDLE g_hMutexInst;
+
+extern "C" int THREAD_ACTIVE;		// True if a thread is active
 extern int volatile THREAD_STOP;	// one if thread should stop with msg
 					// two if thread should stop quietly
 extern int EXIT_IN_PROGRESS;		// True if we are exiting
@@ -76,7 +76,13 @@ extern int STOPPED_ON_BATTERY;		// TRUE if we need to autocontinue on a power
 					// change event
 extern char *BROADCAST_MESSAGE;		// Message broadcast from the server
 
+// Variables used to communicate with the NT service code
+
+extern "C" char NTSERVICENAME[32];	// name of the NT service
+extern "C" HWND MAINFRAME_HWND;		// Handle of main frame window
+
 // Internal routines
 
 UINT threadDispatch (LPVOID);
+int canModifyServices ();
 void Service95 ();

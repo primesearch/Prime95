@@ -36,7 +36,7 @@ EXTERNC void *SRCARG = NULL;	/* For assembly language arg passing */
 EXTERNC void *SRC2ARG = NULL;	/* For assembly language arg passing */
 EXTERNC void *DESTARG = NULL;	/* For assembly language arg passing */
 EXTERNC void *DEST2ARG = NULL;	/* For assembly language arg passing */
-unsigned long fft_count = 0;	/* Count of forward and inverse FFTs */
+double	fft_count = 0;		/* Count of forward and inverse FFTs */
 void	*gwnum_memory;		/* Allocated memory */
 unsigned long GW_ALIGNMENT = 0;	/* How to align allocated gwnums */
 
@@ -59,7 +59,6 @@ EXTERNC void etwo_to_pow (void);
 EXTERNC void etwo_to_pow_over_fftlen (void);
 EXTERNC void esincos (void);
 EXTERNC void esincos3 (void);
-EXTERNC void fpu_init (void);
 
 /* Routine to handle a multiplication and modulo operation where */
 /* the intermediate multiplication result can be more than 32 bits. */
@@ -641,7 +640,7 @@ void gwsetup (
 /* The SSE2 code has trouble with real small and real large exponents. */
 /* Turn off the SSE2 flag if testing one of these (a simplistic workaround). */
 
-	if (p < 256 || p > 78360000) CPU_FLAGS &= ~CPU_SSE2;
+	if (p < 256 || p > MAX_PRIME_SSE2) CPU_FLAGS &= ~CPU_SSE2;
 
 /* The SSE2 code for 2^N+1 testing has not been written yet. */
 /* Use the old code for now */
@@ -826,7 +825,7 @@ OutputBoth(buf);
 		loglen *= 0.69;
 		total_bits = bits_per_double * 2.0 + loglen * 2.0;
 		MAXDIFF = pow (2.0, total_bits -
-				((CPU_FLAGS & CPU_SSE2) ? 47.08 : 50.65));
+				((CPU_FLAGS & CPU_SSE2) ? 47.08 : 49.65));
 	}
 
 /* Clear counters */
@@ -843,16 +842,10 @@ OutputBoth(buf);
 
 /* Compute alignment for allocated data */
 
-	if (CPU_TYPE <= 10)
-		GW_ALIGNMENT = 32;		/* P3 and earlier */
-	else if (CPU_TYPE == 11)
-		GW_ALIGNMENT = 64;		/* Athlon */
-	else if (CPU_TYPE >= 12) {		/* P4 and later */
-		if (FFTLEN <= 8192)		/* One pass */
-			GW_ALIGNMENT = 128;	/* Cache line alignment */
-		else				/* Two passes */
-			GW_ALIGNMENT = 4096;	/* Page alignment */
-	}
+	if (FFTLEN <= 8192)		/* One pass */
+		GW_ALIGNMENT = 128;	/* P4 cache line alignment */
+	else				/* Two passes */
+		GW_ALIGNMENT = 4096;	/* Page alignment */
 }
 
 /* Cleanup any memory allocated for multi-precision math */
@@ -873,7 +866,7 @@ void gwdone (void)
 /* The SSE2 code has trouble with real small exponents, real large */
 /* exponents and 2^N+1 modulo.  Undo the workaround used in gwsetup. */
 
-	if (PARG < 256 || PARG > 78360000 || PLUS1) setCpuFlags ();
+	if (PARG < 256 || PARG > MAX_PRIME_SSE2 || PLUS1) getCpuInfo ();
 }
 
 /* Routine to allocate aligned memory for our big numbers */
@@ -1500,7 +1493,7 @@ double map_fftlen_to_timing (
 	unsigned long fftlen,
 	int	fft_type,
 	int	cpu_type,
-	unsigned long cpu_speed)
+	double	cpu_speed)
 {
 	double	timing;
 	unsigned long *info;
@@ -1523,10 +1516,11 @@ double map_fftlen_to_timing (
 		timing = 0.10 * timing + 0.90 * timing * 1400.0 / cpu_speed;
 	} else {
 		timing = 0.10 * timing + 0.90 * timing * 400.0 / cpu_speed;
-		if (cpu_type <= 4) timing = timing * REL_486_SPEED;
-		if (cpu_type == 5) timing = timing * REL_PENT_SPEED;
-		if (cpu_type == 7) timing = timing * REL_K6_SPEED;
-		if (cpu_type == 11) timing = timing * REL_K7_SPEED;
+		if (cpu_type <= 4) timing *= REL_486_SPEED;
+		if (cpu_type == 5) timing *= REL_PENT_SPEED;
+		if (cpu_type == 7) timing *= REL_K6_SPEED;
+		if (cpu_type == 11) timing *= REL_K7_SPEED;
+		if (CPU_FLAGS & CPU_PREFETCH) timing *= 0.80;
 	}
 	return (timing);
 }

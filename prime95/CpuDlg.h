@@ -13,21 +13,12 @@ public:
 // Dialog Data
 	//{{AFX_DATA(CCpuDlg)
 	enum { IDD = IDD_CPU };
-	CButton	c_p4;
-	CButton	c_pentium_pro;
-	CButton	c_pentium;
-	CButton	c_k6;
-	CButton	c_celeron;
-	CButton	c_pii;
-	CButton	c_piii;
-	CButton	c_k7;
-	UINT	m_speed;
 	UINT	m_hours;
 	CString	m_start_time;
 	CString	m_end_time;
 	UINT	m_day_memory;
 	UINT	m_night_memory;
-	int		m_cpu_type;
+	CString	m_cpu_info;
 	//}}AFX_DATA
 
 
@@ -43,7 +34,6 @@ protected:
 
 	// Generated message map functions
 	//{{AFX_MSG(CCpuDlg)
-		// NOTE: the ClassWizard will add member functions here
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };

@@ -87,7 +87,6 @@ protected:
 	afx_msg void OnBroadcast();
 	afx_msg void OnOutputStr();
 	afx_msg void OnTitle();
-	afx_msg void OnHelpFinder();
 	afx_msg void OnUnreserve();
 	afx_msg void OnUpdateUnreserve(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateVacation(CCmdUI* pCmdUI);

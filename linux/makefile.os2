@@ -6,9 +6,9 @@ CFLAGS = /Ss /Ti- /I.. /G5 /O+ /Ol
 LINK = ilink
 LFLAGS = /nodebug /exe /pm:vio /packcode /packdata
 
-OMFOBJS = mult.obj factor64.obj mult1.obj mult2.obj mult2a.obj mult3.obj mult3a.obj mult4.obj mult4a.obj mult4b.obj mult1p.obj mult2p.obj mult2ap.obj mult3p.obj mult3ap.obj mult3q.obj mult3aq.obj mult4p.obj mult4ap.obj mult4bp.obj mult4q.obj mult4aq.obj mult4bq.obj mult1aux.obj mult2aux.obj mult3aux.obj mult3auq.obj mult4aux.obj mult4auq.obj xmult1.obj xmult1ax.obj xmult2.obj xmult2a.obj xmult2ax.obj xmult3.obj xmult3a.obj xmult3ax.obj ecmhelp.obj
+OMFOBJS = mult.obj factor64.obj mult1.obj mult2.obj mult2a.obj mult3.obj mult3a.obj mult4.obj mult4a.obj mult4b.obj mult1p.obj mult2p.obj mult2ap.obj mult3p.obj mult3ap.obj mult3q.obj mult3aq.obj mult4p.obj mult4ap.obj mult4bp.obj mult4q.obj mult4aq.obj mult4bq.obj mult1aux.obj mult2aux.obj mult3aux.obj mult3auq.obj mult4aux.obj mult4auq.obj xmult1.obj xmult1ax.obj xmult2.obj xmult2a.obj xmult2ax.obj xmult3.obj xmult3a.obj xmult3ax.obj ecmhelp.obj cpuid.obj
 DUMMYOBJS = dummy4.obj dummy8.obj dummy12.obj dummy16.obj dummy20.obj dummy24.obj dummy28.obj
-PRIMEOBJS = prime.obj menu.obj primenet.obj
+PRIMEOBJS = prime.obj menu.obj
 LIBS = so32dll.lib tcp32dll.lib
 EXE = primeos2.exe
 
@@ -18,6 +18,3 @@ $(EXE): $(PRIMEOBJS) $(OMFOBJS) $(DUMMYOBJS)
 prime.obj: prime.c
 
 menu.obj: menu.c
-
-primenet.obj: primenet.c
-

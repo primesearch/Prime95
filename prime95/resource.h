@@ -1,5 +1,5 @@
 //{{NO_DEPENDENCIES}}
-// Microsoft Developer Studio generated include file.
+// Microsoft Visual C++ generated include file.
 // Used by Prime95.rc
 //
 #define IDH_PRIMENET                    11
@@ -21,7 +21,6 @@
 #define IDH_QUIT                        27
 #define IDH_CPU                         28
 #define IDH_PREFERENCES                 29
-#define IDH_OPTIONS_SELFTEST            30
 #define IDH_TORTURE                     31
 #define IDH_TRAY                        32
 #define IDH_HIDE                        33
@@ -31,7 +30,7 @@
 #define IDH_SERVER                      37
 #define IDH_UNRESERVE                   38
 #define IDH_WELCOME                     39
-#define IDH_BENCHMARK			40
+#define IDH_BENCHMARK                   40
 #define IDD_ABOUTBOX                    100
 #define IDR_MAINFRAME                   128
 #define IDD_TEST                        132
@@ -53,6 +52,10 @@
 #define IDI_YELLOW_ICON                 153
 #define IDD_WELCOME                     153
 #define IDD_UNRESERVE                   154
+#define IDR_TRAYMENU                    156
+#define ID_OPEN_EXIT                    157
+#define ID_TRAY_RESTORE                 158
+#define ID_DUMMY_SAD                    159
 #define IDC_CHECK1                      1000
 #define IDC_LL                          1000
 #define IDC_NOISE                       1000
@@ -122,6 +125,7 @@
 #define IDC_ID_TEXT                     1045
 #define IDC_PWD_TEXT                    1046
 #define IDC_NIGHT_MEMORY                1049
+#define IDC_CPU_INFO                    1056
 #define IDM_CONTINUE                    32771
 #define IDM_STOP                        32772
 #define IDM_ERRCHK                      32773
@@ -152,15 +156,18 @@
 #define IDM_UNRESERVE                   32805
 #define USR_WELCOME                     32806
 #define IDM_BENCHMARK                   32807
+#define IDM_TRAY_OPEN                   32808
+#define USR_SERVICE_STOP                32809
+#define IDM_STOP_CONTINUE               32810
 
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
-#define _APS_NEXT_RESOURCE_VALUE        155
-#define _APS_NEXT_COMMAND_VALUE         32808
-#define _APS_NEXT_CONTROL_VALUE         1050
+#define _APS_NEXT_RESOURCE_VALUE        160
+#define _APS_NEXT_COMMAND_VALUE         32811
+#define _APS_NEXT_CONTROL_VALUE         1058
 #define _APS_NEXT_SYMED_VALUE           102
 #endif
 #endif

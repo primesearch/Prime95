@@ -1,4 +1,4 @@
-/* Copyright 1995-2001 Just For Fun Software, Inc. */
+/* Copyright 1995-2002 Just For Fun Software, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -45,6 +45,8 @@ typedef int pid_t;
 
 /* Globals */
 
+#define OPEN_MAX 20
+
 #ifdef MPRIME_LOADAVG
 #define LINUX_LDAV_FILE "/proc/loadavg"
 int volatile SLEEP_STOP = 0;
@@ -61,22 +63,14 @@ int MENUING = 0;
 
 /* Common code */
 
-#ifdef __linux__
-#define PORT	2
-#endif
-#ifdef __FreeBSD__
-#define PORT	6
-#endif
-#if defined (__EMX__) || defined (__IBMC__)
-#define PORT	7
-#endif
-
+#include "cpuid.c"
 #include "giants.c"
 #include "gwnum.c"
 #include "commona.c"
 #include "commonb.c"
 #include "commonc.c"
 #include "ecm.c"
+#include "primenet.c"
 
 /* Signal handlers */
 
@@ -182,6 +176,7 @@ int main (
 	int	named_ini_files = -1;
 	int	background = 0;
 	int	contact_server = 0;
+	int	torture_test = 0;
 	int	i;
 	char	*p;
 
@@ -267,15 +262,31 @@ int main (
 
 		case 'M':
 		case 'm':
-			MENUING = TRUE;
+			MENUING = 1;
 			NO_GUI = FALSE;
+			break;
+
+/* -S - status */
+
+		case 'S':
+		case 's':
+			MENUING = 2;
+			NO_GUI = FALSE;
+			break;
+		  
+
+/* -T - Torture test */
+
+		case 'T':
+		case 't':
+			torture_test = TRUE;
 			break;
 
 /* -V - version number */
 
 		case 'V':
 		case 'v':
-			printf ("Mersenne Prime Test Program, Version %s.2\n", VERSION);
+			printf ("Mersenne Prime Test Program, Version %s.%d\n", VERSION, PORT);
 			return (0); 
 
 /* -W - use a different working directory */
@@ -362,19 +373,27 @@ int main (
 		if (USE_PRIMENET || IniGetNumLines (WORKTODO_FILE)) {
 			IniWriteInt (INI_FILE, "StressTester", 0);
 		} else {
-			MENUING = TRUE;
+			MENUING = 1;
 			VERBOSE = TRUE;
 			NO_GUI = FALSE;
 		}
+	}
+
+/* If running the torture test, do so now. */
+
+	if (torture_test) {
+		VERBOSE = TRUE;
+		NO_GUI = FALSE;
+		selfTest (1);
 	}
 
 /* On first run, get user name and email address before contacting server */
 /* for a work assignment.  To make first time user more comfortable, we will */
 /* display data to the screen, rather than running silently. */
 
-	if (USE_PRIMENET &&
-	    USERID[0] == 0 &&
-	    !IniGetInt (INI_FILE, "StressTester", 0)) {
+	else if (USE_PRIMENET &&
+		 USERID[0] == 0 &&
+		 !IniGetInt (INI_FILE, "StressTester", 0)) {
 		VERBOSE = TRUE;
 		NO_GUI = FALSE;
 		STARTUP_IN_PROGRESS = 1;
@@ -393,10 +412,13 @@ int main (
 
 /* Bring up the main menu */
 
-	else if (MENUING)
+	else if (MENUING == 1)
 		main_menu ();
+	else if (MENUING == 2)
+		rangeStatus();
+	
 
-/* Continue testing the range */
+/* Continue testing */
 
 	else
 		linuxContinue ("Another mprime is already running!\n");
@@ -407,11 +429,13 @@ int main (
 
 /* Invalid args message */
 
-usage:	printf ("Usage: mprime [-cdhmv] [-aN] [-b[N]] [-wDIR]\n");
+usage:	printf ("Usage: mprime [-cdhmstv] [-aN] [-b[N]] [-wDIR]\n");
 	printf ("-c\tContact the PrimeNet server, then exit.\n");
 	printf ("-d\tPrint detailed information to stdout.\n");
 	printf ("-h\tPrint this.\n");
 	printf ("-m\tMenu to configure mprime.\n");
+	printf ("-s\tDisplay status.\n");
+	printf ("-t\tRun the torture test.\n");
 	printf ("-v\tPrint the version number.\n");
 	printf ("-aN\tUse an alternate set of INI and output files.\n");
 	printf ("-bN\tRun in the background.  N is number of CPUs.\n");
@@ -452,30 +476,6 @@ void OutputStr (char *buf)
 	if (VERBOSE || MENUING) printf ("%s", buf);
 }
 
-void guessCpuType (void)
-{
-	FILE	*fd;
-	char	buf[80];
-
-	CPU_TYPE = isPentium4 () ? 12 :
-		   isPentium3 () ? 10 :
-		   isPentiumPro () ? 6 : isPentium () ? 5 : 4;
-	CPU_SPEED = 100;
-	fd = fopen ("/proc/cpuinfo", "r");
-	if (fd == NULL) return;
-	for ( ; ; ) {
-		double	speed;
-		if (fscanf (fd, "%s", buf) == EOF) break;
-		if (strcmp (buf, "MHz") == 0) {
-			fscanf (fd, " : %lf", &speed);
-			if (speed > 25.0 && speed < 10000.0)
-				CPU_SPEED = (unsigned long) (speed + 0.5);
-			break;
-		}
-	}
-	fclose (fd);
-}
-
 unsigned long physical_memory (void)
 {
 	FILE	*fd;
@@ -505,7 +505,7 @@ void Sleep (
 #ifdef __IBMC__
 	DosSleep(ms);
 #else
-	sleep (ms/1000);
+	usleep (ms * 1000);
 #endif
 }
 
@@ -632,4 +632,170 @@ void linuxContinue (
 ok:	IniWriteInt (LOCALINI_FILE, "Pid", my_pid);
 	primeContinue ();
 	IniWriteInt (LOCALINI_FILE, "Pid", 0);
+}
+
+/* Load the PrimeNet DLL, make sure an internet connection is active */
+
+int LoadPrimeNet (void)
+{
+	/* Init stuff */
+	/* Set PRIMENET procedure pointer */
+	/* return false if not connected to internet */
+
+	int lines = 0;
+#ifndef AOUT
+	FILE* fd;
+	char buffer[4096];
+#ifdef __EMX__
+	char command[128];
+	char szProxyHost[120], *con_host;
+	char *colon;
+	
+	IniGetString(INIFILENAME, "ProxyHost", szProxyHost, 120, NULL);
+	if (*szProxyHost) {
+		if ((colon = strchr(szProxyHost, ':'))) {
+			*colon = 0;
+		}
+		con_host = szProxyHost;
+	} else {
+		con_host = szSITE;
+	}
+
+	sprintf(command,"host %s",con_host);
+#ifdef __DEBUG
+	fprintf(stderr,"Command = %s\n",command);
+#endif
+	fd = popen(command,"r");
+	if (fd != NULL) {
+	  fgets(buffer, 199, fd);
+#ifdef __DEBUG
+	  fprintf(stderr,"Response = %s\n",buffer);
+#endif
+	  if (strncmp(buffer,"host:",5) != 0) {
+	    fclose(fd);
+	    return TRUE;
+	  }
+	  fclose(fd);
+	}
+#else
+#ifdef __linux__
+	/* Open file that will hopefully tell us if we are connected to */
+	/* the Internet.  There are four possible settings for RouteRequired */
+	/* 0:	Always return TRUE */
+	/* 1:   Use old version 19 code */
+	/* 2:   Use new code supplied by Matthew Ashton. */
+	/* 99:	Default.  Use case 2 above but if cannot open /proc/net/route*/
+	/*	then assume you are connected (we probably do not have read */
+	/*	permission or this is a funny Linux setup). */
+	{
+	  int RtReq = IniGetInt (INIFILENAME, "RouteRequired", 99);
+	  if (RtReq == 0) return (TRUE);
+	  fd = fopen("/proc/net/route","r");
+	  if (fd == NULL) return (RtReq == 99);
+	/* We have a readable /proc/net/route file.  Use the new check */
+	/* for an Internet connection written by Matthew Ashton. However, */
+	/* we still support the old style check (just in case) by setting */
+	/* RouteRequired to 1. */
+	  if (RtReq >= 2) {
+	    while (fgets(buffer, sizeof(buffer), fd)) {
+	      int dest;
+	      if(sscanf(buffer, "%*s %x", &dest) == 1 && dest == 0) {
+		fclose (fd);
+		return (TRUE);
+	      }
+	    }
+	  }
+	/* The old code for testing an Internet connection is below */
+	  else {
+	    fgets(buffer, 199, fd);
+	    fgets(buffer, 199, fd);
+	    while (!feof(fd)) {
+	      if (strncmp(buffer, "lo", 2)) {
+	        fclose(fd);
+	        return TRUE;
+	      }
+	      fgets(buffer, 199, fd);
+	    }
+	  }
+	  fclose(fd);
+	}
+#endif
+#ifdef __FreeBSD__
+	/* The /proc/net/route test is not really meaningful under FreeBSD */
+	/* There doesn't seem to be any meaningful test to see whether the */
+	/* computer is connected to the Internet at the time using a non- */
+	/* invasive test (which wouldn't, say, activate diald or ppp or */
+	/* something else */
+	return TRUE;
+#endif                /* __FreeBSD__ */
+#endif
+#endif
+	OutputStr ("You are not connected to the Internet.\n");
+	return FALSE;
+}
+
+/* Unload the PrimeNet DLL */
+
+void UnloadPrimeNet (void)
+{
+}
+
+/* Routines to access the high resolution performance counter */
+/* In Linux, I've read that gettimeofday is the most accurate counter */
+
+int isHighResTimerAvailable (void)
+{
+	struct timeval start, end;
+	struct timezone tz;
+	int	i;
+
+/* Return true if gettimeofday is more accurate than 1/10 millisecond. */
+/* Try 10 times to see if gettimeofday returns two values less than */
+/* 100 microseconds apart. */
+
+	for (i = 0; i < 10; i++) {
+		gettimeofday (&start, &tz);
+		for ( ; ; ) {
+			gettimeofday (&end, &tz);
+			if (start.tv_sec != end.tv_sec) break;
+			if (start.tv_usec == end.tv_usec) continue;
+			if (end.tv_usec - start.tv_usec < 100) return (TRUE);
+			continue;
+		}
+	}
+	return (FALSE);
+}
+
+double getHighResTimer (void)
+{
+	struct timeval x;
+	struct timezone tz;
+
+	gettimeofday (&x, &tz);
+	return ((double) x.tv_sec * 1000000.0 + (double) x.tv_usec);
+}
+
+double getHighResTimerFrequency (void)
+{
+	return (1000000.0);
+}
+
+int checkPauseList ()
+{
+	FILE	*fd;
+	char	buf[80];
+
+	fd = popen ("ps -eo comm", "r");
+	if (fd != NULL) {
+		while (fgets (buf, sizeof (buf), fd) != NULL) {
+			int	len = strlen (buf);
+			while (len && isspace (buf[len-1])) buf[--len] = 0;
+			if (isInPauseList (buf)) {
+				fclose (fd);
+				return (TRUE);
+			}
+		}
+		fclose (fd);
+	}
+	return (FALSE);
 }

@@ -1,13 +1,11 @@
 // Prime95.h : main header file for the PRIME95 application
 //
 
-#include "cpuid.h"
-#include "speed.h"
-
 #include <time.h>
 //#define SERVER_TESTING
 #define NO_GUI		1
 #define EXTERNC
+#include "cpuid.h"
 #include "commonb.h"
 #include "commonc.h"
 #include "comm95b.h"

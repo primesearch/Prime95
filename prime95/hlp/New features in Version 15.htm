@@ -1,0 +1,216 @@
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+	<head>
+		<title>New features in Version 15 of Prime95</title>
+		<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+		<meta name="ProgId" content="Word.Document">
+		<meta name="Generator" content="Microsoft Word 9">
+		<meta name="Originator" content="Microsoft Word 9">
+		<link rel="File-List" href="./New%20features%20in%20Version%2015_files/filelist.xml"> <!--[if gte mso 9]><xml>
+ <o:DocumentProperties>
+  <o:Author>enduser</o:Author>
+  <o:LastAuthor>RavvinGe</o:LastAuthor>
+  <o:Revision>3</o:Revision>
+  <o:TotalTime>5</o:TotalTime>
+  <o:Created>2001-04-20T05:39:00Z</o:Created>
+  <o:LastSaved>2001-06-14T17:11:00Z</o:LastSaved>
+  <o:Pages>2</o:Pages>
+  <o:Words>550</o:Words>
+  <o:Characters>3135</o:Characters>
+  <o:Lines>26</o:Lines>
+  <o:Paragraphs>6</o:Paragraphs>
+  <o:CharactersWithSpaces>3850</o:CharactersWithSpaces>
+  <o:Version>9.4402</o:Version>
+ </o:DocumentProperties>
+</xml><![endif]-->
+			<style> <!-- /* Font Definitions */ @font-face {font-family:"MS Mincho"; panose-1:2 2 6 9 4 2 5 8 3 4; mso-font-alt:"\FF2D\FF33 \660E\671D"; mso-font-charset:128; mso-generic-font-family:modern; mso-font-pitch:fixed; mso-font-signature:-1610612033 1757936891 16 0 131231 0;}
+	@font-face {font-family:"\@MS Mincho"; panose-1:2 2 6 9 4 2 5 8 3 4; mso-font-charset:128; mso-generic-font-family:modern; mso-font-pitch:fixed; mso-font-signature:647 134676480 16 0 131231 0;}
+	/* Style Definitions */ p.MsoNormal, li.MsoNormal, div.MsoNormal {mso-style-parent:""; margin:0in; margin-bottom:.0001pt; mso-pagination:widow-orphan; font-size:12.0pt; font-family:"Times New Roman"; mso-fareast-font-family:"Times New Roman";}
+	p.MsoPlainText, li.MsoPlainText, div.MsoPlainText {margin:0in; margin-bottom:.0001pt; mso-pagination:widow-orphan; font-size:10.0pt; font-family:"Courier New"; mso-fareast-font-family:"Times New Roman";}
+	@page Section1 {size:8.5in 11.0in; margin:1.0in 1.25in 1.0in 1.25in; mso-header-margin:.5in; mso-footer-margin:.5in; mso-paper-source:0;}
+	div.Section1 {page:Section1;}
+	/* List Definitions */ @list l0 {mso-list-id:118499705; mso-list-type:hybrid; mso-list-template-ids:-1743383450 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l1 {mso-list-id:911427964; mso-list-type:hybrid; mso-list-template-ids:-909374102 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l2 {mso-list-id:1521159666; mso-list-type:hybrid; mso-list-template-ids:1443028974 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l3 {mso-list-id:1811289445; mso-list-type:hybrid; mso-list-template-ids:176167150 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l4 {mso-list-id:1819491643; mso-list-type:hybrid; mso-list-template-ids:-1591979448 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	ol {margin-bottom:0in;}
+	ul {margin-bottom:0in;}
+	--></style>
+	</head>
+	<body lang="EN-US" style='tab-interval:.5in'>
+		<div class="Section1">
+			<p class="MsoPlainText"><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'"><U>New 
+							features in Version 15.4 of prime95.exe</U></span></b><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+				</span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l2 level1 lfo2;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Quit GIMPS choice moved to the Advanced Menu (so novice users do
+not confuse it with exit).<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l2 level1 lfo2;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">2.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">A bug in httpnet.dll was fixed.<span style="mso-spacerun: yes">&nbsp;
+</span>It now works for even more proxy servers and firewalls.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText"><U><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'">New features
+in Version 15.3 of prime95.exe</span></b><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+					</span></U></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l1 level1 lfo4;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">More errors in detecting whether you are connected to the Internet
+have been fixed.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l1 level1 lfo4;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">2.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Minor bugs fixed.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText"><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'"><U>New 
+							features in Version 15.2 of prime95.exe</U></span></b></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo6;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">A new primenet.dll that uses HTTP to communicate with the server
+is available.<span style="mso-spacerun: yes">&nbsp; </span>This should allow prime95
+to work in environments that have firewalls installed.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo6;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">2.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">An option that allows you to write a progress line to the results
+file every N iterations is available.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo6;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">3.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">A dialog box lets you tell prime95 when you go on vacation.<span style="mso-spacerun: yes">&nbsp; </span>This will prevent the server from
+reassigning your exponents when you're on an extended vacation.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo6;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">4.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Some errors in detecting whether you are connected to the Internet
+have been fixed.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo6;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">5.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">An option for you to initiate all contact with the Primenet server
+is now available (in case I didn't find all the problems mentioned in number 4
+above!)<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo6;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">6.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Support for Windows 95 services has been added.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo6;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">7.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">To get Windows 95 service support to work, prime95 now changes its
+working directory to the same directory that prime95.exe is located.<span style="mso-spacerun: yes">&nbsp; </span>If you must run prime95 from a different
+directory than the rest of the files, then use new -W switch.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText"><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'"><U>New 
+							features in Version 15.1 of prime95.exe</U></span></b><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+				</span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l3 level1 lfo8;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Better support for dial-up users to the Internet.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l3 level1 lfo8;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">2.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Prime95 no longer contacts the PrimeNet server at startup.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l3 level1 lfo8;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">3.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Prime95 will no longer let you select Pentium Pro or Pentium CPU
+type unless your CPU supports the process-specific instructions.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l3 level1 lfo8;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">4.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Bug where AMD-K6s were using the Pentium Pro factoring code (and
+crashing because of it) is fixed.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText"><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'"><U>New 
+							features in Version 15.0 of prime95.exe</U></span></b><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+				</span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l4 level1 lfo10;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Prime95 can now contact a central server to get exponents to test,
+report results, and change your email address.<span style="mso-spacerun: yes">&nbsp;
+</span>No database is required!<span style="mso-spacerun: yes">&nbsp; </span>The old
+manual reservation system is still supported.<span style="mso-spacerun: yes">&nbsp;
+</span>This has led to a major reworking of the user interface.<span style="mso-spacerun: yes">&nbsp; </span>See the readme file for more details.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l4 level1 lfo10;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">2.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The Pentium factoring code (up to 60 bit factors) is about 4.5%
+faster.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l4 level1 lfo10;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">3.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">You can now change how often prime95 saves intermediate files to
+disk.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l4 level1 lfo10;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">4.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">You can now select one save file or two.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l4 level1 lfo10;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">5.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The auto-continue option is gone.<span style="mso-spacerun: yes">&nbsp;
+</span>The program now does an auto-continue by default.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l4 level1 lfo10;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">6.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">-Q switch removed.<span style="mso-spacerun: yes">&nbsp; </span>The
+preferences dialog box lets you select whether the program should be quiet if a
+new Mersenne prime is found.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l4 level1 lfo10;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">7.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">-H switch removed.<span style="mso-spacerun: yes">&nbsp; </span>Use the
+Hide Icon menu choice instead.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l4 level1 lfo10;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">8.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">-P switch removed.<span style="mso-spacerun: yes">&nbsp; </span>The
+advanced menu now has a dialog box that lets you change the priority.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l4 level1 lfo10;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">9.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">-A switch added.<span style="mso-spacerun: yes">&nbsp; </span>This
+allows you to run multiple copies of prime95 from the same directory.<span style="mso-spacerun: yes">&nbsp; </span>This is useful on multi-processor machines.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l4 level1 lfo10;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">10.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Prime95 no longer uses a prime95.ini file in the Windows
+directory.<span style="mso-spacerun: yes">&nbsp; </span>All information is kept in 3
+local ini files:<span style="mso-spacerun: yes">&nbsp; </span>prime.ini, local.ini,
+and worktodo.ini.<span style="mso-spacerun: yes">&nbsp; </span>Eventually, all ports
+to other operating systems will use these same ini files.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l4 level1 lfo10;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">11.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The CPU dialog box now has an entry for the AMD K6 and an entry
+for how many hours per day you expect to be running the program.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l4 level1 lfo10;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">12.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The time estimate in the Status dialog box now takes into account
+the time you've invested in the current Lucas-Lehmer test.<span style="mso-spacerun: yes">&nbsp; </span>It also takes into account how many hours
+per day you are running the program.<span style="mso-spacerun: yes">&nbsp; </span>It
+also adjusts its time estimate if your computer seems to be running faster or
+slower than expected.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l4 level1 lfo10;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">13.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Timestamps in the results.txt file.<span style="mso-spacerun:
+yes">&nbsp; </span><o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l4 level1 lfo10;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">14.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The results file is now named results.txt, not results.<span style="mso-spacerun: yes">&nbsp; </span><o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoNormal"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></p>
+		</div>
+	</body>
+</html>

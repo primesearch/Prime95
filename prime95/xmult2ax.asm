@@ -1,4 +1,4 @@
-; Copyright 2001 Just For Fun Software, Inc., all rights reserved
+; Copyright 2001-2002 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -173,7 +173,6 @@ gw_norm_cleanup:
 	mov	ebp, edx		; Compute addr of the high carries
 	shl	ebp, 6
 	add	ebp, esi
-	mov	edi, norm_biglit_array	; Addr of the big/little flags array
 	mov	edx, norm_grp_mults	; Addr of the group multipliers
 	xnorm012_2d_part1
 	mov	ebp, _DESTARG		; Addr of FFT data
@@ -187,22 +186,17 @@ clp0:	mov	eax, loopcount1		; Get list of counts
 	mov	loopcount1, eax
 	shl	ebx, 6			; Compute addr of the last carries row
 	add	ebx, esi
-	sub	eax, eax		; Clear big/little flag
 	xnorm012_2d_part2
-clp1:	mov	ebx, norm_col_mults	; Addr of the column multipliers
-	xnorm_op012_2d			; Split carries for one cache line
-;;bug - don't bump edx/edi in rational case
-	mov	ebx, count2		; Cache lines in each pass1 loop
-	lea	edx, [edx+128]		; Next group multiplier
+clp1:	xnorm_op012_2d			; Split carries for one cache line
 	lea	esi, [esi+64]		; Next carries pointer
 	lea	ebp, [ebp+blkdst]	; Next FFT data pointer
-	lea	edi, [edi+ebx*4]	; Next big/little flags pointer
-	sub	loopcount2, 1		; Test loop counter
+	cmp	_NUMLIT, 0		; Don't bump group mult pointer
+	je	short cskip		; for rational FFTs
+	lea	edx, [edx+128]		; Next group multiplier
+cskip:	sub	loopcount2, 1		; Test loop counter
 	JNZ_X	clp1			; Next carry row in section
 	JMP_X	clp0			; Next section
 cdn:	ret
-
-
 
 
 ;;
@@ -528,7 +522,6 @@ nasdn:	mov	edx, count3		; Load 3 section counts
 	mov	ebp, edx		; Compute addr of the high carries
 	shl	ebp, 7
 	add	ebp, esi
-	mov	edi, norm_biglit_array	; Addr of the big/little flags array
 	mov	edx, norm_grp_mults	; Addr of the group multipliers
 	xnorm_as012_2d_part1
 	mov	ebp, _DESTARG		; Addr of FFT data
@@ -543,18 +536,15 @@ asclp0:	mov	eax, loopcount1		; Get list of counts
 	mov	loopcount1, eax
 	shl	ebx, 7			; Compute addr of the last carries row
 	add	ebx, esi
-	sub	eax, eax		; Clear big/little flag
 	xnorm_as012_2d_part2
-asclp1:	mov	ebx, norm_col_mults	; Addr of the column multipliers
-	xnorm_as012_2d			; Split carries for one cache line
-;;bug - don't bump edx/edi in rational case
-	mov	ebx, count2		; Cache lines in each pass1 loop
-	lea	edx, [edx+128]		; Next group multiplier
+asclp1:	xnorm_as012_2d			; Split carries for one cache line
 	lea	esi, [esi+128]		; Next carries pointer
 	lea	ebp, [ebp+blkdst]	; Next FFT data pointer
 	lea	ecx, [ecx+blkdst]	; Next FFT data pointer
-	lea	edi, [edi+ebx*4]	; Next big/little flags pointer
-	sub	loopcount2, 1		; Test loop counter
+	cmp	_NUMLIT, 0		; Don't bump group mult pointer
+	je	short acskip		; for rational FFTs
+	lea	edx, [edx+128]		; Next group multiplier
+acskip:	sub	loopcount2, 1		; Test loop counter
 	JNZ_X	asclp1			; Next carry row in section
 	JMP_X	asclp0			; Next section
 ascdn:	pop	ebx			; Restore registers

@@ -1,0 +1,94 @@
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+	<head>
+		<title>New features in Version 17 of Prime95</title>
+		<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+		<meta name="ProgId" content="Word.Document">
+		<meta name="Generator" content="Microsoft Word 9">
+		<meta name="Originator" content="Microsoft Word 9">
+		<link rel="File-List" href="./New%20features%20in%20Version%2017_files/filelist.xml"> <!--[if gte mso 9]><xml>
+ <o:DocumentProperties>
+  <o:Author>enduser</o:Author>
+  <o:LastAuthor>enduser</o:LastAuthor>
+  <o:Revision>4</o:Revision>
+  <o:TotalTime>2</o:TotalTime>
+  <o:Created>2001-04-20T05:39:00Z</o:Created>
+  <o:LastSaved>2001-07-30T00:51:00Z</o:LastSaved>
+  <o:Pages>1</o:Pages>
+  <o:Words>140</o:Words>
+  <o:Characters>801</o:Characters>
+  <o:Lines>6</o:Lines>
+  <o:Paragraphs>1</o:Paragraphs>
+  <o:CharactersWithSpaces>983</o:CharactersWithSpaces>
+  <o:Version>9.3821</o:Version>
+ </o:DocumentProperties>
+</xml><![endif]-->
+			<style> <!-- /* Font Definitions */ @font-face {font-family:"MS Mincho"; panose-1:2 2 6 9 4 2 5 8 3 4; mso-font-alt:"\FF2D\FF33 \660E\671D"; mso-font-charset:128; mso-generic-font-family:modern; mso-font-pitch:fixed; mso-font-signature:647 134676480 16 0 131231 0;}
+	@font-face {font-family:"\@MS Mincho"; mso-font-charset:128; mso-generic-font-family:modern; mso-font-pitch:fixed; mso-font-signature:647 134676480 16 0 131231 0;}
+	/* Style Definitions */ p.MsoNormal, li.MsoNormal, div.MsoNormal {mso-style-parent:""; margin:0in; margin-bottom:.0001pt; mso-pagination:widow-orphan; font-size:12.0pt; font-family:"Times New Roman"; mso-fareast-font-family:"Times New Roman";}
+	p.MsoPlainText, li.MsoPlainText, div.MsoPlainText {margin:0in; margin-bottom:.0001pt; mso-pagination:widow-orphan; font-size:10.0pt; font-family:"Courier New"; mso-fareast-font-family:"Times New Roman";}
+	@page Section1 {size:8.5in 11.0in; margin:1.0in 1.25in 1.0in 1.25in; mso-header-margin:.5in; mso-footer-margin:.5in; mso-paper-source:0;}
+	div.Section1 {page:Section1;}
+	/* List Definitions */ @list l0 {mso-list-id:442699486; mso-list-type:hybrid; mso-list-template-ids:994472578 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l1 {mso-list-id:945231537; mso-list-type:hybrid; mso-list-template-ids:1782611776 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l2 {mso-list-id:1101298146; mso-list-type:hybrid; mso-list-template-ids:1395952618 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	ol {margin-bottom:0in;}
+	ul {margin-bottom:0in;}
+	--></style>
+	</head>
+	<body lang="EN-US" style='tab-interval:.5in'>
+		<div class="Section1">
+			<p class="MsoPlainText"><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'"><U>New 
+							features in Version 17.2 of prime95.exe</U></span></b><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+				</span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+				</span>&nbsp;</p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;</span><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Faster 2^N+1 ECM factoring.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText"><U><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'">New features
+in Version 17.1 of prime95.exe</span></b><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+					</span></U></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l2 level1 lfo4;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The -T command line switch has been deleted.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l2 level1 lfo4;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">2.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">You can now fine tune your control of the program by adding 
+Time=            
+lines to your prime.ini file - see the readme.txt file.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l2 level1 lfo4;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">3.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">ECM factoring for 2^N+1 is now available.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l2 level1 lfo4;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">4.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">By default, ECM factoring stops if a factor is found for exponents
+above 5825 and continues (if the cofactor is composite) for exponents below
+5825.<span style="mso-spacerun: yes">&nbsp; </span>You can override this behavior by
+setting ContinueECM=0 or 1 in prime.ini.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText"><U><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'">New features
+in Version 17.0 of prime95.exe</span></b><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+					</span></U></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l1 level1 lfo6;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Prime95 can now be used to double-check its own results.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l1 level1 lfo6;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">2.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Machines less powerful than a P133 will default to double-checking
+assignments.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l1 level1 lfo6;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">3.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The total number of errors that occur during the Lucas-Lehmer test
+are now output in results.txt.<o:p></o:p></span></p>
+			<p class="MsoNormal"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></p>
+		</div>
+	</body>
+</html>

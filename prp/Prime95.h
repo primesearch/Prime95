@@ -7,10 +7,9 @@
 
 #include "resource.h"       // main symbols
 #include "EditDropFiles.h"
-#include "cpuid.h"
-#include "speed.h"
 #define NO_GUI		0
 #define EXTERNC		extern "C"
+#include "cpuid.h"
 #include "gwnum.h"
 #include "prp.h"
 #include "prp95.h"
@@ -51,6 +50,8 @@ public:
 
 // Global variables
 
+extern HANDLE g_hMutexInst;
+
 extern int THREAD_ACTIVE;		// True if a thread is active
 extern int volatile THREAD_STOP;	// one if thread should stop with msg
 					// two if thread should stop quietly
@@ -61,12 +62,18 @@ extern char *lines[NumLines];
 extern int charHeight;
 
 extern int WINDOWS95_SERVICE;		// True if we're running as a Win95 service
+extern int WINDOWS95_A_SWITCH;		// Value of the -A command line switch
 extern LONG WM_ENDSESSION_LPARAM;	// LPARAM of WM_ENDSESSION message
 extern int WINDOWS95_TRAY_ADD;		// True if we need to add the icon
 					// to the shell once the user logs in
 extern int CHECK_BATTERY;		// TRUE if we need to test battery status
 extern int STOPPED_ON_BATTERY;		// TRUE if we need to autocontinue on a power
 					// change event
+// Variables used to communicate with the NT service code
+
+extern "C" char NTSERVICENAME[32];	// name of the NT service
+extern "C" HWND MAINFRAME_HWND;		// Handle of main frame window
+
 // Internal routines
 
 UINT threadDispatch (LPVOID);

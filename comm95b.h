@@ -6,5 +6,6 @@ EXTERNC void setupf ();
 EXTERNC int factor64 ();
 
 int isWindows95 ();
+int isWindows2000 ();
 
 

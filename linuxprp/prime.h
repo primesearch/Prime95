@@ -19,7 +19,6 @@
 #define MAXERR	 _MAXERR
 #define GWERROR	 _GWERROR
 #define PARG	 _PARG
-
 #define FFTLEN	_FFTLEN
 #define SRCARG	_SRCARG
 #define SRC2ARG	_SRC2ARG
@@ -51,6 +50,18 @@
 #define FFTZERO	_FFTZERO
 #define PROTHVALS _PROTHVALS
 #define NORMRTN	_NORMRTN
+#define CPU_FLAGS _CPU_FLAGS
+#define BITS_PER_WORD	_BITS_PER_WORD
+#define FFTLEN_INV	_FFTLEN_INV
+#define ADDIN_ROW	_ADDIN_ROW
+#define ADDIN_OFFSET	_ADDIN_OFFSET
+#define ADDIN_VALUE	_ADDIN_VALUE
+#define COPYZERO	_COPYZERO
+#define POSTFFT		_POSTFFT
+#define CPUID_EAX	_CPUID_EAX
+#define CPUID_EBX	_CPUID_EBX
+#define CPUID_ECX	_CPUID_ECX
+#define CPUID_EDX	_CPUID_EDX
 
 /* Handle the difference in the way the two C compilers name routines */
 
@@ -69,6 +80,13 @@
 #define emulmod	_emulmod
 #define fpu_init _fpu_init
 #define erdtsc	_erdtsc
+#define etwo_to_pow _etwo_to_pow
+#define esincos	_esincos
+#define esincos3 _esincos3
+#define etwo_to_pow_over_fftlen _etwo_to_pow_over_fftlen
+#define eset_mul_const _eset_mul_const
+#define ecpuidsupport _ecpuidsupport
+#define ecpuid _ecpuid
 
 /* Handle differences between Windows and Linux runtime libraries */
 
@@ -100,6 +118,7 @@
 /*#define SERVER_TESTING*/
 #define EXTERNC
 extern int NO_GUI;
+#include "cpuid.h"
 #include "giants.h"
 #include "gwnum.h"
 #include "prp.h"

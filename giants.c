@@ -7,7 +7,7 @@
  *  Massive rewrite by G. Woltman for 32-bit support
  *
  *  c. 1997,1998 Perfectly Scientific, Inc.
- *  c. 1998-2000 Just For Fun Software, Inc.
+ *  c. 1998-2002 Just For Fun Software, Inc.
  *  All Rights Reserved.
  *
  **************************************************************/
@@ -19,14 +19,7 @@
 #include <string.h>
 #include <math.h>
 #include "giants.h"
-
-#ifdef GDEBUG
-#define ASSERTG		ASSERT
-#define setmaxsize(g,s)	(g)->maxsize = s
-#else
-#define ASSERTG(a)
-#define setmaxsize(g,s)
-#endif
+#include "fftsg.c"
 
 /**************************************************************
  *
@@ -41,12 +34,14 @@
 #define ONE_MINUS_TWO_TO_MINUS_19 (double)(0.9999980926513671875)
 
 /* Next, number of words at which Karatsuba becomes better than GRAMMAR. */
-#define KARAT_BREAK_SQUARE	61
-#define KARAT_BREAK_MULT	41
+#define KARAT_BREAK_SQUARE	48
+#define KARAT_BREAK_MULT	43
 
 /* Next, mumber of words at which FFT becomes better than Karatsuba. */
-#define FFT_BREAK_SQUARE	396
-#define FFT_BREAK_MULT		393
+#define FFT_BREAK_SQUARE	96
+#define FFT_BREAK_MULT1		47
+#define FFT_BREAK_MULT2		64
+#define FFT_BREAK_MULT3		74
 
 /* The limit (in 32-bit words) below which hgcd is too ponderous */
 #define GCDLIMIT 150
@@ -55,7 +50,7 @@
 #define	STACK_GROW	100
 
 /* Size at which a brute force hgcd is done */
-#define CHGCD_BREAK	50
+#define CHGCD_BREAK	24
 
 typedef struct gmatrixstruct {
 	 giant	ul;			/* upper left */
@@ -86,10 +81,9 @@ int	mulmode = AUTO_MUL;
 int	cur_stack_size = 0;
 int	cur_stack_elem = 0;
 gstacknode *stack = NULL;
-int	cur_run = 0,
-	cur_run_2 = 0,			/* 2 * cur_run / 4 */
-	cur_run_1 = 0;			/* 1 * cur_run / 4 */
-double	*sinCos=NULL, *sinCosorig = NULL;
+double	*ooura_sincos=NULL, *ooura_sincosorig = NULL;
+int	*ooura_ip = NULL;
+int	ooura_fft_size = 0;
 
 /* Private function prototypes. */
 
@@ -102,16 +96,11 @@ void		grammarsquareg(giant b);
 void 		karatmulg(giant a, giant b);
 void 		karatsquareg(giant b);
 
-void		init_sinCos(int);
+void		init_sincos(int);
 int 		lpt(int);
 void 		addsignal(giant, int, double *, int);
 void 		FFTsquareg(giant x);
 void 		FFTmulg(giant y, giant x);
-void 		scramble_real(double *, int);
-void 		fft_real_to_hermitian(double *z, int n);
-void 		fftinv_hermitian_to_real(double *z, int n);
-void 		mul_hermitian(double *a, double *b, int n);
-void 		square_hermitian(double *b, int n);
 void 		giant_to_double(giant x, int sizex, double *z, int L);
 
 #define gswap(p,q)  {giant tgq; tgq = *(p); *(p) = *(q); *(q) = tgq;}
@@ -151,9 +140,11 @@ void term_giants (void)
 	stack = NULL;
 	cur_stack_elem = 0;
 	cur_stack_size = 0;
-	free (sinCosorig);
-	sinCosorig = NULL;
-	cur_run = 0;
+	free (ooura_sincosorig);
+	ooura_sincosorig = NULL;
+	free (ooura_ip);
+	ooura_ip = NULL;
+	ooura_fft_size = 0;
 }
 
 giant newgiant (		/* Create a new giant */
@@ -891,23 +882,23 @@ void automulg (			/* b becomes a*b */
 	else if (asize + asize <= bsize + 2) {
 		giant	d;
 
-		d = popg (bsize);		/* d is upper half of b */
+		d = popg (bsize);	/* d is upper half of b */
 		gtogshiftright (asize << 5, b, d);
-		b->sign = asize;		/* b is lower half of b */
+		b->sign = asize;	/* b is lower half of b */
 		while (b->sign && b->n[b->sign-1] == 0) b->sign--;
 
-		automulg (a, d);		/* Compute a * upper part of b */
+		automulg (a, d);	/* Compute a * upper part of b */
 		if (b->sign)
-			automulg (a, b);	/* Compute a * lower part of b */
+			automulg (a, b);/* Compute a * lower part of b */
 		else {
 			memset (b->n, 0, asize * sizeof (unsigned long));
 			b->sign = asize;
 		}
 
-		b->sign -= asize;		/* Trick to add shifted upper */
+		b->sign -= asize;	/* Trick to add shifted upper */
 		b->n += asize;
 		normal_addg (d, b);
-		b->sign += asize;		/* Undo the trick */
+		b->sign += asize;	/* Undo the trick */
 		b->n -= asize;
 
 		pushg (1);
@@ -916,7 +907,9 @@ void automulg (			/* b becomes a*b */
 
 /* Do a Karatsuba or FFT multiply */
 
-	else if (asize < FFT_BREAK_MULT && bsize < FFT_BREAK_MULT)
+	else if ((asize < FFT_BREAK_MULT1 && bsize < FFT_BREAK_MULT1) ||
+	         (asize >= FFT_BREAK_MULT2 && bsize >= FFT_BREAK_MULT2 &&
+	          asize < FFT_BREAK_MULT3 && bsize < FFT_BREAK_MULT3))
 		karatmulg (a, b);
 	else
 		FFTmulg (a, b);
@@ -1040,10 +1033,6 @@ void karatsquareg (		/* x becomes x^2. */
 	ASSERTG (x->sign >= 0);
 	ASSERTG (x->sign == 0 || x->n[x->sign-1] != 0);
 
-	if (s < KARAT_BREAK_SQUARE) {
-		grammarsquareg (x);
-		return;
-	}
 				/* IDEA: save a memcpy by having b point */
 				/* to x's memory and writing its square to */
 				/* the upper half of x */
@@ -1065,9 +1054,18 @@ void karatsquareg (		/* x becomes x^2. */
 	gtog (&a, c);
 	normal_addg (&b, c);
 
-	karatsquareg (&a);	/* recurse */
-	karatsquareg (&b);
-	karatsquareg (c);
+	if (a.sign < KARAT_BREAK_SQUARE)
+		grammarsquareg (&a);	/* recurse */
+	else
+		karatsquareg (&a);	/* recurse */
+	if (b.sign < KARAT_BREAK_SQUARE)
+		grammarsquareg (&b);
+	else
+		karatsquareg (&b);
+	if (b.sign < KARAT_BREAK_SQUARE)
+		grammarsquareg (c);
+	else
+		karatsquareg (c);
 
 	subg (&a, c);		/* Isolate 2 * upper * lower */
 	subg (&b, c);
@@ -1100,11 +1098,6 @@ void karatmulg (		/* y becomes x*y. */
 	ASSERTG (y->sign >= 0);
 	ASSERTG (y->sign == 0 || y->n[y->sign-1] != 0);
 
-	if (s < KARAT_BREAK_MULT || t < KARAT_BREAK_MULT) {
-		grammarmulg (x, y);
-		return;
-	}
-
 	w = (s + t + 2) / 4;
 
 	a.sign = (s < w) ? s : w;	/* a is the lower half of x */
@@ -1133,9 +1126,18 @@ void karatmulg (		/* y becomes x*y. */
 	f = popg (s + t + 1);		/* f is the y halves added */
 	gtog (&c, f); normal_addg (d, f);
 
-	karatmulg (&a, &c);		/* Recurse: mul lowers */
-	karatmulg (&b, d);		/* mul uppers */
-	karatmulg (e, f);		/* mul sums */
+	if (a.sign < KARAT_BREAK_MULT || c.sign < KARAT_BREAK_MULT)
+		grammarmulg (&a, &c);		/* Recurse: mul lowers */
+	else
+		karatmulg (&a, &c);		/* Recurse: mul lowers */
+	if (b.sign < KARAT_BREAK_MULT || d->sign < KARAT_BREAK_MULT)
+		grammarmulg (&b, d);		/* mul uppers */
+	else
+		karatmulg (&b, d);		/* mul uppers */
+	if (e->sign < KARAT_BREAK_MULT || f->sign < KARAT_BREAK_MULT)
+		grammarmulg (e, f);		/* mul sums */
+	else
+		karatmulg (e, f);		/* mul sums */
 
 	normal_subg (&c, f);		/* Isolate cross product */
 	normal_subg (d, f);
@@ -1579,27 +1581,6 @@ int bitlen (
 	return (32 * (size-1) + b);
 }
 
-void init_sinCos (
-	int 	n)
-{
-	int	j;
-	double 	e = TWOPI/n;
-
-	if (n <= cur_run) return;
-	cur_run = n;
-	cur_run_1 = n >> 2;
-	cur_run_2 = cur_run_1 + cur_run_1;
-	if (sinCosorig) free (sinCosorig);
-	sinCosorig = (double *) malloc (((n>>2) + 1) * sizeof (double)  + 8);
-	sinCos = (double *) (((long) sinCosorig + 7) & 0xFFFFFFF8);
-	for (j = 0; j <= (n>>2); j++) {
-		sinCos[j] = sin (e*j);
-	}
-}
-
-#define s_sin(n) ((n < cur_run_1) ? sinCos[n] : sinCos[cur_run_2-n])
-#define s_cos(n) ((n < cur_run_1) ? sinCos[cur_run_1-n] : -sinCos[n-cur_run_1])
-
 int gsign (		/* Returns the sign of g. */
 	giant 	g)
 {
@@ -1711,6 +1692,56 @@ int lpt (		/* Returns least power of two greater than n. */
 	return(i);
 }
 
+void makewt (int nw, int *ip, double *w);
+void makect (int nc, int *ip, double *c);
+
+void init_sincos (
+	int 	n)
+{
+	if (n <= ooura_fft_size) return;
+	if (ooura_sincosorig) free (ooura_sincosorig);
+	ooura_sincosorig = (double *) malloc ((n/2) * sizeof (double) + 8);
+	ooura_sincos = (double *) (((long) ooura_sincosorig + 7) & 0xFFFFFFF8);
+	if (ooura_ip) free (ooura_ip);
+	ooura_ip = (int *) malloc (((int) sqrt(n/2) + 2) * sizeof (int));
+	ooura_ip[0] = 0;
+	ooura_fft_size = n;
+        makewt (n >> 2, ooura_ip, ooura_sincos);
+        makect (n >> 2, ooura_ip, ooura_sincos + (n >> 2));
+}
+
+void mp_squ_cmul(int nfft, double dinout[])
+{
+	int j;
+	double xr, xi;
+    
+	dinout[0] *= dinout[0];
+	dinout[1] *= dinout[1];
+	for (j = 2; j < nfft; j += 2) {
+		xr = dinout[j];
+		xi = dinout[j + 1];
+		dinout[j] = xr * xr - xi * xi;
+		dinout[j + 1] = xr * xi * 2.0;
+	}
+}
+
+void mp_mul_cmul(int nfft, double din[], double dinout[])
+{
+	int j;
+	double xr, xi, yr, yi;
+    
+	dinout[0] *= din[0];
+	dinout[1] *= din[1];
+	for (j = 2; j < nfft; j += 2) {
+		xr = din[j];
+		xi = din[j + 1];
+		yr = dinout[j];
+		yi = dinout[j + 1];
+		dinout[j] = xr * yr - xi * yi;
+		dinout[j + 1] = xr * yi + xi * yr;
+	}
+}
+
 void addsignal (
 	giant	x,
 	int	size,
@@ -1725,7 +1756,7 @@ void addsignal (
 
 /* Scale each element down */
 
-	scale = 1.0 / (double) n;
+	scale = 2.0 / (double) n;
 
 /* Convert each double to an integer.  Extract lower 16 bits and leave the */
 /* rest as a carry.  Each pair of conversions results in one output value.*/
@@ -1768,13 +1799,14 @@ void FFTsquareg (
 	ASSERTG (x->sign >= 4 && x->n[x->sign-1] != 0);
 
 	L = lpt (size+size) << 1;
+	init_sincos (L);
 	z1orig = (double *) popg (L*sizeof(double)/sizeof(unsigned long) + 8);
 	z1 = (double *) (((long) z1orig + 7) & 0xFFFFFFF8);
 
 	giant_to_double (x, size, z1, L);
-	fft_real_to_hermitian (z1, L);
-	square_hermitian (z1, L);
-	fftinv_hermitian_to_real (z1, L);
+	rdft (L, 1, z1, ooura_ip, ooura_sincos);
+	mp_squ_cmul (L, z1);
+	rdft (L, -1, z1, ooura_ip, ooura_sincos);
 	addsignal (x, size+size, z1, L);
 
 	pushg (1);
@@ -1795,6 +1827,7 @@ void FFTmulg (			/* x becomes y*x. */
 /* an eight byte boundaries. */
 
 	L = lpt (sizex+sizey) << 1;
+	init_sincos (L);
 	z1orig = (double *) popg (L*sizeof(double)/sizeof(unsigned long) + 1);
 	z1 = (double *) (((long) z1orig + 7) & 0xFFFFFFF8);
 	z2orig = (double *) popg (L*sizeof(double)/sizeof(unsigned long) + 1);
@@ -1802,317 +1835,14 @@ void FFTmulg (			/* x becomes y*x. */
 
 	giant_to_double (x, sizex, z1, L);
 	giant_to_double (y, sizey, z2, L);
-	fft_real_to_hermitian (z1, L);
-	fft_real_to_hermitian (z2, L);
-	mul_hermitian (z2, z1, L);
-	fftinv_hermitian_to_real (z1, L);
+	rdft (L, 1, z1, ooura_ip, ooura_sincos);
+	rdft (L, 1, z2, ooura_ip, ooura_sincos);
+	mp_mul_cmul (L, z2, z1);
+	rdft (L, -1, z1, ooura_ip, ooura_sincos);
 	addsignal (x, sizex+sizey, z1, L);
 
 	pushg (2);
 	ASSERTG (y->sign > 0 && y->n[y->sign-1] != 0);
-}
-
-void scramble_real (
-	double	*x,
-	int 	n)
-{
-	register int 	i,j,k;
-	register double	tmp;
-
-	for (i = j = 0; i < n-1; i++) {
-		if (i < j) {
-			tmp = x[j];
-			x[j] = x[i];
-			x[i] = tmp;
-		}
-		k = n/2;
-		while (k <= j) {
-			j -= k;
-			k >>= 1;
-		}
-		j += k;
-	}
-}
-
-void fft_real_to_hermitian (
-	/* Output is {Re(z^[0]),...,Re(z^[n/2),Im(z^[n/2-1]),...,Im(z^[1]).
-	 *	This is a decimation-in-time, split-radix algorithm. */
-	double 	*z,
-	int 	n)
-{
-	register double	cc1, ss1, cc3, ss3;
-	register int 	is, id, i0, i1, i2, i3, i4, i5, i6, i7, i8,
-			a, a3, b, b3, nminus = n-1, dil, expand;
-	register double *x, e;
-	int 	nn = n>>1;
-	double 	t1, t2, t3, t4, t5, t6;
-	register int 	n2, n4, n8, i, j;
-
-	init_sinCos(n);
-	expand = cur_run/n;
-	scramble_real(z, n);
-	x = z-1; /* FORTRAN compatibility. */
-	is = 1;
-	id = 4;
-	do
-	{
-		for (i0=is;i0<=n;i0+=id)
-		{
-			i1 = i0+1;
-			e = x[i0];
-			x[i0] = e + x[i1];
-			x[i1] = e - x[i1];
-		}
-		is = (id<<1)-1;
-		id <<= 2;
-	} while(is<n);
-
-	n2 = 2;
-	while(nn>>=1)
-	{
-		n2 <<= 1;
-		n4 = n2>>2;
-		n8 = n2>>3;
-		is = 0;
-		id = n2<<1;
-		do
-		{
-			for (i=is;i<n;i+=id)
-			{
-				i1 = i+1;
-				i2 = i1 + n4;
-				i3 = i2 + n4;
-				i4 = i3 + n4;
-				t1 = x[i4]+x[i3];
-				x[i4] -= x[i3];
-				x[i3] = x[i1] - t1;
-				x[i1] += t1;
-				if (n4==1)
-					continue;
-				i1 += n8;
-				i2 += n8;
-				i3 += n8;
-				i4 += n8;
-				t1 = (x[i3]+x[i4])*SQRTHALF;
-				t2 = (x[i3]-x[i4])*SQRTHALF;
-				x[i4] = x[i2] - t1;
-				x[i3] = -x[i2] - t1;
-				x[i2] = x[i1] - t2;
-				x[i1] += t2;
-			}
-			is = (id<<1) - n2;
-			id <<= 2;
-		} while(is<n);
-		dil = n/n2;
-		a = dil;
-		for (j=2;j<=n8;j++)
-		{
-			a3 = (a+(a<<1))&nminus;
-			b = a*expand;
-			b3 = a3*expand;
-			cc1 = s_cos(b);
-			ss1 = s_sin(b);
-			cc3 = s_cos(b3);
-			ss3 = s_sin(b3);
-			a = (a+dil)&nminus;
-			is = 0;
-			id = n2<<1;
-			do
-			{
-				for(i=is;i<n;i+=id)
-				{
-					i1 = i+j;
-					i2 = i1 + n4;
-					i3 = i2 + n4;
-					i4 = i3 + n4;
-					i5 = i + n4 - j + 2;
-					i6 = i5 + n4;
-					i7 = i6 + n4;
-					i8 = i7 + n4;
-					t1 = x[i3]*cc1 + x[i7]*ss1;
-					t2 = x[i7]*cc1 - x[i3]*ss1;
-					t3 = x[i4]*cc3 + x[i8]*ss3;
-					t4 = x[i8]*cc3 - x[i4]*ss3;
-					t5 = t1 + t3;
-					t6 = t2 + t4;
-					t3 = t1 - t3;
-					t4 = t2 - t4;
-					t2 = x[i6] + t6;
-					x[i3] = t6 - x[i6];
-					x[i8] = t2;
-					t2 = x[i2] - t3;
-					x[i7] = -x[i2] - t3;
-					x[i4] = t2;
-					t1 = x[i1] + t5;
-					x[i6] = x[i1] - t5;
-					x[i1] = t1;
-					t1 = x[i5] + t4;
-					x[i5] -= t4;
-					x[i2] = t1;
-				}
-				is = (id<<1) - n2;
-				id <<= 2;
-			} while(is<n);
-		}
-	}
-}
-
-void fftinv_hermitian_to_real (
-	/* Input is {Re(z^[0]),...,Re(z^[n/2),Im(z^[n/2-1]),...,Im(z^[1]).
-	 * This is a decimation-in-frequency, split-radix algorithm. */
-	double 	*z,
-	int 	n)
-{
-	register double	cc1, ss1, cc3, ss3;
-	register int 	is, id, i0, i1, i2, i3, i4, i5, i6, i7, i8,
-			a, a3, b, b3, nminus = n-1, dil, expand;
-	register double *x, e;
-	int 	nn = n>>1;
-	double 	t1, t2, t3, t4, t5;
-	int 	n2, n4, n8, i, j;
-
-	init_sinCos(n);
-	expand = cur_run/n;
-	x = z-1;
-	n2 = n<<1;
-	while(nn >>= 1)
-	{
-		is = 0;
-		id = n2;
-		n2 >>= 1;
-		n4 = n2>>2;
-		n8 = n4>>1;
-		do
-		{
-			for(i=is;i<n;i+=id)
-			{
-				i1 = i+1;
-				i2 = i1 + n4;
-				i3 = i2 + n4;
-				i4 = i3 + n4;
-				t1 = x[i1] - x[i3];
-				x[i1] += x[i3];
-				x[i2] += x[i2];
-				x[i3] = t1 - 2.0*x[i4];
-				x[i4] = t1 + 2.0*x[i4];
-				if (n4==1)
-					continue;
-				i1 += n8;
-				i2 += n8;
-				i3 += n8;
-				i4 += n8;
-				t1 = (x[i2]-x[i1])*SQRTHALF;
-				t2 = (x[i4]+x[i3])*SQRTHALF;
-				x[i1] += x[i2];
-				x[i2] = x[i4]-x[i3];
-				x[i3] = -2.0*(t2+t1);
-				x[i4] = 2.0*(t1-t2);
-			}
-			is = (id<<1) - n2;
-			id <<= 2;
-		} while (is<n-1);
-		dil = n/n2;
-		a = dil;
-		for (j=2;j<=n8;j++)
-		{
-			a3 = (a+(a<<1))&nminus;
-			b = a*expand;
-			b3 = a3*expand;
-			cc1 = s_cos(b);
-			ss1 = s_sin(b);
-			cc3 = s_cos(b3);
-			ss3 = s_sin(b3);
-			a = (a+dil)&nminus;
-			is = 0;
-			id = n2<<1;
-			do
-			{
-				for(i=is;i<n;i+=id)
-				{
-					i1 = i+j;
-					i2 = i1+n4;
-					i3 = i2+n4;
-					i4 = i3+n4;
-					i5 = i+n4-j+2;
-					i6 = i5+n4;
-					i7 = i6+n4;
-					i8 = i7+n4;
-					t1 = x[i1] - x[i6];
-					x[i1] += x[i6];
-					t2 = x[i5] - x[i2];
-					x[i5] += x[i2];
-					t3 = x[i8] + x[i3];
-					x[i6] = x[i8] - x[i3];
-					t4 = x[i4] + x[i7];
-					x[i2] = x[i4] - x[i7];
-					t5 = t1 - t4;
-					t1 += t4;
-					t4 = t2 - t3;
-					t2 += t3;
-					x[i3] = t5*cc1 + t4*ss1;
-					x[i7] = -t4*cc1 + t5*ss1;
-					x[i4] = t1*cc3 - t2*ss3;
-					x[i8] = t2*cc3 + t1*ss3;
-				}
-				is = (id<<1) - n2;
-				id <<= 2;
-			} while(is<n-1);
-		}
-	}
-	is = 1;
-	id = 4;
-	do
-	{
-		for (i0=is;i0<=n;i0+=id)
-		{
-			i1 = i0+1;
-			e = x[i0];
-			x[i0] = e + x[i1];
-			x[i1] = e - x[i1];
-		}
-		is = (id<<1) - 1;
-		id <<= 2;
-	} while(is<n);
-	scramble_real(z, n);
-}
-
-void mul_hermitian (
-	double	*a,
-	double	*b,
-	int 	n)
-{
-	register int	k, half = n>>1;
-	register double	aa, bb, am, bm;
-
-	b[0] *= a[0];
-	b[half] *= a[half];
-	for (k=1;k<half;k++)
-	{
-		aa = a[k];
-		bb = b[k];
-		am = a[n-k];
-		bm = b[n-k];
-		b[k] = aa*bb - am*bm;
-		b[n-k] = aa*bm + am*bb;
-	}
-}
-
-void square_hermitian (
-	double	*b,
-	int 	n)
-{
-	register int	k, half = n>>1;
-	register double	c, d;
-
-	b[0] *= b[0];
-	b[half] *= b[half];
-	for (k=1;k<half;k++)
-	{
-		c = b[k];
-		d = b[n-k];
-		b[n-k] = 2.0*c*d;
-		b[k] = (c+d)*(c-d);
-	}
 }
 
 void giant_to_double (
@@ -2323,8 +2053,8 @@ int ggcd (		/* A giant gcd.  Modifies its arguments. */
 /* To avoid continually expanding the sincos array, figure out (roughly) */
 /* the maximum size table we will need and allocate it now. */
 
-	if ((*x)->sign / 2 > FFT_BREAK_MULT)
-		init_sinCos (lpt ((*x)->sign / 2) << 1);
+	if ((*x)->sign / 2 > FFT_BREAK_MULT1)
+		init_sincos (lpt ((*x)->sign / 2) << 1);
 
 /* If R is not NULL then we are doing an extended GCD.  Recursively */
 /* do half GCDs and then multiply the matrices in reverse order for */
@@ -2334,16 +2064,26 @@ int ggcd (		/* A giant gcd.  Modifies its arguments. */
 		if (! hgcd (0, x, y, R)) return (FALSE);
 		return (rhgcd (x, y, R));
 	}
-	
-/* Do half GCDs until the numbers get pretty small.  This is almost exactly */
-/* the same code as calling hgcd with a shift count of zero.  However, */
-/* since R is NULL we can save a little time and space by not completely */
-/* computing the matrix B times matrix A. */
 
-	while ((*x)->sign > GCDLIMIT) {
-		int 	a_size;
+/* Call half GCDs until the numbers get pretty small.  The half GCD code */
+/* is most efficient when computing 1/3 of the GCD result size.  But more */
+/* importantly, the FFT code is most efficient when operating on a power */
+/* of two words.  Thus, if x->size is near a power of two we make the */
+/* traditional two hgcd calls each computing 1/4 of the result size. */
+/* Otherwise, we make one hgcd call computing 1/3 of the result size. */
 
-		a_size = (*x)->sign >> 2;
+/* If FFTmulg ever implemented non-power-of-2 FFTs, then we likely would */
+/* always do a 1/3 hgcd call */
+
+	while ((*y)->sign > GCDLIMIT) {
+		int 	quarter_size, third_size, a_size;
+
+		quarter_size = ((*y)->sign - 1) >> 2;
+		third_size = ((*y)->sign - 1) / 3;
+		if (lpt (quarter_size) == lpt (third_size))
+			a_size = third_size;
+		else
+			a_size = quarter_size;
 		A.ul = popg (a_size); setone (A.ul);
 		A.ll = popg (a_size); setzero (A.ll);
 		A.ur = popg (a_size); setzero (A.ur);
@@ -2351,7 +2091,7 @@ int ggcd (		/* A giant gcd.  Modifies its arguments. */
 
 /* Do the first recursion */
 
-		if (! hgcd ((*x)->sign - (a_size + a_size + 1), x, y, &A))
+		if (! hgcd ((*y)->sign - (a_size + a_size + 1), x, y, &A))
 			return (FALSE);
 
 /* Do a single step if the hgcd call didn't make any progress */
@@ -2362,16 +2102,9 @@ int ggcd (		/* A giant gcd.  Modifies its arguments. */
 			continue;
 		}
 
-/* Do the second recursion */
-
-		setone (A.ul);
-		setzero (A.ur);
-		setzero (A.ll);
-		setone (A.lr);
-		if (! hgcd ((*x)->sign - (a_size + a_size + 1), x, y, &A))
-			return (FALSE);
-
-/* Free memory */
+/* If we did a 1/3 bits hgcd call, then we're done.  If we did a 1/4 bits */
+/* hgcd call, then the next iteration will do the matching 1/4 bits hgcd call */
+/* (since result x is now 3/4 size and 1/3 of 3/4 is 1/4! */
 
 		pushg (4);		/* Free matrix A */
 	}
@@ -2393,7 +2126,7 @@ int rhgcd (	/* recursive hgcd calls accumulating extended GCD info */
 	A.ll = popg ((*x)->sign); setzero (A.ll);
 	A.ur = popg ((*x)->sign); setzero (A.ur);
 	A.lr = popg ((*x)->sign); setone (A.lr);
-	if ((*x)->sign <= GCDLIMIT)
+	if ((*y)->sign <= GCDLIMIT)
 		cextgcdg (x, y, &A);
 	else {
 		if (! hgcd (0, x, y, &A)) return (FALSE);
@@ -2415,7 +2148,7 @@ int hgcd (	/* hgcd(n,x,y,A) chops n words off x and y and computes the
 	gmatrix A)
 {
 	giant 	x, y;
-	int	a_size;
+	int	half_size;
 
 	ASSERTG (n >= 0);
 
@@ -2434,22 +2167,31 @@ int hgcd (	/* hgcd(n,x,y,A) chops n words off x and y and computes the
 	y->n += n;
 	setmaxsize (y, y->maxsize - n);
 
-/* If the numbers are small do the final level of recursion */
+/* If the numbers are small or the size of the first quotient won't let */
+/* split the numbers further, then do the final level of recursion */
 /* using a brute force algorithm */
 
-	if (x->sign <= CHGCD_BREAK) {
-		a_size = (x->sign - 1) >> 1;
+	half_size = (y->sign - 1) >> 1;
+	if (half_size <= CHGCD_BREAK || x->sign - y->sign > half_size >> 1) {
 		for ( ; ; ) {
-			int	quot_length;
+			int	quot_length, a_length;
 
+/* Determine if applying quotient to the matrix will put us over half_size. */
+/* Be wary of the final matrix multiply of A in egcdhlp and onestep.  It */
+/* adds two multiplied products together - so that a 32-bit quotient applied */
+/* to a 20 word A->lr value can produce a 22 word result if the top word */
+/* of A->lr is also 32 bits long. */
+
+			quot_length = x->sign - y->sign;
+			if (x->n[x->sign-1] >= y->n[y->sign-1]) quot_length++;
+			a_length = abs (A->lr->sign);
+			if (A->lr->n[a_length-1] & 0x80000000) a_length++;
+			if (a_length + quot_length > half_size) break;
+		
 /* If the quotient will fit in one word, use the GCD helper */
 /* function which can do several GCD steps in single precision, */
 /* postponing multi-precision operations as long as possible. */
 
-			quot_length = x->sign - y->sign;
-			if (x->n[x->sign-1] >= y->n[y->sign-1]) quot_length++;
-			if (abs (A->lr->sign) + quot_length > a_size) break;
-		
 			if (quot_length > 1 || !egcdhlp_wrapper (x, y, A))
 				onestep (&x, &y, A);
 		}
@@ -2460,6 +2202,7 @@ int hgcd (	/* hgcd(n,x,y,A) chops n words off x and y and computes the
 	else {
 		gmatrixstruct B;
 		giantstruct ul, ur, ll, lr;
+		int	a_size, b_size;
 
 /* Check for an interrupt */
 
@@ -2467,24 +2210,32 @@ int hgcd (	/* hgcd(n,x,y,A) chops n words off x and y and computes the
 
 /* Do the first recursion */
 
-		a_size = x->sign >> 2;
-		if (! hgcd (x->sign - (a_size + a_size + 1), &x, &y, A))
+		a_size = half_size >> 1;
+		if (! hgcd (y->sign - (a_size + a_size + 1), &x, &y, A))
 			return (FALSE);
+		a_size = abs (A->lr->sign);
 
 /* Do the second recursion.  Note how we use the upper half of the gmatrix A */
-/* in order to save a lot of memory. */
+/* in order to save a lot of memory.  Be wary of the matrix multiply of B */
+/* and A in mulmMsp.  It adds two multiplied products together - so that */
+/* if B->lr's top word is 32 bits A->lr's top word is 32 bits, then a */
+/* carry overflow will occur.  Also be careful that we don't ask hgcd to */
+/* compute more than y->sign / 2 words. */
 
-		ul.n = A->ul->n + a_size; setmaxsize (&ul, a_size);
-		ur.n = A->ur->n + a_size; setmaxsize (&ur, a_size);
-		ll.n = A->ll->n + a_size; setmaxsize (&ll, a_size);
-		lr.n = A->lr->n + a_size; setmaxsize (&lr, a_size);
+		b_size = half_size - a_size;
+		if (A->lr->n[a_size-1] & 0x80000000) b_size--;
+		ul.n = A->ul->n + a_size; setmaxsize (&ul, b_size);
+		ur.n = A->ur->n + a_size; setmaxsize (&ur, b_size);
+		ll.n = A->ll->n + a_size; setmaxsize (&ll, b_size);
+		lr.n = A->lr->n + a_size; setmaxsize (&lr, b_size);
 		B.ul = &ul; setone (&ul);
 		B.ur = &ur; setzero (&ur);
 		B.ll = &ll; setzero (&ll);
 		B.lr = &lr; setone (&lr);
-		if (! hgcd (x->sign - (a_size + a_size + 1), &x, &y, &B))
+		if (b_size > ((y->sign - 1) >> 1)) b_size = (y->sign - 1) >> 1;
+		if (! hgcd (y->sign - (b_size + b_size + 1), &x, &y, &B))
 			return (FALSE);
-		mulmMsp (&B, A, a_size + a_size);
+		mulmMsp (&B, A, half_size);
 	}
 
 /* Copy the x and y values, then undo the changes we made to the input */

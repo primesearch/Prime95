@@ -3,6 +3,18 @@
 #define FALSE	0
 #define TRUE	1
 
+/* Port number used in version numbers and result reporting. */
+
+#ifdef __linux__
+#define PORT	2
+#endif
+#ifdef __FreeBSD__
+#define PORT	6
+#endif
+#if defined (__EMX__) || defined (__IBMC__)
+#define PORT	7
+#endif
+
 /* This controls whether we want to pause computation if the load average */
 /* becomes too great.  This does not apply to OS/2. */
 
@@ -64,6 +76,11 @@
 #define COPYZERO	_COPYZERO
 #define POSTFFT		_POSTFFT
 
+#define CPUID_EAX	_CPUID_EAX
+#define CPUID_EBX	_CPUID_EBX
+#define CPUID_ECX	_CPUID_ECX
+#define CPUID_EDX	_CPUID_EDX
+
 /* Handle the difference in the way the two C compilers name routines */
 
 #define setupf	 _setupf
@@ -88,6 +105,8 @@
 #define esincos3 _esincos3
 #define etwo_to_pow_over_fftlen _etwo_to_pow_over_fftlen
 #define eset_mul_const _eset_mul_const
+#define ecpuidsupport _ecpuidsupport
+#define ecpuid _ecpuid
 
 /* Handle differences between Windows and Linux runtime libraries */
 
@@ -103,6 +122,7 @@
 #define _chdir		chdir
 #define _ftime		ftime
 #define _timeb		timeb
+#define closesocket	close
 #define IsCharAlphaNumeric(c) isalnum(c)
 #define _O_APPEND	O_APPEND
 #define _O_RDONLY	O_RDONLY
@@ -127,6 +147,7 @@
 /*#define SERVER_TESTING*/
 #define EXTERNC
 extern int NO_GUI;
+#include "cpuid.h"
 #include "giants.h"
 #include "gwnum.h"
 #include "commona.h"
@@ -139,7 +160,6 @@ extern int NO_GUI;
 extern int volatile THREAD_STOP;	/* TRUE if thread should stop */
 extern int volatile THREAD_KILL;	/* TRUE if program should terminate */
 extern int MENUING;			/* TRUE when main menu active */
-extern int (*PRIMENET)(short, void *);
 
 /* Internal routines */
 

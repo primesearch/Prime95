@@ -1,0 +1,380 @@
+<?xml version="1.0" encoding = "Windows-1252"?>
+<VisualStudioProject
+	ProjectType="Visual C++"
+	Version="7.00"
+	Name="Prime95"
+	ProjectGUID="{12CE8FC3-4697-4DF8-8111-196225B01F11}"
+	SccProjectName=""
+	SccLocalPath=""
+	Keyword="MFCProj">
+	<Platforms>
+		<Platform
+			Name="Win32"/>
+	</Platforms>
+	<Configurations>
+		<Configuration
+			Name="Release|Win32"
+			OutputDirectory=".\Release"
+			IntermediateDirectory=".\Release"
+			ConfigurationType="1"
+			UseOfMFC="1"
+			ATLMinimizesCRunTimeLibraryUsage="FALSE"
+			CharacterSet="2">
+			<Tool
+				Name="VCCLCompilerTool"
+				InlineFunctionExpansion="1"
+				AdditionalIncludeDirectories=".."
+				PreprocessorDefinitions="WIN32,NDEBUG,_WINDOWS"
+				StringPooling="TRUE"
+				RuntimeLibrary="0"
+				BufferSecurityCheck="FALSE"
+				EnableFunctionLevelLinking="FALSE"
+				UsePrecompiledHeader="3"
+				PrecompiledHeaderThrough="stdafx.h"
+				PrecompiledHeaderFile=".\Release/prime95.pch"
+				AssemblerListingLocation=".\Release/"
+				ObjectFile=".\Release/"
+				ProgramDataBaseFileName=".\Release/"
+				WarningLevel="3"
+				SuppressStartupBanner="TRUE"
+				CompileAs="0"/>
+			<Tool
+				Name="VCCustomBuildTool"/>
+			<Tool
+				Name="VCLinkerTool"
+				AdditionalOptions="/MACHINE:I386
+"
+				AdditionalDependencies="cpuid.obj factor64.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2a.obj mult2aux.obj mult3.obj mult3a.obj mult3aux.obj mult4.obj mult4a.obj mult4b.obj mult1p.obj mult2p.obj mult2ap.obj mult3p.obj mult3ap.obj mult3q.obj mult3aq.obj mult3auq.obj mult4p.obj mult4ap.obj mult4bp.obj mult4aux.obj mult4q.obj mult4aq.obj mult4bq.obj mult4auq.obj ecmhelp.obj xmult1.obj xmult1ax.obj xmult2.obj xmult2a.obj xmult2ax.obj xmult3.obj xmult3a.obj xmult3ax.obj giants.obj service.obj wsock32.lib nafxcw.lib libcmt.lib"
+				OutputFile=".\Release/prime95.exe"
+				LinkIncremental="1"
+				SuppressStartupBanner="TRUE"
+				IgnoreDefaultLibraryNames="nafxcw.lib libcmt.lib"
+				DelayLoadDLLs="oleacc.dll;ole32.dll;oleaut32.dll;advapi32.dll;wininet.dll"
+				ProgramDatabaseFile=".\Release/prime95.pdb"
+				GenerateMapFile="TRUE"
+				MapFileName=".\Release/prime95.map"
+				SubSystem="2"
+				EntryPointSymbol="MyWinMainCRTStartup"/>
+			<Tool
+				Name="VCMIDLTool"
+				PreprocessorDefinitions="NDEBUG"
+				MkTypLibCompatible="TRUE"
+				SuppressStartupBanner="TRUE"
+				TargetEnvironment="1"
+				TypeLibraryName=".\Release/prime95.tlb"/>
+			<Tool
+				Name="VCPostBuildEventTool"/>
+			<Tool
+				Name="VCPreBuildEventTool"/>
+			<Tool
+				Name="VCPreLinkEventTool"/>
+			<Tool
+				Name="VCResourceCompilerTool"
+				PreprocessorDefinitions="NDEBUG"
+				Culture="1033"/>
+			<Tool
+				Name="VCWebServiceProxyGeneratorTool"/>
+			<Tool
+				Name="VCWebDeploymentTool"/>
+		</Configuration>
+		<Configuration
+			Name="Debug|Win32"
+			OutputDirectory=".\Debug"
+			IntermediateDirectory=".\Debug"
+			ConfigurationType="1"
+			UseOfMFC="2"
+			ATLMinimizesCRunTimeLibraryUsage="FALSE"
+			CharacterSet="2">
+			<Tool
+				Name="VCCLCompilerTool"
+				Optimization="0"
+				AdditionalIncludeDirectories=".."
+				PreprocessorDefinitions="WIN32;_DEBUG;_WINDOWS;GDEBUG"
+				BasicRuntimeChecks="3"
+				RuntimeLibrary="3"
+				BufferSecurityCheck="TRUE"
+				UsePrecompiledHeader="3"
+				PrecompiledHeaderThrough="stdafx.h"
+				PrecompiledHeaderFile=".\Debug/prime95.pch"
+				AssemblerOutput="0"
+				AssemblerListingLocation=".\Debug/"
+				ObjectFile=".\Debug/"
+				ProgramDataBaseFileName=".\Debug/"
+				WarningLevel="3"
+				SuppressStartupBanner="TRUE"
+				Detect64BitPortabilityProblems="FALSE"
+				DebugInformationFormat="4"
+				CompileAs="0"/>
+			<Tool
+				Name="VCCustomBuildTool"/>
+			<Tool
+				Name="VCLinkerTool"
+				AdditionalOptions="/MACHINE:I386"
+				AdditionalDependencies="cpuid.obj factor64.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2a.obj mult2aux.obj mult3.obj mult3a.obj mult3aux.obj mult4.obj mult4a.obj mult4b.obj mult1p.obj mult2p.obj mult2ap.obj mult3p.obj mult3ap.obj mult3q.obj mult3aq.obj mult3auq.obj mult4p.obj mult4ap.obj mult4bp.obj mult4aux.obj mult4q.obj mult4aq.obj mult4bq.obj mult4auq.obj ecmhelp.obj xmult1.obj xmult1ax.obj xmult2.obj xmult2a.obj xmult2ax.obj xmult3.obj xmult3a.obj xmult3ax.obj service.obj wsock32.lib wininet.lib"
+				OutputFile=".\Debug/prime95.exe"
+				LinkIncremental="2"
+				SuppressStartupBanner="TRUE"
+				IgnoreDefaultLibraryNames="libcmt.lib"
+				DelayLoadDLLs=""
+				GenerateDebugInformation="TRUE"
+				ProgramDatabaseFile=".\Debug/prime95.pdb"
+				SubSystem="2"
+				EntryPointSymbol="MyWinMainCRTStartup"/>
+			<Tool
+				Name="VCMIDLTool"
+				PreprocessorDefinitions="_DEBUG"
+				MkTypLibCompatible="TRUE"
+				SuppressStartupBanner="TRUE"
+				TargetEnvironment="1"
+				TypeLibraryName=".\Debug/prime95.tlb"/>
+			<Tool
+				Name="VCPostBuildEventTool"/>
+			<Tool
+				Name="VCPreBuildEventTool"/>
+			<Tool
+				Name="VCPreLinkEventTool"/>
+			<Tool
+				Name="VCResourceCompilerTool"
+				PreprocessorDefinitions="_AFXDLL;_DEBUG"
+				Culture="1033"/>
+			<Tool
+				Name="VCWebServiceProxyGeneratorTool"/>
+			<Tool
+				Name="VCWebDeploymentTool"/>
+		</Configuration>
+	</Configurations>
+	<Files>
+		<Filter
+			Name="Source Files"
+			Filter="cpp;c;cxx;rc;def;r;odl;hpj;bat;for;f90">
+			<File
+				RelativePath=".\AffinityDlg.cpp">
+			</File>
+			<File
+				RelativePath=".\CpuDlg.cpp">
+			</File>
+			<File
+				RelativePath=".\EcmDlg.cpp">
+			</File>
+			<File
+				RelativePath=".\MainFrm.cpp">
+			</File>
+			<File
+				RelativePath=".\ManualCommDlg.cpp">
+			</File>
+			<File
+				RelativePath=".\Password.cpp">
+			</File>
+			<File
+				RelativePath=".\Pminus1Dlg.cpp">
+			</File>
+			<File
+				RelativePath=".\PreferencesDlg.cpp">
+			</File>
+			<File
+				RelativePath=".\Prime95.cpp">
+			</File>
+			<File
+				RelativePath=".\hlp\Prime95.hpj">
+			</File>
+			<File
+				RelativePath=".\Prime95.rc">
+			</File>
+			<File
+				RelativePath=".\Prime95Doc.cpp">
+			</File>
+			<File
+				RelativePath=".\Prime95View.cpp">
+			</File>
+			<File
+				RelativePath=".\PrimenetDlg.cpp">
+			</File>
+			<File
+				RelativePath=".\Priority.cpp">
+			</File>
+			<File
+				RelativePath=".\ReadMe.txt">
+			</File>
+			<File
+				RelativePath=".\ServerDlg.cpp">
+			</File>
+			<File
+				RelativePath=".\StdAfx.cpp">
+				<FileConfiguration
+					Name="Release|Win32">
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="1"/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Debug|Win32">
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="1"/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath=".\TestDlg.cpp">
+			</File>
+			<File
+				RelativePath=".\TimeDlg.cpp">
+			</File>
+			<File
+				RelativePath=".\UnreserveDlg.cpp">
+			</File>
+			<File
+				RelativePath=".\UserDlg.cpp">
+			</File>
+			<File
+				RelativePath=".\VacationDlg.cpp">
+			</File>
+			<File
+				RelativePath=".\WelcomeDlg.cpp">
+			</File>
+		</Filter>
+		<Filter
+			Name="Header Files"
+			Filter="h;hpp;hxx;hm;inl;inc">
+			<File
+				RelativePath="MainFrm.h">
+			</File>
+			<File
+				RelativePath="Resource.h">
+				<FileConfiguration
+					Name="Release|Win32">
+					<Tool
+						Name="VCCustomBuildTool"
+						Description="Generating map file for help compiler..."
+						CommandLine="echo // Generated Help Map file.  Used by prime95.HHP. &gt; &quot;hlp\HTMLDefines.h&quot;
+echo. &gt; &quot;hlp\HTMLDefines.h&quot;
+echo // Commands (ID_* and IDM_*) &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+makehm /h ID_,HID_,0x10000 IDM_,HIDM_,0x10000 &quot;$(InputFileName)&quot; &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo. &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo // Prompts (IDP_*) &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+makehm /h IDP_,HIDP_,0x30000 &quot;$(InputFileName)&quot; &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo. &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo // Resources (IDR_*) &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+makehm /h IDR_,HIDR_,0x20000 &quot;$(InputFileName)&quot; &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo. &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo // Dialogs (IDD_*) &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+makehm /h IDD_,HIDD_,0x20000 &quot;$(InputFileName)&quot; &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo. &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo // Frame Controls (IDW_*) &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+makehm /h /a afxhh.h IDW_,HIDW_,0x50000 &quot;$(InputFileName)&quot; &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+"
+						Outputs="hlp\HTMLDefines.h"/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Debug|Win32">
+					<Tool
+						Name="VCCustomBuildTool"
+						Description="Generating map file for help compiler..."
+						CommandLine="echo // Generated Help Map file.  Used by prime95.HHP. &gt; &quot;hlp\HTMLDefines.h&quot;
+echo. &gt; &quot;hlp\HTMLDefines.h&quot;
+echo // Commands (ID_* and IDM_*) &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+makehm /h ID_,HID_,0x10000 IDM_,HIDM_,0x10000 &quot;$(InputFileName)&quot; &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo. &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo // Prompts (IDP_*) &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+makehm /h IDP_,HIDP_,0x30000 &quot;$(InputFileName)&quot; &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo. &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo // Resources (IDR_*) &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+makehm /h IDR_,HIDR_,0x20000 &quot;$(InputFileName)&quot; &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo. &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo // Dialogs (IDD_*) &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+makehm /h IDD_,HIDD_,0x20000 &quot;$(InputFileName)&quot; &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo. &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+echo // Frame Controls (IDW_*) &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+makehm /h /a afxhh.h IDW_,HIDW_,0x50000 &quot;$(InputFileName)&quot; &gt;&gt; &quot;hlp\HTMLDefines.h&quot;
+"
+						Outputs="hlp\HTMLDefines.h"/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="prime95.h">
+			</File>
+			<File
+				RelativePath="prime95Doc.h">
+			</File>
+			<File
+				RelativePath="prime95View.h">
+			</File>
+			<File
+				RelativePath="stdafx.h">
+			</File>
+		</Filter>
+		<Filter
+			Name="HTML Help Files"
+			Filter="hhp;hhc;hhk;gif;jpg">
+			<File
+				RelativePath="hlp\Images\Bullet.gif">
+			</File>
+			<File
+				RelativePath="hlp\prime95.hhc">
+			</File>
+			<File
+				RelativePath="hlp\prime95.hhk">
+			</File>
+			<File
+				RelativePath="hlp\prime95.hhp">
+				<FileConfiguration
+					Name="Release|Win32">
+					<Tool
+						Name="VCCustomBuildTool"
+						Description="Making help file..."
+						CommandLine="start /wait hhc &quot;hlp\prime95.hhp&quot;
+if not exist &quot;hlp\prime95.chm&quot; goto :HelpError
+copy &quot;hlp\prime95.chm&quot; &quot;$(OutDir)\prime95.chm&quot;
+goto :HelpDone
+:HelpError
+echo hlp\prime95.hhp(1) : error:Problem encountered creating help file
+echo.
+:HelpDone
+echo.
+"
+						AdditionalDependencies="hlp\HTMLDefines.h"
+						Outputs="$(OutDir)\$(ProjectName).chm"/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Debug|Win32">
+					<Tool
+						Name="VCCustomBuildTool"
+						Description="Making help file..."
+						CommandLine="start /wait hhc &quot;hlp\prime95.hhp&quot;
+if not exist &quot;hlp\prime95.chm&quot; goto :HelpError
+copy &quot;hlp\prime95.chm&quot; &quot;$(OutDir)\prime95.chm&quot;
+goto :HelpDone
+:HelpError
+echo hlp\prime95.hhp(1) : error:Problem encountered creating help file
+echo.
+:HelpDone
+echo.
+"
+						AdditionalDependencies="hlp\HTMLDefines.h"
+						Outputs="$(OutDir)\$(ProjectName).chm"/>
+				</FileConfiguration>
+			</File>
+		</Filter>
+		<Filter
+			Name="HTML Help Topics"
+			Filter="htm;html">
+			<File
+				RelativePath="hlp\thanks.htm"
+				DeploymentContent="TRUE">
+			</File>
+		</Filter>
+		<File
+			RelativePath="res\Prime95.ico">
+		</File>
+		<File
+			RelativePath="res\cursor1.cur">
+		</File>
+		<File
+			RelativePath="res\cursor2.cur">
+		</File>
+		<File
+			RelativePath="res\yellow_i.ico">
+		</File>
+	</Files>
+	<Globals>
+	</Globals>
+</VisualStudioProject>

@@ -1,7 +1,0 @@
-# Standard options
-masm=ml /c /coff
-
-# Create 32-bit executables
-
-mult.obj: mult.asm
-    $(masm) mult.asm

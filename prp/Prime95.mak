@@ -76,10 +76,9 @@ CLEAN :
     if not exist "$(OUTDIR)/$(NULL)" mkdir "$(OUTDIR)"
 
 # ADD BASE CPP /nologo /MD /W3 /GX /O2 /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "_AFXDLL" /D "_MBCS" /Yu"stdafx.h" /c
-# ADD CPP /nologo /MT /W3 /GX /Ot /Oi /Ob1 /Gf /Gy /I ".." /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "_MBCS" /Yu"stdafx.h" /Gs /Gs /c
-CPP_PROJ=/nologo /MT /W3 /GX /Ot /Oi /Ob1 /Gf /Gy /I ".." /D "WIN32" /D\
- "NDEBUG" /D "_WINDOWS" /D "_MBCS" /Fp"$(INTDIR)/Prime95.pch" /Yu"stdafx.h"\
- /Fo"$(INTDIR)/" /Gs /Gs /c 
+# ADD CPP /nologo /MT /W3 /GX /O2 /I ".." /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "_MBCS" /Yu"stdafx.h" /Gs /Gs /c
+CPP_PROJ=/nologo /MT /W3 /GX /O2 /I ".." /D "WIN32" /D "NDEBUG" /D "_WINDOWS"\
+ /D "_MBCS" /Fp"$(INTDIR)/Prime95.pch" /Yu"stdafx.h" /Fo"$(INTDIR)/" /Gs /Gs /c 
 CPP_OBJS=.\Release/
 CPP_SBRS=
 # ADD BASE MTL /nologo /D "NDEBUG" /win32
@@ -95,23 +94,23 @@ BSC32_FLAGS=/nologo /o"$(OUTDIR)/Prime95.bsc"
 BSC32_SBRS=
 LINK32=link.exe
 # ADD BASE LINK32 /nologo /subsystem:windows /machine:I386
-# ADD LINK32 ../prime95/mult.obj ../prime95/mult1.obj ../prime95/mult1aux.obj ../prime95/mult2.obj ../prime95/mult2a.obj ../prime95/mult2aux.obj ../prime95/mult3.obj ../prime95/mult3a.obj ../prime95/mult3aux.obj ../prime95/mult3auq.obj ../prime95/mult4.obj ../prime95/mult4a.obj ../prime95/mult4b.obj ../prime95/mult1p.obj ../prime95/mult2p.obj ../prime95/mult2ap.obj ../prime95/mult3p.obj ../prime95/mult3ap.obj ../prime95/mult4p.obj ../prime95/mult4ap.obj ../prime95/mult4bp.obj ../prime95/mult4aux.obj ../prime95/mult4auq.obj ../prime95/mult3q.obj ../prime95/mult3aq.obj ../prime95/mult4q.obj ../prime95/mult4aq.obj ../prime95/mult4bq.obj ../prime95/ecmhelp.obj ../prime95/xmult1.obj ../prime95/xmult1ax.obj ../prime95/xmult2.obj ../prime95/xmult2a.obj ../prime95/xmult2ax.obj ../prime95/xmult3.obj ../prime95/xmult3a.obj ../prime95/xmult3ax.obj /nologo /subsystem:windows /map /machine:I386
+# ADD LINK32 ../prime95/cpuid.obj ../prime95/mult.obj ../prime95/mult1.obj ../prime95/mult1aux.obj ../prime95/mult2.obj ../prime95/mult2a.obj ../prime95/mult2aux.obj ../prime95/mult3.obj ../prime95/mult3a.obj ../prime95/mult3aux.obj ../prime95/mult3auq.obj ../prime95/mult4.obj ../prime95/mult4a.obj ../prime95/mult4b.obj ../prime95/mult1p.obj ../prime95/mult2p.obj ../prime95/mult2ap.obj ../prime95/mult3p.obj ../prime95/mult3ap.obj ../prime95/mult4p.obj ../prime95/mult4ap.obj ../prime95/mult4bp.obj ../prime95/mult4aux.obj ../prime95/mult4auq.obj ../prime95/mult3q.obj ../prime95/mult3aq.obj ../prime95/mult4q.obj ../prime95/mult4aq.obj ../prime95/mult4bq.obj ../prime95/ecmhelp.obj ../prime95/xmult1.obj ../prime95/xmult1ax.obj ../prime95/xmult2.obj ../prime95/xmult2a.obj ../prime95/xmult2ax.obj ../prime95/xmult3.obj ../prime95/xmult3a.obj ../prime95/xmult3ax.obj /nologo /subsystem:windows /map /machine:I386
 # SUBTRACT LINK32 /debug
-LINK32_FLAGS=../prime95/mult.obj ../prime95/mult1.obj ../prime95/mult1aux.obj\
- ../prime95/mult2.obj ../prime95/mult2a.obj ../prime95/mult2aux.obj\
- ../prime95/mult3.obj ../prime95/mult3a.obj ../prime95/mult3aux.obj\
- ../prime95/mult3auq.obj ../prime95/mult4.obj ../prime95/mult4a.obj\
- ../prime95/mult4b.obj ../prime95/mult1p.obj ../prime95/mult2p.obj\
- ../prime95/mult2ap.obj ../prime95/mult3p.obj ../prime95/mult3ap.obj\
- ../prime95/mult4p.obj ../prime95/mult4ap.obj ../prime95/mult4bp.obj\
- ../prime95/mult4aux.obj ../prime95/mult4auq.obj ../prime95/mult3q.obj\
- ../prime95/mult3aq.obj ../prime95/mult4q.obj ../prime95/mult4aq.obj\
- ../prime95/mult4bq.obj ../prime95/ecmhelp.obj ../prime95/xmult1.obj\
- ../prime95/xmult1ax.obj ../prime95/xmult2.obj ../prime95/xmult2a.obj\
- ../prime95/xmult2ax.obj ../prime95/xmult3.obj ../prime95/xmult3a.obj\
- ../prime95/xmult3ax.obj /nologo /subsystem:windows /incremental:no\
- /pdb:"$(OUTDIR)/Prime95.pdb" /map:"$(INTDIR)/Prime95.map" /machine:I386\
- /out:"$(OUTDIR)/Prime95.exe" 
+LINK32_FLAGS=../prime95/cpuid.obj ../prime95/mult.obj ../prime95/mult1.obj\
+ ../prime95/mult1aux.obj ../prime95/mult2.obj ../prime95/mult2a.obj\
+ ../prime95/mult2aux.obj ../prime95/mult3.obj ../prime95/mult3a.obj\
+ ../prime95/mult3aux.obj ../prime95/mult3auq.obj ../prime95/mult4.obj\
+ ../prime95/mult4a.obj ../prime95/mult4b.obj ../prime95/mult1p.obj\
+ ../prime95/mult2p.obj ../prime95/mult2ap.obj ../prime95/mult3p.obj\
+ ../prime95/mult3ap.obj ../prime95/mult4p.obj ../prime95/mult4ap.obj\
+ ../prime95/mult4bp.obj ../prime95/mult4aux.obj ../prime95/mult4auq.obj\
+ ../prime95/mult3q.obj ../prime95/mult3aq.obj ../prime95/mult4q.obj\
+ ../prime95/mult4aq.obj ../prime95/mult4bq.obj ../prime95/ecmhelp.obj\
+ ../prime95/xmult1.obj ../prime95/xmult1ax.obj ../prime95/xmult2.obj\
+ ../prime95/xmult2a.obj ../prime95/xmult2ax.obj ../prime95/xmult3.obj\
+ ../prime95/xmult3a.obj ../prime95/xmult3ax.obj /nologo /subsystem:windows\
+ /incremental:no /pdb:"$(OUTDIR)/Prime95.pdb" /map:"$(INTDIR)/Prime95.map"\
+ /machine:I386 /out:"$(OUTDIR)/Prime95.exe" 
 LINK32_OBJS= \
 	"$(INTDIR)/AffinityDlg.obj" \
 	"$(INTDIR)/PreferencesDlg.obj" \
@@ -175,8 +174,8 @@ CLEAN :
     if not exist "$(OUTDIR)/$(NULL)" mkdir "$(OUTDIR)"
 
 # ADD BASE CPP /nologo /MDd /W3 /Gm /GX /Zi /Od /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /D "_AFXDLL" /D "_MBCS" /Yu"stdafx.h" /c
-# ADD CPP /nologo /MDd /W3 /Gm /GX /Zi /Ot /Oi /I ".." /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /D "_AFXDLL" /D "_MBCS" /D "GDEBUG" /Yu"stdafx.h" /c
-CPP_PROJ=/nologo /MDd /W3 /Gm /GX /Zi /Ot /Oi /I ".." /D "WIN32" /D "_DEBUG" /D\
+# ADD CPP /nologo /MDd /W3 /Gm /GX /Zi /O2 /I ".." /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /D "_AFXDLL" /D "_MBCS" /D "GDEBUG" /Yu"stdafx.h" /c
+CPP_PROJ=/nologo /MDd /W3 /Gm /GX /Zi /O2 /I ".." /D "WIN32" /D "_DEBUG" /D\
  "_WINDOWS" /D "_AFXDLL" /D "_MBCS" /D "GDEBUG" /Fp"$(INTDIR)/Prime95.pch"\
  /Yu"stdafx.h" /Fo"$(INTDIR)/" /Fd"$(INTDIR)/" /c 
 CPP_OBJS=.\Debug/
@@ -194,21 +193,22 @@ BSC32_FLAGS=/nologo /o"$(OUTDIR)/Prime95.bsc"
 BSC32_SBRS=
 LINK32=link.exe
 # ADD BASE LINK32 /nologo /subsystem:windows /debug /machine:I386
-# ADD LINK32 ../prime95/mult.obj ../prime95/mult1.obj ../prime95/mult1aux.obj ../prime95/mult2.obj ../prime95/mult2a.obj ../prime95/mult2aux.obj ../prime95/mult3.obj ../prime95/mult3a.obj ../prime95/mult3aux.obj ../prime95/mult3auq.obj ../prime95/mult4.obj ../prime95/mult4a.obj ../prime95/mult4b.obj ../prime95/mult1p.obj ../prime95/mult2p.obj ../prime95/mult2ap.obj ../prime95/mult3p.obj ../prime95/mult3ap.obj ../prime95/mult4p.obj ../prime95/mult4ap.obj ../prime95/mult4bp.obj ../prime95/mult4aux.obj ../prime95/mult4auq.obj ../prime95/mult3q.obj ../prime95/mult3aq.obj ../prime95/mult4q.obj ../prime95/mult4aq.obj ../prime95/mult4bq.obj ../prime95/ecmhelp.obj ../prime95/xmult1.obj ../prime95/xmult1ax.obj ../prime95/xmult2.obj ../prime95/xmult2a.obj ../prime95/xmult2ax.obj ../prime95/xmult3.obj ../prime95/xmult3a.obj ../prime95/xmult3ax.obj /nologo /subsystem:windows /debug /machine:I386
-LINK32_FLAGS=../prime95/mult.obj ../prime95/mult1.obj ../prime95/mult1aux.obj\
- ../prime95/mult2.obj ../prime95/mult2a.obj ../prime95/mult2aux.obj\
- ../prime95/mult3.obj ../prime95/mult3a.obj ../prime95/mult3aux.obj\
- ../prime95/mult3auq.obj ../prime95/mult4.obj ../prime95/mult4a.obj\
- ../prime95/mult4b.obj ../prime95/mult1p.obj ../prime95/mult2p.obj\
- ../prime95/mult2ap.obj ../prime95/mult3p.obj ../prime95/mult3ap.obj\
- ../prime95/mult4p.obj ../prime95/mult4ap.obj ../prime95/mult4bp.obj\
- ../prime95/mult4aux.obj ../prime95/mult4auq.obj ../prime95/mult3q.obj\
- ../prime95/mult3aq.obj ../prime95/mult4q.obj ../prime95/mult4aq.obj\
- ../prime95/mult4bq.obj ../prime95/ecmhelp.obj ../prime95/xmult1.obj\
- ../prime95/xmult1ax.obj ../prime95/xmult2.obj ../prime95/xmult2a.obj\
- ../prime95/xmult2ax.obj ../prime95/xmult3.obj ../prime95/xmult3a.obj\
- ../prime95/xmult3ax.obj /nologo /subsystem:windows /incremental:yes\
- /pdb:"$(OUTDIR)/Prime95.pdb" /debug /machine:I386 /out:"$(OUTDIR)/Prime95.exe" 
+# ADD LINK32 ../prime95/cpuid.obj ../prime95/mult.obj ../prime95/mult1.obj ../prime95/mult1aux.obj ../prime95/mult2.obj ../prime95/mult2a.obj ../prime95/mult2aux.obj ../prime95/mult3.obj ../prime95/mult3a.obj ../prime95/mult3aux.obj ../prime95/mult3auq.obj ../prime95/mult4.obj ../prime95/mult4a.obj ../prime95/mult4b.obj ../prime95/mult1p.obj ../prime95/mult2p.obj ../prime95/mult2ap.obj ../prime95/mult3p.obj ../prime95/mult3ap.obj ../prime95/mult4p.obj ../prime95/mult4ap.obj ../prime95/mult4bp.obj ../prime95/mult4aux.obj ../prime95/mult4auq.obj ../prime95/mult3q.obj ../prime95/mult3aq.obj ../prime95/mult4q.obj ../prime95/mult4aq.obj ../prime95/mult4bq.obj ../prime95/ecmhelp.obj ../prime95/xmult1.obj ../prime95/xmult1ax.obj ../prime95/xmult2.obj ../prime95/xmult2a.obj ../prime95/xmult2ax.obj ../prime95/xmult3.obj ../prime95/xmult3a.obj ../prime95/xmult3ax.obj /nologo /subsystem:windows /debug /machine:I386
+LINK32_FLAGS=../prime95/cpuid.obj ../prime95/mult.obj ../prime95/mult1.obj\
+ ../prime95/mult1aux.obj ../prime95/mult2.obj ../prime95/mult2a.obj\
+ ../prime95/mult2aux.obj ../prime95/mult3.obj ../prime95/mult3a.obj\
+ ../prime95/mult3aux.obj ../prime95/mult3auq.obj ../prime95/mult4.obj\
+ ../prime95/mult4a.obj ../prime95/mult4b.obj ../prime95/mult1p.obj\
+ ../prime95/mult2p.obj ../prime95/mult2ap.obj ../prime95/mult3p.obj\
+ ../prime95/mult3ap.obj ../prime95/mult4p.obj ../prime95/mult4ap.obj\
+ ../prime95/mult4bp.obj ../prime95/mult4aux.obj ../prime95/mult4auq.obj\
+ ../prime95/mult3q.obj ../prime95/mult3aq.obj ../prime95/mult4q.obj\
+ ../prime95/mult4aq.obj ../prime95/mult4bq.obj ../prime95/ecmhelp.obj\
+ ../prime95/xmult1.obj ../prime95/xmult1ax.obj ../prime95/xmult2.obj\
+ ../prime95/xmult2a.obj ../prime95/xmult2ax.obj ../prime95/xmult3.obj\
+ ../prime95/xmult3a.obj ../prime95/xmult3ax.obj /nologo /subsystem:windows\
+ /incremental:yes /pdb:"$(OUTDIR)/Prime95.pdb" /debug /machine:I386\
+ /out:"$(OUTDIR)/Prime95.exe" 
 LINK32_OBJS= \
 	"$(INTDIR)/Priority.obj" \
 	"$(INTDIR)/CpuDlg.obj" \
@@ -302,7 +302,6 @@ DEP_CPP_PRIME=\
 	".\Prime95View.h"\
 	".\EditDropFiles.h"\
 	".\..\cpuid.h"\
-	".\..\speed.h"\
 	".\..\gwnum.h"\
 	".\..\prp.h"\
 	".\..\prp95.h"\
@@ -328,9 +327,9 @@ DEP_CPP_STDAF=\
 # ADD CPP /Yc"stdafx.h"
 
 BuildCmds= \
-	$(CPP) /nologo /MT /W3 /GX /Ot /Oi /Ob1 /Gf /Gy /I ".." /D "WIN32" /D "NDEBUG"\
- /D "_WINDOWS" /D "_MBCS" /Fp"$(INTDIR)/Prime95.pch" /Yc"stdafx.h"\
- /Fo"$(INTDIR)/" /Gs /Gs /c $(SOURCE) \
+	$(CPP) /nologo /MT /W3 /GX /O2 /I ".." /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D\
+ "_MBCS" /Fp"$(INTDIR)/Prime95.pch" /Yc"stdafx.h" /Fo"$(INTDIR)/" /Gs /Gs /c\
+ $(SOURCE) \
 	
 
 "$(INTDIR)\StdAfx.obj" : $(SOURCE) $(DEP_CPP_STDAF) "$(INTDIR)"
@@ -344,7 +343,7 @@ BuildCmds= \
 # ADD CPP /Yc"stdafx.h"
 
 BuildCmds= \
-	$(CPP) /nologo /MDd /W3 /Gm /GX /Zi /Ot /Oi /I ".." /D "WIN32" /D "_DEBUG" /D\
+	$(CPP) /nologo /MDd /W3 /Gm /GX /Zi /O2 /I ".." /D "WIN32" /D "_DEBUG" /D\
  "_WINDOWS" /D "_AFXDLL" /D "_MBCS" /D "GDEBUG" /Fp"$(INTDIR)/Prime95.pch"\
  /Yc"stdafx.h" /Fo"$(INTDIR)/" /Fd"$(INTDIR)/" /c $(SOURCE) \
 	
@@ -383,7 +382,6 @@ DEP_CPP_MAINF=\
 	".\MainFrm.h"\
 	".\EditDropFiles.h"\
 	".\..\cpuid.h"\
-	".\..\speed.h"\
 	".\..\gwnum.h"\
 	".\..\prp.h"\
 	".\..\prp95.h"\
@@ -416,12 +414,12 @@ DEP_CPP_PRIME9=\
 	".\TestDlg.h"\
 	{$(INCLUDE)}"\sys\Timeb.h"\
 	".\..\cpuid.c"\
-	".\..\speed.c"\
 	".\..\giants.h"\
 	".\..\giants.c"\
 	".\..\gwnum.c"\
 	".\..\prp.c"\
 	".\..\prp95.c"\
+	".\..\fftsg.c"\
 	
 
 "$(INTDIR)\Prime95Doc.obj" : $(SOURCE) $(DEP_CPP_PRIME9) "$(INTDIR)"\
@@ -443,7 +441,6 @@ DEP_CPP_PRIME9=\
 	".\TestDlg.h"\
 	{$(INCLUDE)}"\sys\Timeb.h"\
 	".\..\cpuid.c"\
-	".\..\speed.c"\
 	".\..\giants.h"\
 	".\..\giants.c"\
 	".\..\gwnum.c"\
@@ -451,10 +448,10 @@ DEP_CPP_PRIME9=\
 	".\..\prp95.c"\
 	".\EditDropFiles.h"\
 	".\..\cpuid.h"\
-	".\..\speed.h"\
 	".\..\gwnum.h"\
 	".\..\prp.h"\
 	".\..\prp95.h"\
+	".\..\fftsg.c"\
 	
 
 "$(INTDIR)\Prime95Doc.obj" : $(SOURCE) $(DEP_CPP_PRIME9) "$(INTDIR)"\
@@ -491,7 +488,6 @@ DEP_CPP_PRIME95=\
 	".\Prime95View.h"\
 	".\EditDropFiles.h"\
 	".\..\cpuid.h"\
-	".\..\speed.h"\
 	".\..\gwnum.h"\
 	".\..\prp.h"\
 	".\..\prp95.h"\
@@ -529,27 +525,27 @@ SOURCE=.\hlp\Prime95.hpj
 !IF  "$(CFG)" == "Prime95 - Win32 Release"
 
 # Begin Custom Build - Making help file...
-OutDir=.\Release
-ProjDir=.
-TargetName=Prime95
-InputPath=.\hlp\Prime95.hpj
-
-"$(OutDir)\$(TargetName).hlp" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
-   "$(ProjDir)\makehelp.bat"
-
+#OutDir=.\Release
+#ProjDir=.
+#TargetName=Prime95
+#InputPath=.\hlp\Prime95.hpj
+#
+#"$(OutDir)\$(TargetName).hlp" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+#   "$(ProjDir)\makehelp.bat"
+#
 # End Custom Build
 
 !ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
 
 # Begin Custom Build - Making help file...
-OutDir=.\Debug
-ProjDir=.
-TargetName=Prime95
-InputPath=.\hlp\Prime95.hpj
-
-"$(OutDir)\$(TargetName).hlp" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
-   "$(ProjDir)\makehelp.bat"
-
+#OutDir=.\Debug
+#ProjDir=.
+#TargetName=Prime95
+#InputPath=.\hlp\Prime95.hpj
+#
+#"$(OutDir)\$(TargetName).hlp" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+#   "$(ProjDir)\makehelp.bat"
+#
 # End Custom Build
 
 !ENDIF 
@@ -580,7 +576,6 @@ DEP_CPP_CPUDL=\
 	".\CpuDlg.h"\
 	".\EditDropFiles.h"\
 	".\..\cpuid.h"\
-	".\..\speed.h"\
 	".\..\gwnum.h"\
 	".\..\prp.h"\
 	".\..\prp95.h"\
@@ -618,7 +613,6 @@ DEP_CPP_PREFE=\
 	".\PreferencesDlg.h"\
 	".\EditDropFiles.h"\
 	".\..\cpuid.h"\
-	".\..\speed.h"\
 	".\..\gwnum.h"\
 	".\..\prp.h"\
 	".\..\prp95.h"\
@@ -656,7 +650,6 @@ DEP_CPP_TESTD=\
 	".\TestDlg.h"\
 	".\EditDropFiles.h"\
 	".\..\cpuid.h"\
-	".\..\speed.h"\
 	".\..\gwnum.h"\
 	".\..\prp.h"\
 	".\..\prp95.h"\
@@ -694,7 +687,6 @@ DEP_CPP_PRIOR=\
 	".\Priority.h"\
 	".\EditDropFiles.h"\
 	".\..\cpuid.h"\
-	".\..\speed.h"\
 	".\..\gwnum.h"\
 	".\..\prp.h"\
 	".\..\prp95.h"\
@@ -732,7 +724,6 @@ DEP_CPP_AFFIN=\
 	".\AffinityDlg.h"\
 	".\EditDropFiles.h"\
 	".\..\cpuid.h"\
-	".\..\speed.h"\
 	".\..\gwnum.h"\
 	".\..\prp.h"\
 	".\..\prp95.h"\
@@ -768,7 +759,6 @@ DEP_CPP_EDITD=\
 	".\Prime95.h"\
 	".\EditDropFiles.h"\
 	".\..\cpuid.h"\
-	".\..\speed.h"\
 	".\..\gwnum.h"\
 	".\..\prp.h"\
 	".\..\prp95.h"\
@@ -806,7 +796,6 @@ DEP_CPP_CONTE=\
 	".\ContentsDlg.h"\
 	".\EditDropFiles.h"\
 	".\..\cpuid.h"\
-	".\..\speed.h"\
 	".\..\gwnum.h"\
 	".\..\prp.h"\
 	".\..\prp95.h"\

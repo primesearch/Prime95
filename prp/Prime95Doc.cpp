@@ -294,40 +294,11 @@ void CPrime95Doc::OnAffinity()
 void CPrime95Doc::OnCpu() 
 {
 	CCpuDlg dlg;
+	char	buf[512];
 
-	dlg.m_speed = CPU_SPEED;
-	dlg.m_cpu_type =
-		(CPU_TYPE == 12) ? 0 :
-		(CPU_TYPE == 10) ? 1 : (CPU_TYPE == 9) ? 2 :
-		(CPU_TYPE == 8) ? 3 : (CPU_TYPE == 6) ? 4 :
-		(CPU_TYPE == 5) ? 5 : (CPU_TYPE == 4) ? 6 :
-		(CPU_TYPE == 11) ? 7 : (CPU_TYPE == 7) ? 8 : 9;
+	getCpuDescription (buf, 0);
+	dlg.m_cpu_info = buf;
 	if (dlg.DoModal () == IDOK) {
-		int	new_cpu_type;
-		new_cpu_type =  (dlg.m_cpu_type == 0) ? 12 :
-				(dlg.m_cpu_type == 1) ? 10 :
-				(dlg.m_cpu_type == 2) ? 9 :
-				(dlg.m_cpu_type == 3) ? 8 :
-				(dlg.m_cpu_type == 4) ? 6 :
-				(dlg.m_cpu_type == 5) ? 5 :
-				(dlg.m_cpu_type == 6) ? 4 :
-				(dlg.m_cpu_type == 7) ? 11 :
-				(dlg.m_cpu_type == 8) ? 7 : 3;
-
-/* Prevent crashes caused by changing to or from Pentium 4 CPU type */
-/* in mid execution. */
-
-		if ((CPU_TYPE >= 12 && new_cpu_type < 12) ||
-		    (CPU_TYPE < 12 && new_cpu_type >= 12))
-			Restart1 ();
-
-		CPU_TYPE = new_cpu_type;
-		IniWriteInt (INI_FILE, "CPUType", CPU_TYPE);
-		CPU_SPEED = dlg.m_speed;
-		IniWriteInt (INI_FILE, "CPUSpeed", CPU_SPEED);
-		setCpuFlags ();
-
-		Restart2 ();
 	}
 }
 
@@ -396,9 +367,14 @@ void CPrime95Doc::OnHide()
 	IniWriteInt (INI_FILE, "TrayIcon", TRAY_ICON);
 }
 
+// When running as an NT service we can delete the service (it will take
+// effect when the service is stopped), but we cannot recreate the service
+// until the next time prime95 is run.  Thus, disable this menu choice once
+// an NT service has turned this option off.
+
 void CPrime95Doc::OnUpdateService(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (isWindows95 ());
+	pCmdUI->Enable (!NTSERVICENAME[0] || WINDOWS95_SERVICE);
 	pCmdUI->SetCheck (WINDOWS95_SERVICE);
 }
 
@@ -533,10 +509,8 @@ void CPrime95Doc::ReplaceableLine (
 /////////////////////////////////////////////////////////////////////////////
 // CPrime95Doc public routines
 
-#include "cpuid.c"
-#include "speed.c"
-
 #define PORT	1
+#include "cpuid.c"
 #include "giants.h"
 #include "giants.c"
 #include "gwnum.c"

@@ -1,4 +1,4 @@
-/* Copyright 1995-2000 Just For Fun Software, Inc. */
+/* Copyright 1995-2002 Just For Fun Software, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -29,6 +29,8 @@
 
 /* Globals */
 
+#define OPEN_MAX 20
+
 #ifdef MPRIME_LOADAVG
 #define LINUX_LDAV_FILE "/proc/loadavg"
 int volatile SLEEP_STOP = 0;
@@ -55,6 +57,7 @@ int MENUING = 0;
 #define PORT	7
 #endif
 
+#include "cpuid.c"
 #include "giants.c"
 #include "gwnum.c"
 #include "prp.c"
@@ -376,28 +379,6 @@ void OutputStr (char *buf)
 	if (VERBOSE || MENUING) printf ("%s", buf);
 }
 
-void guessCpuType ()
-{
-	FILE	*fd;
-	char	buf[80];
-
-	CPU_TYPE = isPentiumPro () ? 6 : isPentium () ? 5 : 4;
-	CPU_SPEED = 100;
-	fd = fopen ("/proc/cpuinfo", "r");
-	if (fd == NULL) return;
-	for ( ; ; ) {
-		double	speed;
-		if (fscanf (fd, "%s", buf) == EOF) break;
-		if (strcmp (buf, "MHz") == 0) {
-			fscanf (fd, " : %lf", &speed);
-			if (speed > 25.0 && speed < 10000.0)
-				CPU_SPEED = (unsigned long) (speed + 0.5);
-			break;
-		}
-	}
-	fclose (fd);
-}
-
 void Sleep (
 	long	ms) 
 {
@@ -423,7 +404,7 @@ void ChangeIcon (int x)
 {
 }
 
-void ReplacableLine (int x)
+void ReplaceableLine (int x)
 {
 }
 
@@ -478,4 +459,44 @@ void linuxContinue (
 ok:	IniWriteInt (INI_FILE, "Pid", my_pid);
 	primeContinue ();
 	IniWriteInt (INI_FILE, "Pid", 0);
+}
+
+/* Routines to access the high resolution performance counter */
+/* In Linux, I've read that gettimeofday is the most accurate counter */
+
+int isHighResTimerAvailable (void)
+{
+	struct timeval start, end;
+	struct timezone tz;
+	int	i;
+
+/* Return true if gettimeofday is more accurate than 1/10 millisecond. */
+/* Try 10 times to see if gettimeofday returns two values less than */
+/* 100 microseconds apart. */
+
+	for (i = 0; i < 10; i++) {
+		gettimeofday (&start, &tz);
+		for ( ; ; ) {
+			gettimeofday (&end, &tz);
+			if (start.tv_sec != end.tv_sec) break;
+			if (start.tv_usec == end.tv_usec) continue;
+			if (end.tv_usec - start.tv_usec < 100) return (TRUE);
+			continue;
+		}
+	}
+	return (FALSE);
+}
+
+double getHighResTimer (void)
+{
+	struct timeval x;
+	struct timezone tz;
+
+	gettimeofday (&x, &tz);
+	return ((double) x.tv_sec * 1000000.0 + (double) x.tv_usec);
+}
+
+double getHighResTimerFrequency (void)
+{
+	return (1000000.0);
 }

@@ -45,6 +45,14 @@ typedef struct
 
 typedef giantstruct *giant;
 
+#ifdef GDEBUG
+#define ASSERTG		ASSERT
+#define setmaxsize(g,s)	(g)->maxsize = s
+#else
+#define ASSERTG(a)
+#define setmaxsize(g,s)
+#endif
+
 /**************************************************************
  *
  * Function Prototypes
@@ -169,8 +177,8 @@ void	make_recip(giant d, giant r);
 /* n := [n/d], d positive, using stored reciprocal directly. */
 void	divg_via_recip(giant d, giant r, giant n);
 
-/* stack handling functions. */
-static giant	popg(int);	/* Number of longs in data area */
-static void	pushg(int);	/* Number of items to return to stack */
+/* stack handling functions */
+giant	popg(int);	/* Number of longs in data area */
+void	pushg(int);	/* Number of items to return to stack */
 
 #endif

@@ -1,4 +1,4 @@
-/* Copyright 1995-2000 Just For Fun Software, Inc. */
+/* Copyright 1995-2002 Just For Fun Software, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -224,38 +224,12 @@ void advanced_priority ()
 
 void options_cpu ()
 {
-	unsigned long m_cpu_type, m_speed;
+	char buf[512];
 
-	m_cpu_type =
-		(CPU_TYPE == 10) ? 0 : (CPU_TYPE == 9) ? 1 :
-		(CPU_TYPE == 8) ? 2 : (CPU_TYPE == 6) ? 3 :
-		(CPU_TYPE == 5) ? 4 : (CPU_TYPE == 4) ? 5 :
-		(CPU_TYPE == 11) ? 6 : (CPU_TYPE == 7) ? 7 : 8;
-	m_speed = CPU_SPEED;
+	getCpuDescription (buf, 0);
+	printf ("CPU Information:\n%s\n", buf);
 
-	m_cpu_type++;
-	/*if (isPentiumPro ()) limit = 9;
-	else if (isPentium ()) limit = 5;
-	else limit = 2;*/
-	printf ("CPU Type, 1=Pentium III, 2=Pentium II, 3=Celeron,\n");
-	printf ("          4=Pentium Pro, 5=Pentium, 6=486,\n");
-	askNum ("          7=AMD Athlon, 8=AMD K6, 9 = Cyrix", &m_cpu_type, 1, 9);
-	m_cpu_type--;
-	askNum ("CPU speed in MHz", &m_speed, 25, 1000);
-
-	if (askOkCancel ()) {
-		CPU_TYPE = (m_cpu_type == 0) ? 10 :
-			   (m_cpu_type == 1) ? 9 :
-			   (m_cpu_type == 2) ? 8 :
-			   (m_cpu_type == 3) ? 6 :
-			   (m_cpu_type == 4) ? 5 :
-			   (m_cpu_type == 5) ? 4 :
-			   (m_cpu_type == 6) ? 11 :
-			   (m_cpu_type == 7) ? 7 : 3;
-		CPU_SPEED = m_speed;
-		IniWriteInt (INI_FILE, "CPUType", CPU_TYPE);
-		IniWriteInt (INI_FILE, "CPUSpeed", CPU_SPEED);
-	}
+	askOK ();
 }
 
 /* Options/Preferences dialog */
@@ -293,7 +267,7 @@ void options_preferences ()
 void help_about ()
 {
 	printf ("Probable Prime Program - Version %s.2\n", VERSION);
-	printf ("Copyright 2000 Just For Fun Software, Inc.\n");
+	printf ("Copyright 2000-2002 Just For Fun Software, Inc.\n");
 	printf ("Author: George Woltman\n");
 	printf ("Email:  woltman@alum.mit.edu\n");
 	askOK ();

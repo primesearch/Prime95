@@ -76,6 +76,7 @@ void ecm_setup1 (
 /* unnormalized adds.  This is especially severe in the choose12 code. */
 
 	MAXDIFF *= 4.0;
+	MAXDIFF *= IniGetInt (INI_FILE, "MaxDiffMultiplier", 1);
 }
 
 /* Perform setup functions, part 2. */
@@ -980,7 +981,7 @@ int gcd (
 
 /* If a factor was found, save it in FAC */
 
-	if (retval && ! isone (v)) {
+	if (retval && ! isone (v) && gcompg (N, v)) {
 		FAC = newgiant ((bitlen (v) >> 4) + 1);
 		gtog (v, FAC);
 	}
@@ -1483,7 +1484,8 @@ int isProbablePrime (void)
 
 int printFactor (void)
 {
-	char	msg[250], buf[200];
+	int	msglen;
+	char	*msg;
 
 	if (!testFactor (FAC)) {
 		OutputBoth ("ERROR: Factor doesn't divide N!\n");
@@ -1491,11 +1493,15 @@ int printFactor (void)
 		return (FALSE);
 	}
 
-	gtoc (FAC, buf, sizeof (buf));
+	msglen = FAC->sign * 10 + 80;
+	msg = (char *) malloc (msglen);
 	msg[0] = PLUS1 ? 'P' : 'M';
-	sprintf (msg+1, "%ld has a factor: %s\n", PARG, buf);
+	sprintf (msg+1, "%ld has a factor: ", PARG);
+	gtoc (FAC, msg+strlen(msg), msglen);
+	strcat (msg, "\n");
 	OutputBoth (msg);
 	spoolMessage (PRIMENET_RESULT_MESSAGE, msg);
+	free (msg);
 
 	if (PARG < 10000) {
 		divg (FAC, N);
@@ -1543,8 +1549,10 @@ void choose_stage2_plan (
 
 /* Figure out how many gwnum values fit in our MB limit */
 
-	memory = (memory << 20) - map_fftlen_to_memused (FFTLEN, PLUS1);
-	numvals = memory / gwnum_size (FFTLEN);
+	numvals = (unsigned long)
+			(((double) memory * 1000000.0 -
+			  (double) map_fftlen_to_memused (FFTLEN, PLUS1)) /
+			 (double) gwnum_size (FFTLEN));
 
 /* If memory is really tight, then the 4 FFT - O(n^2) pooling is the */
 /* most memory efficient ECM implementation.  Note: D=30 (8 nQx values) */
@@ -1698,8 +1706,9 @@ int read_gwnum (
 	giant	tmp;
 	long	i, len, bytes;
 
-	tmp = popg ((PARG >> 5) + 1);
 	if (_read (fd, &len, sizeof (long)) != sizeof (long)) return (FALSE);
+	if (len == 0) return (FALSE);
+	tmp = popg ((PARG >> 5) + 1);
 	bytes = len * sizeof (long);
 	if (_read (fd, tmp->n, bytes) != bytes) return (FALSE);
 	tmp->sign = len;
@@ -1721,6 +1730,7 @@ int write_gwnum (
 	tmp = popg ((PARG >> 5) + 1);
 	gwtobinary (g, tmp);
 	len = tmp->sign;
+	if (len == 0) return (FALSE);
 	if (_write (fd, &len, sizeof (long)) != sizeof (long)) return (FALSE);
 	bytes = len * sizeof (long);
 	if (_write (fd, tmp->n, bytes) != bytes) return (FALSE);
@@ -1919,8 +1929,8 @@ int ecm (
 {
 	unsigned int memory;
 	unsigned long sieve_start, SQRT_B, orig_B;
-	double	sigma;
-	unsigned long i, j, m, curve, prime, last_output;
+	double	sigma, last_output;
+	unsigned long i, j, m, curve, prime;
 	char	filename[16], buf[100];
 	int	retval, stage, escaped;
 	long	write_time = DISK_WRITE_TIME * 60;
@@ -1975,7 +1985,8 @@ if (p == 599) {
 if (p == 600) {
 int i, j;
 giant	x, y, z, a, m;
-#define TESTSIZE	400
+#define TESTSIZE	200
+RDTSC_TIMING = 12;
 x = newgiant(2*TESTSIZE); y = newgiant (4*TESTSIZE);
 z = newgiant (4*TESTSIZE), a = newgiant (4*TESTSIZE);
 m = newgiant (2*TESTSIZE);
@@ -1986,7 +1997,7 @@ for (i = 0; i < TESTSIZE; i++) {
 }
 x->n[TESTSIZE-1] &= 0x00FFFFFF;
 m->n[TESTSIZE-1] &= 0x00FFFFFF;
-for (i = TESTSIZE; i >= 360; i--) {
+for (i = TESTSIZE; i >= 40; i--) {
 	x->sign = i;
 	m->sign = i;
 	setmulmode (GRAMMAR_MUL);
@@ -2022,16 +2033,52 @@ for (i = TESTSIZE; i >= 360; i--) {
 	sprintf (buf, "Size: %ld  ", i);
 	OutputStr (buf);
 	OutputStr ("G: ");
-	print_timer (1, TIMER_CLR);
+	print_timer (1, TIMER_MS | TIMER_CLR);
 	OutputStr (", K: ");
-	print_timer (2, TIMER_CLR);
+	print_timer (2, TIMER_MS | TIMER_CLR);
 	OutputStr (", F: ");
-	print_timer (3, TIMER_NL | TIMER_CLR);
+	print_timer (3, TIMER_MS | TIMER_NL | TIMER_CLR);
 	if (gcompg (y, z) != 0)
 		i--;
 	if (gcompg (y, a) != 0)
 		i--;
-	Sleep (200);
+	Sleep (100);
+}
+return 0;
+}
+if (p == 601) {
+int i, j;
+giant	x, a, m;
+#define TESTSIZE	260000
+RDTSC_TIMING = 12;
+x = newgiant(2*TESTSIZE);
+a = newgiant (4*TESTSIZE);
+m = newgiant (2*TESTSIZE);
+srand ((unsigned) time (NULL));
+for (i = 0; i < TESTSIZE; i++) {
+	x->n[i] = (rand () << 17) + rand ();
+	m->n[i] = (rand () << 17) + rand ();
+}
+x->n[TESTSIZE-1] &= 0x00FFFFFF;
+m->n[TESTSIZE-1] &= 0x00FFFFFF;
+for (i = 30; i < TESTSIZE/2; i<<=1) {
+	x->sign = i;
+	m->sign = i;
+	setmulmode (FFT_MUL);
+	for (j = 0; j < 10; j++) {
+		gtog (x, a);
+		start_timer (0);
+		if (B&1) mulg (m, a);
+		else squareg (a);
+		end_timer (0);
+		if (timers[3] == 0 || timers[3] > timers[0]) timers[3] = timers[0];
+		timers[0] = 0;
+	}
+	sprintf (buf, "Size: %ld  ", i);
+	OutputStr (buf);
+	OutputStr (", F: ");
+	print_timer (3, TIMER_NL | TIMER_CLR | TIMER_MS);
+	Sleep (100);
 }
 return 0;
 }
@@ -2045,7 +2092,8 @@ gwsetup (10000000, 0, 0);
 f = (long) malloc (20000000);
 SRCARG = (void *) ((f + 4095) & ~4095);
 memset (SRCARG, 0, 20000000 - 4096);
-        SetThreadPriority (CURRENT_THREAD, THREAD_PRIORITY_TIME_CRITICAL);
+ RDTSC_TIMING = 12;
+    //    SetThreadPriority (CURRENT_THREAD, THREAD_PRIORITY_TIME_CRITICAL);
 for (j = 0; j < 4; j++) {
 	cnt = 0;
 for (i = 1; i <= 200; i++) {
@@ -2081,7 +2129,6 @@ return 0;
 	if (plus1) filename[0]--;
 
 /* Get the current time */
-
 
 	time (&start_time);
 
@@ -2328,7 +2375,7 @@ restart0:
 		sigma = (rand () & 0x1F) * 65536.0 * 65536.0 * 65536.0;
 		sigma += (rand () & 0xFFFF) * 65536.0 * 65536.0;
 		if (CPU_FLAGS & CPU_RDTSC) rdtsc (&hi, &lo);
-		sigma += lo ^ ((unsigned long) rand () << 16);
+		sigma += lo ^ hi ^ ((unsigned long) rand () << 16);
 	} while (sigma <= 5.0);
 	if (specific_sigma > 5.0) sigma = specific_sigma;
 	curve_start_msg (curves_completed + curve, sigma, B, C);
@@ -2362,7 +2409,8 @@ restart1:
 
 /* Print a message every so often */
 
-		if (fft_count >= last_output + 2 * ITER_OUTPUT) {
+		if (ITER_OUTPUT != 999999999 &&
+		    fft_count >= last_output + 2 * ITER_OUTPUT) {
 			sprintf (buf, "At prime %lu.  Time thusfar ", prime);
 			OutputTimeStamp ();
 			OutputStr (buf);
@@ -2395,7 +2443,7 @@ restart1:
 /* Stage 1 complete */
 
 	end_timer (0);
-	sprintf (buf, "Stage 1 complete. %lu transforms, %lu modular inverses. Time: ",
+	sprintf (buf, "Stage 1 complete. %.0f transforms, %lu modular inverses. Time: ",
 		 fft_count, modinv_count);
 	OutputStr (buf);
 	print_timer (0, TIMER_NL | TIMER_CLR);
@@ -2424,6 +2472,61 @@ restart1:
 		OutputStr ("Stage 1 GCD complete. Time: ");
 		print_timer (0, TIMER_NL | TIMER_CLR);
 		if (FAC != NULL) goto bingo;
+
+/* Alexander Kruppa wrote this code to normalize and output the x value */
+/* along with N and sigma so that it can be used in Paul Zimmermann's */
+/* superior GMP-ECM implementation of stage 2. */
+
+		if (IniGetInt (INI_FILE, "GmpEcmHook", 0)) {
+			char	*msg, *buf;
+			int	msglen, i;
+			giant	gx;
+			char	*hex = "0123456789ABCDEF";
+
+			normalize (x, z);
+
+			gx = popg ((PARG >> 5) + 1);
+			gwtobinary (x, gx);
+			modg (N, gx); // thus gx->sign >= 0
+
+			msglen = N->sign * 8 + 5;
+			buf = (char *) malloc (msglen + msglen + 80);
+			if (buf != NULL) {
+				strcpy (buf, "N=");
+				msg = buf + strlen (buf);
+				for (i = 0; i < N->sign * 8; i++) {
+				  msg[i+2] = hex[ ( N->n[N->sign - 1 - i/8] 
+				                    >> ((7-i%8)*4)
+				                  ) & 0xF ];
+				}
+				msg[i+2] = 0;
+				for (i = 0; i < N->sign * 8 - 1; i++)
+				  if (msg[i+2] != '0') break;
+				msg[i] = '0'; msg[i+1] = 'x';
+				strcpy (msg, msg+i);
+				strcat (buf, "; QX=");
+				msg = buf + strlen (buf);
+				for (i = 0; i < gx->sign * 8; i++) {
+				  msg[i+2] = hex[ ( gx->n[gx->sign - 1 - i/8] 
+				                    >> ((7-i%8)*4)  
+				                  ) & 0xF ];
+				}
+				msg[2+i] = 0;
+				for (i = 0; i < gx->sign * 8 - 1; i++)
+				  if (msg[i+2] != '0') break;
+				msg[i] = '0'; msg[i+1] = 'x';
+				strcpy (msg, msg+i);
+				strcat (buf, "; SIGMA=");
+				msg = buf + strlen (buf);
+				sprintf (msg, "%.0f\n", sigma);
+				writeResults (buf);
+				free (buf);
+			}
+			pushg (1);
+		}
+
+/* Now do the next ECM curve */
+
 		goto more_curves;
 	}
 
@@ -2564,7 +2667,7 @@ restart3:
 /* Initialization of stage 2 complete */
 
 	end_timer (0);
-	sprintf (buf, "Stage 2 init complete. %lu transforms, %lu modular inverses. Time: ",
+	sprintf (buf, "Stage 2 init complete. %.0f transforms, %lu modular inverses. Time: ",
 		 fft_count, modinv_count);
 	OutputStr (buf);
 	print_timer (0, TIMER_NL | TIMER_CLR);
@@ -2640,7 +2743,8 @@ restart3:
 
 /* Print a message every so often */
 
-		if (fft_count >= last_output + 2 * ITER_OUTPUT) {
+		if (ITER_OUTPUT != 999999999 &&
+		    fft_count >= last_output + 2 * ITER_OUTPUT) {
 			sprintf (buf, "At prime %lu.  Time thusfar ", prime);
 			OutputTimeStamp ();
 			OutputStr (buf);
@@ -2679,7 +2783,7 @@ restart3:
 /* Stage 2 is complete */
 
 	end_timer (0);
-	sprintf (buf, "Stage 2 complete. %lu transforms, %lu modular inverses. Time: ",
+	sprintf (buf, "Stage 2 complete. %.0f transforms, %lu modular inverses. Time: ",
 		 fft_count, modinv_count);
 	OutputStr (buf);
 	print_timer (0, TIMER_NL | TIMER_CLR);
@@ -2748,6 +2852,7 @@ bingo:	sprintf (buf, "ECM found a factor in curve #%ld, stage #%d\n",
 		_unlink (filename);
 		free (FAC);
 		FAC = NULL;
+		retval = TRUE;
 		goto exit;
 	}
 	clear_timer (0);
@@ -2757,6 +2862,7 @@ bingo:	sprintf (buf, "ECM found a factor in curve #%ld, stage #%d\n",
 		_unlink (filename);
 		free (FAC);
 		FAC = NULL;
+		retval = TRUE;
 		goto exit;
 	}
 
@@ -2793,15 +2899,26 @@ void pm1_setup1 (
 	unsigned long p,
 	int	type)
 {
+	unsigned long fftlen;
 
 /* Setup the assembly code */
 
-	gwsetup (p, 0, type);
+	fftlen = (type == GW_MERSENNE_MOD) ?
+		advanced_map_exponent_to_fftlen (p) : 0;
+	gwsetup (p, fftlen, type);
 	modinv_count = 0;
 	N = NULL;
 	nQx = NULL;
 	eQx = NULL;
 	pairings = NULL;
+
+/* A kludge so that the error checking code is not as strict.  The correct */
+/* implementation would have the normalize code after each multiplication */
+/* take into account any input arguments that were the result of
+/* unnormalized adds. */
+
+	MAXDIFF *= 4.0;
+	MAXDIFF *= IniGetInt (INI_FILE, "MaxDiffMultiplier", 1);
 }
 
 /* Perform cleanup functions. */
@@ -3107,6 +3224,7 @@ int pm1_restore (
 	*x = gwalloc ();
 	if (! read_gwnum (fd, *x, &sum)) goto readerr;
 
+	*gg = NULL;
 	if (state->stage == PM1_STAGE2) {
 		*gg = gwalloc ();
 		if (! read_gwnum (fd, *gg, &sum)) goto readerr;
@@ -3143,8 +3261,10 @@ unsigned long choose_pminus1_numvals (void)
 
 /* Compute the number of gwnum temporaries available */
 
-	memory = (memory << 20) - map_fftlen_to_memused (FFTLEN, PLUS1);
-	return (memory / gwnum_size (FFTLEN));
+	return ((unsigned long)
+			(((double) memory * 1000000.0 -
+			  (double) map_fftlen_to_memused (FFTLEN, PLUS1)) /
+			 (double) gwnum_size (FFTLEN)));
 }
 
 /* Choose a good value for D and E.  One that reduces the number of */
@@ -3313,15 +3433,16 @@ int pminus1 (
 	struct pm1_state state;
 	giant	exp;
 	unsigned long stage_0_limit;
-	unsigned long SQRT_B, last_output, last_contact, last_output_r;
+	unsigned long SQRT_B;
 	unsigned long numvals, numrels, next_relprime;
 	unsigned long i, j, m, stage2incr, prime, len, bit_number;
+	unsigned long error_recovery_mode = 0;
 	gwnum	x, gg, t3;
 	char	filename[16], buf[100];
-	int	retval, stage, escaped, saving, echk;
+	int	retval, stage, escaped, saving, near_fft_limit, echk;
 	long	write_time = DISK_WRITE_TIME * 60;
 	time_t	start_time, current_time;
-	double	pct;
+	double	pct, last_output, last_contact, last_output_r;
 
 /* Clear all timers */
 
@@ -3352,10 +3473,15 @@ restart:
 /* Perform setup functions */
 
 	pm1_setup1 (p, plus1);
-	gwsetnormroutine (0, ERRCHK, 0);
 	last_contact = last_output = last_output_r = fft_count = 0;
 	EXP_BEING_WORKED_ON = p;
 	EXP_BEING_FACTORED = 1;
+
+/* If we are near the maximum exponent this fft length can test, then we */
+/* will roundoff check all multiplies */
+
+	near_fft_limit = exponent_near_fft_limit ();
+	gwsetnormroutine (0, ERRCHK || near_fft_limit, 0);
 
 /* Compute the number we are factoring */
 
@@ -3367,11 +3493,11 @@ restart:
 /* Output startup message */
 
 	title ("P-1");
-	sprintf (buf, "P-1 on %c%ld with B1=%lu, B2=%lu\n",
-		 PLUS1 ? 'P' : 'M', PARG, B, C);
-	if (E > 2)
-		sprintf (buf+strlen(buf)-1, ", E=%lu\n", E);
-	OutputStr (buf);
+	if (!error_recovery_mode) {
+		sprintf (buf, "P-1 on %c%ld with B1=%lu, B2=%lu\n",
+			 PLUS1 ? 'P' : 'M', PARG, B, C);
+		OutputStr (buf);
+	}
 
 /* Check for a continuation file */
 
@@ -3392,6 +3518,16 @@ restart:
 		if (state.stage == PM1_STAGE0) {
 			bit_number = processed;
 			goto restart0;
+		}
+
+/* To avoid an infinite loop of repeatable roundoff errors, we square */
+/* the value read in from the P-1 save file.  This won't affect our final */
+/* results, but will change the FFT data. */
+
+		if (error_recovery_mode) {
+			gwsquare (x);
+			pm1_save (filename, &state, processed, x, gg);
+			error_recovery_mode = 0;
 		}
 
 /* Handle stage 1 save files */
@@ -3522,40 +3658,67 @@ restart0:
 			if (prime < B) pct *= (double) prime / (double) B;
 			if (B != C) EXP_PERCENT_COMPLETE = 0.5 - pct * 0.5;
 			if (!communicateWithServer ()) escaped = 1;
+			if (!pauseWhileRunning ()) escaped = 1;
 			last_contact = fft_count;
 		}
 
-/* Set various flags.  They can control whether error-checking or */
-/* the next FFT can be started. */
+/* To avoid an infinite loop of repeatable roundoff errors, carefully */
+/* get us past the offending iteration. */
 
-		escaped |= stopCheck ();
-		time (&current_time);
-		saving = (current_time - start_time > write_time);
-		echk = escaped || saving || ERRCHK || (bit_number & 127) == 64;
+		if (error_recovery_mode && bit_number == error_recovery_mode) {
+			careful_iteration (x, NULL);
+			if (bitval (exp, len - bit_number - 1)) {
+				gwnum	three;
+				three = gwalloc ();
+				dbltogw (3.0, three);
+				gwsetnormroutine (0, 0, 0);
+				gwmul (three, x);
+				gwfree (three);
+			}
+			error_recovery_mode = 0;
+			saving = TRUE;
+		}
+
+/* Set various flags.  They control whether error-checking or the next FFT */
+/* can be started. */
+
+		else {
+			escaped |= stopCheck ();
+			saving = FALSE;
+			echk = escaped || ERRCHK || near_fft_limit;
+			if ((bit_number & 127) == 64) {
+				time (&current_time);
+				saving = (current_time - start_time > write_time);
+				echk = 1;
+			}
 
 /* Either square x or square x and multiply it by three. */
 
-		gwstartnextfft (!escaped && !saving && !(bit_number+1 == len));
-		if (bitval (exp, len - bit_number - 1)) {
-			gwsetnormroutine (0, echk, 1);
-			gwsquare (x);
-		} else {
-			gwsetnormroutine (0, echk, 0);
-			gwsquare (x);
+			gwstartnextfft (!escaped && !saving &&
+					!error_recovery_mode &&
+					bit_number+1 != len);
+			if (bitval (exp, len - bit_number - 1)) {
+				gwsetnormroutine (0, echk, 1);
+				gwsquare (x);
+			} else {
+				gwsetnormroutine (0, echk, 0);
+				gwsquare (x);
+			}
 		}
-		bit_number++;
-//{char buf[200]; unsigned long high32, low32;
+//{unsigned long high32, low32;
 //LLDATA = x; generateResidue64 (0, &high32, &low32);
 //sprintf (buf, "interim P-1 residue %08lX%08lX at bit %ld\n", high32, low32, bit_number);
 //OutputBoth (buf);}
 
 /* Test for an error */
 
-		if (gw_test_for_error ()) goto error;
+		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
+		bit_number++;
 
 /* Every N squarings, output a progress report */
 
-		if (fft_count >= last_output + 2 * ITER_OUTPUT) {
+		if (ITER_OUTPUT != 999999999 &&
+		    fft_count >= last_output + 2 * ITER_OUTPUT) {
 			char	mask[80];
 			pct = (double) bit_number / (double) len;
 			if (prime < B) pct *= (double) prime / (double) B;
@@ -3578,7 +3741,8 @@ restart0:
 
 /* Every N squarings, output a progress report to the results file */
 
-		if (fft_count >= last_output_r + 2 * ITER_OUTPUT_RES ||
+		if ((ITER_OUTPUT_RES != 999999999 &&
+		     fft_count >= last_output_r + 2 * ITER_OUTPUT_RES) ||
 		    (NO_GUI && escaped)) {
 			char	mask[80];
 			pct = (double) bit_number / (double) len;
@@ -3610,7 +3774,20 @@ restart0:
 
 		doMiscTasks ();
 	}
-	gwsetnormroutine (0, ERRCHK, 0);
+
+/* If roundoff error recovery returned to restart0, but the roundoff error */
+/* occurs after the above loop, then square the value and create a save file. */
+/* This won't affect our final results, but will change the FFT data. */
+
+	if (error_recovery_mode) {
+		gwsquare (x);
+		pm1_save (filename, &state, bit_number, x, NULL);
+		error_recovery_mode = 0;
+	}
+
+/* Do stage 0 cleanup */
+
+	gwsetnormroutine (0, ERRCHK || near_fft_limit, 0);
 	free (exp);
 	end_timer (0);
 	end_timer (1);
@@ -3645,7 +3822,7 @@ restart1:
 
 /* Test for an error */
 
-		if (gw_test_for_error ()) goto error;
+		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
 
 /* Test for user interrupt */
 
@@ -3657,12 +3834,14 @@ restart1:
 			pct = (double) prime / (double) B;
 			if (B != C) EXP_PERCENT_COMPLETE = pct * 0.5;
 			if (!communicateWithServer ()) escaped = 1;
+			if (!pauseWhileRunning ()) escaped = 1;
 			last_contact = fft_count;
 		}
 
 /* Every N primes, output a progress report */
 
-		if (fft_count >= last_output + 2 * ITER_OUTPUT) {
+		if (ITER_OUTPUT != 999999999 &&
+		    fft_count >= last_output + 2 * ITER_OUTPUT) {
 			char	mask[80];
 			pct = (double) prime / (double) B;
 			pct = trunc_percent (pct * 100.0);
@@ -3684,7 +3863,8 @@ restart1:
 
 /* Every N primes, output a progress report to the results file */
 
-		if (fft_count >= last_output_r + 2 * ITER_OUTPUT_RES ||
+		if ((ITER_OUTPUT_RES != 999999999 &&
+		     fft_count >= last_output_r + 2 * ITER_OUTPUT_RES) ||
 		    (NO_GUI && escaped)) {
 			char	mask[80];
 			pct = (double) prime / (double) B;
@@ -3734,7 +3914,7 @@ more_B:		state.B = B;
 /* Stage 1 complete, print a message */
 
 	buf[0] = PLUS1 ? 'P' : 'M';
-	sprintf (buf+1, "%lu stage 1 complete. %lu transforms. Time: ",
+	sprintf (buf+1, "%lu stage 1 complete. %.0f transforms. Time: ",
 		 PARG, fft_count);
 	OutputStr (buf);
 	print_timer (1, TIMER_NL | TIMER_CLR);
@@ -3842,7 +4022,7 @@ restart3d:
 		if (i >= D) break;
 		if (numrels == state.numvals - 3) break;
 		fd_next ();
-		if (gw_test_for_error ()) goto error;
+		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
 		if (stopCheck ()) {
 			fd_term ();
 			gwfftfftmul (x, x, x);	/* Unfft x - generates x^2 */
@@ -3883,8 +4063,8 @@ restart3d:
 	stage = 2;
 
 /* When E >= 2, we can do prime pairing and each loop iteration */
-/* handles the range m-D to m+D.  Otherwise, each iteration handles */
-/* the range m-D to m+D. */
+/* handles the range m-D to m+D.  When E = 1, each iteration handles */
+/* the range m-D to m. */
 
 	if (numvals > 12) t3 = gwalloc ();
 	for ( ; state.C > m-D; m += stage2incr) {
@@ -3894,7 +4074,7 @@ restart3d:
 		if (prime < m) {	/* Do the m-D to m range */
 			i = (m - prime) >> 1;
 			bitset (pairings, i);
-		} else if (prime < m+D) { /* Do the D to m+D range */
+		} else if (prime < m+D && E >= 2) { /* Do the D to m+D range */
 			i = (prime - m) >> 1;
 			if (bittst (pairings, i)) continue;
 		} else {		/* Compute next x^(m^e) */
@@ -3914,7 +4094,7 @@ restart3d:
 
 /* Test for errors */
 
-errchk:		if (gw_test_for_error ()) goto error;
+errchk:		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
 
 /* Test for user interrupt */
 
@@ -3927,12 +4107,14 @@ errchk:		if (gw_test_for_error ()) goto error;
 						prime, C_start, C);
 			EXP_PERCENT_COMPLETE = 0.5 + pct * 0.5;
 			if (!communicateWithServer ()) escaped = 1;
+			if (!pauseWhileRunning ()) escaped = 1;
 			last_contact = fft_count;
 		}
 
 /* Write out a message every now and then */
 
-		if (fft_count >= last_output + 2 * ITER_OUTPUT) {
+		if (ITER_OUTPUT != 999999999 &&
+		    fft_count >= last_output + 2 * ITER_OUTPUT) {
 			char	mask[80];
 			pct = calc_stage2_pct (&state, next_relprime,
 						prime, C_start, C);
@@ -3955,7 +4137,8 @@ errchk:		if (gw_test_for_error ()) goto error;
 
 /* Write out a message to the results file every now and then */
 
-		if (fft_count >= last_output_r + 2 * ITER_OUTPUT_RES ||
+		if ((ITER_OUTPUT_RES != 999999999 &&
+		     fft_count >= last_output_r + 2 * ITER_OUTPUT_RES) ||
 		    (NO_GUI && escaped)) {
 			char	mask[80];
 			pct = calc_stage2_pct (&state, next_relprime,
@@ -4030,7 +4213,7 @@ errchk:		if (gw_test_for_error ()) goto error;
 /* Stage 2 is complete */
 
 	buf[0] = PLUS1 ? 'P' : 'M';
-	sprintf (buf+1, "%lu stage 2 complete. %lu transforms. Time: ",
+	sprintf (buf+1, "%lu stage 2 complete. %.0f transforms. Time: ",
 		 PARG, fft_count);
 	OutputStr (buf);
 	print_timer (1, TIMER_NL | TIMER_CLR);
@@ -4065,8 +4248,14 @@ restart4:
 
 msg_and_exit:
 	buf[0] = PLUS1 ? 'P' : 'M';
-	sprintf (buf+1, "%ld completed P-1, B1=%lu, B2=%lu, WX%d: %08lX\n",
-		 PARG, B, C, PORT, SEC5 (PARG, B, C));
+	sprintf (buf+1, "%ld completed P-1, B1=%lu", PARG, B);
+	if (C > B) {
+		if (E <= 2)
+			sprintf (buf+strlen(buf), ", B2=%lu", C);
+		else
+			sprintf (buf+strlen(buf), ", B2=%lu, E=%lu", C, E);
+	}
+	sprintf (buf+strlen(buf), ", WY%d: %08lX\n", PORT, SEC5 (PARG, B, C));
 	writeResults (buf);
 	if (ll_testing) spoolMessage (PRIMENET_RESULT_MESSAGE, buf);
 
@@ -4121,6 +4310,7 @@ bingo:	if (stage == 1)
 			 B, C);
 	writeResults (buf);
 	printFactor ();
+	if (isone (FAC)) goto msg_and_exit;
 
 /* If LL testing, output result to the server and free all save files */
 
@@ -4156,11 +4346,20 @@ bingo:	if (stage == 1)
 	retval = TRUE;
 	goto exit;
 
-/* Output a error message saying we are restarting. */
+/* Output an error message saying we are restarting. */
 /* Sleep five minutes before restarting from last save file. */
+/* Once errors start occurring, decrease the disk write time */
 
-error:	OutputBoth ("SUMOUT error occurred.\n");
-	pm1_cleanup ();
-	if (! SleepFive ()) return (FALSE);
+error:	pm1_cleanup ();
+	if (near_fft_limit && MAXERR >= 0.40625) {
+		sprintf (buf, "Possible roundoff error (%.8g), backtracking to last save file.\n", MAXERR);
+		OutputStr (buf);
+	} else {
+		OutputBoth ("SUMOUT error occurred.\n");
+		if (! SleepFive ()) return (FALSE);
+	}
+	error_recovery_mode = bit_number ? bit_number : 1;
+	write_time >>= 1;
+	if (write_time < 300) write_time = 300;
 	goto restart;
 }

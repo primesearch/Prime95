@@ -48,7 +48,7 @@ VOID ServiceStart (DWORD dwArgc, LPTSTR *lpszArgv)
         SERVICE_START_PENDING, // service state
         NO_ERROR,              // exit code
         3000))                 // wait hint
-        goto cleanup;
+        return;
 
     // report the status to the service control manager.
     //
@@ -56,7 +56,7 @@ VOID ServiceStart (DWORD dwArgc, LPTSTR *lpszArgv)
         SERVICE_RUNNING,       // service state
         NO_ERROR,              // exit code
         0))                    // wait hint
-        goto cleanup;
+        return;
 
     //
     // End of initialization
@@ -76,12 +76,6 @@ VOID ServiceStart (DWORD dwArgc, LPTSTR *lpszArgv)
 
 	else
 		primeContinue ();
-
-
-// free up resources
-
-cleanup:
-	if (HLIB) FreeLibrary (HLIB);
 
 }
 

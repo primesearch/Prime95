@@ -1,594 +1,695 @@
-/***************************************************************
-* C file: cpuid.c... for cpuinf32 DLL
-*
-*       This program has been developed by Intel Corporation.  
-*		You have Intel's permission to incorporate this code 
-*       into your product, royalty free.  Intel has various 
-*	    intellectual property rights which it may assert under
-*       certain circumstances, such as if another manufacturer's
-*       processor mis-identifies itself as being "GenuineIntel"
-*		when the CPUID instruction is executed.
-*
-*       Intel specifically disclaims all warranties, express or
-*       implied, and all liability, including consequential and
-*		other indirect damages, for the use of this code, 
-*		including liability for infringement of any proprietary
-*		rights, and including the warranties of merchantability
-*		and fitness for a particular purpose.  Intel does not 
-*		assume any responsibility for any errors which may 
-*		appear in this code nor any responsibility to update it.
-*
-*  * Other brands and names are the property of their respective
-*    owners.
-*
-*  Copyright (c) 1995, Intel Corporation.  All rights reserved.
-***************************************************************/
+/*----------------------------------------------------------------------
+| Copyright 1995-2002 Just For Fun Software, Inc., all rights reserved
+| Author:  George Woltman
+| Email: woltman@alum.mit.edu
+|
+| This file contains routines to determine the CPU type and speed.
++---------------------------------------------------------------------*/
 
+/* Global variables describing the CPU we are running on */
 
+char	CPU_BRAND[49] = "";
+double	CPU_SPEED = 100.0;
+EXTERNC unsigned int CPU_FLAGS = 0;
+int	CPU_L1_CACHE_SIZE = -1;
+int	CPU_L2_CACHE_SIZE = -1;
+int	CPU_L1_CACHE_LINE_SIZE = -1;
+int	CPU_L2_CACHE_LINE_SIZE = -1;
+int	CPU_L1_DATA_TLBS = -1;
+int	CPU_L2_DATA_TLBS = -1;
 
-/***************************************************************
-* This is a 32-bit MS-Windows* DLL.  It uses the standard Intel
-* 32-bit cpuid assembly code to determine what type of processor
-* is in the computer.
-*
-* Warning: avoid making frequent calls to wincpuid() or using 
-* the CPUID instruction frequently.  This instruction & function
-* require several clocks to execute, and they cause 
-* serialization of the instruction stream.
-***************************************************************/
+/* Internal global variables */
 
+EXTERNC unsigned long CPUID_EAX = 0;	/* For communicating to asm routines */
+EXTERNC unsigned long CPUID_EBX = 0;
+EXTERNC unsigned long CPUID_ECX = 0;
+EXTERNC unsigned long CPUID_EDX = 0;
 
-// Global Variable /////////////////////////////////////////////
-int clone_flag;				// Flag to show whether processor
-							//   is an Intel clone
+/* Internal routines to see if CPU-specific instructions (RDTSC, CMOV */
+/* SSE, SSE2) are supported.  CPUID could report them as supported yet */
+/* the OS might not support them. */
 
+#if defined (__linux__) || defined (__FreeBSD__) || defined (__EMX__)
 
-
-// Public DLL Functions ////////////////////////////////////////
-
-/***************************************************************
-* wincpuidsupport()
-*
-* Inputs: none
-*
-* Returns:
-*  1 = CPUID opcode is supported
-*  0 = CPUID opcode is not supported
-***************************************************************/
-
-WORD wincpuidsupport() {
-	int cpuid_support = 1;
-
-	_asm {
-        pushfd					// Get original EFLAGS
-		pop		eax
-		mov 	ecx, eax
-        xor     eax, 200000h	// Flip ID bit in EFLAGS
-        push    eax				// Save new EFLAGS value on
-        						//   stack
-        popfd					// Replace current EFLAGS value
-        pushfd					// Get new EFLAGS
-        pop     eax				// Store new EFLAGS in EAX
-        xor     eax, ecx		// Can not toggle ID bit,
-        jnz     support			// Processor=80486
-		
-		mov cpuid_support,0		// Clear support flag
-support:
-      }
-	
-	return cpuid_support;
-
-} // wincpuidsupport()
-
-
-
-/***************************************************************
-* wincpuid()
-*
-* Inputs: none
-*
-* Returns:
-*  0 = 8086/88
-*  2 = 80286
-*  3 = 80386
-*  4 = 80486
-*  5 = Pentium(R) Processor
-*  6 = PentiumPro(R) Processor
-*  7 or higher = Processor beyond the PentiumPro6(R) Processor
-*
-*  Note: This function also sets the global variable clone_flag
-***************************************************************/
-
-WORD wincpuid() {
-
-	WORD cpuid;
-	
-	if ( wincpuidsupport() ) 	// Determine whether CPUID 
-								//   opcode is supported
-		cpuid=check_IDProc();
-
-	else {
-		
-		clone_flag=check_clone();
-	
-		cpuid=check_8086();			// Will return FFFFh or 0
-		if (cpuid == 0) goto end;
-	
-    	cpuid=check_80286();       	// Will return FFFFh or 2
-		if (cpuid == 2) goto end;
-
-    	cpuid=check_80386();       	// Will return FFFFh or 3
-		if (cpuid == 3) goto end;    // temporarily commented out.
-        
-        cpuid=4;		// If the processor does not support CPUID,
-        				//  is not an 8086, 80286, or 80386, assign
-        				//  processor to be an 80486
-	}
-
-end:
-	if (clone_flag)
-		cpuid = cpuid | CLONE_MASK;	// Signify that a clone has been
-									//   detected by setting MSB high 
-
-   	return cpuid;
-
-} // wincpuid ()
-
-
-
-/***************************************************************
-* wincpuidext()
-*
-* Inputs: none
-*
-* Returns:
-* AX(15:14) = Reserved (mask these off in the calling code 
-*				before using)
-* AX(13:12) = Processor type (00=Standard OEM CPU, 01=OverDrive,
-*				10=Dual CPU, 11=Reserved)
-* AX(11:8)  = CPU Family (the same 4-bit quantity as wincpuid())
-* AX(7:4)   = CPU Model, if the processor supports the CPUID 
-*				opcode; zero otherwise
-* AX(3:0)   = Stepping #, if the processor supports the CPUID 
-*				opcode; zero otherwise
-*
-*  Note: This function also sets the global variable clone_flag
-***************************************************************/
-
-WORD wincpuidext() {
-
-		int i=0;
-		WORD cpu_type=0x0000;
-		WORD cpuidext=0x0000;
-		BYTE vendor_id[13]="------------";
-		BYTE intel_id[13]="GenuineIntel";
-
-	if ( wincpuidsupport() ) {
-
-_asm {      
-
-		xor     eax, eax		// Set up for CPUID instruction
-        
-		CPU_ID                  // Get and save vendor ID
-
-		mov     dword ptr vendor_id, ebx
-		mov     dword ptr vendor_id[+4], edx
-		mov     dword ptr vendor_id[+8], ecx
-}
-
-for (i=0;i<12;i++)
+#include <setjmp.h>
+int	boom;
+jmp_buf	env;
+void sigboom_handler (int i)
 {
-	if (!(vendor_id[i]==intel_id[i]))
-		clone_flag = 1;    
+	boom = TRUE;
+	longjmp (env, 1);
 }
-
-_asm {
-        
-		cmp     eax, 1			// Make sure 1 is valid input 
-        						//   for CPUID
-        
-        jl      end_cpuidext	// If not, jump to end
-        xor     eax, eax
-        inc		eax
-        CPU_ID					// Get family/model/stepping/
-        						//   features
-
-		mov		cpuidext, ax
-
-end_cpuidext:
-		mov		ax, cpuidext
-    	}
-	}
-	else {
-
-	cpu_type = wincpuid();		// If CPUID opcode is not
-	cpuidext = cpu_type << 8;	//   supported, put family
-								//   value in extensions and
-	}							//   return
-	
-	return cpuidext;
-
-} // wincpuidext()
-
-
-
-/***************************************************************
-* wincpufeatures()
-*
-* Inputs: none
-*
-* Returns:
-*   0 = Processor which does not execute the CPUID instruction.
-*          This includes 8086, 8088, 80286, 80386, and some 
-*		   older 80486 processors.                       
-*
-* Else
-*   Feature Flags (refer to App Note AP-485 for description).
-*      This DWORD was put into EDX by the CPUID instruction.
-*
-*	Current flag assignment is as follows:
-*
-*		bit31..10   reserved (=0)
-*		bit9=1      CPU contains a local APIC (iPentium-3V)
-*		bit8=1      CMPXCHG8B instruction supported
-*		bit7=1      machine check exception supported
-*		bit6=0      reserved (36bit-addressing & 2MB-paging)
-*		bit5=1      iPentium-style MSRs supported
-*		bit4=1      time stamp counter TSC supported
-*		bit3=1      page size extensions supported
-*		bit2=1      I/O breakpoints supported
-*		bit1=1      enhanced virtual 8086 mode supported
-*		bit0=1      CPU contains a floating-point unit (FPU)
-*
-*	Note: New bits will be assigned on future processors... see
-*         processor data books for updated information
-*
-*	Note: This function also sets the global variable clone_flag
-***************************************************************/
-
-DWORD wincpufeatures() {
-
-	int i=0;
-	DWORD cpuff=0x00000000;
-	BYTE vendor_id[13]="------------";
-	BYTE intel_id[13]="GenuineIntel";
-
-	if ( wincpuidsupport() ) {
-
-_asm {      
-
-		xor     eax, eax		// Set up for CPUID instruction
-        
-		CPU_ID                  // Get and save vendor ID
-
-        mov     dword ptr vendor_id, ebx
-        mov     dword ptr vendor_id[+4], edx
-        mov     dword ptr vendor_id[+8], ecx
-}
-
-for (i=0;i<12;i++)
+int canExecInstruction (
+	unsigned long cpu_flag)
 {
-	if (!(vendor_id[i]==intel_id[i]))
-		clone_flag = 1;    
-}
-
-_asm {
-         
-		cmp     eax, 1			// Make sure 1 is valid input 
-        						//   for CPUID
-        
-        jl      end_cpuff		// If not, jump to end
-        xor     eax, eax
-        inc		eax
-        CPU_ID					// Get family/model/stepping/
-        						//   features
-
-		mov		cpuff, edx
-
-end_cpuff:
-		mov		eax, cpuff
-      }
-	}
-
-	return cpuff;
-
-} // wincpufeatures()
-
-
-
-/***************************************************************
-* winrdtsc()
-*
-* Inputs: none
-*
-* Returns:
-*   0 = CPU does not support the time stamp register
-*
-* Else
-*   Returns a variable of type TIME_STAMP which is composed of 
-*      two DWORD variables. The 'High' DWORD contains the upper
-*      32-bits of the Time Stamp Register. The 'Low' DWORD 
-*      contains the lower 32-bits of the Time Stamp Register.
-*
-*  Note: This function also sets the global variable clone_flag
-***************************************************************/
-
-struct TIME_STAMP winrdtsc() {
-
-	struct TIME_STAMP timestamp;    // Return variable for time
-									//   stamp read
-	DWORD features = wincpufeatures();	// Processor Features
-	
-	timestamp.Low  = 0;
-	timestamp.High = 0;
-		
-	if ( features & 0x00000010 ) {
-
-		RDTSC						// Read Time Stamp
-
-		_asm
-			{
-			MOV timestamp.Low, EAX
-			MOV timestamp.High, EDX
-
-			}
-	}
-	
-	return timestamp;
-
-} // winrdtsc
-
-
-
-
-// Internal Private Functions //////////////////////////////////
-
-/***************************************************************
-* check_clone()
-*
-* Inputs: none
-*
-* Returns:
-*   1      if processor is clone (limited detection ability)
-*   0      otherwise
-***************************************************************/
-
-WORD check_clone()
-{
-	short cpu_type=0;
-
-	_asm 
-		{
-  					MOV AX,5555h	// Check to make sure this
-					XOR DX,DX		//   is a 32-bit processor
-					MOV CX,2h
-					DIV CX			// Perform Division
-					CLC
-					JNZ no_clone
-					JMP clone
-		no_clone:	STC
-		clone:		PUSHF
-					POP AX          // Get the flags
-					AND AL,1
-					XOR AL,1        // AL=0 is probably Intel,
-									//   AL=1 is a Clone
-					
-					MOV cpu_type, ax
+	boom = FALSE;
+	(void) signal (SIGILL, sigboom_handler);
+	if (setjmp (env) == 0) {
+		switch (cpu_flag) {
+		case CPU_RDTSC:		/* RDTSC */
+			__asm__ __volatile__ (".byte 0x0F\n .byte 0x31\n");
+			break;
+		case CPU_CMOV:		/* CMOV */
+			__asm__ __volatile__ (".byte 0x0F\n .byte 0x42\n .byte 0xC0\n");
+			break;
+		case CPU_MMX:		/* PADDB */
+			__asm__ __volatile__ (".byte 0x0F\n .byte 0xFC\n .byte 0xC0\n");
+			break;
+		case CPU_SSE:		/* ORPS */
+			__asm__ __volatile__ (".byte 0x0F\n .byte 0x56\n .byte 0xC0\n");
+			break;
+		case CPU_SSE2:		/* ADDPD */
+			__asm__ __volatile__ (".byte 0x66\n .byte 0x0F\n .byte 0x58\n .byte 0xC0\n");
+			break;
+		case CPU_PREFETCH:	/* PREFETCHT1 */
+			__asm__ __volatile__ (".byte 0x0F\n .byte 0x18\n .byte 0x16\n");
+			break;
 		}
-	
-    cpu_type = cpu_type & 0x0001;
-    
-	return cpu_type;
-		
-} // check_clone()
-
-
-
-/***************************************************************
-* check_8086()
-*
-* Inputs: none
-*
-* Returns: 
-*   0      if processor 8086
-*   0xffff otherwise
-***************************************************************/
-
-WORD check_8086()
-{
-
-		WORD cpu_type=0xffff;
-
-_asm {
-        pushf                   // Push original FLAGS
-        pop     ax              // Get original FLAGS
-        mov     cx, ax          // Save original FLAGS
-        and     ax, 0fffh       // Clear bits 12-15 in FLAGS
-        push    ax              // Save new FLAGS value on stack
-        popf                    // Replace current FLAGS value
-        pushf                   // Get new FLAGS
-        pop     ax              // Store new FLAGS in AX
-        and     ax, 0f000h      // If bits 12-15 are set, then
-        cmp     ax, 0f000h      //   processor is an 8086/8088
-        mov     cpu_type, 0    	// Turn on 8086/8088 flag
-        je      end_8086    	// Jump if processor is 8086/
-        						//   8088
-        mov		cpu_type, 0ffffh
-end_8086:
-		push 	cx
-		popf
-		mov		ax, cpu_type
-
-      }
-	
-	return cpu_type;
-
-} // check_8086()
-
-
-
-/***************************************************************
-* check_80286()
-*
-* Inputs: none
-*
-* Returns:
-*   2      if processor 80286
-*   0xffff otherwise
-***************************************************************/
-
-WORD check_80286()
-{
-
-		WORD cpu_type=0xffff;
-
-_asm {
-		pushf
-		pop		cx
-		mov		bx, cx
-        or      cx, 0f000h      // Try to set bits 12-15
-        push    cx              // Save new FLAGS value on stack
-        popf                    // Replace current FLAGS value
-        pushf                   // Get new FLAGS
-        pop     ax              // Store new FLAGS in AX
-        and     ax, 0f000h      // If bits 12-15 are clear
-        
-        mov     cpu_type, 2     // Processor=80286, turn on 
-        						//   80286 flag
-        
-        jz      end_80286       // If no bits set, processor is 
-        						//   80286
-		
-		mov		cpu_type, 0ffffh
-end_80286:
-		push	bx
-		popf
-		mov		ax, cpu_type
-
-      }
-	
-	return cpu_type;
-
-} // check_80286()
-
-
-
-/***************************************************************
-* check_80386()
-*
-* Inputs: none
-*
-* Returns:
-*   3      if processor 80386
-*   0xffff otherwise
-***************************************************************/
-
-WORD check_80386()
-{
-
-		WORD cpu_type=0xffff;
-
-_asm {   
-		mov 	bx, sp
-		and		sp, not 3
-        pushfd					// Push original EFLAGS 
-        pop     eax				// Get original EFLAGS
-        mov     ecx, eax		// Save original EFLAGS
-        xor     eax, 40000h		// Flip AC bit in EFLAGS
-        
-        push    eax             // Save new EFLAGS value on
-        						//   stack
-        
-        popfd                   // Replace current EFLAGS value
-        pushfd					// Get new EFLAGS
-        pop     eax             // Store new EFLAGS in EAX
-        
-        xor     eax, ecx        // Can't toggle AC bit, 
-        						//   processor=80386
-        
-        mov     cpu_type, 3		// Turn on 80386 processor flag
-        jz      end_80386		// Jump if 80386 processor
-		mov		cpu_type, 0ffffh
-end_80386:
-		push	ecx
-		popfd
-		mov		sp, bx
-		mov		ax, cpu_type
-		and		eax, 0000ffffh
-      }
-
-	return cpu_type;
-
-} // check_80386()
-
-
-
-/***************************************************************
-* check_IDProc()
-*
-* Inputs: none
-*
-* Returns:
-*  CPU Family (i.e. 4 if Intel 486, 5 if Pentium(R) Processor)
-*
-*  Note: This function also sets the global variable clone_flag
-***************************************************************/
-
-WORD check_IDProc() {
-
-		int i=0;
-		WORD cpu_type=0xffff;
-		BYTE stepping=0;
-		BYTE model=0;
-		BYTE vendor_id[13]="------------";
-		BYTE intel_id[13]="GenuineIntel";
-
-_asm {      
-
-        xor     eax, eax		// Set up for CPUID instruction
-        
-        CPU_ID                  // Get and save vendor ID
-
-        mov     dword ptr vendor_id, ebx
-        mov     dword ptr vendor_id[+4], edx
-        mov     dword ptr vendor_id[+8], ecx
-}
-
-for (i=0;i<12;i++)
-{
-	if (!(vendor_id[i]==intel_id[i]))
-		clone_flag = 1;    
-}
-
-_asm {
-	cmp     eax, 1			// Make sure 1 is valid input for CPUID
-	jl      end_IDProc		// If not, jump to end
-        xor     eax, eax
-        inc	eax
-        CPU_ID				// Get family/model/stepping/features
-	mov 	stepping, al
-	and	stepping, 0x0f
-		
-	and 	al, 0f0h
-	shr	al, 4
-	mov 	model, al
-		
-	and	eax, 0f00h
-        shr     eax, 8			// Isolate family
-	and	eax, 0fh
-        mov     cpu_type, ax		// Set _cpu_type with family
-
-end_IDProc:
-	mov	ax, cpu_type
-     }
-
-	if (cpu_type == 6) {
-		if (model == 3 || model == 5) cpu_type = 9;
-		if (model > 5) cpu_type = 10;
 	}
-	if (cpu_type == 15)
-		cpu_type = 12;
-	return cpu_type;
+	(void) signal (SIGILL, SIG_DFL);
+	fpu_init ();
+	return (!boom);
+}
 
-} // Check_IDProc()
+#elif defined (__IBMC__)
 
+int canExecInstruction (
+	unsigned long cpu_flag)
+{
+	return TRUE;
+}
+
+#else
+
+int canExecInstruction (
+	unsigned long cpu_flag)
+{
+	int	succeeded;
+	__try {
+		switch (cpu_flag) {
+		case CPU_RDTSC:		/* RDTSC */
+			__asm __emit 0x0F
+			__asm __emit 0x31
+			break;
+		case CPU_CMOV:		/* CMOV */
+			__asm __emit 0x0F
+			__asm __emit 0x42
+			__asm __emit 0xC0
+			break;
+		case CPU_MMX:		/* PADDB */
+			__asm __emit 0x0F
+			__asm __emit 0xFC
+			__asm __emit 0xC0
+			break;
+		case CPU_SSE:		/* ORPS */
+			__asm __emit 0x0F
+			__asm __emit 0x56
+			__asm __emit 0xC0
+			break;
+		case CPU_SSE2:		/* ADDPD */
+			__asm __emit 0x66
+			__asm __emit 0x0F
+			__asm __emit 0x58
+			__asm __emit 0xC0
+			break;
+		case CPU_PREFETCH:	/* PREFETCHT1 */
+			__asm __emit 0x0F
+			__asm __emit 0x18
+			__asm __emit 0x16
+			break;
+		}
+		succeeded = TRUE;
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		succeeded = FALSE;
+	}
+	fpu_init ();
+	return (succeeded);
+}
+#endif
+
+
+/* Work with CPUID instruction to guess the cpu type and features */
+/* See Intel's document AP-485 for using CPUID on Intel processors */
+/* AMD and VIA have similar documents */
+
+void guessCpuType (void)
+{
+	unsigned long max_cpuid_value;
+	unsigned long max_extended_cpuid_value;
+	unsigned long extended_family, extended_model, type, family_code;
+	unsigned long model_number, stepping_id, brand_index;
+	char	vendor_id[13];
+
+/* Set up default values for features we cannot determine with CPUID */
+
+	CPU_BRAND[0] = 0;
+	CPU_SPEED = 100.0;
+	CPU_FLAGS = 0;
+	CPU_L1_CACHE_SIZE = -1;
+	CPU_L2_CACHE_SIZE = -1;
+	CPU_L1_CACHE_LINE_SIZE = -1;
+	CPU_L2_CACHE_LINE_SIZE = -1;
+	CPU_L1_DATA_TLBS = -1;
+	CPU_L2_DATA_TLBS = -1;
+
+/* If CPUID instruction is not supported, assume we have a 486 (not all */
+/* 486 chips supported CPUID.  The CPU might be something else, but that */
+/* isn't particularly important. */
+
+	if (! isCpuidSupported ()) {
+		strcpy (CPU_BRAND, "CPUID not supported - 486 CPU assumed");
+		return;
+	}
+
+/* Call CPUID with 0 argument.  It returns how highest argument CPUID */
+/* can accept as well as the vendor string */
+
+	Cpuid (0);
+	max_cpuid_value = CPUID_EAX;
+	memcpy (vendor_id, &CPUID_EBX, 4);
+	memcpy (vendor_id+4, &CPUID_EDX, 4);
+	memcpy (vendor_id+8, &CPUID_ECX, 4);
+	vendor_id[12] = 0;
+
+/* So far all vendors have adopted Intel's definition of CPUID with 1 as an */
+/* argument.  Let's assume future vendors will do the same.  CPUID returns */
+/* the processor family, stepping, etc.  It also returns the feature flags. */
+
+	if (max_cpuid_value >= 1) {
+		Cpuid (1);
+		extended_family = (CPUID_EAX >> 20) & 0xFF;
+		extended_model = (CPUID_EAX >> 16) & 0xF;
+		type = (CPUID_EAX >> 12) & 0x3;
+		family_code = (CPUID_EAX >> 8) & 0xF;
+		model_number = (CPUID_EAX >> 4) & 0xF;
+		stepping_id = CPUID_EAX & 0xF;
+		brand_index = CPUID_EBX & 0xFF;
+		if ((CPUID_EDX >> 4) & 0x1 && canExecInstruction (CPU_RDTSC))
+			CPU_FLAGS |= CPU_RDTSC;
+		if ((CPUID_EDX >> 15) & 0x1 && canExecInstruction (CPU_CMOV))
+			CPU_FLAGS |= CPU_CMOV;
+		if ((CPUID_EDX >> 23) & 0x1 && canExecInstruction (CPU_MMX))
+			CPU_FLAGS |= CPU_MMX;
+		if ((CPUID_EDX >> 25) & 0x1 && canExecInstruction (CPU_PREFETCH))
+			CPU_FLAGS |= CPU_PREFETCH;
+		if ((CPUID_EDX >> 25) & 0x1 && canExecInstruction (CPU_SSE))
+			CPU_FLAGS |= CPU_SSE;
+		if ((CPUID_EDX >> 26) & 0x1 && canExecInstruction (CPU_SSE2))
+			CPU_FLAGS |= CPU_SSE2;
+	}
+
+/* Call CPUID with 0x80000000 argument.  It tells us how many extended CPU */
+/* functions are supported. */
+
+	Cpuid (0x80000000);
+	max_extended_cpuid_value = CPUID_EAX;
+
+/* Although not guaranteed, all vendors have standardized on putting the */
+/* brand string (if supported) at cpuid calls 0x8000002, 0x80000003, and */
+/* 0x80000004.  We'll assume future vendors will do the same. */
+
+	if (max_extended_cpuid_value >= 80000004) {
+		Cpuid (0x80000002);
+		memcpy (CPU_BRAND, &CPUID_EAX, 4);
+		memcpy (CPU_BRAND+4, &CPUID_EBX, 4);
+		memcpy (CPU_BRAND+8, &CPUID_ECX, 4);
+		memcpy (CPU_BRAND+12, &CPUID_EDX, 4);
+		Cpuid (0x80000003);
+		memcpy (CPU_BRAND+16, &CPUID_EAX, 4);
+		memcpy (CPU_BRAND+20, &CPUID_EBX, 4);
+		memcpy (CPU_BRAND+24, &CPUID_ECX, 4);
+		memcpy (CPU_BRAND+28, &CPUID_EDX, 4);
+		Cpuid (0x80000004);
+		memcpy (CPU_BRAND+32, &CPUID_EAX, 4);
+		memcpy (CPU_BRAND+36, &CPUID_EBX, 4);
+		memcpy (CPU_BRAND+40, &CPUID_ECX, 4);
+		memcpy (CPU_BRAND+44, &CPUID_EDX, 4);
+		CPU_BRAND[48] = 0;
+		while (CPU_BRAND[0] == ' ') strcpy (CPU_BRAND, CPU_BRAND+1);
+	}
+
+/*-------------------------------------------------------------------+
+| Check for INTEL vendor string.  Perform INTEL-specific operations. |
++-------------------------------------------------------------------*/
+
+	if (strcmp ((const char *) vendor_id, "GenuineIntel") == 0) {
+
+/* If we haven't figured out the brand string, create one based on the */
+/* brand_index as recommended in the AP-485 document. */
+
+		if (CPU_BRAND[0] == 0) {
+			switch (brand_index) {
+			case 1:
+				strcpy (CPU_BRAND, "Intel(R) Celeron(R) processor");
+				break;
+			case 2:
+			case 4:
+				strcpy (CPU_BRAND, "Intel(R) Pentium(R) III processor");
+				break;
+			case 3:
+				if (family_code != 6 ||
+				    model_number != 0xB ||
+				    stepping_id != 1)
+					strcpy (CPU_BRAND, "Intel(R) Pentium(R) III Xeon processor");
+				else
+					strcpy (CPU_BRAND, "Intel(R) Celeron(R) processor");
+				break;
+			case 6:
+				strcpy (CPU_BRAND, "Mobile Intel(R) Pentium(R) III processor");
+				break;
+			case 7:
+				strcpy (CPU_BRAND, "Mobile Intel(R) Celeron(R) processor");
+				break;
+			case 8:
+				if ((family_code << 8) +
+				    (model_number << 4) +
+				    stepping_id < 0xF20)
+					strcpy (CPU_BRAND, "Intel(R) Pentium(R) 4 processor");
+				else
+					strcpy (CPU_BRAND, "Intel(R) Genuine processor");
+				break;
+			case 9:
+				strcpy (CPU_BRAND, "Intel(R) Pentium(R) 4 processor");
+				break;
+			case 0xB:
+			case 0xE:
+				strcpy (CPU_BRAND, "Intel(R) Xeon processor");
+				break;
+			}
+		}
+
+/* Call CPUID with 2 argument.  It returns the cache size and structure */
+/* in a series of 8-bit descriptors */
+
+		if (max_cpuid_value >= 2) {
+			Cpuid (2);
+			if ((CPUID_EAX & 0xFF) > 0) {
+				unsigned int descriptors[15];
+				int i, count;
+				count = 0;
+				if (! (CPUID_EAX & 0x80000000)) {
+					descriptors[count++] = (CPUID_EAX >> 24) & 0xFF;
+					descriptors[count++] = (CPUID_EAX >> 16) & 0xFF;
+					descriptors[count++] = (CPUID_EAX >> 8) & 0xFF;
+				}
+				if (! (CPUID_EBX & 0x80000000)) {
+					descriptors[count++] = (CPUID_EBX >> 24) & 0xFF;
+					descriptors[count++] = (CPUID_EBX >> 16) & 0xFF;
+					descriptors[count++] = (CPUID_EBX >> 8) & 0xFF;
+					descriptors[count++] = CPUID_EBX & 0xFF;
+				}
+				if (! (CPUID_ECX & 0x80000000)) {
+					descriptors[count++] = (CPUID_ECX >> 24) & 0xFF;
+					descriptors[count++] = (CPUID_ECX >> 16) & 0xFF;
+					descriptors[count++] = (CPUID_ECX >> 8) & 0xFF;
+					descriptors[count++] = CPUID_ECX & 0xFF;
+				}
+				if (! (CPUID_EDX & 0x80000000)) {
+					descriptors[count++] = (CPUID_EDX >> 24) & 0xFF;
+					descriptors[count++] = (CPUID_EDX >> 16) & 0xFF;
+					descriptors[count++] = (CPUID_EDX >> 8) & 0xFF;
+					descriptors[count++] = CPUID_EDX & 0xFF;
+				}
+				for (i = 0; i < count; i++) {
+					switch (descriptors[i]) {
+					case 0x03:
+						CPU_L2_DATA_TLBS = 64;
+						break;
+					case 0x0A:
+						CPU_L1_CACHE_SIZE = 8;
+						CPU_L1_CACHE_LINE_SIZE = 32;
+						break;
+					case 0x0C:
+						CPU_L1_CACHE_SIZE = 16;
+						CPU_L1_CACHE_LINE_SIZE = 32;
+						break;
+					case 0x40:
+						if (family_code == 15) {
+							/* no L3 cache */
+						} else {
+							CPU_L2_CACHE_SIZE = 0;
+						}
+						break;
+					case 0x41:
+						CPU_L2_CACHE_SIZE = 128;
+						CPU_L2_CACHE_LINE_SIZE = 32;
+						break;
+					case 0x42:
+						CPU_L2_CACHE_SIZE = 256;
+						CPU_L2_CACHE_LINE_SIZE = 32;
+						break;
+					case 0x43:
+						CPU_L2_CACHE_SIZE = 512;
+						CPU_L2_CACHE_LINE_SIZE = 32;
+						break;
+					case 0x44:
+						CPU_L2_CACHE_SIZE = 1024;
+						CPU_L2_CACHE_LINE_SIZE = 32;
+						break;
+					case 0x45:
+						CPU_L2_CACHE_SIZE = 2048;
+						CPU_L2_CACHE_LINE_SIZE = 32;
+						break;
+					case 0x5B:
+						CPU_L2_DATA_TLBS = 64;
+						break;
+					case 0x5C:
+						CPU_L2_DATA_TLBS = 128;
+						break;
+					case 0x5D:
+						CPU_L2_DATA_TLBS = 256;
+						break;
+					case 0x66:
+						CPU_L1_CACHE_SIZE = 8;
+						CPU_L1_CACHE_LINE_SIZE = 64;
+						break;
+					case 0x67:
+						CPU_L1_CACHE_SIZE = 16;
+						CPU_L1_CACHE_LINE_SIZE = 64;
+						break;
+					case 0x68:
+						CPU_L1_CACHE_SIZE = 32;
+						CPU_L1_CACHE_LINE_SIZE = 64;
+						break;
+					case 0x39:
+					case 0x79:
+						CPU_L2_CACHE_SIZE = 128;
+						CPU_L2_CACHE_LINE_SIZE = 64;
+						break;
+					case 0x3C:
+					case 0x7A:
+						CPU_L2_CACHE_SIZE = 256;
+						CPU_L2_CACHE_LINE_SIZE = 64;
+						break;
+					case 0x7B:
+						CPU_L2_CACHE_SIZE = 512;
+						CPU_L2_CACHE_LINE_SIZE = 64;
+						break;
+					case 0x7C:
+						CPU_L2_CACHE_SIZE = 1024;
+						CPU_L2_CACHE_LINE_SIZE = 64;
+						break;
+					case 0x82:
+						CPU_L2_CACHE_SIZE = 256;
+						CPU_L2_CACHE_LINE_SIZE = 32;
+						break;
+					case 0x83:
+						CPU_L2_CACHE_SIZE = 512;
+						CPU_L2_CACHE_LINE_SIZE = 32;
+						break;
+					case 0x84:
+						CPU_L2_CACHE_SIZE = 1024;
+						CPU_L2_CACHE_LINE_SIZE = 32;
+						break;
+					case 0x85:
+						CPU_L2_CACHE_SIZE = 2048;
+						CPU_L2_CACHE_LINE_SIZE = 32;
+						break;
+					}
+				}
+			}
+		}
+
+/* Deduce the cpu type given the family, model, stepping, etc.  If we */
+/* haven't figured out the brand string, create one based on the cpu type. */
+
+		if (family_code == 4) {
+			strcpy (CPU_BRAND, "Intel 486 processor");
+		}
+		if (family_code == 5) {
+			if (type == 0 && model_number <= 2)
+				strcpy (CPU_BRAND, "Intel Pentium processor");
+			if (type == 1 && model_number <= 3)
+				strcpy (CPU_BRAND, "Intel Pentium OverDrive processor");
+			if (type == 0 && model_number >= 4)
+				strcpy (CPU_BRAND, "Intel Pentium MMX processor");
+			if (type == 1 && model_number >= 4)
+				strcpy (CPU_BRAND, "Intel Pentium MMX OverDrive processor");
+		}
+		if (family_code == 6 && model_number == 1) {
+			strcpy (CPU_BRAND, "Intel Pentium Pro processor");
+		}
+		if (family_code == 6 && model_number <= 6) {
+			if (type == 0 && model_number == 3)
+				strcpy (CPU_BRAND, "Intel Pentium II processor");
+			if (model_number == 5 && CPU_L2_CACHE_SIZE == 0 ||
+			    model_number == 6) {
+				strcpy (CPU_BRAND, "Intel Celeron processor");
+			}
+			if (model_number == 5 && CPU_L2_CACHE_SIZE == 512)
+				strcpy (CPU_BRAND, "Intel Pentium II or Pentium II Xeon processor");
+			if (model_number == 5 && CPU_L2_CACHE_SIZE >= 1024)
+				strcpy (CPU_BRAND, "Intel Pentium II Xeon processor");
+			if (type == 1 && model_number == 3)
+				strcpy (CPU_BRAND, "Intel Pentium II OverDrive processor");
+		}
+		if (family_code == 6 && model_number >= 7) {
+			if (model_number == 7 && CPU_L2_CACHE_SIZE >= 1024)
+				strcpy (CPU_BRAND, "Intel Pentium III Xeon processor");
+			if (model_number == 7 && CPU_L2_CACHE_SIZE == 512)
+				strcpy (CPU_BRAND, "Intel Pentium III or Pentium III Xeon processor");
+		}
+
+/* If we've failed to figure out the brand string, create a default. */
+
+		if (CPU_BRAND[0] == 0) {
+			strcpy (CPU_BRAND, "Unknown Intel CPU");
+		}
+	}
+
+/*---------------------------------------------------------------+
+| Check for AMD vendor string.  Perform AMD-specific operations. |
++---------------------------------------------------------------*/
+
+	else if (strcmp ((const char *) vendor_id, "AuthenticAMD") == 0) {
+
+/* Deduce the cpu type given the family, model, stepping, etc.  If we */
+/* haven't figured out the brand string, create one based on the cpu type. */
+
+		if (family_code == 4) {
+			strcpy (CPU_BRAND, "AMD Am486 or Am5x86 processor");
+		}
+		if (family_code == 5 && model_number <= 3) {
+			if (CPU_BRAND[0] == 0)
+				strcpy (CPU_BRAND, "AMD K5 processor");
+		}
+
+/* Early Athlon CPUs support the SSE prefetch instructions even though */
+/* they do not support the full SSE instruction set.  I think testing for */
+/* the AMD MMX extensions capability will detect this case. */
+
+		if (max_extended_cpuid_value >= 80000001 &&
+		    ! (CPU_FLAGS & CPU_PREFETCH)) {
+			Cpuid (0x80000001);
+			if ((CPUID_EDX >> 22) & 0x1 &&
+			    canExecInstruction (CPU_PREFETCH))
+				CPU_FLAGS |= CPU_PREFETCH;
+		}
+
+/* Get the L1 cache size and number of data TLBs */
+
+		if (max_extended_cpuid_value >= 80000005) {
+			Cpuid (0x80000005);
+			CPU_L1_DATA_TLBS = (CPUID_EBX >> 16) & 0xFF;
+			CPU_L1_CACHE_SIZE = (CPUID_ECX >> 24) & 0xFF;
+			CPU_L1_CACHE_LINE_SIZE = CPUID_ECX & 0xFF;
+		}
+
+/* Get the L2 cache size */
+
+		if (max_extended_cpuid_value >= 80000006) {
+			Cpuid (0x80000006);
+			CPU_L2_DATA_TLBS = (CPUID_EBX >> 16) & 0xFFF;
+			CPU_L2_CACHE_SIZE = (CPUID_ECX >> 16) & 0xFFFF;
+			CPU_L2_CACHE_LINE_SIZE = CPUID_ECX & 0xFF;
+		}
+
+/* If we haven't figured out the brand string, create a default one */
+
+		if (CPU_BRAND[0] == 0)
+			strcpy (CPU_BRAND, "Unknown AMD CPU");
+	}
+
+/*---------------------------------------------------------------+
+| Check for VIA vendor string.  Perform VIA-specific operations. |
++---------------------------------------------------------------*/
+
+	else if (strcmp ((const char *) vendor_id, "CentaurHauls") == 0) {
+
+/* Get the L1 cache size and number of data TLBs */
+
+		if (max_extended_cpuid_value >= 80000005) {
+			Cpuid (0x80000005);
+			CPU_L2_DATA_TLBS = (CPUID_EBX >> 16) & 0xFF;
+			CPU_L1_CACHE_SIZE = (CPUID_ECX >> 24) & 0xFF;
+			CPU_L1_CACHE_LINE_SIZE = CPUID_ECX & 0xFF;
+		}
+
+/* Get the L2 cache size */
+
+		if (max_extended_cpuid_value >= 80000006) {
+			Cpuid (0x80000006);
+			CPU_L2_CACHE_SIZE = (CPUID_ECX >> 24) & 0xFF;
+			CPU_L2_CACHE_LINE_SIZE = CPUID_ECX & 0xFF;
+		}
+
+/* If we haven't figured out the brand string, create a default one */
+
+		if (CPU_BRAND[0] == 0)
+			strcpy (CPU_BRAND, "Unknown VIA/CYRIX CPU");
+	}
+
+/*--------------------------------------------------------+
+| An unknown CPU vendor.  Fill in defaults as best we can |
++--------------------------------------------------------*/
+
+	else {
+		if (CPU_BRAND[0] == 0) {
+			strcpy (CPU_BRAND, "Unrecognized CPU vendor: ");
+			strcat (CPU_BRAND, vendor_id);
+		}
+	}
+}
+
+void guessCpuSpeed (void)
+{
+
+/* If RDTSC is not supported, then measuring the CPU speed is real hard */
+/* so we just assume the CPU speed is 100 MHz.  This isn't a big deal */
+/* since CPUs not supporting RDTSC aren't powerful enough to run prime95. */
+
+	if (! (CPU_FLAGS & CPU_RDTSC)) {
+		CPU_SPEED = 100.0;
+		return;
+	}
+
+/* If this machine supports a high resolution counter, use that for timing */
+
+	if (isHighResTimerAvailable ()) {
+		unsigned long start_hi, start_lo, end_hi, end_lo;
+		double	frequency, temp, start_time, end_time;
+		unsigned long iterations;
+		double	speed1, speed2, speed3, avg_speed;
+		int	tries;
+
+/* Compute the number of high resolution ticks in one millisecond */
+/* This should give us good accuracy while hopefully avoiding time slices */
+
+		frequency = getHighResTimerFrequency ();
+		iterations = (unsigned long) (frequency / 1000.0);
+
+/* Do up to 20 iterations (idea lifted from Intel's code) until 3 straight */
+/* speed calculations are within 1 MHz of each other.  This is good since */
+/* outside forces can interfere with this calculation. */
+
+		tries = 0; speed1 = 0.0; speed2 = 0.0;
+		do {
+
+/* Shuffle the last calculations, bump counter */
+
+			speed3 = speed2;
+			speed2 = speed1;
+			tries++;
+
+/* Loop waiting for high resolution timer to change */
+
+			temp = getHighResTimer ();
+			while ((start_time = getHighResTimer ()) == temp);
+			rdtsc (&start_hi, &start_lo);
+
+/* Now loop waiting for timer to tick off about 1 millisecond */
+
+			temp = start_time + (double) iterations;
+			while ((end_time = getHighResTimer ()) < temp);
+			rdtsc (&end_hi, &end_lo);
+
+/* Compute speed based on number of clocks in the time interval */
+
+			speed1 = (end_hi * 4294967296.0 + end_lo -
+				  start_hi * 4294967296.0 - start_lo) *
+				 frequency /
+				 (end_time - start_time) / 1000000.0;
+
+/* Caclulate average of last 3 speeds.  Loop if this average isn't */
+/* very close to all of the last three speed calculations. */
+
+			avg_speed = (speed1 + speed2 + speed3) / 3.0;
+		} while (tries < 3 ||
+		         (tries < 20 &&
+		          (fabs (speed1 - avg_speed) > 1.0 ||
+		           fabs (speed2 - avg_speed) > 1.0 ||
+		           fabs (speed3 - avg_speed) > 1.0)));
+
+/* Final result is average speed of last three calculations */
+
+		CPU_SPEED = avg_speed;
+	}
+
+/* Otherwise use the low resolution timer to measure CPU speed */
+
+	else {
+		struct _timeb temp, start_time, end_time;
+		unsigned long start_hi, start_lo, end_hi, end_lo;
+		double	speed1, speed2, speed3, avg_speed, elapsed_time;
+		int	tries;
+
+/* Do up to 10 iterations until 3 straight speed calculations are within */
+/* 1 MHz of each other. */
+
+		tries = 0; speed1 = 0.0; speed2 = 0.0;
+		do {
+
+/* Shuffle the last calculations, bump counter */
+
+			speed3 = speed2;
+			speed2 = speed1;
+			tries++;
+
+/* Loop waiting for low resolution timer to change */
+
+			_ftime (&temp);
+			do
+				_ftime (&start_time);
+			while (temp.millitm == start_time.millitm);
+			rdtsc (&start_hi, &start_lo);
+
+/* Now loop waiting for timer to change again */
+
+			do
+				_ftime (&end_time);
+			while (start_time.millitm == end_time.millitm);
+			rdtsc (&end_hi, &end_lo);
+
+/* Compute elapsed time.  Since most PCs have a low resolution clock */
+/* that ticks every 18.20648193 seconds, then if elapsed time is close */
+/* to 1 / 18.2 seconds, then assume the elapsed time is */
+/* 1 / 18.206... = 0.054925493 seconds. */
+
+			elapsed_time = (end_time.time - start_time.time) +
+				  ((int) end_time.millitm -
+				   (int) start_time.millitm) / 1000.0;
+			if (elapsed_time >= 0.049 && elapsed_time <= 0.061)
+				elapsed_time = 0.054925493;
+
+/* Compute speed based on number of clocks in the time interval */
+
+			speed1 = (end_hi * 4294967296.0 + end_lo -
+				  start_hi * 4294967296.0 - start_lo) /
+				 elapsed_time / 1000000.0;
+
+/* Caclulate average of last 3 speeds.  Loop if this average isn't */
+/* very close to all of the last three speed calculations. */
+
+			avg_speed = (speed1 + speed2 + speed3) / 3.0;
+		} while (tries < 3 ||
+		         (tries < 10 &&
+		          (fabs (speed1 - avg_speed) > 1.0 ||
+		           fabs (speed2 - avg_speed) > 1.0 ||
+		           fabs (speed3 - avg_speed) > 1.0)));
+
+/* Final result is average speed of last three calculations */
+
+		CPU_SPEED = avg_speed;
+	}
+}

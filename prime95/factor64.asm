@@ -1,6 +1,15 @@
+; Copyright 1995-2002 Just For Fun Software, Inc., all rights reserved
+; Author:  George Woltman
+; Email: woltman@alum.mit.edu
+;
+; This routine implements fast trial factoring of Mersenne numbers
+;
+
 TITLE   setup
 
 	.686
+	.MMX
+	.XMM
 
 _TEXT32	SEGMENT USE32 PAGE PUBLIC 'DATA'
 
@@ -9,7 +18,7 @@ EXTRN	_FACHSW:DWORD
 EXTRN	_FACMSW:DWORD
 EXTRN	_FACLSW:DWORD
 EXTRN	_FACPASS:DWORD
-EXTRN	_CPU_TYPE:DWORD
+EXTRN	_CPU_FLAGS:DWORD
 
 ;
 ; Global variables
@@ -129,12 +138,39 @@ FOUR		DD	4.0
 TWO_TO_32	DD	0.0
 TWO_TO_64	DQ	0.0
 FDMULT		DD	3840.0	; 32 * 120 (to compute facdist_flt)
+
+	;; From here down are globals used in SSE2 code
+	align 16
+XMM_LOWONE		DD	1,0,0,0
+XMM_HIGHONE		DD	0,0,1,0
+XMM_COMPARE_VAL1	DD	0,0,0,0
+XMM_COMPARE_VAL2	DD	0,0,0,0
+XMM_COMPARE_VAL3	DD	0,0,0,0
+XMM_BITS28		DD	0FFFFFFFh,0,0FFFFFFFh,0
+XMM_BITS30		DD	3FFFFFFFh,0,3FFFFFFFh,0
+XMM_INITVAL		DD	0,0,0,0
+XMM_INVFAC		DD	0,0,0,0
+XMM_I1			DD	0,0,0,0
+XMM_I2			DD	0,0,0,0
+XMM_F1			DD	0,0,0,0
+XMM_F2			DD	0,0,0,0
+XMM_F3			DD	0,0,0,0
+XMM_TWO_120_MODF1	DD	0,0,0,0
+XMM_TWO_120_MODF2	DD	0,0,0,0
+XMM_TWO_120_MODF3	DD	0,0,0,0
+XMM_INIT120BS		DD	0,0
+XMM_INITBS		DD	0,0
+XMM_BS			DD	0,0
+XMM_SHIFTER		DD	48 DUP (0)
+TWO_TO_FACSIZE_PLUS_62	DQ	0.0
+SSE2_LOOP_COUNTER	DD	0
 _TEXT32	ENDS
 
 
 	ASSUME  CS: _TEXT32, DS: _TEXT32, SS: _TEXT32, ES: _TEXT32
 
 INCLUDE	unravel.mac
+INCLUDE factor64.mac
 
 initsize	EQU	7*11*13*17	; First 4 primes cleared in initsieve
 initcount	EQU	4		; Count of primes cleared in initsieve
@@ -334,6 +370,11 @@ ilp6:	sub	edx, ecx		; Compute bit# mod smallp
 	fstp	TWO_TO_MINUS_59		; Save 2^-59
 	fstp	FACLO
 
+; Return address of XMM area so that we can init that with C code
+; I wish I'd done that with the x86 factoring code too!
+
+	mov	_SRCARG, OFFSET XMM_BITS30
+
 ; Return
 
 	pop	ebx
@@ -391,7 +432,7 @@ idone:	mov	initval1, eax		; Save bits 33-64 of initval
 	shl	eax, cl
 idone2:	mov	initval0, eax		; Save bits 65-96 of initval
 
-; Now use the CPU_TYPE to determine which version of sieve tester to run
+; Now use the CPU_FLAGS to determine which version of sieve tester to run
 ; First compute the value corresponding to the last bit in the sieve.
 
 	mov	eax, sievesize * 8 * repcnt * 120; true sieve size (times 120)
@@ -400,30 +441,24 @@ idone2:	mov	initval0, eax		; Save bits 65-96 of initval
 	adc	edx, _FACMSW		; to first sieve bit
 	mov	ecx, _FACHSW
 	adc	ecx, 0			; Add in carry and test for >= 65-bits
+	jz	short not65		; Jump if not >= 65 bits
 	mov	eax, OFFSET tlp80	; 80 bit all cpus version
-	jnz	short cp1		; Yes, jump
-	mov	eax, OFFSET tlp64	; 64 bit all cpus version
+	test	_CPU_FLAGS, 10h		; Is this an SSE2 machine?
+	jz	short cp1		; No, use all purpose code
+	mov	eax, OFFSET tlp86	; 75-86 bit SSE2 version
+	cmp	ecx, 3FFh		; Are we testing 75-bits or greater?
+	ja	short cp1		; Yes, jump
+	mov	eax, OFFSET tlp74	; 64-74 bit SSE2 version
+	jmp	short cp1		; Yes, jump
+not65:	mov	eax, OFFSET tlp64	; 64 bit all cpus version
 	cmp	edx, 3FFFFFFFh		; Are we testing 63-bits or greater?
-	jae	short cp1		; Yes, jump
+	ja	short cp1		; Yes, jump
 	mov	eax, OFFSET plp		; Pentium Pro version
-	cmp	_CPU_TYPE, 6		; Is this a Pentium Pro?
-	je	short cp1		; Yes, jump
-	cmp	_CPU_TYPE, 8		; Is this a Pentium II?
-;	je	short cp1		; Yes, jump
-;	cmp	_CPU_TYPE, 9		; Is this a Celeron?
-;	je	short cp1		; Yes, jump
-;	cmp	_CPU_TYPE, 10		; Is this a Pentium III?
-;	je	short cp1		; Yes, jump
-;	cmp	_CPU_TYPE, 11		; Is this an AMD K7?
-;	je	short cp1		; Yes, jump
-;	cmp	_CPU_TYPE, 12		; Is this a P4?
-;	je	short cp1		; Yes, jump
-	jge	short cp1		; Assume all later CPUs use PPRO code
+	test	_CPU_FLAGS, 2		; Is this a Pentium Pro or better?
+	jnz	short cp1		; Yes - CMOV is supported, jump
 	mov	eax, OFFSET ulp		; 486 version
-	cmp	_CPU_TYPE, 4		; Is this a 486?
-	jle	short cp1		; Yes, jump
-	cmp	_CPU_TYPE, 7		; Is this an AMD K6?
-	je	short cp1		; Yes, jump
+	test	_CPU_FLAGS, 1		; Is this a 486 or AMD K6?
+	jz	short cp1		; Yes RDTSC not supported, jump
 	mov	eax, OFFSET tlp60	; 60 bit Pentium version
 	cmp	edx, 0FFFFFFFh		; Are we testing 61-bits or greater?
 	jl	short cp1		; No, jump
@@ -638,7 +673,7 @@ _factor64 PROC NEAR
 
 ; Make sure we have a factor with the right modulo for this pass
 
-	mov	esi, _FACPASS		; Get the pass numner (0 to 15)
+	mov	esi, _FACPASS		; Get the pass number (0 to 15)
 	mov	ebp, 120
 flp1:	mov	eax, fac0		; Do a mod 120 in three parts
 	sub	edx, edx
@@ -3824,8 +3859,8 @@ pmul2:	JZ_X	pqexit			; Jmp if this is the last iteration
 	mov	edx, pfac1
 	add	esi, esi		; Multiply remainder by 2
 	adc	edi, edi
-	CMOVNC	eax, pneg2
-	CMOVNC	edx, pneg1
+	cmovnc	eax, pneg2
+	cmovnc	edx, pneg1
 	add	esi, eax		; Sub or add factor so that
 	adc	edi, edx		; |remainder| < factor
 	mov	rem2, esi
@@ -3835,8 +3870,8 @@ pmul2:	JZ_X	pqexit			; Jmp if this is the last iteration
 	mov	edx, pfac3
 	add	ebx, ebx		; Multiply remainder by 2
 	adc	ecx, ecx
-	CMOVNC	eax, pneg4
-	CMOVNC	edx, pneg3
+	cmovnc	eax, pneg4
+	cmovnc	edx, pneg3
 	add	ebx, eax		; Sub or add factor so that
 	adc	ecx, edx		; |remainder| < factor
 	mov	rem4, ebx
@@ -3883,8 +3918,8 @@ pmul2:	JZ_X	pqexit			; Jmp if this is the last iteration
 	mov	edx, pfac5
 	add	esi, esi		; Multiply remainder by 2
 	adc	edi, edi
-	CMOVNC	eax, pneg6
-	CMOVNC	edx, pneg5
+	cmovnc	eax, pneg6
+	cmovnc	edx, pneg5
 	add	esi, eax		; Sub or add factor so that
 	adc	edi, edx		; |remainder| < factor
 	mov	rem6, esi
@@ -3894,8 +3929,8 @@ pmul2:	JZ_X	pqexit			; Jmp if this is the last iteration
 	mov	edx, pfac7
 	add	ebx, ebx		; Multiply remainder by 2
 	adc	ecx, ecx
-	CMOVNC	eax, pneg8
-	CMOVNC	edx, pneg7
+	cmovnc	eax, pneg8
+	cmovnc	edx, pneg7
 	add	ebx, eax		; Sub or add factor so that
 	adc	ecx, edx		; |remainder| < factor
 	mov	rem8, ebx
@@ -4332,6 +4367,291 @@ zwin:	mov	eax, fachigh		; Factor found!!! Return it
 	add	esp, 8			; pop sieve testing registers
 	mov	eax, 1			; return TRUE
 	JMP_X	done
+
+;***********************************************************************
+; For SSE2 machines only - factors up to 86 bits
+;***********************************************************************
+
+;
+; Check all the bits in the sieve looking for a factor to test
+;
+
+tlp74:	mov	esi, sieve
+	wait
+	sub	edi, edi		; Count of queued factors
+	fild	QWORD PTR savefac1	; Load savefac0 and savefac1
+	fmul	TWO_TO_32
+	mov	eax, savefac2		; Copy savefac2 for loading as a QWORD
+	mov	faclow, eax
+	mov	facmid, 0
+	fild	QWORD PTR faclow	; Load savefac2
+ax0:	mov	eax, [esi]		; Load word from sieve
+	lea	esi, [esi+4]		; Bump sieve address
+ax1:	bsf	edx, eax		; Look for a set bit
+	jnz	short aestit		; Found one, go test the factor
+	fadd	facdist_flt     	; Add facdist * 32 to the factor
+	test	esi, sievesize		; End of sieve?
+	jz	short ax0		; Loop to test next sieve dword
+
+; Bump savefac value
+
+	mov	eax, savefac1		; Compute new savefac0 and savefac1
+	mov	edx, savefac0
+	fistp	QWORD PTR savefac2
+	add	eax, savefac1
+	adc	edx, 0
+	mov	savefac1, eax
+	mov	savefac0, edx
+	fstp	temp			; Pop trash
+
+; Check repetition counter
+
+	dec	reps
+	JNZ_X	slp0
+
+; Return so caller can check for ESC
+
+	mov	_FACMSW, eax
+	mov	_FACHSW, edx
+	mov	eax, 2
+	JMP_X	done
+
+;
+; This is the SSE2 version of testit for nearly 86-bit factors.
+;
+; eax = sieve word - must be preserved or reloaded
+; edx = sieve bit being tested
+; esi = sieve address - must be preserved
+; edi = count of queued factors
+; st(1) = savefac0 and savefac1 of the first sieve bit
+; st(0) = savefac2 + accumulated facdist_flts
+;
+
+;
+; Compute the factor to test and 63 most significant bits of 1 / factor
+;
+
+aestit:	fld	QWORD PTR facdistsflt[edx*8]
+	fadd	st, st(1)
+	fld	st(0)
+	fistp	QWORD PTR faclow	; Save lower bits of factor
+	fadd	st, st(2)		; We now have the factor to test
+	fld	TWO_TO_FACSIZE_PLUS_62	; Constant to generate 63 bit inverse
+	fdivrp	st(1), st
+	fistp	QWORD PTR XMM_INVFAC[edi*8]
+
+; Compute the factor in 30 bit chunks
+
+	mov	ebx, savefac1		; Finish computing factor as an integer
+	mov	ecx, savefac0
+	mov	ebp, faclow
+	add	ebx, facmid
+	adc	ecx, 0
+	shld	ecx, ebx, 4
+	shld	ebx, ebp, 2
+	and	ebp, 3FFFFFFFh
+	and	ebx, 3FFFFFFFh
+	mov	XMM_F3[edi*8], ebp
+	mov	XMM_F2[edi*8], ebx
+	mov	XMM_F1[edi*8], ecx
+
+; Compute factor + 1 for comparing against when loop is done
+
+	inc	ebp
+	shl	ebp, 2
+	adc	ebx, 0
+	shr	ebp, 2
+	shl	ebx, 2
+	adc	ecx, 0
+	shr	ebx, 2
+	mov	XMM_COMPARE_VAL3[edi*8], ebp
+	mov	XMM_COMPARE_VAL2[edi*8], ebx
+	mov	XMM_COMPARE_VAL1[edi*8], ecx
+
+; Do other initialization work
+
+	btr	eax, edx		; Clear the sieve bit
+	inc	edi			; Increment count of queued factors
+	cmp	edi, 2			; Test count of queued factors
+	jne	ax1			; Get another factor
+	sub	edi, edi		; Reset count of queued factors
+
+; Work on initval.
+; This is like the aqloop code except that we avoid the initial squaring.
+
+	sse2_fac_initval
+
+; Square remainder and get new remainder.
+
+	mov	ecx, SSE2_LOOP_COUNTER	; Number of times to loop
+aqloop:	sse2_fac 74
+	dec	ecx			; Decrement loop counter
+	JNZ_X	aqloop
+
+;
+; If result = factor + 1, then we found a divisor of 2**p - 1
+;
+
+	pcmpeqd	xmm2, XMM_COMPARE_VAL3	; See if remainder is factor + 1
+	pcmpeqd	xmm1, XMM_COMPARE_VAL2
+	pcmpeqd	xmm0, XMM_COMPARE_VAL1
+	pand	xmm2, xmm1
+	pand	xmm2, xmm0
+	pmovmskb ecx, xmm2
+	cmp	cl, 0FFh		; See if we matched
+	je	short awin1		; Yes! Factor found
+	cmp	ch, 0FFh		; See if we matched
+	je	short awin2		; Yes! Factor found
+	JMP_X	ax1			; Test next factor from sieve
+awin1:	mov	eax, XMM_F3		; Factor found!!! Return it
+	mov	ebx, XMM_F2
+	mov	ecx, XMM_F1
+	jmp	short awin3
+awin2:	mov	eax, XMM_F3+8		; Factor found!!! Return it
+	mov	ebx, XMM_F2+8
+	mov	ecx, XMM_F1+8
+awin3:	shl	eax, 2
+	shrd	eax, ebx, 2
+	shl	ebx, 2
+	shrd	ebx, ecx, 4
+	shr	ecx, 4
+	mov	_FACLSW, eax
+	mov	_FACMSW, ebx
+	mov	_FACHSW, ecx
+	mov	eax, 1			; return TRUE
+	JMP_X	done
+
+;
+; Check all the bits in the sieve looking for a factor to test
+;
+
+tlp86:	mov	esi, sieve
+	wait
+	sub	edi, edi		; Count of queued factors
+	fild	QWORD PTR savefac1	; Load savefac0 and savefac1
+	fmul	TWO_TO_32
+	mov	eax, savefac2		; Copy savefac2 for loading as a QWORD
+	mov	faclow, eax
+	mov	facmid, 0
+	fild	QWORD PTR faclow	; Load savefac2
+bx0:	mov	eax, [esi]		; Load word from sieve
+	lea	esi, [esi+4]		; Bump sieve address
+bx1:	bsf	edx, eax		; Look for a set bit
+	jnz	short bestit		; Found one, go test the factor
+	fadd	facdist_flt     	; Add facdist * 32 to the factor
+	test	esi, sievesize		; End of sieve?
+	jz	short bx0		; Loop to test next sieve dword
+
+; Bump savefac value
+
+	mov	eax, savefac1		; Compute new savefac0 and savefac1
+	mov	edx, savefac0
+	fistp	QWORD PTR savefac2
+	add	eax, savefac1
+	adc	edx, 0
+	mov	savefac1, eax
+	mov	savefac0, edx
+	fstp	temp			; Pop trash
+
+; Check repetition counter
+
+	dec	reps
+	JNZ_X	slp0
+
+; Return so caller can check for ESC
+
+	mov	_FACMSW, eax
+	mov	_FACHSW, edx
+	mov	eax, 2
+	JMP_X	done
+
+;
+; This is the SSE2 version of testit for nearly 86-bit factors.
+;
+; eax = sieve word - must be preserved or reloaded
+; edx = sieve bit being tested
+; esi = sieve address - must be preserved
+; edi = count of queued factors
+; st(1) = savefac0 and savefac1 of the first sieve bit
+; st(0) = savefac2 + accumulated facdist_flts
+;
+
+;
+; Compute the factor to test and 63 most significant bits of 1 / factor
+;
+
+bestit:	fld	QWORD PTR facdistsflt[edx*8]
+	fadd	st, st(1)
+	fld	st(0)
+	fistp	QWORD PTR faclow	; Save lower bits of factor
+	fadd	st, st(2)		; We now have the factor to test
+	fld	TWO_TO_FACSIZE_PLUS_62	; Constant to generate 63 bit inverse
+	fdivrp	st(1), st
+	fistp	QWORD PTR XMM_INVFAC[edi*8]
+
+; Compute the factor in 30 bit chunks
+
+	mov	ebx, savefac1		; Finish computing factor as an integer
+	mov	ecx, savefac0
+	mov	ebp, faclow
+	add	ebx, facmid
+	adc	ecx, 0
+	shld	ecx, ebx, 4
+	shld	ebx, ebp, 2
+	and	ebp, 3FFFFFFFh
+	and	ebx, 3FFFFFFFh
+	mov	XMM_F3[edi*8], ebp
+	mov	XMM_F2[edi*8], ebx
+	mov	XMM_F1[edi*8], ecx
+
+; Compute factor + 1 for comparing against when loop is done
+
+	inc	ebp
+	shl	ebp, 2
+	adc	ebx, 0
+	shr	ebp, 2
+	shl	ebx, 2
+	adc	ecx, 0
+	shr	ebx, 2
+	mov	XMM_COMPARE_VAL3[edi*8], ebp
+	mov	XMM_COMPARE_VAL2[edi*8], ebx
+	mov	XMM_COMPARE_VAL1[edi*8], ecx
+
+; Do other initialization work
+
+	btr	eax, edx		; Clear the sieve bit
+	inc	edi			; Increment count of queued factors
+	cmp	edi, 2			; Test count of queued factors
+	jne	bx1			; Get another factor
+	sub	edi, edi		; Reset count of queued factors
+
+; Work on initval.
+; This is like the aqloop code except that we avoid the initial squaring.
+
+	sse2_fac_initval
+
+; Square remainder and get new remainder.
+
+	mov	ecx, SSE2_LOOP_COUNTER	; Number of times to loop
+bqloop:	sse2_fac 86
+	dec	ecx			; Decrement loop counter
+	JNZ_X	bqloop
+
+;
+; If result = factor + 1, then we found a divisor of 2**p - 1
+;
+
+	pcmpeqd	xmm2, XMM_COMPARE_VAL3	; See if remainder is factor + 1
+	pcmpeqd	xmm1, XMM_COMPARE_VAL2
+	pcmpeqd	xmm0, XMM_COMPARE_VAL1
+	pand	xmm2, xmm1
+	pand	xmm2, xmm0
+	pmovmskb ecx, xmm2
+	cmp	cl, 0FFh		; See if we matched
+	je	awin1			; Yes! Factor found
+	cmp	ch, 0FFh		; See if we matched
+	je	awin2			; Yes! Factor found
+	JMP_X	bx1			; Test next factor from sieve
 
 _factor64 ENDP
 

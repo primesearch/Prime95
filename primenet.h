@@ -64,6 +64,7 @@ struct primenetPingServerInfo {
 
 #define PRIMENET_USER_OPTION_SENDEMAIL	0x01
 #define PRIMENET_USER_OPTION_TEAMACCT	0x02
+#define PRIMENET_USER_OPTION_NO_UNRESERVE 0x10
 
 /* This structure is passed for the MAINTAIN_USER_INFO call */
 
@@ -259,6 +260,8 @@ struct primenetComputerInfo {
 						/* invalid */
 #define PRIMENET_ERROR_INVALID_PARAM	87	/* invalid parameter */
 #define PRIMENET_ERROR_CONNECT_FAILED	2250	/* server unavailable */
+#define PRIMENET_ERROR_SEND_FAILED	2251	/* server unavailable */
+#define PRIMENET_ERROR_RECV_FAILED	2252	/* server unavailable */
 
 #define PRIMENET_ERROR_MODEM_OFF	12345	/* modem offline */
 #define PRIMENET_ERROR_BLACKOUT		12346	/* blackout! */

@@ -1,5 +1,5 @@
 /*
- * Common routines and variables used by Prime95, Saver95, and NTPrime
+ * Common routines and variables used by Prime95 and NTPrime
  *
  * Comm95a contains information used only during setup
  * Comm95b contains information used only during execution
@@ -7,18 +7,16 @@
  */ 
 
 #include <ras.h>
+#include <winsock.h>
+#include <wininet.h>
 
-/* Global variables */
-
-HMODULE HLIB;
-int (__stdcall *PRIMENET)(short, void *);
-
+int	SOCKETS_INITIALIZED = 0;
 
 /* Common routines */
 
 /* Load the PrimeNet DLL, make sure an internet connection is active */
 
-int LoadPrimeNet ()
+int LoadPrimeNet (void)
 {
 static	int	RAS_NOT_AVAILABLE = 0;
 static	HMODULE	HRAS = 0;
@@ -29,39 +27,44 @@ static	DWORD (APIENTRY *RAS_STAT)(HRASCONN, LPRASCONNSTATUSA);
 	DWORD	i, num_connections;
 	DWORD	ret;
 
-/* Load the DLL if necessary. */
+/* Special handling prior to first primenet call. */
+/* Init Winsock, requesting version 1.1 */
 
-	if (!HLIB) {
-		char	*DLLname;
-		DLLname = USE_HTTP ? "HTTPNET.DLL" : "RPCNET.DLL";
-		HLIB = LoadLibrary (DLLname);
-		if (HLIB) {
-			PRIMENET = (int (__stdcall *)(short, void *))
-				GetProcAddress (HLIB, "PrimeNet");
-			if (PRIMENET == NULL) {
-				FreeLibrary (HLIB);
-				HLIB = 0;
-			}
-		}
-		if (!HLIB) {
-			char	buf[80];
-			sprintf (buf, "Unable to load %s.\n", DLLname);
+	if (! SOCKETS_INITIALIZED) {
+		static WSADATA zz;
+		int	res;
+		res = WSAStartup (MAKEWORD (1, 1), &zz);
+		if (res != 0) {
+			char buf[80];
+			sprintf (buf, "ERROR: Winsock initialization returned %d.\n", res);
 			OutputStr (buf);
 			return (FALSE);
 		}
+		SOCKETS_INITIALIZED = 1;
 	}
 
-/* Special handling prior to first primenet call. */
+/* If we're not using a dial-up connection, let primenet try */
+/* to contact the server. */
+
+	if (!DIAL_UP) return (TRUE);
+
 /* Since Windows 95 can bring up a "Connect To" dialog box */
 /* on any call to primenet, we try to make sure we are */
 /* already connected before we call primenet.  Otherwise, if */
 /* no one is at the computer to respond to the "Connect To" */
 /* dialog, the thread hangs until some one does respond. */
 
-// If we're not using a dial-up connection, let primenet try
-// to contact the server.
+/* RAS calls, see below, is no longer the MS-prefered method of detecting */
+/* an Internet connection.  Starting in version 22.10 we offer a way for */
+/* for users to use the prefered wininet.dll method. */
+/* InternetGetConnectedState should return FALSE if the modem is not */
+/* connected to the Internet. */
 
-	if (!DIAL_UP) return (TRUE);
+	if (IniGetInt (INI_FILE, "AlternateModemDetection", 0)) {
+		DWORD	flags;
+		if (InternetGetConnectedState (&flags, 0)) return (TRUE);
+		goto no_modem_connection;
+	}
 
 // Unfortunately, the RASAPI32.DLL is not installed on every
 // system.  We must load it dynamically.  If the RAS library
@@ -104,44 +107,57 @@ static	DWORD (APIENTRY *RAS_STAT)(HRASCONN, LPRASCONNSTATUSA);
 
 // Print error message if no there are no connections
 
+no_modem_connection:
 	OutputStr ("Dial-up connection not active.\n");
 	return (FALSE);
 }
 
-/* Call routines provided by Intel to guess the cpu type and speed */
+/* Unload the PrimeNet DLL */
 
-void guessCpuType ()
+void UnloadPrimeNet (void)
 {
-	WORD cpuid;
-	struct FREQ_INFO x;
 
-	cpuid = wincpuid ();
-	if (cpuid & CLONE_MASK) {
-		CPU_TYPE = 3;
-		CPU_SPEED = 166;
-	} else {
-		CPU_TYPE = cpuid;
-		x = cpuspeed (0);
-		CPU_SPEED = x.norm_freq;
-		if (CPU_SPEED == 0) CPU_SPEED = 100;
+/* Tell winsock we are done. */
+
+	if (SOCKETS_INITIALIZED) {
+		// Should we call WSACancelBlockingCall first??
+		// Should we check error code from WSACleanup?
+		// Should we call WSACleanup after each communication session
+		// with the server?  That is, are we tying up any resources?
+		WSACleanup ();
+		SOCKETS_INITIALIZED = 0;
 	}
 }
 
-/* Return TRUE if given cpu speed value is plausible */
+/* Routines to access the high resolution performance counter */
 
-int isReasonableCpuSpeed (
-	unsigned int mhz)
+int isHighResTimerAvailable (void)
 {
-	struct FREQ_INFO freq;
+	LARGE_INTEGER large;
+	return (QueryPerformanceCounter (&large));
+}
 
-	freq = cpuspeed (0);
-	if (freq.raw_freq == 0) return (TRUE);
-	return (mhz > 0.96 * freq.raw_freq && mhz < 1.04 * freq.raw_freq);
+double getHighResTimer (void)
+{
+	LARGE_INTEGER large;
+
+	QueryPerformanceCounter (&large);
+	return ((double) large.HighPart * 4294967296.0 +
+		(double) large.LowPart);
+}
+
+double getHighResTimerFrequency (void)
+{
+	LARGE_INTEGER large;
+
+	QueryPerformanceFrequency (&large);
+	return ((double) large.HighPart * 4294967296.0 +
+		(double) large.LowPart);
 }
 
 /* Return the number of MB of physical memory */
 
-unsigned long physical_memory ()
+unsigned long physical_memory (void)
 {
 	MEMORYSTATUS mem;
 
@@ -151,7 +167,7 @@ unsigned long physical_memory ()
 
 /* Return the number of CPUs in the system */
 
-unsigned long num_cpus ()
+unsigned long num_cpus (void)
 {
 	SYSTEM_INFO sys;
 
@@ -162,7 +178,7 @@ unsigned long num_cpus ()
 /* Return 1 to print time in AM/PM format.  Return 2 to print */
 /* times using a 24-hour clock. */
 
-int getDefaultTimeFormat ()
+int getDefaultTimeFormat (void)
 {
 	char	buf[10];
 

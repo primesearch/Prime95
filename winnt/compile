@@ -1,0 +1,32 @@
+# Standard options
+#copt=/Oi /Os /Ob1 /Zi /I..
+copt=/O2 /Zi /I..
+cl4=\msdev\bin\cl /I.. /I C:\msdev\include\ /O2 /GF /W3 /c
+
+# This line allows NMAKE to work as well
+
+all: ntprime.exe
+
+# Update the object files if necessary
+
+main.obj: main.c main.h prime95.h
+    vcvars32
+    cl -c -Gs -Ze $(copt) -W3 main.c
+
+service.obj: service.c service.h
+    vcvars32
+    cl -c -Gs -Ze $(copt) -W3 service.c
+
+prime.obj: prime.c prime95.h ..\commonc.c ..\commonb.c
+    vcvars32
+    cl -c -Gs -Ze $(copt) -W3 prime.c
+
+# Create optimized giants.obj
+
+giants.obj: ..\giants.c ..\giants.h
+    $(cl4) giants.c
+
+# Update the executable file
+
+ntprime.exe: main.obj prime.obj service.obj
+    link @main.lnk

@@ -1,0 +1,343 @@
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+	<head>
+		<title>New features in Version 20 of Prime95</title>
+		<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+		<meta name="ProgId" content="Word.Document">
+		<meta name="Generator" content="Microsoft Word 9">
+		<meta name="Originator" content="Microsoft Word 9">
+		<link rel="File-List" href="./New%20features%20in%20Version%2020_files/filelist.xml"> <!--[if gte mso 9]><xml>
+ <o:DocumentProperties>
+  <o:Author>enduser</o:Author>
+  <o:LastAuthor>enduser</o:LastAuthor>
+  <o:Revision>7</o:Revision>
+  <o:TotalTime>28</o:TotalTime>
+  <o:Created>2001-06-14T16:25:00Z</o:Created>
+  <o:LastSaved>2001-08-07T02:37:00Z</o:LastSaved>
+  <o:Pages>2</o:Pages>
+  <o:Words>744</o:Words>
+  <o:Characters>4242</o:Characters>
+  <o:Lines>35</o:Lines>
+  <o:Paragraphs>8</o:Paragraphs>
+  <o:CharactersWithSpaces>5209</o:CharactersWithSpaces>
+  <o:Version>9.3821</o:Version>
+ </o:DocumentProperties>
+</xml><![endif]-->
+			<style> <!-- /* Font Definitions */ @font-face {font-family:"MS Mincho"; panose-1:2 2 6 9 4 2 5 8 3 4; mso-font-alt:"\FF2D\FF33 \660E\671D"; mso-font-charset:128; mso-generic-font-family:modern; mso-font-pitch:fixed; mso-font-signature:647 134676480 16 0 131231 0;}
+	@font-face {font-family:"\@MS Mincho"; mso-font-charset:128; mso-generic-font-family:modern; mso-font-pitch:fixed; mso-font-signature:647 134676480 16 0 131231 0;}
+	/* Style Definitions */ p.MsoNormal, li.MsoNormal, div.MsoNormal {mso-style-parent:""; margin:0in; margin-bottom:.0001pt; mso-pagination:widow-orphan; font-size:12.0pt; font-family:"Times New Roman"; mso-fareast-font-family:"Times New Roman";}
+	p.MsoPlainText, li.MsoPlainText, div.MsoPlainText {margin:0in; margin-bottom:.0001pt; mso-pagination:widow-orphan; font-size:10.0pt; font-family:"Courier New"; mso-fareast-font-family:"Times New Roman";}
+	@page Section1 {size:8.5in 11.0in; margin:1.0in 1.25in 1.0in 1.25in; mso-header-margin:.5in; mso-footer-margin:.5in; mso-paper-source:0;}
+	div.Section1 {page:Section1;}
+	/* List Definitions */ @list l0 {mso-list-id:36440689; mso-list-type:hybrid; mso-list-template-ids:-1509279492 67698713 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l0:level1 {mso-level-number-format:alpha-lower; mso-level-tab-stop:.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l1 {mso-list-id:67700259; mso-list-type:hybrid; mso-list-template-ids:928559910 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l1:level1 {mso-level-tab-stop:.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l1:level2 {mso-level-tab-stop:1.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l1:level3 {mso-level-tab-stop:1.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l1:level4 {mso-level-tab-stop:2.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l1:level5 {mso-level-tab-stop:2.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l1:level6 {mso-level-tab-stop:3.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l1:level7 {mso-level-tab-stop:3.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l1:level8 {mso-level-tab-stop:4.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l1:level9 {mso-level-tab-stop:4.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l2 {mso-list-id:340202044; mso-list-type:hybrid; mso-list-template-ids:1390471498 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l2:level1 {mso-level-tab-stop:.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l2:level2 {mso-level-tab-stop:1.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l2:level3 {mso-level-tab-stop:1.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l2:level4 {mso-level-tab-stop:2.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l2:level5 {mso-level-tab-stop:2.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l2:level6 {mso-level-tab-stop:3.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l2:level7 {mso-level-tab-stop:3.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l2:level8 {mso-level-tab-stop:4.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l2:level9 {mso-level-tab-stop:4.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l3 {mso-list-id:495264358; mso-list-type:hybrid; mso-list-template-ids:-897428016 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l4 {mso-list-id:607391973; mso-list-type:hybrid; mso-list-template-ids:-1415384242 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l4:level1 {mso-level-tab-stop:.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l4:level2 {mso-level-tab-stop:1.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l4:level3 {mso-level-tab-stop:1.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l4:level4 {mso-level-tab-stop:2.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l4:level5 {mso-level-tab-stop:2.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l4:level6 {mso-level-tab-stop:3.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l4:level7 {mso-level-tab-stop:3.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l4:level8 {mso-level-tab-stop:4.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l4:level9 {mso-level-tab-stop:4.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l5 {mso-list-id:1010065532; mso-list-type:hybrid; mso-list-template-ids:1585105166 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l6 {mso-list-id:1013923517; mso-list-type:hybrid; mso-list-template-ids:267821960 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l6:level1 {mso-level-tab-stop:.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l6:level2 {mso-level-tab-stop:1.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l6:level3 {mso-level-tab-stop:1.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l6:level4 {mso-level-tab-stop:2.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l6:level5 {mso-level-tab-stop:2.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l6:level6 {mso-level-tab-stop:3.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l6:level7 {mso-level-tab-stop:3.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l6:level8 {mso-level-tab-stop:4.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l6:level9 {mso-level-tab-stop:4.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l7 {mso-list-id:1111825173; mso-list-type:hybrid; mso-list-template-ids:1802041444 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l8 {mso-list-id:1221868797; mso-list-type:hybrid; mso-list-template-ids:-723583028 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l8:level1 {mso-level-tab-stop:.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l8:level2 {mso-level-tab-stop:1.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l8:level3 {mso-level-tab-stop:1.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l8:level4 {mso-level-tab-stop:2.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l8:level5 {mso-level-tab-stop:2.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l8:level6 {mso-level-tab-stop:3.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l8:level7 {mso-level-tab-stop:3.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l8:level8 {mso-level-tab-stop:4.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l8:level9 {mso-level-tab-stop:4.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l9 {mso-list-id:1281104508; mso-list-type:hybrid; mso-list-template-ids:-1836435730 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l10 {mso-list-id:1378703280; mso-list-type:hybrid; mso-list-template-ids:-1457328918 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l10:level1 {mso-level-tab-stop:.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l10:level2 {mso-level-tab-stop:1.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l10:level3 {mso-level-tab-stop:1.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l10:level4 {mso-level-tab-stop:2.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l10:level5 {mso-level-tab-stop:2.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l10:level6 {mso-level-tab-stop:3.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l10:level7 {mso-level-tab-stop:3.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l10:level8 {mso-level-tab-stop:4.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l10:level9 {mso-level-tab-stop:4.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l11 {mso-list-id:1406804425; mso-list-type:hybrid; mso-list-template-ids:-1383300910 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l11:level2 {mso-level-number-format:alpha-lower; mso-level-tab-stop:1.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l12 {mso-list-id:1529025145; mso-list-type:hybrid; mso-list-template-ids:-1625764506 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l13 {mso-list-id:1580558005; mso-list-type:hybrid; mso-list-template-ids:-108885522 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l14 {mso-list-id:1590308620; mso-list-type:hybrid; mso-list-template-ids:819333996 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l15 {mso-list-id:1619681392; mso-list-type:hybrid; mso-list-template-ids:-622534108 67698703 67698713 67698689 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l15:level1 {mso-level-tab-stop:.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l15:level2 {mso-level-number-format:alpha-lower; mso-level-tab-stop:1.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l15:level3 {mso-level-number-format:bullet; mso-level-text:\F0B7; mso-level-tab-stop:117.0pt; mso-level-number-position:left; margin-left:117.0pt; text-indent:-.25in; font-family:Symbol;}
+	@list l15:level4 {mso-level-tab-stop:2.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l15:level5 {mso-level-tab-stop:2.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l15:level6 {mso-level-tab-stop:3.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l15:level7 {mso-level-tab-stop:3.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l15:level8 {mso-level-tab-stop:4.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l15:level9 {mso-level-tab-stop:4.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l16 {mso-list-id:1687823822; mso-list-type:hybrid; mso-list-template-ids:308697128 67698703 67698713 67698715 67698703 67698713 67698715 67698703 67698713 67698715;}
+	@list l16:level1 {mso-level-tab-stop:.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l16:level2 {mso-level-tab-stop:1.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l16:level3 {mso-level-tab-stop:1.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l16:level4 {mso-level-tab-stop:2.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l16:level5 {mso-level-tab-stop:2.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l16:level6 {mso-level-tab-stop:3.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l16:level7 {mso-level-tab-stop:3.5in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l16:level8 {mso-level-tab-stop:4.0in; mso-level-number-position:left; text-indent:-.25in;}
+	@list l16:level9 {mso-level-tab-stop:4.5in; mso-level-number-position:left; text-indent:-.25in;}
+	ol {margin-bottom:0in;}
+	ul {margin-bottom:0in;}
+	--></style>
+	</head>
+	<body lang="EN-US" style='tab-interval:.5in'>
+		<div class="Section1">
+			<p class="MsoPlainText"><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'"><U>New 
+							features in Version 20.6 of prime95.exe<o:p></o:p></U></span></b></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l7 level1 lfo33;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">A crash bug was fixed.<span style="mso-spacerun: yes">&nbsp; </span>If
+you did P-1 factoring followed by trial factoring, then if you found a factor
+unallocated memory was accessed usually resulting in a crash.<o:p></o:p></span></p>
+			<p class="MsoNormal">&nbsp;<o:p></o:p></p>
+			<p class="MsoPlainText"><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'"><U>New 
+							features in Version 20.5 of prime95.exe</U></span></b><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+				</span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l12 level1 lfo34;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">A rare error was fixed.<span style="mso-spacerun: yes">&nbsp;
+</span>When the memory settings changed during the GCD step in P-1 or ECM
+factoring, then a spurious "ERROR: Factor does not divide N!" error
+was raised.<o:p></o:p></span></p>
+			<p class="MsoNormal">&nbsp;<o:p></o:p></p>
+			<p class="MsoPlainText"><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'"><U>New 
+							features in Version 20.4 of prime95.exe</U></span></b><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+				</span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l3 level1 lfo35;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">If stage 2 of P-1 was postponed because of insufficient memory,
+the program did not restart stage 2 when nighttime started.<span style="mso-spacerun: yes">&nbsp; </span>This bug was fixed.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.25in;TEXT-INDENT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l3 level1 lfo35;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">2.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">By default, PII-300's and faster get first-time LL tests, P-90 and
+faster get double-checking work, and all slower machines get factoring work.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='TEXT-INDENT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l3 level1 lfo35;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">3.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">An ECM bug during stage 2 init on huge exponents caused false
+ILLEGAL SUMOUT errors.<span style="mso-spacerun: yes">&nbsp; </span>This bug was
+fixed.<o:p></o:p></span></p>
+			<p class="MsoNormal">&nbsp;<o:p></o:p></p>
+			<p class="MsoPlainText"><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'"><U>New 
+							features in Version 20.3 of prime95.exe</U></span></b><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+				</span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l11 level1 lfo36;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Another fairly uncommon ECM bug was fixed.<span style="mso-spacerun: yes">&nbsp; </span>The bug caused "Factor does not divide
+N!" errors.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.25in;TEXT-INDENT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l11 level1 lfo36;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">2.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">A couple of minor bugs in computing the optimal P-1 bounds to use
+prior to a Lucas-Lehmer test were fixed.<span style="mso-spacerun: yes">&nbsp;
+</span>The program now does a better job at estimating the memory required in
+P-1 stage 2.<span style="mso-spacerun: yes">&nbsp; </span>Finally, although P-1
+stage 2 working set size is unchanged, the program allocates less memory in
+stage 2.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='TEXT-INDENT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.25in;TEXT-INDENT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l11 level1 lfo36;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">3.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Prime95 no longer searches for a smaller factor when trial
+factoring discovers a factor.<span style="mso-spacerun: yes">&nbsp; </span>The
+reasons are two-fold.<span style="mso-spacerun: yes">&nbsp; </span><o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:1in;TEXT-INDENT:-0.25in;mso-list:l11 level2 lfo36;tab-stops:list 1.0in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">a.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Version 19 had a bug where stopping and restarting the program
+bypassed the search for smaller factors.<span style="mso-spacerun: yes">&nbsp;
+</span>Thus, my database may already be missing smaller factors.<span style="mso-spacerun: yes">&nbsp; </span><o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:1in;TEXT-INDENT:-0.25in;mso-list:l11 level2 lfo36;tab-stops:list 1.0in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">b.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">As we
+factor larger exponents to a deeper depth it may no longer be a quick job to
+determine if there are smaller factors.<span style="mso-spacerun: yes">&nbsp;
+</span>Note, that version 20 will still look for smaller factors if you are
+looking for factors below 2^60 with the FactorOverride option in undoc.txt.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='TEXT-INDENT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l11 level1 lfo36;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">4.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The undocumented AMPM feature controls how times are formatted in
+the Options/CPU dialog box.<o:p></o:p></span></p>
+			<p class="MsoNormal">&nbsp;<o:p></o:p></p>
+			<p class="MsoPlainText"><U><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'">New features
+in Version 20.2 of prime95.exe</span></b><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+					</span></U></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><U><o:p></o:p></U></span>&nbsp;</p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l9 level1 lfo37;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">If P-1 stage 1 completed and there was not enough memory to start
+stage 2 immediately, then an incorrect save file was generated.<span style="mso-spacerun: yes">&nbsp; </span>This bug was introduced in version
+20.1.<span style="mso-spacerun: yes">&nbsp; </span>Upon restart of the P-1 factoring
+job a crash or other unpredictable behavior was possible.<span style="mso-spacerun: yes">&nbsp; </span>This bug was fixed and this version has
+special code to properly read these incorrect save files.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='TEXT-INDENT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l9 level1 lfo37;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">2.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">P-1 will restart any time the memory settings change.<span style="mso-spacerun: yes">&nbsp; </span>This is done so that the optimal P-1 bounds
+can be computed with the new memory settings.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='TEXT-INDENT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l9 level1 lfo37;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">3.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">A bug in ECM testing was fixed.<o:p></o:p></span></p>
+			<p class="MsoNormal">&nbsp;<o:p></o:p></p>
+			<p class="MsoPlainText"><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'"><U>New 
+							features in Version 20.1 of prime95.exe</U></span></b><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+				</span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l14 level1 lfo38;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">A bug in the new GCD code was fixed.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l14 level1 lfo38;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">2.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Timings in the P-1 stage are no longer cumulative.<span style="mso-spacerun: yes">&nbsp; </span>There is a new feature in undoc.txt for
+those that prefer cumulative timings.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l14 level1 lfo38;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">3.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Messages are now output prior to beginning the lengthy GCD.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l14 level1 lfo38;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">4.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The FactorOverride undocumented feature (not for use with
+PrimeNet) now supports factoring to a deeper level than prime95 would
+ordinarily factor.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l14 level1 lfo38;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">5.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">A bug where the worktodo.ini entry was not removed if P-1 found a
+factor was fixed.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l14 level1 lfo38;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">6.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">If P-1 finds a factor it now deletes any Lucas-Lehmer intermediate
+files.<o:p></o:p></span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l14 level1 lfo38;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">7.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">A crash bug when continuing from a P-1 stage 2 save files with
+different available memory parameters was fixed.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l14 level1 lfo38;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">8.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Resuming an LL test now outputs a line to the screen.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l14 level1 lfo38;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">9.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The Test/Status display now correctly calculates the estimated
+completion time for an LL test when P-1 factoring is in progress.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l14 level1 lfo38;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">10.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Advanced/Factor menu choice was deleted.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l14 level1 lfo38;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">11.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">A bug in computing P-1 stage 2 percentage complete was fixed.<o:p></o:p></span></p>
+			<p class="MsoNormal" style='MARGIN-LEFT:3pt'><![if 
+				!supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></p>
+			<p class="MsoPlainText"><b><span style="FONT-SIZE:16pt;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'"><U>New 
+							features in Version 20.0 of prime95.exe</U></span></b><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
+				</span></p>
+			<p class="MsoPlainText"><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<![if !supportLists]>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l5 level1 lfo39;tab-stops:list .5in'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">1.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The program now does some P-1 factoring prior to running first
+time and double-checking Lucas-Lehmer tests.<span style="mso-spacerun: yes">&nbsp;
+</span>This will increase overall GIMPS throughput.<span style="mso-spacerun:
+yes">&nbsp; </span>If you install version 20 in the middle of an LL test the program
+will run the P-1 step if the LL test is less than 50% complete.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l5 level1 lfo39;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">2.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The Options/CPU dialog box now asks how much memory the program
+can use during the P-1 factoring.<span style="mso-spacerun: yes">&nbsp; </span>See
+the "Setting Available Memory" section in the readme.txt file.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l5 level1 lfo39;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">3.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Stage 1 of P-1 factoring is now faster.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l5 level1 lfo39;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">4.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The GCD used in P-1 and ECM factoring is now faster.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l5 level1 lfo39;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">5.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The Test/Manual Operation menu choice has been deleted.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l5 level1 lfo39;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">6.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The memory options in P-1 and ECM dialog boxes have been deleted.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l5 level1 lfo39;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">7.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The "send new completion dates" checkbox was moved from
+the Test/PrimeNet dialog box to the Advanced/Manual Communication dialog box.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l5 level1 lfo39;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">8.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">A bug in estimating time remaining for a factoring job was fixed.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l5 level1 lfo39;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">9.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">AdvancedFactor now writes a line to the worktodo.ini - just like
+all the other work types.<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:2.25pt'><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l5 level1 lfo39;tab-stops:list .5in'><![if 
+				!supportLists]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">10.<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style="FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">ECM and P-1 are now consistent with Lucas-Lehmer testing in the
+use of the "Iterations between screen outputs" setting.<span style="mso-spacerun: yes">&nbsp; </span>An iteration is defined as the time it takes
+to do a squaring.<span style="mso-spacerun: yes">&nbsp; </span>If you are doing ECM
+on small exponents you will probably want to increase this setting.<o:p></o:p></span></p>
+			<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
+		</div>
+	</body>
+</html>

@@ -1,7 +1,7 @@
 /* Constants */
 
-#define VERSION		"21.4"
-#define VERSION_BIT	11      	/* Bit number in broadcast map */
+#define VERSION		"22.12"
+#define VERSION_BIT	12      	/* Bit number in broadcast map */
 /* The list of assigned version bits follows: */
 /* Version 21.0    uses bit #11 */
 /* Version 20.0    uses bit #10 */
@@ -16,8 +16,8 @@
 /* OS/2		   uses bit #7 */
 
 #define MIN_PRIME	5L		/* Smallest testable prime */
-#define MAX_PRIME	79300000L	/* Largest testable prime */
-#define MAX_FACTOR	79300000L	/* Largest factorable number */
+#define MAX_FACTOR	MAX_PRIME	/* Largest factorable number */
+#define ERROR_RATE	0.018		/* Estimated error rate on clean run */
 
 /* Factoring limits based on complex formulas given the speed of the */
 /* factoring code vs. the speed of the Lucas-Lehmer code */
@@ -25,10 +25,10 @@
 #define FAC72	71000000L
 #define FAC71	57020000L
 #define FAC70	44150000L
-#define FAC69	35100000L
+#define FAC69	35200000L
 #define FAC68	28130000L
 #define FAC67	21590000L
-#define FAC66	17850000L
+#define FAC66	17890000L
 #define FAC65	13380000L
 #define FAC64	8250000L
 #define FAC63	6515000L
@@ -59,7 +59,6 @@ extern char USER_NAME[80];		/* User's real name */
 extern char USER_ADDR[80];		/* User's email address */
 extern int NEWSLETTERS;			/* Send email about newsletters */
 extern int USE_PRIMENET;		/* TRUE if we're using PrimeNet */
-extern int USE_HTTP;			/* Use http rather than rpc DLL */
 extern int DIAL_UP;			/* TRUE if we're dialing into */
 					/* PrimeNet server */
 extern short WORK_PREFERENCE;		/* Type of work (factoring, testing, */
@@ -78,14 +77,7 @@ extern int MANUAL_COMM;			/* Set on if user explicitly starts */
 EXTERNC unsigned int volatile CPU_TYPE;	/* 3=Cyrix, 4=486, 5=Pentium, */
 					/* 6=Pro, 7=K6, 8=Celeron, 9=P-II */
 					/* 10=P-III, 11=K7, 12=P4 */
-extern unsigned long volatile CPU_SPEED;/* Speed in MHz */
 extern unsigned int volatile CPU_HOURS;	/* Hours per day program will run */
-#define CPU_RDTSC	0x0001
-#define CPU_CMOV	0x0002
-#define CPU_PREFETCH	0x0004
-#define CPU_SSE		0x0008
-#define CPU_SSE2	0x0010
-EXTERNC unsigned int volatile CPU_FLAGS;/* Cpu capabilities */
 extern unsigned int volatile DAY_MEMORY;/* Mem available in megabytes */
 extern unsigned int volatile NIGHT_MEMORY;/* Mem available in megabytes */
 extern unsigned int volatile DAY_START_TIME;/* When mem is first avail */
@@ -124,6 +116,8 @@ extern int WELL_BEHAVED_WORK;		/* TRUE if undocumented feature */
 					/* is on.  This reduces the number */
 					/* of times worktodo.ini is read */
 					/* and written. */
+extern char **PAUSE_WHILE_RUNNING;	/* An array of program names that, */
+					/* if running, prime95 should pause. */
 
 extern unsigned long EXP_BEING_WORKED_ON; /* Exponent being tested */
 extern int EXP_BEING_FACTORED;		/* TRUE is exp is being factored */
@@ -142,12 +136,8 @@ extern char READFILEERR[];
 
 /* Common routines */
 
-int isPentium (void);
-int isPentiumPro (void);
-int isPentiumMMX (void);
-int isPentium3 (void);
-int isPentium4 (void);
-void setCpuFlags (void);
+void getCpuInfo (void);
+void getCpuDescription (char *, int);
 
 int isPrime (unsigned long p);
 unsigned int max_mem (void);
@@ -217,13 +207,15 @@ void getWorkFromDatabase (unsigned long, unsigned long, int, int);
 
 unsigned long secondsUntilVacationEnds (void);
 double pct_complete (int, unsigned long, unsigned long *);
+unsigned long fftlen_from_ini_file (unsigned long);
+unsigned long advanced_map_exponent_to_fftlen (unsigned long);
 double raw_work_estimate (struct work_unit *);
 double work_estimate (struct work_unit *);
 unsigned int factorLimit (unsigned long, int);
-unsigned long pick_fft_length (unsigned long);
 void guess_pminus1_bounds (unsigned long, unsigned int, int, unsigned long *,
 			   unsigned long *, unsigned long *, double *);
 
+void strupper (char *);
 void tempFileName (char	*, unsigned long);
 int fileExists (char *);
 int readFileHeader (char *, int *, short *, unsigned long *);
@@ -235,9 +227,12 @@ void unreserve (unsigned long);
 /* Routines called by common routines */
 
 int LoadPrimeNet (void);
+void UnloadPrimeNet (void);
+int PRIMENET (short, void *);
+int isHighResTimerAvailable (void);
+double getHighResTimer (void);
+double getHighResTimerFrequency (void);
 void OutputStr (char *);
-void guessCpuType (void);
-int isReasonableCpuSpeed (unsigned int);
 unsigned long physical_memory (void);
 unsigned long num_cpus (void);
 int getDefaultTimeFormat (void);

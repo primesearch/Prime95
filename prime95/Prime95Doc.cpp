@@ -26,8 +26,6 @@
 #include "VacationDlg.h"
 #include "WelcomeDlg.h"
 
-#include "HtmlHelp.h"
-
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #undef THIS_FILE
@@ -98,7 +96,6 @@ BEGIN_MESSAGE_MAP(CPrime95Doc, CDocument)
 	ON_UPDATE_COMMAND_UI(IDM_PMINUS1, OnUpdatePminus1)
 	ON_COMMAND(USR_WELCOME, OnWelcome)
 	ON_COMMAND(USR_BROADCAST, OnBroadcast)
-	ON_COMMAND(ID_HELP_FINDER, OnHelpFinder)
 	ON_COMMAND(IDM_UNRESERVE, OnUnreserve)
 	ON_UPDATE_COMMAND_UI(IDM_UNRESERVE, OnUpdateUnreserve)
 	ON_UPDATE_COMMAND_UI(IDM_VACATION, OnUpdateVacation)
@@ -200,7 +197,7 @@ void CPrime95Doc::OnCloseDocument()
 
 // Free the networking library
 
-	if (HLIB) FreeLibrary (HLIB);
+	UnloadPrimeNet ();
 
 // Finish closing
 
@@ -218,7 +215,6 @@ void CPrime95Doc::OnPrimenet()
 
 	dlg.m_primenet = USE_PRIMENET;
 	dlg.m_dialup = DIAL_UP;
-	dlg.m_rpc = USE_HTTP;
 	dlg.m_work = DAYS_OF_WORK;
 	if (WORK_PREFERENCE == 0) {
 		dlg.m_work_dflt = 1;
@@ -240,13 +236,8 @@ void CPrime95Doc::OnPrimenet()
 			spoolMessage (PRIMENET_SET_COMPUTER_INFO, NULL);
 			spoolExistingResultsFile ();
 		}
-		if (dlg.m_rpc != USE_HTTP && HLIB) {
-			FreeLibrary (HLIB);
-			HLIB = 0;
-		}
 		USE_PRIMENET = dlg.m_primenet;
 		DIAL_UP = dlg.m_dialup;
-		USE_HTTP = dlg.m_rpc;
 		DAYS_OF_WORK = dlg.m_work;
 		if (dlg.m_work_dflt)
 			WORK_PREFERENCE = 0;
@@ -264,7 +255,6 @@ void CPrime95Doc::OnPrimenet()
 		}
 		IniWriteInt (INI_FILE, "UsePrimenet", USE_PRIMENET);
 		IniWriteInt (INI_FILE, "DialUp", DIAL_UP);
-		IniWriteInt (INI_FILE, "UseHTTP", USE_HTTP);
 		IniWriteInt (INI_FILE, "DaysOfWork", DAYS_OF_WORK);
 		IniWriteInt (INI_FILE, "WorkPreference", WORK_PREFERENCE);
 		CHECK_WORK_QUEUE = 1;
@@ -388,6 +378,7 @@ void CPrime95Doc::OnVacation()
                 IniWriteInt (LOCALINI_FILE, "VacationOn", ON_DURING_VACATION);
 		if (VACATION_END && !ON_DURING_VACATION)
 			IniWriteInt (LOCALINI_FILE, "RollingStartTime", 0);
+		next_comm_time = 0;
 		UpdateEndDates ();
 	}
 }
@@ -649,15 +640,8 @@ void CPrime95Doc::OnUnreserve()
 void CPrime95Doc::OnCpu() 
 {
 	CCpuDlg dlg;
-	char	buf[20];
+	char	buf[512];
 
-	dlg.m_speed = CPU_SPEED;
-	dlg.m_cpu_type =
-		(CPU_TYPE == 12) ? 0 :
-		(CPU_TYPE == 10) ? 1 : (CPU_TYPE == 9) ? 2 :
-		(CPU_TYPE == 8) ? 3 : (CPU_TYPE == 6) ? 4 :
-		(CPU_TYPE == 5) ? 5 : (CPU_TYPE == 4) ? 6 :
-		(CPU_TYPE == 11) ? 7 : (CPU_TYPE == 7) ? 8 : 9;
 	dlg.m_hours = CPU_HOURS;
 	dlg.m_day_memory = DAY_MEMORY;
 	dlg.m_night_memory = NIGHT_MEMORY;
@@ -665,36 +649,17 @@ void CPrime95Doc::OnCpu()
 	dlg.m_start_time = buf;
 	minutesToStr (DAY_END_TIME, buf);
 	dlg.m_end_time = buf;
+	getCpuDescription (buf, 0);
+	dlg.m_cpu_info = buf;
 again:	if (dlg.DoModal () == IDOK) {
-		unsigned int new_cpu_type, new_day_start_time, new_day_end_time;
+		unsigned int new_day_start_time, new_day_end_time;
 
-		if (CPU_SPEED != dlg.m_speed) {
-			if (! isReasonableCpuSpeed (dlg.m_speed)) {
-				if (AfxMessageBox (MSG_SPEED,
-						   MB_YESNO | MB_ICONQUESTION)
-							== IDNO)
-					goto again;
-				IniWriteInt (INI_FILE, "AskedAboutSpeed", 1);
-			} else
-				IniWriteInt (INI_FILE, "AskedAboutSpeed", 0);
-		}
-
-		new_cpu_type = (dlg.m_cpu_type == 0) ? 12 :
-			       (dlg.m_cpu_type == 1) ? 10 :
-			       (dlg.m_cpu_type == 2) ? 9 :
-			       (dlg.m_cpu_type == 3) ? 8 :
-			       (dlg.m_cpu_type == 4) ? 6 :
-			       (dlg.m_cpu_type == 5) ? 5 :
-			       (dlg.m_cpu_type == 6) ? 4 :
-			       (dlg.m_cpu_type == 7) ? 11 :
-			       (dlg.m_cpu_type == 8) ? 7 : 3;
-		if (CPU_SPEED != dlg.m_speed ||
-		    CPU_TYPE != new_cpu_type ||
-		    CPU_HOURS != dlg.m_hours) {
+		if (CPU_HOURS != dlg.m_hours) {
 			ROLLING_AVERAGE = 1000;
 			IniWriteInt (LOCALINI_FILE, "RollingAverage", 1000);
 			IniWriteInt (LOCALINI_FILE, "RollingStartTime", 0);
 			spoolMessage (PRIMENET_SET_COMPUTER_INFO, NULL);
+			next_comm_time = 0;
 			UpdateEndDates ();
 		}
 		new_day_start_time = strToMinutes ((char *)(LPCTSTR) dlg.m_start_time);
@@ -705,32 +670,18 @@ again:	if (dlg.DoModal () == IDOK) {
 		    DAY_END_TIME != new_day_end_time)
 			if (THREAD_ACTIVE) memSettingsChanged ();
 
-/* Prevent crashes caused by changing to or from Pentium 4 CPU type */
-/* in mid execution. */
-
-		if ((CPU_TYPE >= 12 && new_cpu_type < 12) ||
-		    (CPU_TYPE < 12 && new_cpu_type >= 12))
-			Restart1 ();
-
 /* Save the new information */
 
-		CPU_SPEED = dlg.m_speed;
-		CPU_TYPE = new_cpu_type;
-		setCpuFlags ();
 		CPU_HOURS = dlg.m_hours;
 		DAY_MEMORY = dlg.m_day_memory;
 		NIGHT_MEMORY = dlg.m_night_memory;
 		DAY_START_TIME = new_day_start_time;
 		DAY_END_TIME = new_day_end_time;
-		IniWriteInt (LOCALINI_FILE, "CPUType", CPU_TYPE);
-		IniWriteInt (LOCALINI_FILE, "CPUSpeed", CPU_SPEED);
 		IniWriteInt (LOCALINI_FILE, "CPUHours", CPU_HOURS);
 		IniWriteInt (LOCALINI_FILE, "DayMemory", DAY_MEMORY);
 		IniWriteInt (LOCALINI_FILE, "NightMemory", NIGHT_MEMORY);
 		IniWriteInt (LOCALINI_FILE, "DayStartTime", DAY_START_TIME);
 		IniWriteInt (LOCALINI_FILE, "DayEndTime", DAY_END_TIME);
-
-		Restart2 ();
 
 		if (!IniGetInt (INI_FILE, "AskedAboutMemory", 0)) {
 			IniWriteInt (INI_FILE, "AskedAboutMemory", 1);
@@ -738,7 +689,7 @@ again:	if (dlg.DoModal () == IDOK) {
 			    AfxMessageBox (MSG_MEMORY, MB_YESNO | MB_ICONQUESTION) == IDYES)
 				goto again;
 		}
-		 	
+
 		if (STARTUP_IN_PROGRESS) OnPrimenet ();
 	} else
 		STARTUP_IN_PROGRESS = 0;
@@ -789,16 +740,12 @@ void CPrime95Doc::OnBenchmark()
 {
 	CWinThread *thread;
 
-	if (! isReasonableCpuSpeed (CPU_SPEED) &&
-	    AfxMessageBox (BENCH_SPEED, MB_YESNO | MB_ICONQUESTION) == IDNO)
-		return;
-
 	thread_pkt.op = OP_BENCH;
 	thread_pkt.doc = this;
 	thread = AfxBeginThread (threadDispatch, NULL);
 }
 
-void CPrime95Doc::OnUpdateTorture(CCmdUI* pCmdUI) 
+void CPrime95Doc::OnUpdateTorture(CCmdUI* pCmdUI)
 {
 	pCmdUI->Enable (! THREAD_ACTIVE);
 }
@@ -850,8 +797,18 @@ void CPrime95Doc::OnHide()
 	IniWriteInt (INI_FILE, "TrayIcon", TRAY_ICON);
 }
 
-void CPrime95Doc::OnUpdateService(CCmdUI* pCmdUI) 
+// When running as an NT service we can delete the service (it will take
+// effect when the service is stopped), but we cannot recreate the service
+// until the next time prime95 is run.  Thus, disable this menu choice once
+// an NT service has turned this option off.  Also, some NT users do not
+// have permission to create and delete services.  For those users, change
+// the menu text to "Start at logon."
+
+void CPrime95Doc::OnUpdateService(CCmdUI* pCmdUI)
 {
+	pCmdUI->SetText (canModifyServices () ?
+				"Start at Bootup" : "Start at Logon");
+	pCmdUI->Enable (!NTSERVICENAME[0] || WINDOWS95_SERVICE);
 	pCmdUI->SetCheck (WINDOWS95_SERVICE);
 }
 
@@ -869,13 +826,6 @@ void CPrime95Doc::OnService()
 void CPrime95Doc::OnUpdateHelpFinder(CCmdUI* pCmdUI) 
 {
 	pCmdUI->Enable (TRUE);
-}
-
-void CPrime95Doc::OnHelpFinder() 
-{
-#ifndef _DEBUG
-	HtmlHelp(AfxGetApp()->m_pMainWnd->m_hWnd,"prime95.chm",HH_DISPLAY_TOPIC,0);
-#endif
 }
 
 void CPrime95Doc::OnUpdateServer(CCmdUI* pCmdUI) 
@@ -913,8 +863,19 @@ void CPrime95Doc::OnWelcome()
 		if (!WINDOWS95_SERVICE) OnService ();
 		OnRangeUserinformation();
 	} else {
+		unsigned int mem;
 		IniWriteInt (INI_FILE, "StressTester", 1);
 		IniWriteInt (INI_FILE, "UsePrimenet", USE_PRIMENET = 0);
+		mem = physical_memory ();
+		DAY_MEMORY = NIGHT_MEMORY = (mem <= 32) ? 8 :
+					    (mem <= 256) ? mem / 2 : mem - 128;
+		IniWriteInt (LOCALINI_FILE, "DayMemory", DAY_MEMORY);
+		IniWriteInt (LOCALINI_FILE, "NightMemory", NIGHT_MEMORY);
+		if (mem > 8) {
+			char	buf[160];
+			sprintf (buf, "The torture test will use up to %dMB of memory.  You can change this using Options/CPU menu choice.", DAY_MEMORY);
+			AfxMessageBox (buf, MB_ICONQUESTION);
+		}
 		STARTUP_IN_PROGRESS = 0;
 	}
 }
@@ -999,6 +960,7 @@ void flashWindowAndBeep ()
 void CPrime95Doc::OutputStr (
 	char	*str)
 {
+	if (EXIT_IN_PROGRESS) return;
 	if (lines[0] == NULL) {
 		for (int i = 0; i < NumLines; i++) {
 			lines[i] = (char *) malloc (128);
@@ -1007,6 +969,7 @@ void CPrime95Doc::OutputStr (
 	}
 	char *p = lines[0] + strlen (lines[0]);
 	for ( ; *str; str++) {
+		if (*str == '\r') continue;
 		if (*str == '\n') *p = 0, LineFeed (), p = lines[0];
 		else if (p - lines[0] < 127) *p++ = *str;
 	}
@@ -1028,11 +991,12 @@ void CPrime95Doc::OutputStr (
 #include <sys/timeb.h>
 
 #include "cpuid.c"
-#include "speed.c"
 
 #define PORT	1
 #include "giants.h"
+#ifdef _DEBUG
 #include "giants.c"
+#endif
 #include "gwnum.c"
 #include "commona.c"
 #include "commonb.c"
@@ -1041,6 +1005,7 @@ void CPrime95Doc::OutputStr (
 #include "comm95a.c"
 #include "comm95b.c"
 #include "comm95c.c"
+#include "primenet.c"
 
 UINT threadDispatch (
 	LPVOID stuff)
@@ -1053,7 +1018,7 @@ UINT threadDispatch (
 
 // Stall if we've just booted (within 5 minutes of Windows starting)
 
-	if (GetTickCount () < 300000) {
+	if (GetTickCount () < 300000 && thread_pkt.op == OP_CONTINUE) {
 		int	delay;
 		delay = IniGetInt (INI_FILE, "BootDelay", 90);
 		delay -= GetTickCount () / 1000;
@@ -1123,7 +1088,9 @@ int escapeCheck ()
 		SYSTEM_POWER_STATUS power;
 		if (!RUN_ON_BATTERY &&
 		    GetSystemPowerStatus (&power) &&
-		    power.ACLineStatus != 1) {
+		    (power.ACLineStatus != 1 || 
+		     (power.ACLineStatus == 1 &&
+		      power.BatteryLifePercent < IniGetInt (INI_FILE, "BatteryPercent", 0)))) {
 			if (STOPPED_ON_BATTERY == 0) {
 				OutputStr ("Processing stopped while on battery power.\n");
 				STOPPED_ON_BATTERY = 1;

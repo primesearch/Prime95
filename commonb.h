@@ -28,9 +28,11 @@ extern int STOP_REASON;		/* Reason stopCheck stopped processing */
 void memSettingsChanged (void);
 
 void primeContinue (void);
+int pick_fft_size (unsigned long);
 int prime (unsigned long, unsigned long, unsigned long, unsigned long);
 int selfTest (unsigned long);
 int selfTestInternal (unsigned long, unsigned int, int);
+void generateRandomData (void);
 void primeTime (unsigned long, unsigned long);
 void primeBench (void);
 int primeFactor (unsigned long, unsigned int, int *, int, int);
@@ -47,6 +49,7 @@ extern double __timers[10];		/* 10 timers are available */
 void title (char *);
 void flashWindowAndBeep (void);
 void SetPriority (void);
+int checkPauseList ();
 int ecm (unsigned long, unsigned long, unsigned long, unsigned long,
 	 unsigned long, unsigned long, double, int);
 int pminus1 (unsigned long, unsigned long, unsigned long, unsigned long,

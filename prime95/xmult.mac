@@ -1,4 +1,4 @@
-; Copyright 2001 - Just For Fun Software, Inc., all rights reserved
+; Copyright 2001-2002 - Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -151,6 +151,30 @@ xfft_3_ret MACRO
 XMM_SCD	= 96			;; Sizeof an SSE2 sin/cos table entry
 XMM_PMD = 128			;; Sizeof an entry in premultiplier table
 
+
+;;
+;; Cacheline multiples.  In the first pass of SSE2 transforms, how many
+;; cache lines should be processed in each loop.  Note that for FFTs 1024K
+;; and below, the clm value must be at least 2.
+;;
+
+clm		=	4	;; Used for all FFTs <= 256K
+clm320K		=	4
+clm384K		=	4
+clm448K		=	4
+clm512K		=	4
+clm640K		=	4
+clm768K		=	4
+clm896K		=	4
+clm1024K	=	4
+clm1280K	=	2
+clm1536K	=	2
+clm1792K	=	2
+clm2048K	=	2
+clm2560K	=	1
+clm3072K	=	1
+clm3584K	=	1
+clm4096K	=	1
 
 ;;
 ;; Common utility macros used in one and two pass SSE2 FFTs

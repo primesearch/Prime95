@@ -24,6 +24,9 @@ typedef struct {
 				/* This array is variably sized. */
 } *gwnum;
 
+#define MAX_PRIME	79300000L	/* Maximum number of bits */
+#define MAX_PRIME_SSE2	77910000L	/* SSE2 bit limit */
+
 /* global variables */
 
 EXTERNC unsigned long PARG;	/* The exponent we are testing */
@@ -82,7 +85,7 @@ void bitaddr (unsigned long, unsigned long *, unsigned long *);
 
 unsigned long map_exponent_to_fftlen (unsigned long, int);
 unsigned long map_fftlen_to_max_exponent (unsigned long, int);
-double map_fftlen_to_timing (unsigned long, int, int, unsigned long);
+double map_fftlen_to_timing (unsigned long, int, int, double);
 unsigned long map_fftlen_to_memused (unsigned long, int);
 
 /* Macros to interface with assembly code */
@@ -195,8 +198,8 @@ void gwprothsetup (unsigned long k, unsigned long n, int inc);
 #define REL_486_SPEED	8.4	/* 486 is over 8 times slower than PII */
 #define REL_K6_SPEED	3.0	/* K6 is 3 times slower than PII */
 #define REL_PENT_SPEED	1.2	/* Pentium is 20% slower than PII */
-#define REL_K7_SPEED	1.0	/* Assume K7 is same speed as a PII */
-#define REL_P4_SPEED	1.0	/* Assume P4 is same speed as a PII factoring*/
+#define REL_K7_SPEED	0.7	/* Assume K7 is faster than a PII */
+#define REL_P4_SPEED	0.7	/* Assume P4 is faster than a PII factoring*/
 
 /* Other low-level math routines the caller can use for multi-precision */
 /* arithmetic */
@@ -215,10 +218,6 @@ EXTERNC void emulsubhlp (void);
 #define muladdhlp(a,b)	{SRCARG=(void*)a; SRC2ARG=(void*)b; emuladdhlp();}
 #define muladd2hlp(a,b)	{SRCARG=(void*)a; SRC2ARG=(void*)b; emuladd2hlp();}
 #define mulsubhlp(a,b)	{SRCARG=(void*)a; SRC2ARG=(void*)b; emulsubhlp();}
-
-/* Routine used to time code chunks */
-#define rdtsc(hi,lo) erdtsc(),*(hi)=(unsigned long)DEST2ARG,*(lo)=(unsigned long)DESTARG
-EXTERNC void erdtsc(void);
 
 /* Specialized routines that let the giants code share the free */
 /* memory pool used by gwnums. */

@@ -1,4 +1,4 @@
-; Copyright 1995-2000 - Just For Fun Software, Inc.
+; Copyright 1995-2002 - Just For Fun Software, Inc.
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -68,7 +68,9 @@ brute_force_error_check MACRO e, save
 	fcom	_MAXERR			;; Compare to maximum error
 	IFNB <save>
 	push	eax
+	IF save EQ 2
 	pushf
+	ENDIF
 	ENDIF
 	fstsw	ax			;; Copy comparison results
 	test	ax, 100h		;; Isolate C0 bit
@@ -76,7 +78,9 @@ brute_force_error_check MACRO e, save
 	fst	_MAXERR			;; Error is greater
 less:	fcomp	st			;; Pop non-maximum
 	IFNB <save>
+	IF save EQ 2
 	popf
+	ENDIF
 	pop	eax
 	ENDIF
 	ENDIF
@@ -428,7 +432,7 @@ norm_1d MACRO z, e, c
 	 fxch	st(1)						;v0,v1,c0,s
 	faddp	st(2), st		;; x = value + carry	;v1,x0,s
 	 fmul	QWORD PTR [ebx+1*16+8]	;; Mul value by two-to-minus-phi
-	 brute_force_error_check e, 1
+	 brute_force_error_check e, 2
 	 brute_force_mul_by_const c
 	fld	limit_bigmax[eax*8]	;; y = rounding const	;y0,v1,x0,s
 	fadd	st, st(2)		;; y = top bits of x
@@ -453,7 +457,7 @@ norm_1d MACRO z, e, c
 	 fadd	QWORD PTR [esi+1*8]	;; sumout += value
 	 fxch	st(4)						;v2,y1,x1,v0,s
 	  fmul	QWORD PTR [ebx+2*16+8]	;; Mul value by two-to-minus-phi
-	  brute_force_error_check e, 1
+	  brute_force_error_check e, 2
 	  brute_force_mul_by_const c
 	 fld	limit_bigmax[eax*8]	;; z = rounding const ;z1,v2,y1,x1,v0,s
 	 fsubr	st, st(2)		;; z = y - z
@@ -477,7 +481,7 @@ norm_1d MACRO z, e, c
 	  fadd	QWORD PTR [esi+2*8]	;; sumout += value
 	  fxch	st(1)						;v3,s,v1,x2,y2
 	fmul	QWORD PTR [ebx+3*16+8]	;; Mul value by two-to-minus-phi
-	brute_force_error_check e, 1
+	brute_force_error_check e, 2
 	brute_force_mul_by_const c
 	  fld	limit_bigmax[eax*8]	;; z = rounding const ;z2,v3,s,v1,x2,y2
 	  fsubr	st, st(5)		;; z = y - z
@@ -501,7 +505,7 @@ norm_1d MACRO z, e, c
 	fadd	QWORD PTR [esi+3*8]	;; sumout += value
 	fxch	st(4)						;v4,y3,x3,v2,s
 	 fmul	QWORD PTR [ebx+4*16+8]	;; Mul value by two-to-minus-phi
-	 brute_force_error_check e, 1
+	 brute_force_error_check e, 2
 	 brute_force_mul_by_const c
 	fld	limit_bigmax[eax*8]	;; z = rounding const ;z3,v4,y3,x3,v2,s
 	fsubr	st, st(2)		;; z = y - z
@@ -525,7 +529,7 @@ norm_1d MACRO z, e, c
 	 fadd	QWORD PTR [esi+4*8]	;; sumout += value
 	 fxch	st(1)						;v5,s,v3,x4,y4
 	  fmul	QWORD PTR [ebx+5*16+8]	;; Mul value by two-to-minus-phi
-	  brute_force_error_check e, 1
+	  brute_force_error_check e, 2
 	  brute_force_mul_by_const c
 	 fld	limit_bigmax[eax*8]	;; z = rounding const ;z4,v5,s,v3,x4,y4
 	 fsubr	st, st(5)		;; z = y - z
@@ -549,7 +553,7 @@ norm_1d MACRO z, e, c
 	  fadd	QWORD PTR [esi+5*8]	;; sumout += value
 	  fxch	st(4)						;v6,y5,x5,v4,s
 	fmul	QWORD PTR [ebx+6*16+8]	;; Mul value by two-to-minus-phi
-	brute_force_error_check e, 1
+	brute_force_error_check e, 2
 	brute_force_mul_by_const c
 	  fld	limit_bigmax[eax*8]	;; z = rounding const ;z5,v6,y5,x5,v4,s
 	  fsubr	st, st(2)		;; z = y - z
@@ -573,7 +577,7 @@ norm_1d MACRO z, e, c
 	fadd	QWORD PTR [esi+6*8]	;; sumout += value
 	fxch	st(1)						;v7,s,v5,x6,y6
 	 fmul	QWORD PTR [ebx+7*16+8]	;; Mul value by two-to-minus-phi
-	 brute_force_error_check e, 1
+	 brute_force_error_check e, 2
 	 brute_force_mul_by_const c
 	fld	limit_bigmax[eax*8]	;; z = rounding const ;z6,v7,s,v5,x6,y6
 	fsubr	st, st(5)		;; z = y - z

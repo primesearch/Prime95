@@ -26,7 +26,6 @@ PrimenetDlg::PrimenetDlg(CWnd* pParent /*=NULL*/)
 	m_work_dflt = FALSE;
 	m_primenet = FALSE;
 	m_dialup = FALSE;
-	m_rpc = -1;
 	m_bigones = FALSE;
 	m_pfactor = FALSE;
 	//}}AFX_DATA_INIT
@@ -38,9 +37,6 @@ void PrimenetDlg::DoDataExchange(CDataExchange* pDX)
 	CDialog::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(PrimenetDlg)
 	DDX_Control(pDX, IDC_BIGONES, c_bigones);
-	DDX_Control(pDX, IDC_PROTOCOL, c_protocol_text);
-	DDX_Control(pDX, IDC_RPC, c_rpc);
-	DDX_Control(pDX, IDC_HTTP, c_http);
 	DDX_Control(pDX, IDC_DIALUP, c_dialup);
 	DDX_Control(pDX, IDC_WORK_DFLT, c_work_dflt);
 	DDX_Control(pDX, IDC_WORK_TEXT, c_work_text);
@@ -57,13 +53,9 @@ void PrimenetDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Check(pDX, IDC_WORK_DFLT, m_work_dflt);
 	DDX_Check(pDX, IDC_PRIMENET, m_primenet);
 	DDX_Check(pDX, IDC_DIALUP, m_dialup);
-	DDX_Radio(pDX, IDC_RPC, m_rpc);
 	DDX_Check(pDX, IDC_BIGONES, m_bigones);
 	//}}AFX_DATA_MAP
 	c_dialup.EnableWindow (m_primenet);
-	c_protocol_text.EnableWindow (m_primenet);
-	c_rpc.EnableWindow (m_primenet);
-	c_http.EnableWindow (m_primenet);
 	c_work_text.EnableWindow (m_primenet);
 	c_work.EnableWindow (m_primenet);
 	c_work_dflt.EnableWindow (m_primenet);
