@@ -1,0 +1,2 @@
+/incremental:no /out:main.exe service main prime ..\prime95\factor64 ..\prime95\mult ..\prime95\mult1 ..\prime95\mult1p ..\prime95\mult2 ..\prime95\mult2a ..\prime95\mult2p ..\prime95\mult2ap ..\prime95\mult3 ..\prime95\mult3a ..\prime95\mult3p ..\prime95\mult3ap ..\prime95\mult4 ..\prime95\mult4a ..\prime95\mult4b ..\prime95\mult4p ..\prime95\mult4ap ..\prime95\mult4bp ..\prime95\mult4aux ..\prime95\ecmhelp d:\msdev\lib\libc.lib d:\msdev\lib\kernel32.lib d:\msdev\lib\user32.lib d:\msdev\lib\gdi32.lib d:\msdev\lib\advapi32.lib
+

@@ -1,0 +1,88 @@
+; Copyright 1995-1999 Just For Fun Software, Inc., all rights reserved
+; Author:  George Woltman
+; Email: woltman@alum.mit.edu
+;
+; Common EXTRN definitions for the three multiplication assembly
+; language files.
+
+EXTRN	_ERRCHK:DWORD
+EXTRN	_MAXERR:QWORD
+EXTRN	_MAXDIFF:QWORD
+EXTRN	_PARG:DWORD
+EXTRN	_FFTLEN:DWORD
+EXTRN	_SRCARG:DWORD
+EXTRN	_SRC2ARG:DWORD
+EXTRN	_DESTARG:DWORD
+EXTRN	_DEST2ARG:DWORD
+EXTRN	_PLUS1:DWORD
+EXTRN	_GWERROR:DWORD
+EXTRN	_NORM_ARRAY1:DWORD
+EXTRN	_NORM_ARRAY2:DWORD
+
+EXTRN	sincos_real_data:QWORD
+EXTRN	sincos_complex_data:QWORD
+EXTRN	SQRTHALF:QWORD
+EXTRN	HALF:DWORD
+EXTRN	BIGVAL:DWORD
+EXTRN	scaled_numbig:DWORD
+EXTRN	scaled_numlit:DWORD
+EXTRN	scaling_ff:DWORD
+EXTRN	scaling_ff2:DWORD
+EXTRN	ttmp_ff:DWORD
+EXTRN	ttmp_ff_inv:QWORD
+EXTRN	P309:QWORD
+EXTRN	M809:QWORD
+EXTRN	M262:QWORD
+EXTRN	M382:QWORD
+EXTRN	P951:QWORD
+EXTRN	P588:QWORD
+EXTRN	M162:QWORD
+EXTRN	P618:QWORD
+EXTRN	P623:QWORD
+EXTRN	M358:QWORD
+EXTRN	P404:QWORD
+EXTRN	P975:QWORD
+EXTRN	P445:QWORD
+EXTRN	P180:QWORD
+EXTRN	M223:QWORD
+EXTRN	M901:QWORD
+EXTRN	M691:QWORD
+EXTRN	P866:QWORD
+EXTRN	P433:QWORD
+EXTRN	P577:QWORD
+EXTRN	P25:DWORD
+EXTRN	P75:DWORD
+EXTRN	P3:DWORD
+
+EXTRN	limit_inverse_high:QWORD
+EXTRN	limit_inverse_low:QWORD
+limit_inverse		EQU	limit_inverse_low
+EXTRN	limit_bigmax_high:QWORD
+EXTRN	limit_bigmax_low:QWORD
+limit_bigmax		EQU	limit_bigmax_low
+EXTRN	limit_ttp_mult_high:DWORD
+EXTRN	limit_ttp_mult_low:DWORD
+limit_ttp_mult		EQU	limit_ttp_mult_low
+EXTRN	limit_ttmp_mult_high:DWORD
+EXTRN	limit_ttmp_mult_low:DWORD
+limit_ttmp_mult		EQU	limit_ttmp_mult_low
+EXTRN	pass1_premults:DWORD
+EXTRN	pass2_premults:DWORD
+EXTRN	plus1_premults:DWORD
+EXTRN	count1:DWORD
+EXTRN	count2:DWORD
+EXTRN	count3:DWORD
+EXTRN	count4:DWORD
+EXTRN	sincos1:DWORD
+EXTRN	sincos2:DWORD
+EXTRN	sincos3:DWORD
+EXTRN	sincos4:DWORD
+EXTRN	extra_bits:DWORD
+EXTRN	ffttype:DWORD
+EXTRN	addcount1:DWORD
+EXTRN	addcount2:DWORD
+EXTRN	normcount1:DWORD
+EXTRN	normcount2:DWORD
+EXTRN	normgrpptr:DWORD
+EXTRN	addsubtemp:DWORD
+

@@ -1,0 +1,86 @@
+# Standard options
+masm=masm /Mx /P /B63 
+
+# Create 32-bit executables
+
+factor64.obj: factor64.asm
+    $(masm) factor64.asm factor64.obj NUL NUL
+
+mult.obj: mult.asm mult.mac
+    $(masm) mult.asm mult.obj NUL NUL
+
+mult1.obj: mult1.asm mult.mac normal.mac
+    $(masm) mult1.asm mult1.obj NUL NUL
+
+mult1p.obj: mult1.asm mult.mac normal.mac
+    $(masm) /DPPRO mult1.asm mult1p.obj NUL NUL
+
+mult2.obj: mult2.asm mult.mac normal.mac
+    $(masm) mult2.asm mult2.obj NUL NUL
+
+mult2p.obj: mult2.asm mult.mac normal.mac
+    $(masm) /DPPRO mult2.asm mult2p.obj NUL NUL
+
+mult2a.obj: mult2a.asm mult.mac
+    $(masm) mult2a.asm mult2a.obj NUL NUL
+
+mult2ap.obj: mult2a.asm mult.mac
+    $(masm) /DPPRO mult2a.asm mult2ap.obj NUL NUL
+
+mult3.obj: mult3.asm mult.mac normal.mac
+    $(masm) mult3.asm mult3.obj NUL NUL
+
+mult3p.obj: mult3.asm mult.mac normal.mac
+    $(masm) /DPPRO mult3.asm mult3p.obj NUL NUL
+
+mult3a.obj: mult3a.asm mult.mac
+    $(masm) mult3a.asm mult3a.obj NUL NUL
+
+mult3ap.obj: mult3a.asm mult.mac
+    $(masm) /DPPRO mult3a.asm mult3ap.obj NUL NUL
+
+mult4.obj: mult4.asm mult.mac normal.mac
+    $(masm) mult4.asm mult4.obj NUL NUL
+
+mult4p.obj: mult4.asm mult.mac normal.mac
+    $(masm) /DPPRO mult4.asm mult4p.obj NUL NUL
+
+mult4a.obj: mult4a.asm mult.mac
+    $(masm) mult4a.asm mult4a.obj NUL NUL
+
+mult4ap.obj: mult4a.asm mult.mac
+    $(masm) /DPPRO mult4a.asm mult4ap.obj NUL NUL
+
+mult4b.obj: mult4b.asm mult.mac
+    $(masm) mult4b.asm mult4b.obj NUL NUL
+
+mult4bp.obj: mult4b.asm mult.mac
+    $(masm) /DPPRO mult4b.asm mult4bp.obj NUL NUL
+
+mult4aux.obj: mult4aux.asm mult.mac normal.mac
+    $(masm) mult4aux.asm mult4aux.obj NUL NUL
+
+ecmhelp.obj: ecmhelp.asm
+    $(masm) ecmhelp.asm ecmhelp.obj NUL NUL
+
+dummy4.obj: dummy4.asm
+    $(masm) dummy4.asm dummy4.obj NUL NUL
+
+dummy8.obj: dummy8.asm
+    $(masm) dummy8.asm dummy8.obj NUL NUL
+
+dummy12.obj: dummy12.asm
+    $(masm) dummy12.asm dummy12.obj NUL NUL
+
+dummy16.obj: dummy16.asm
+    $(masm) dummy16.asm dummy16.obj NUL NUL
+
+dummy20.obj: dummy20.asm
+    $(masm) dummy20.asm dummy20.obj NUL NUL
+
+dummy24.obj: dummy24.asm
+    $(masm) dummy24.asm dummy24.obj NUL NUL
+
+dummy28.obj: dummy28.asm
+    $(masm) dummy28.asm dummy28.obj NUL NUL
+

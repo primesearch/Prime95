@@ -1,0 +1,623 @@
+//Microsoft Developer Studio generated resource script.
+//
+#include "resource.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 2 resource.
+//
+#include "afxres.h"
+
+/////////////////////////////////////////////////////////////////////////////
+#undef APSTUDIO_READONLY_SYMBOLS
+
+/////////////////////////////////////////////////////////////////////////////
+// English (U.S.) resources
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
+#ifdef _WIN32
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+#pragma code_page(1252)
+#endif //_WIN32
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+
+1 TEXTINCLUDE DISCARDABLE 
+BEGIN
+    "resource.h\0"
+END
+
+2 TEXTINCLUDE DISCARDABLE 
+BEGIN
+    "#include ""afxres.h""\r\n"
+    "\0"
+END
+
+3 TEXTINCLUDE DISCARDABLE 
+BEGIN
+    "#define _AFX_NO_SPLITTER_RESOURCES\r\n"
+    "#define _AFX_NO_OLE_RESOURCES\r\n"
+    "#define _AFX_NO_TRACKER_RESOURCES\r\n"
+    "#define _AFX_NO_PROPERTY_RESOURCES\r\n"
+    "\r\n"
+    "#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)\r\n"
+    "#ifdef _WIN32\r\n"
+    "LANGUAGE 9, 1\r\n"
+    "#pragma code_page(1252)\r\n"
+    "#endif\r\n"
+    "#include ""res\\Prime95.rc2""  // non-Microsoft Visual C++ edited resources\r\n"
+    "#include ""afxres.rc""         // Standard components\r\n"
+    "#endif\0"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
+IDR_MAINFRAME           ICON    DISCARDABLE     "res\\Prime95.ico"
+IDI_YELLOW_ICON         ICON    DISCARDABLE     "res\\yellow_i.ico"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Menu
+//
+
+IDR_MAINFRAME MENU PRELOAD DISCARDABLE 
+BEGIN
+    POPUP "&Test"
+    BEGIN
+        MENUITEM "&PrimeNet...",                IDM_PRIMENET
+        MENUITEM "P-&1...",                     IDM_PMINUS1
+        MENUITEM "&ECM...",                     IDM_ECM
+        MENUITEM SEPARATOR
+        MENUITEM "&User Information...",        ID_RANGE_USERINFORMATION
+        MENUITEM "&Vacation or Holiday...",     IDM_VACATION
+        MENUITEM "&Status...",                  ID_RANGE_STATUS
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit",                       ID_APP_EXIT
+    END
+    POPUP "&Options"
+    BEGIN
+        MENUITEM "&CPU...",                     IDM_CPU
+        MENUITEM "&Preferences...",             IDM_PREFERENCES
+        MENUITEM "Priorit&y...",                IDM_PRIORITY
+        MENUITEM "&Affinity...",                IDM_AFFINITY
+        MENUITEM "&Manual Communication...",    IDM_MANUALCOMM
+        MENUITEM "&Quit GIMPS...",              IDM_QUIT
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&Help Topics",                ID_HELP_FINDER
+        MENUITEM SEPARATOR
+        MENUITEM "&About NTSetup...",           ID_APP_ABOUT
+        MENUITEM "About PrimeNet &Server...",   IDM_SERVER
+    END
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Accelerator
+//
+
+IDR_MAINFRAME ACCELERATORS PRELOAD MOVEABLE PURE 
+BEGIN
+    VK_ESCAPE,      IDM_STOP,               VIRTKEY, NOINVERT
+    VK_F1,          ID_HELP,                VIRTKEY, NOINVERT
+    VK_F1,          ID_CONTEXT_HELP,        VIRTKEY, SHIFT, NOINVERT
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_ABOUTBOX DIALOG DISCARDABLE  0, 0, 238, 63
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Setup for NT Service version of Prime95"
+FONT 8, "MS Sans Serif"
+BEGIN
+    ICON            IDR_MAINFRAME,IDC_STATIC,11,17,18,20
+    LTEXT           "NTPrime Setup - Version 20.4.5",IDC_STATIC,40,12,119,8,
+                    SS_NOPREFIX
+    LTEXT           "Copyright © 1996-2000 Just For Fun Software, Inc.",
+                    IDC_STATIC,39,22,154,8
+    DEFPUSHBUTTON   "OK",IDOK,199,7,32,14,WS_GROUP
+    LTEXT           "Author: George Woltman",IDC_STATIC,39,32,128,8
+    LTEXT           "Email:  woltman@alum.mit.edu",IDC_STATIC,39,42,161,8
+END
+
+IDD_CPU DIALOG DISCARDABLE  0, 0, 171, 171
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "CPU Type and Speed"
+FONT 8, "MS Sans Serif"
+BEGIN
+    CONTROL         "Penti&um III",IDC_PIII,"Button",BS_AUTORADIOBUTTON | 
+                    WS_GROUP | WS_TABSTOP,7,17,47,10
+    CONTROL         "Pentiu&m II",IDC_PII,"Button",BS_AUTORADIOBUTTON,7,27,
+                    49,10
+    CONTROL         "Ce&leron",IDC_CELERON,"Button",BS_AUTORADIOBUTTON,7,37,
+                    46,10
+    CONTROL         "Pentium P&ro",IDC_PRO,"Button",BS_AUTORADIOBUTTON,7,47,
+                    51,10
+    CONTROL         "&Pentium",IDC_PENTIUM,"Button",BS_AUTORADIOBUTTON,7,57,
+                    49,10
+    CONTROL         "&486",IDC_486,"Button",BS_AUTORADIOBUTTON,7,67,45,10
+    CONTROL         "&Athlon",IDC_K7,"Button",BS_AUTORADIOBUTTON,62,17,48,10
+    CONTROL         "&K6",IDC_K6,"Button",BS_AUTORADIOBUTTON,62,27,36,10
+    CONTROL         "&6x86",IDC_CYRIX,"Button",BS_AUTORADIOBUTTON,62,57,41,
+                    10
+    EDITTEXT        IDC_P,85,77,34,12
+    EDITTEXT        IDC_HOURS,132,89,30,12
+    EDITTEXT        IDC_DAY_MEMORY,132,122,30,12
+    EDITTEXT        IDC_NIGHT_MEMORY,132,136,30,12
+    EDITTEXT        IDC_START_TIME,68,150,30,12,ES_AUTOHSCROLL
+    EDITTEXT        IDC_END_TIME,132,150,30,12,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,114,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,114,24,50,14
+    LTEXT           "&CPU speed (in MHz):",IDC_STATIC,7,78,75,10
+    LTEXT           "&Hours per day this program will run:",IDC_STATIC,7,91,
+                    117,10
+    LTEXT           "Intel",IDC_STATIC,7,7,47,10
+    LTEXT           "AMD",IDC_STATIC,62,7,47,10
+    LTEXT           "Cyrix",IDC_STATIC,62,47,47,10
+    LTEXT           "end&s at:",IDC_STATIC,101,152,30,10
+    LTEXT           "&Nighttime available memory  (in M&B):",IDC_STATIC,7,
+                    138,123,10
+    LTEXT           "Please see the readme.txt file for very important information on the available memory settings.",
+                    IDC_STATIC,7,103,155,16
+    LTEXT           "&Daytime available memory  (in M&B):",IDC_STATIC,7,124,
+                    123,10
+    LTEXT           "Daytime &begins at:",IDC_STATIC,7,152,58,10
+END
+
+IDD_PREFERENCES DIALOG DISCARDABLE  0, 0, 230, 103
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Preferences"
+FONT 8, "MS Sans Serif"
+BEGIN
+    EDITTEXT        IDC_R_ITER,128,7,38,12
+    EDITTEXT        IDC_DISK,128,20,38,12
+    EDITTEXT        IDC_MODEM,127,33,38,12
+    EDITTEXT        IDC_NETWORK,128,46,38,12
+    EDITTEXT        IDC_END_DATES,128,59,38,12
+    CONTROL         "&Create Two Backup Files",IDC_BACKUP,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,7,74,107,10
+    CONTROL         "Make noise if new Mersenne &prime is found",IDC_NOISE,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,87,152,10
+    DEFPUSHBUTTON   "OK",IDOK,173,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,173,24,50,14
+    LTEXT           "Iterations between &results file output:",IDC_STATIC,7,
+                    9,117,10
+    LTEXT           "Minutes between &disk writes:",IDC_STATIC,7,22,92,10
+    LTEXT           "Minutes between &network retries:",IDC_NETWORK_TEXT,7,
+                    48,109,10
+    LTEXT           "Days between sending &end dates:",IDC_END_DATES_TEXT,7,
+                    61,109,10
+    LTEXT           "Minutes between &modem retries:",IDC_MODEM_TEXT,7,35,
+                    109,10
+END
+
+IDD_USER DIALOG DISCARDABLE  0, 0, 278, 144
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "End User Information"
+FONT 8, "MS Sans Serif"
+BEGIN
+    EDITTEXT        IDC_NAME,72,7,145,12,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EMAIL,72,21,145,12,ES_AUTOHSCROLL
+    CONTROL         "&Receive email from PrimeNet server if exponents are about to expire",
+                    IDC_SENDEMAIL,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,38,
+                    236,10
+    EDITTEXT        IDC_USERID,74,71,64,12,ES_AUTOHSCROLL
+    EDITTEXT        IDC_PASSWORD,74,85,64,12,ES_AUTOHSCROLL
+    EDITTEXT        IDC_COMPID,74,99,64,12,ES_AUTOHSCROLL
+    CONTROL         "Create a team using the information above.  &Team accounts are protected by the PrimeNet server against unintentional or unauthorized changes.",
+                    IDC_TEAM,"Button",BS_AUTOCHECKBOX | BS_MULTILINE | 
+                    WS_TABSTOP,7,114,264,20
+    DEFPUSHBUTTON   "OK",IDOK,221,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,221,22,50,14
+    LTEXT           "Your &name:",IDC_NAME_TEXT,7,9,65,10
+    LTEXT           "Your &email address:",IDC_STATIC,7,23,64,8
+    LTEXT           "Your user &ID:",IDC_ID_TEXT,7,73,50,10
+    LTEXT           "Your &password:",IDC_PWD_TEXT,7,87,61,8
+    LTEXT           "Your &computer ID:",IDC_STATIC,7,101,64,8
+    LTEXT           "You can either pick your own user ID, password, and computer ID or let the PrimeNet server assign one to you.  See the readme.txt file for details.",
+                    IDC_STATIC,7,51,264,19
+END
+
+IDD_PRIMENET DIALOG DISCARDABLE  0, 0, 255, 133
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Configure PrimeNet"
+FONT 8, "MS Sans Serif"
+BEGIN
+    CONTROL         "Use &PrimeNet to get work and report results",
+                    IDC_PRIMENET,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,7,
+                    153,10
+    CONTROL         "Use a dial-up &connection to the Internet",IDC_DIALUP,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,19,153,10
+    CONTROL         "&RPC",IDC_RPC,"Button",BS_AUTORADIOBUTTON | WS_GROUP | 
+                    WS_TABSTOP,70,30,31,10
+    CONTROL         "&HTTP",IDC_HTTP,"Button",BS_AUTORADIOBUTTON,103,30,36,
+                    10
+    CONTROL         "Request whatever type of work makes the most &sense",
+                    IDC_WORK_DFLT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,41,
+                    186,10
+    EDITTEXT        IDC_WORK,190,53,29,12
+    CONTROL         "Request &10,000,000 digit numbers to test",IDC_BIGONES,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,13,77,192,10
+    CONTROL         "Request Mersenne numbers to run primality &tests",
+                    IDC_LL,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,13,89,190,
+                    10
+    CONTROL         "Request Mersenne numbers to &double-check",IDC_DBLCHK,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,13,101,189,10
+    CONTROL         "Request Mersenne numbers to &factor",IDC_FACTOR,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,13,113,190,10
+    DEFPUSHBUTTON   "OK",IDOK,198,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,198,24,50,14
+    LTEXT           "Always have at least this many days of &work queued up:",
+                    IDC_WORK_TEXT,7,54,169,10
+    GROUPBOX        "Types of work to request from server",IDC_WORKGROUP,7,
+                    66,212,59
+    LTEXT           "Network protocol:",IDC_PROTOCOL,7,31,57,8
+END
+
+IDD_PRIORITY DIALOG DISCARDABLE  0, 0, 221, 121
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Set Priority"
+FONT 8, "MS Sans Serif"
+BEGIN
+    EDITTEXT        IDC_PRIORITY,39,95,40,14,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,164,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,164,24,50,14
+    LTEXT           "Priority:",IDC_STATIC,7,98,22,8
+    LTEXT           "Pick a priority between 1 and 10 where 1 is the lowest priority and 10 is the highest.  Screen savers run at priority 4.  Most applications run at priority 9.",
+                    IDC_STATIC,7,7,151,35
+    LTEXT           "It is strongly recommended that you use the default priority of 1.  This program is unlikely to run any faster at a higher priority.",
+                    IDC_STATIC,7,43,202,19
+    LTEXT           "The only time you should raise the priority is when another process, such as a screen saver, is stealing CPU cycles from this program.",
+                    IDC_STATIC,7,66,200,26
+END
+
+IDD_ABOUTSERVER DIALOG DISCARDABLE  0, 0, 280, 52
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "About PrimeNet Server"
+FONT 8, "MS Sans Serif"
+BEGIN
+    ICON            IDR_MAINFRAME,IDC_STATIC,13,14,21,20
+    LTEXT           "",IDC_LINE1,91,12,143,8,SS_NOPREFIX
+    LTEXT           "",IDC_LINE2,91,22,148,8
+    DEFPUSHBUTTON   "OK",IDOK,241,7,32,14,WS_GROUP
+    LTEXT           "",IDC_LINE3,91,32,170,8
+    LTEXT           "Version:",IDC_STATIC,43,12,26,8
+    LTEXT           "Server Name:",IDC_STATIC,43,22,44,8
+    LTEXT           "Email Addr:",IDC_STATIC,43,32,36,8
+END
+
+IDD_VACATION DIALOG DISCARDABLE  0, 0, 249, 100
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Vacation or Holiday Absence"
+FONT 8, "MS Sans Serif"
+BEGIN
+    EDITTEXT        IDC_DAYS,67,63,33,13,ES_AUTOHSCROLL
+    CONTROL         "&Computer will be on during your absence",IDC_CHECK1,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,79,159,10
+    DEFPUSHBUTTON   "OK",IDOK,192,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,192,24,50,14
+    LTEXT           "&Days of vacation:",-1,7,65,59,8
+    LTEXT           "If you are going on vacation and your computer will not be running or your computer will not be connected to the Internet, then the PrimeNet server must be informed of new expected completion dates.",
+                    -1,7,7,179,33
+    LTEXT           "Please make sure you are connected to the Internet long enough to send the new completion dates.",
+                    -1,7,43,202,19
+END
+
+IDD_MANUAL_COMM DIALOG DISCARDABLE  0, 0, 238, 51
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Manual PrimeNet Communication"
+FONT 8, "MS Sans Serif"
+BEGIN
+    CONTROL         "&Do not contact PrimeNet server automatically",
+                    IDC_MANUAL,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,7,159,
+                    11
+    CONTROL         "Contact PrimeNet server &now",IDC_NOW,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,7,21,144,10
+    CONTROL         "Send new expected &completion dates to server",
+                    IDC_COMPLETION,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,
+                    34,171,10
+    DEFPUSHBUTTON   "OK",IDOK,181,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,181,24,50,14
+END
+
+IDD_AFFINITY DIALOG DISCARDABLE  0, 0, 221, 97
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Set Processor Affinity"
+FONT 8, "MS Sans Serif"
+BEGIN
+    CONTROL         "Let program run on &any CPU",IDC_ALL_CPUS,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,7,63,107,10
+    EDITTEXT        IDC_AFFINITY,86,77,40,12,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,164,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,164,24,50,14
+    LTEXT           "On multi-CPU systems, performance will be enhanced if you assign each instance of the program to run on a specific CPU.",
+                    -1,7,7,151,25
+    LTEXT           "For example, if you have a dual-CPU machine, run one instance of prime95 on CPU 0, run another instance on CPU 1.",
+                    -1,7,33,156,26
+    LTEXT           "Specific &CPU to run on:",IDC_AFFINITY_TEXT,7,79,75,8
+END
+
+IDD_ECM DIALOG DISCARDABLE  0, 0, 171, 92
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Factor Exponent Using ECM"
+FONT 8, "MS Sans Serif"
+BEGIN
+    EDITTEXT        IDC_P1,62,7,45,12
+    EDITTEXT        IDC_P2,62,20,45,12
+    EDITTEXT        IDC_P3,62,33,45,12
+    EDITTEXT        IDC_NUM_CURVES,62,47,45,12
+    CONTROL         "&Factor 2^N+1",IDC_PLUS1,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,7,61,145,10
+    EDITTEXT        IDC_CURVE,94,72,70,12,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,114,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,114,22,50,14
+    LTEXT           "&Exponent:",-1,7,9,37,10
+    LTEXT           "Bound #&1:",-1,7,23,34,8
+    LTEXT           "Bound #&2:",-1,7,36,34,8
+    LTEXT           "&Debug only - curve to test:",-1,7,72,86,8
+    LTEXT           "&Curves to test:",-1,7,49,48,8
+END
+
+IDD_PMINUS1 DIALOG DISCARDABLE  0, 0, 171, 66
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Factor Exponent Using P-1"
+FONT 8, "MS Sans Serif"
+BEGIN
+    EDITTEXT        IDC_P1,62,7,45,12
+    EDITTEXT        IDC_P2,62,20,45,12
+    EDITTEXT        IDC_P3,62,33,45,12
+    CONTROL         "&Factor 2^N+1",IDC_PLUS1,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,7,48,145,10
+    DEFPUSHBUTTON   "OK",IDOK,114,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,114,22,50,14
+    LTEXT           "&Exponent:",-1,7,9,37,10
+    LTEXT           "Bound #&1:",-1,7,23,34,8
+    LTEXT           "Bound #&2:",-1,7,36,34,8
+END
+
+
+#ifndef _MAC
+/////////////////////////////////////////////////////////////////////////////
+//
+// Version
+//
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 20,4,5,0
+ PRODUCTVERSION 20,4,5,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x4L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "\0"
+            VALUE "FileDescription", "PRIME95 MFC Application\0"
+            VALUE "FileVersion", "20, 4, 5, 0\0"
+            VALUE "InternalName", "PRIME95\0"
+            VALUE "LegalCopyright", "Copyright © 1996-2000\0"
+            VALUE "OriginalFilename", "PRIME95.EXE\0"
+            VALUE "ProductName", "PRIME95 Application\0"
+            VALUE "ProductVersion", "20, 4, 5, 0\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
+
+#endif    // !_MAC
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO DISCARDABLE 
+BEGIN
+    IDD_ABOUTBOX, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 231
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 56
+    END
+
+    IDD_CPU, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 164
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 164
+    END
+
+    IDD_PREFERENCES, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 223
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 96
+    END
+
+    IDD_USER, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 271
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 134
+    END
+
+    IDD_PRIMENET, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 248
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 126
+    END
+
+    IDD_PRIORITY, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 214
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 110
+    END
+
+    IDD_ABOUTSERVER, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 273
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 45
+    END
+
+    IDD_VACATION, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 242
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 89
+    END
+
+    IDD_MANUAL_COMM, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 231
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 44
+    END
+
+    IDD_AFFINITY, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 214
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 89
+    END
+
+    IDD_ECM, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 164
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 85
+    END
+
+    IDD_PMINUS1, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 164
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 59
+    END
+END
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Cursor
+//
+
+IDC_CURSOR1             CURSOR  DISCARDABLE     "res\\cursor1.cur"
+IDC_CURSOR2             CURSOR  DISCARDABLE     "res\\cursor2.cur"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// String Table
+//
+
+STRINGTABLE PRELOAD DISCARDABLE 
+BEGIN
+    IDR_MAINFRAME           "Prime95\n\nPrime9\n\n\nPrime95.Document\nPrime9 Document"
+END
+
+STRINGTABLE PRELOAD DISCARDABLE 
+BEGIN
+    AFX_IDS_APP_TITLE       "Prime95"
+    AFX_IDS_IDLEMESSAGE     "For Help, press F1"
+    AFX_IDS_HELPMODEMESSAGE "Select an object on which to get Help"
+END
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    ID_APP_ABOUT            "Display program information, version number and copyright\nAbout"
+    ID_APP_EXIT             "Quit the application; prompts to save documents\nExit"
+    ID_HELP_INDEX           "Opens Help\nHelp Topics"
+    ID_HELP_FINDER          "List Help topics\nHelp Topics"
+    ID_HELP_USING           "Display instructions about how to use help\nHelp"
+    ID_CONTEXT_HELP         "Display help for clicked on buttons, menus and windows\nHelp"
+    ID_HELP                 "Display help for current task or command\nHelp"
+END
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    AFX_IDS_SCSIZE          "Change the window size"
+    AFX_IDS_SCMOVE          "Change the window position"
+    AFX_IDS_SCMINIMIZE      "Reduce the window to an icon"
+    AFX_IDS_SCMAXIMIZE      "Enlarge the window to full size"
+    AFX_IDS_SCCLOSE         "Close the active window and prompts to save the documents"
+END
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    AFX_IDS_SCRESTORE       "Restore the window to normal size"
+    AFX_IDS_SCTASKLIST      "Activate Task List"
+END
+
+#endif    // English (U.S.) resources
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#ifndef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 3 resource.
+//
+#define _AFX_NO_SPLITTER_RESOURCES
+#define _AFX_NO_OLE_RESOURCES
+#define _AFX_NO_TRACKER_RESOURCES
+#define _AFX_NO_PROPERTY_RESOURCES
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
+#ifdef _WIN32
+LANGUAGE 9, 1
+#pragma code_page(1252)
+#endif
+#include "res\Prime95.rc2"  // non-Microsoft Visual C++ edited resources
+#include "afxres.rc"         // Standard components
+#endif
+/////////////////////////////////////////////////////////////////////////////
+#endif    // not APSTUDIO_INVOKED
+

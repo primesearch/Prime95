@@ -1,0 +1,51 @@
+; Copyright 1998-1999 - Just For Fun Software, Inc., all rights reserved
+; Author:  George Woltman
+; Email: woltman@alum.mit.edu
+;
+
+sincos_real	EQU	(OFFSET sincos_real_data)
+sincos_complex	EQU	(OFFSET sincos_complex_data)
+norm_grp_mults	EQU	_NORM_ARRAY1
+norm_col_mults	EQU	_NORM_ARRAY2
+
+SCD = 48			;; Sizeof an entry in the sine/cosine tables
+PMD = 64			;; Sizeof an entry in premultiplier table
+NMD = 16			;; Sizeof a normalization entry
+
+;;
+;; Very convoluted memory model - supports up to three FFT passes.
+;; See gwnum.c for a description
+;;
+
+very_convoluted_distances MACRO
+	dist1 =	512
+	dist8 = (4096+32)
+	dist128 = 8
+	dist1K = (17*4096+8*32)
+	dist16K = 64
+	dist128K = (16*17*4096+4096+16*32)
+	dist1M = (8*16*17*4096+8*4096+4096+32)
+	ENDM
+
+;;
+;; Convoluted memory model - supports up to two FFT passes.
+;; Supports two passes with second pass doing 8 FFT levels
+;; See gwnum.c for a description
+;;
+
+convoluted_distances MACRO
+	dist1 =	512
+	dist8 = (4096+32)
+	dist128 = 8
+	dist8192 = (17*4096+16*32)
+	ENDM
+
+;;
+;; Flatish memory model - 32 pad bytes every 4KB
+;; Supports two passes with second pass doing 6 FFT levels
+;;
+
+flat_distances MACRO
+	dist1 =	8
+	dist512 = (4096+32)
+	ENDM

@@ -1,0 +1,645 @@
+
+   The comm95*.c files are not used in the linux port.
+
+Hm; yes, I must have gotten confused somehow before.
+
+   >In ecm.c, the address of buf is taken when passed to fscanf(), which
+   >is incorrect and could play havoc with the stack:
+
+   buf and &buf are equivalent in this context.  Does gcc whine
+   about the needless & operator?
+
+Gcc warns that the argument has a different pointer type, that doesn't
+match the %s:
+
+../ecm.c:940: warning: char format, different type arg (arg 3)
+
+The only printed reference I have is for C++; all it says is that '&'
+is the address of operator and doesn't mention any exceptions like
+this one.  And I'm pretty sure that I've had using it in that context
+cause crashes, back in my VAX days, so, at best, I doubt your usage is
+portable.
+
+   >I needed a "giants.h" file containing just:
+
+   The file has been renamed to lower case.  
+
+That should do it, of course.
+
+   >I have already made numerous other changes to simply reduce the
+   >compiler warnings; let me know if you want those as well.
+
+   Sure - it can't hurt!
+
+OK, but it's rather long.  Here's the first half, for the linux
+subdirectory.  I'll send the diffs for the top directory in a second
+message.  Let me know if anything causes problems or slows it down for
+you; I still don't have my own Win98 machine running a compiler yet,
+and the latest that I have to install on it is MSVC++ 5.0 in any case.
+
+And gcc, the way I call it (see the makefile diffs), is still printing
+lots of warnings, just not as many.:)  It still prints warnings for the
+mers package code, too, for that matter.
+
+                                                Will
+
+RCS file: RCS/makefile,v
+retrieving revision 1.1
+diff -c1 -r1.1 makefile
+*** makefile	1999/10/17 06:40:00	1.1
+--- makefile	1999/10/19 00:13:00
+***************
+*** 11,15 ****
+  CC = gcc
+! CFLAGS = -I..
+  #CFLAGS for Pentium
+! #CFLAGS = -O2 -m486 -malign-loops=2 -malign-jumps=2 -malign-functions=2
+  
+--- 11,18 ----
+  CC = gcc
+! CFLAGS = -I.. -O3 -m486 -malign-loops=2 -malign-jumps=2 -malign-functions=2 \
+! 	-Wall -Wtraditional -Wshadow -Wpointer-arith -Wcast-qual -Wcast-align -Wwrite-strings \
+! 	-Wconversion -Wstrict-prototypes -Wmissing-prototypes -Wnested-externs
+! 
+  #CFLAGS for Pentium
+! #CFLAGS = -O3 -m586 -malign-loops=2 -malign-jumps=2 -malign-functions=2
+  
+***************
+*** 28,29 ****
+--- 31,35 ----
+  
++ all: tags $(EXE) $(EXE2)
++ 	echo $@ > $@
++ 
+  $(EXE): $(LINUXOBJS) $(COFFOBJS) $(DUMMYOBJS)
+***************
+*** 35,40 ****
+  clean:
+! 	rm -f $(EXE) $(LINUXOBJS) $(COFFOBJS) $(DUMMYOBJS)
+  
+  $(COFFOBJS) $(DUMMYOBJS): %.o : %.obj
+! 	objcopy -Oelf32-i386 -Icoff-i386 $< $@
+  
+--- 41,48 ----
+  clean:
+! #	rm -f $(EXE) $(LINUXOBJS) $(COFFOBJS) $(DUMMYOBJS)
+! 	rm -f $(EXE) $(EXE2) $(LINUXOBJS) all clean tags depend
+  
+  $(COFFOBJS) $(DUMMYOBJS): %.o : %.obj
+! #	objcopy -Oelf32-i386 -Icoff-i386 $< $@
+! 	touch $@
+  
+***************
+*** 42 ****
+--- 50,59 ----
+  	$(CC) $(CFLAGS) -c $<
++ 
++ tags: *.[ch] ../*.[ch]
++ 	ctags *.[ch] ../*.[ch]
++ 	etags *.[ch] ../*.[ch]
++ 
++ depend: *.[ch]
++ 	$(CC) -MM -I.. *.c > $@
++ 
++ include depend
+===================================================================
+RCS file: RCS/menu.c,v
+retrieving revision 1.1
+diff -c1 -r1.1 menu.c
+*** menu.c	1999/10/17 23:12:05	1.1
+--- menu.c	1999/10/17 22:37:33
+***************
+*** 7,8 ****
+--- 7,10 ----
+  #include "prime.h"
++ #include <unistd.h>
++ #include <stdlib.h>
+  #include <string.h>
+***************
+*** 11,14 ****
+  
+! void rangeStatus ();
+! void options_cpu ();
+  
+--- 13,16 ----
+  
+! void rangeStatus (void);
+! void options_cpu (void);
+  
+***************
+*** 16,18 ****
+  
+! void get_line (
+  	char	*buf)
+--- 18,20 ----
+  
+! static void get_line (
+  	char	*buf)
+***************
+*** 31,33 ****
+  
+! unsigned long get_number (
+  	unsigned long dflt)
+--- 33,35 ----
+  
+! static unsigned long get_number (
+  	unsigned long dflt)
+***************
+*** 35,37 ****
+  	char	line[80];
+! 	unsigned long i;
+  	get_line (line);
+--- 37,39 ----
+  	char	line[80];
+! 
+  	get_line (line);
+***************
+*** 43,46 ****
+  
+! void askYN (
+! 	char	*str,
+  	int	*val)
+--- 45,48 ----
+  
+! static void askYN (
+! 	const char	*str,
+  	int	*val)
+***************
+*** 56,59 ****
+  
+! void askNum (
+! 	char	*str,
+  	unsigned long *val,
+--- 58,61 ----
+  
+! static void askNum (
+! 	const char	*str,
+  	unsigned long *val,
+***************
+*** 80,83 ****
+  
+! void askNumNoDflt (
+! 	char	*str,
+  	unsigned long *val,
+--- 82,85 ----
+  
+! static void askNumNoDflt (
+! 	const char	*str,
+  	unsigned long *val,
+***************
+*** 104,107 ****
+  
+! void askStr (
+! 	char	*str,
+  	char	*val,
+--- 106,109 ----
+  
+! static void askStr (
+! 	const char	*str,
+  	char	*val,
+***************
+*** 125,127 ****
+  
+! void askOK ()
+  {
+--- 127,129 ----
+  
+! static void askOK (void)
+  {
+***************
+*** 135,137 ****
+  
+! int askOkCancel ()
+  {
+--- 137,139 ----
+  
+! static int askOkCancel (void)
+  {
+***************
+*** 146,153 ****
+  
+! void outputLongLine (
+! 	char	*buf)
+  {
+  	char	line[80];
+! 	char	*p;
+! 	int	i, j;
+  
+--- 148,155 ----
+  
+! static void outputLongLine (
+! 	const char	*buf)
+  {
+  	char	line[80];
+! 	const char	*p;
+! 	int	i, j = 0;
+  
+***************
+*** 176,178 ****
+  
+! void test_primenet ()
+  {
+--- 178,180 ----
+  
+! static void test_primenet (void)
+  {
+***************
+*** 265,267 ****
+  
+! test_manual_op ()
+  {
+--- 267,269 ----
+  
+! static void test_manual_op (void)
+  {
+***************
+*** 291,293 ****
+  
+! void test_user ()
+  {
+--- 293,295 ----
+  
+! void test_user (void)
+  {
+***************
+*** 365,367 ****
+  
+! void test_vacation ()
+  {
+--- 367,369 ----
+  
+! static void test_vacation (void)
+  {
+***************
+*** 409,411 ****
+  
+! void advanced_test ()
+  {
+--- 411,413 ----
+  
+! static void advanced_test (void)
+  {
+***************
+*** 431,433 ****
+  
+! void advanced_time ()
+  {
+--- 433,435 ----
+  
+! static void advanced_time (void)
+  {
+***************
+*** 448,450 ****
+  
+! void advanced_pminus1 ()
+  {
+--- 450,452 ----
+  
+! static void advanced_pminus1 (void)
+  {
+***************
+*** 481,483 ****
+  
+! void advanced_ecm ()
+  {
+--- 483,485 ----
+  
+! static void advanced_ecm (void)
+  {
+***************
+*** 521,523 ****
+  
+! void advanced_priority ()
+  {
+--- 523,525 ----
+  
+! static void advanced_priority (void)
+  {
+***************
+*** 540,542 ****
+  
+! void advanced_manualcomm ()
+  {
+--- 542,544 ----
+  
+! static void advanced_manualcomm (void)
+  {
+***************
+*** 565,567 ****
+  
+! void advanced_quit ()
+  {
+--- 567,569 ----
+  
+! static void advanced_quit (void)
+  {
+***************
+*** 646,648 ****
+  
+! void options_preferences ()
+  {
+--- 648,650 ----
+  
+! static void options_preferences (void)
+  {
+***************
+*** 696,698 ****
+  
+! void help_about ()
+  {
+--- 698,700 ----
+  
+! static void help_about (void)
+  {
+***************
+*** 707,709 ****
+  
+! void help_about_server ()
+  {
+--- 709,711 ----
+  
+! static void help_about_server (void)
+  {
+***************
+*** 725,727 ****
+  
+! void main_menu ()
+  {
+--- 727,729 ----
+  
+! void main_menu (void)
+  {
+===================================================================
+RCS file: RCS/prime.c,v
+retrieving revision 1.1
+diff -c1 -r1.1 prime.c
+*** prime.c	1999/10/17 23:13:24	1.1
+--- prime.c	1999/10/17 21:39:59
+***************
+*** 49,51 ****
+  
+! void sigterm_handler(int signo)
+  {
+--- 49,51 ----
+  
+! static void sigterm_handler(int signo)
+  {
+***************
+*** 59,61 ****
+     sets SLEEP_STOP to TRUE if load is too high */
+! void load_handler (
+  	int	sig)
+--- 59,61 ----
+     sets SLEEP_STOP to TRUE if load is too high */
+! static void load_handler (
+  	int	sig)
+***************
+*** 86,88 ****
+     every LOAD_CHECK_TIME seconds */
+! void init_load_check ()
+  {
+--- 86,88 ----
+     every LOAD_CHECK_TIME seconds */
+! static void init_load_check (void)
+  {
+***************
+*** 112,114 ****
+  */
+! void test_sleep (void) 
+  {
+--- 112,114 ----
+  */
+! static void test_sleep (void) 
+  {
+***************
+*** 301,303 ****
+  
+! void title (char *msg)
+  {
+--- 301,303 ----
+  
+! void title (const char *msg)
+  {
+***************
+*** 305,307 ****
+  
+! void flashWindowAndBeep ()
+  {
+--- 305,307 ----
+  
+! void flashWindowAndBeep (void)
+  {
+***************
+*** 312,314 ****
+  
+! int escapeCheck ()
+  {
+--- 312,314 ----
+  
+! int escapeCheck (void)
+  {
+***************
+*** 321,323 ****
+  
+! void doMiscTasks ()
+  {
+--- 321,323 ----
+  
+! static void doMiscTasks (void)
+  {
+***************
+*** 328,330 ****
+  
+! void OutputStr (char *buf)
+  {
+--- 328,330 ----
+  
+! void OutputStr (const char *buf)
+  {
+***************
+*** 333,335 ****
+  
+! void guessCpuType ()
+  {
+--- 333,335 ----
+  
+! void guessCpuType (void)
+  {
+***************
+***************
+*** 349,351 ****
+  
+! void SetPriority ()
+  {
+--- 349,351 ----
+  
+! void SetPriority (void)
+  {
+***************
+*** 405,407 ****
+  void linuxContinue (
+! 	char	*error_message)
+  {
+--- 405,407 ----
+  void linuxContinue (
+! 	const char	*error_message)
+  {
+===================================================================
+RCS file: RCS/prime.h,v
+retrieving revision 1.1
+diff -c1 -r1.1 prime.h
+*** prime.h	1999/10/17 06:42:41	1.1
+--- prime.h	1999/10/17 22:31:59
+***************
+*** 108,111 ****
+  
+! void main_menu ();
+! void linuxContinue (char *);
+  
+--- 108,113 ----
+  
+! void main_menu (void);
+! void linuxContinue (const char *);
+! long Sleep (long ms);
+! void test_user (void);
+  
+***************
+*** 113,116 ****
+  
+! void setupf ();
+! int factor64 ();
+  
+--- 115,118 ----
+  
+! void setupf (void);
+! int factor64 (void);
+  
+===================================================================
+RCS file: RCS/primenet.c,v
+retrieving revision 1.1
+diff -c1 -r1.1 primenet.c
+*** primenet.c	1999/10/17 23:14:25	1.1
+--- primenet.c	1999/10/17 21:56:05
+***************
+*** 81,83 ****
+  //
+! ///////////////////////////////////////////////////////////////////////////*/
+  
+--- 81,83 ----
+  //
+! ////////////////////////////////////////////////////////////////////////// */
+  
+***************
+*** 107,109 ****
+  
+! int pnHttpServer(char *pbuf, unsigned cbuf, char* postargs)
+  {
+--- 107,109 ----
+  
+! static int pnHttpServer(char *pbuf, unsigned cbuf, char* postargs)
+  {
+***************
+*** 262,264 ****
+  //
+! ////////////////////////////////////////////////////////////////////////////*/
+  
+--- 262,264 ----
+  //
+! /////////////////////////////////////////////////////////////////////////// */
+  
+***************
+*** 268,270 ****
+  
+! void armor( char* s )
+  {
+--- 268,270 ----
+  
+! static void armor( char* s )
+  {
+***************
+*** 292,294 ****
+  
+! int validate( char* s, int fnospaces )
+  { 
+--- 292,294 ----
+  
+! static int validate( char* s, int fnospaces )
+  { 
+***************
+*** 307,309 ****
+  
+! void setifnull( char* s )
+  {
+--- 307,309 ----
+  
+! static void setifnull( char* s )
+  {
+***************
+*** 317,319 ****
+  
+! int validateID( void* pkt )
+  {
+--- 317,319 ----
+  
+! static int validateID( void* pkt )
+  {
+***************
+*** 337,339 ****
+  
+! int format_args( char* args, short operation, void* pkt )
+  {
+--- 337,339 ----
+  
+! static int format_args( char* args, short operation, void* pkt )
+  {
+***************
+*** 535,537 ****
+  //
+! /////////////////////////////////////////////////////////////////////////////*/
+  
+--- 535,537 ----
+  //
+! //////////////////////////////////////////////////////////////////////////// */
+  
+***************
+*** 539,541 ****
+  
+! char* skip_token( char* s )
+  {
+--- 539,541 ----
+  
+! static char* skip_token( char* s )
+  {
+***************
+*** 549,551 ****
+  
+! char* copy_value( char* buf, char* s )
+  {
+--- 549,551 ----
+  
+! static char* copy_value( char* buf, char* s )
+  {
+***************
+*** 563,565 ****
+  
+! int parse_page( char* buf, short operation, void* pkt )
+  {
+--- 563,565 ----
+  
+! static int parse_page( char* buf, short operation, void* pkt )
+  {
+***************
+*** 681,683 ****
+  
+! int PrimeNet(short operation, void *pkt)
+  {
+--- 681,683 ----
+  
+! static int PrimeNet(short operation, void *pkt)
+  {
+***************
+*** 714,716 ****
+  
+- 	int lines = 0;
+  #ifndef AOUT
+--- 714,715 ----

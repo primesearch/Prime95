@@ -1,0 +1,804 @@
+; Copyright 1998-1999 - Just For Fun Software, Inc., all rights reserved
+; Author:  George Woltman
+; Email: woltman@alum.mit.edu
+;
+; These macros take the basic FFT building blocks and build even
+; larger building blocks used in the final pass of a multi-pass FFT.
+;
+
+; ********************************************************
+; ********************************************************
+; *******************  PASS 2 MACROS  ********************
+; ********************************************************
+; ********************************************************
+
+
+; The goal of this pass is to perform the last FFT
+; levels (up to 8 levels will fit in 4KB of the L1 cache).
+; Ideally, we process an even number of levels to
+; reduce load and store operations.
+;
+; To reduce the amount of sine-cosine data we read in from
+; main memory, we pre-multiply each set of values by a different
+; set of sine-cosine values and then perform a standard 8-level
+; FFT on each set of 256 complex values.  The root of this idea
+; comes from articles by David Bailey available on the web.
+; 
+
+; *************** pass2-six-levels-real macro ******************
+; This macro takes 128 real values and performs the final six levels
+; of the FFT process, squares the results, and does the first six
+; levels of the inverse FFT.
+; This macro is only used for "small" FFTs.  The nearly flat memory
+; model is used.
+
+pass2_six_levels_real MACRO type
+	LOCAL	b1b, b2b, b3b, b4b, b5b
+
+;; Do 8 eight_reals_fft macros (FFT levels 1,2,3 on values 1 - 64)
+;;	distance between fft data elements is 8
+;;	do 8 iterations
+
+;; Do nothing (FFT level 1 on values 65 - 128)
+;; This will turn these 64 real values into 32 complex values.
+
+;; Do 8 four_complex_fft_2 macros (FFT levels 2,3 on values 65 - 128)
+;;	distance between fft data elements is 8
+;;	do 8 iterations
+
+	IF	type NE 4
+	mov	edi, sincos_real	;; V - Load sine/cosine table pointer
+	mov	al, 8			;; V - 8 iterations
+b1b:	disp eight_reals_fft 8*dist1, 16*dist1, 32*dist1
+	dispc four_complex_fft_2 8*dist1, 16*dist1, 32*dist1, 64*dist1
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	dec	al			;; V - Test inner loop counter
+	JNZ_X	b1b			;;*V - Iterate if necessary
+
+;; Do 14 four_complex_fft macros (FFT levels 4,5 on values 17 - 128)
+;;	distance between fft data elements is 2
+;;	do 7 iterations of 2
+
+	lea	esi, [esi-8*dist1+16*dist1];; U - Restore source ptr
+;;	mov	edi, sincos_real	;; V - Load sine/cosine table pointer
+	mov	al, 7			;; U - 7 iterations of 2
+b2b:	disp four_complex_fft 2*dist1, 4*dist1, 8*dist1
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/2		;; V - Test inner loop counter
+	JNC_X	b2b			;;*V - Iterate if necessary
+	lea	esi, [esi-2*dist1+16*dist1];; U - Next source pointer
+	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
+	dec	al			;; U - Test outer loop counter
+	JNZ_X	b2b			;; V - Iterate if necessary
+	lea	esi, [esi-128*dist1]	;; U - Load source pointer
+	ENDIF
+
+;; Do 1 eight_reals_fft operations (FFT levels 4,5,6)
+;;	distance between fft data elements is 1
+
+	IF	type EQ 1
+	disp eight_reals_fft dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 2
+	disp eight_reals_with_square_3 dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 3
+	disp eight_reals_with_mult_3 dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 4
+	disp eight_reals_with_mulf_3 dist1, 2*dist1, 4*dist1
+	ENDIF
+
+;; Do nothing (FFT level 4)
+;; This will turn these 8 real values into 4 complex values.
+
+;; Do 1 four_complex_fft operations (FFT levels 5,6)
+;;	distance between fft data elements is 1
+
+	lea	esi, [esi+8*dist1]	;; U - Load source pointer
+	mov	edi, sincos_real	;; V - Load sin/cos pointer
+	IF	type EQ 1
+	disp four_complex_fft_2 dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 2
+	disp four_complex_with_square dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 3
+	disp four_complex_with_mult dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 4
+	disp four_complex_with_mulf dist1, 2*dist1, 4*dist1
+	ENDIF
+
+;; Do 28 two_complex_fft macros (FFT levels 6)
+;;	distance between fft data elements is 1
+;;	do 14 iterations
+
+	lea	esi, [esi+8*dist1]	;; U - Load source pointer
+	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
+	mov	al, 14			;; V - 14 iterations
+	IF	type EQ 1
+b3b:	disp two_two_complex_fft_n dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 2
+b3b:	disp two_two_complex_with_square dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 3
+b3b:	disp two_two_complex_with_mult dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 4
+b3b:	disp two_two_complex_with_mulf dist1, 2*dist1, 4*dist1
+	ENDIF
+	lea	esi, [esi+8*dist1]	;; U - Next source pointer
+	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
+	dec	al			;; U - Test loop counter
+	JNZ_X	b3b			;; V - Iterate if necessary
+
+;; Do 14 four_complex_unfft macros (FFT levels 4,5 on values 17 - 128)
+;;	distance between fft data elements is 2
+;;	do 7 iterations of 2
+
+	IF	type NE 1
+	lea	esi, [esi-128*dist1+16*dist1];; U - Load source pointer
+	mov	edi, sincos_real	;; V - Load sine/cosine table pointer
+	mov	al, 7			;; U - 7 iterations of 2
+b4b:	disp four_complex_unfft 2*dist1, 4*dist1, 8*dist1
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/2		;; V - Test inner loop counter
+	JNC_X	b4b			;;*V - Iterate if necessary
+	lea	esi, [esi-2*dist1+16*dist1];; U - Next source pointer
+	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
+	dec	al			;; U - Test outer loop counter
+	JNZ_X	b4b			;; V - Iterate if necessary
+
+;; Do 8 eight_reals_unfft macros (FFT levels 1,2,3 on values 1 - 64)
+;;	distance between fft data elements is 8
+;;	do 8 iterations
+
+;; Do 8 four_complex_unfft_2 macros (FFT levels 2,3 on values 65 - 128)
+;;	distance between fft data elements is 8
+;;	do 8 iterations
+
+;; Do nothing (FFT level 1 on values 65 - 128)
+;; This will turn these 32 complex values into 64 real values.
+
+	lea	esi, [esi-128*dist1+128];; U - Load source pointer
+	mov	edi, sincos_real	;; V - Load sine/cosine table pointer
+b5b:	dispc eight_reals_unfft 8*dist1, 16*dist1, 32*dist1, -128
+	dispc four_complex_unfft_2 8*dist1, 16*dist1, 32*dist1, 64*dist1-128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/8		;; V - Test inner loop counter
+	JNC_X	b5b			;;*V - Iterate if necessary
+	lea	esi, [esi-8*dist1-128+128*dist1];; U - Next pass 2 set of data
+	ENDIF
+	ENDM
+
+
+; *************** pass2-six-levels-complex macro ******************
+; This macro takes 64 complex values, pre multiplies them and
+; performs the final six levels of the FFT process, squares the
+; results, and does the first six levels of the inverse FFT.
+; NOTE: Rather than remembering 64 multipliers we break them up
+; into 16 groups of 4 columns.  By remembering these 20 values we can compute
+; all 64 multipliers using a single complex multiply.  These extra
+; complex multiplies can be done faster than the computer can read the
+; extra 44 multipliers from memory.
+; esi = Pointer to the FFT data
+; ebx/ebp = Differences to point to second and third operands
+; edx = Pointer to the group and column pre-multiplier values
+
+pass2_six_levels_complex MACRO type
+	LOCAL	b1a, b1b, b1c, b2b, b3b, b4b, b5a, b5b, b5c
+
+;; Do 16 four_complex_fft_gpm macros (FFT levels 1,2 on all 64 values)
+;; In this section we apply the 16 group multipliers (actually 15 since the
+;; first multiplier is always one).  We will apply the column multipliers
+;; in the next section.
+;;	distance between fft data elements is 16
+
+	IF	type NE 4
+	mov	edi, edx		;; U - The 15 group multipliers
+	mov	al, 4			;; V - 4 iterations
+b1a:	disp four_complex_gpm3_fft_0 16*dist1, 32*dist1, 64*dist1
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	dec	al			;; V - Test loop counter
+	JNZ_X	b1a			;;*V - Loop if necessary
+	mov	al, 3			;; U - 3 iterations of 4 iterations
+b1b:	lea	edi, [edi+PMD]		;; V - Next group multiplier
+b1c:	disp four_complex_gpm4_fft_0 16*dist1, 32*dist1, 64*dist1
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/4		;; V - Test inner loop counter
+	JNC_X	b1c			;;*V - Iterate if necessary
+	dec	al			;; U - Test outer loop counter
+	JNZ_X	b1b			;; V - Iterate if necessary
+
+;; Do 16 four_complex_fft macros (FFT levels 3,4 on all 64 values)
+;; In this section we also apply the 4 column multipliers (actually three
+;; since the first column multiplier is always one).  To make things
+;; run faster we precompute the column multipliers times the 4 different
+;; sine/cosine multipliers we run into in this section.  This costs some
+;; memory but saves us some complex multiplies.
+;; Do 4 four_complex_fft_0 macros (FFT levels 3,4 on complex values 1 - 16)
+;; Do 4 four_complex_fft_1 macros (FFT levels 3,4 on complex values 17 - 32)
+;; Do 4 four_complex_fft_2 macros (FFT levels 3,4 on complex values 33 - 48)
+;; Do 4 four_complex_fft_3 macros (FFT levels 3,4 on complex values 49 - 64)
+;;	distance between fft data elements is 4
+
+	lea	esi, [esi-16*dist1+128]	;; U - Restore source pointer
+	mov	edi, sincos_complex+2*SCD ;; V - Sine/cosine pointer
+	dispc four_complex_fft_0 4*dist1, 8*dist1, 16*dist1, -128
+	dispc four_complex_fft_1 4*dist1, 8*dist1, 16*dist1, 32*dist1-128
+	dispc four_complex_fft_2 4*dist1, 8*dist1, 16*dist1, 64*dist1-128
+	lea	edi, [edi+SCD]		;; Sine/cosine pointer
+	dispc four_complex_fft_3 4*dist1, 8*dist1, 16*dist1, 96*dist1-128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	lea	edi, [edx+4*PMD]	;; V - The 3 column multipliers
+	mov	al, 3			;; U - 3 more iterations with a premult
+b2b:	dispc four_complex_cpm_fft_0 4*dist1, 8*dist1, 16*dist1, -128
+	dispc four_complex_cpm_fft_1 4*dist1, 8*dist1, 16*dist1, 32*dist1-128
+	dispc four_complex_cpm_fft_2 4*dist1, 8*dist1, 16*dist1, 64*dist1-128
+	dispc four_complex_cpm_fft_3 4*dist1, 8*dist1, 16*dist1, 96*dist1-128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	lea	edi, [edi+PMD]		;; V - Next column multiplier
+	dec	al			;; U - Test inner loop counter
+	JNZ_X	b2b			;; V - Iterate if necessary
+	lea	esi, [esi-4*dist1-128]	;; U - Load source pointer
+	ENDIF
+
+;; Do 1 four_complex_fft_0 macros (FFT levels 5,6 on complex values 1 - 4)
+;; Do 1 four_complex_fft_1 macros (FFT levels 5,6 on complex values 5 - 8)
+;;	distance between fft data elements is 1
+
+;;bug/opt	dispc four_complex_fft_0 dist1, 2*dist1, 4*dist1, 0
+;;bug/opt	dispc four_complex_fft_1 dist1, 2*dist1, 4*dist1, 8*dist1
+
+;; Do 14 four_complex_fft macros (FFT levels 5,6 on complex values 9 - 64)
+;;	distance between fft data elements is 1
+
+;;bug/opt	lea	esi, [esi+16*dist1]	;; U - Restore source ptr
+	mov	edi, sincos_complex	;; V - Load sine/cosine ptr
+	mov	al, 16			;; V - 14 iterations
+;;bug/opt - do 14 iters at +16*dist1 sincos_complex+2*SCD
+	IF	type EQ 1
+b3b:	disp four_complex_fft dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 2
+b3b:	disp four_complex_with_square dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 3
+b3b:	disp four_complex_with_mult dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 4
+b3b:	disp four_complex_with_mulf dist1, 2*dist1, 4*dist1
+	ENDIF
+	lea	esi, [esi+8*dist1]	;; U - Next source pointer
+	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
+	dec	al			;; U - Test loop counter
+	JNZ_X	b3b			;; V - Iterate if necessary
+
+;; Do 16 four_complex_unfft macros (FFT levels 3,4 on all 64 values)
+;; In this section we also apply the 4 column multipliers (actually three
+;; since the first column multiplier is always one).  To make things
+;; run faster we precompute the column multipliers times the 4 different
+;; sine/cosine multipliers we run into in this section.  This costs some
+;; memory but saves us some complex multiplies.
+;; Do 4 four_complex_unfft_0 macros (FFT levels 3,4 on complex values 1 - 16)
+;; Do 4 four_complex_unfft_1 macros (FFT levels 3,4 on complex values 17 - 32)
+;; Do 4 four_complex_unfft_2 macros (FFT levels 3,4 on complex values 33 - 48)
+;; Do 4 four_complex_unfft_3 macros (FFT levels 3,4 on complex values 49 - 64)
+;;	distance between fft data elements is 4
+
+	IF	type NE 1
+	lea	esi, [esi-128*dist1+128];; U - Restore source pointer
+	dispc four_complex_unfft_0 4*dist1, 8*dist1, 16*dist1, -128
+	dispc four_complex_unfft_1 4*dist1, 8*dist1, 16*dist1, 32*dist1-128
+	mov	edi, sincos_complex+2*SCD;; U - Load sin/cos pointer
+	dispc four_complex_unfft_2 4*dist1, 8*dist1, 16*dist1, 64*dist1-128
+	lea	edi, [edi+SCD]		;; U - Load sin/cos pointer
+	dispc four_complex_unfft_3 4*dist1, 8*dist1, 16*dist1, 96*dist1-128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	lea	edi, [edx+4*PMD]	;; V - The 3 column multipliers
+	mov	al, 3			;; U - 3 more iterations with a premult
+b4b:	dispc four_complex_cpm_unfft_0 4*dist1, 8*dist1, 16*dist1, -128
+	dispc four_complex_cpm_unfft_1 4*dist1, 8*dist1, 16*dist1, 32*dist1-128
+	dispc four_complex_cpm_unfft_2 4*dist1, 8*dist1, 16*dist1, 64*dist1-128
+	dispc four_complex_cpm_unfft_3 4*dist1, 8*dist1, 16*dist1, 96*dist1-128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	lea	edi, [edi+PMD]		;; V - Next column multiplier
+	dec	al			;; U - Test loop counter
+	JNZ_X	b4b			;; V - Iterate if necessary
+
+;; Do 16 four_complex_unfft_gpm macros (FFT levels 1,2 on all 64 values)
+;; In this section we apply the 16 group multipliers (actually 15 since the
+;; first multiplier is always one).  We will apply the column multipliers
+;; in the next section.
+;;	distance between fft data elements is 16
+
+	lea	esi, [esi-4*dist1]	;; U - Restore source pointer
+	mov	edi, edx		;; U - The 15 group multipliers
+b5a:	dispc four_complex_gpm3_unfft_0 16*dist1, 32*dist1, 64*dist1, -128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/4		;; V - Test loop counter
+	JNC_X	b5a			;;*V - Loop if necessary
+	mov	al, 3			;; V - 3 iterations of 4 iterations
+b5b:	lea	edi, [edi+PMD]		;; U - Next group multiplier
+b5c:	dispc four_complex_gpm4_unfft_0 16*dist1, 32*dist1, 64*dist1, -128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/4		;; U - Test inner loop counter
+	JNC_X	b5c			;; V - Iterate if necessary
+	dec	al			;; U - Test outer loop counter
+	JNZ_X	b5b			;; V - Loop if necessary
+	lea	esi, [esi-16*dist1-128+128*dist1];; U - Next pass 2 set of data
+	ENDIF
+	lea	edx, [edx+7*PMD]	;; V - Next group pre-multipliers
+	ENDM
+
+
+; *************** pass2-eight-levels-real macro ******************
+; This macro takes 512 real values and performs the final eight levels
+; of the FFT process, squares the results, and does the first eight
+; levels of the inverse FFT.
+
+pass2_eight_levels_real MACRO type
+	LOCAL	b1b, b2b, b3b, b4b, b5b, b6b, c1b, c2b, c3b, c4b
+
+;; Do 32 eight_reals_fft macros (FFT levels 1,2,3 on values 1 - 256)
+;;	distance between fft data elements is 32
+;;	do 4 iterations of 8
+
+;; Do nothing (FFT level 1 on values 257 - 512)
+;; This will turn these 256 real values into 128 complex values.
+
+;; Do 32 four_complex_fft_2 macros (FFT levels 2,3 on values 257 - 512)
+;;	distance between fft data elements is 32
+;;	do 4 iterations of 8
+
+	IF	type NE 4
+	mov	edi, sincos_real	;; U - Load sine/cosine table pointer
+	mov	al, 4			;; V - 4 iterations of 8
+b1b:	disp eight_reals_fft 4*dist8, 8*dist8, dist128
+	dispc four_complex_fft_2 4*dist8, 8*dist8, dist128, 2*dist128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/8		;; V - Test inner loop counter
+	JNC_X	b1b			;;*V - Iterate if necessary
+	lea	esi, [esi-8*dist1+dist8];; U - Next source pointer
+	dec	al			;; U - Test outer loop counter
+	JNZ_X	b1b			;; V - Iterate if necessary
+
+;; Do 4 eight_reals_fft macros (FFT levels 4,5,6 on values 1 - 32)
+;;	distance between fft data elements is 4
+
+;; Do nothing (FFT level 4 on values 33 - 64)
+;; This will turn these 32 real values into 16 complex values.
+
+;; Do 4 two_two_complex_fft_2 macros (FFT levels 5 on values 33 - 64)
+;;	distance between fft data elements is 4
+
+;;	lea	esi, [esi-4*dist8]	;; U - Restore source pointer
+b2b:	dispc eight_reals_fft 4*dist1, dist8, 2*dist8, -4*dist8
+	dispc two_two_complex_fft_2 4*dist1, dist8, 2*dist8, 0
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/4		;; V - Test loop counter
+	JNC_X	b2b			;;*V - Iterate if necessary
+
+;; Do 56 four_complex_fft macros (FFT levels 4,5 on values 65 - 512)
+;;	distance between fft data elements is 8
+;;	do 7 iterations of 8
+
+	lea	esi, [esi-4*dist1-4*dist8+8*dist8];; U - Restore source ptr
+;;	mov	edi, sincos_real	;; V - Load sine/cosine table pointer
+	mov	eax, 256/2*256+4	;; U - 4 iters of 1 or 2 iters of 8
+b3b:	disp four_complex_fft dist8, 2*dist8, 4*dist8
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/8		;; V - Test inner loop counter
+	JNC_X	b3b			;;*V - Iterate if necessary
+	lea	esi, [esi-8*dist1+8*dist8];; U - Next source pointer
+	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
+	add	ah, 256/2		;; U - Test middle loop counter
+	JNC_X	b3b			;; V - Iterate if necessary
+	lea	esi, [esi-16*dist8+dist128];; U - Next source pointer
+	dec	al			;; V - Test outer loop counter
+	JNZ_X	b3b			;; V - Iterate if necessary
+
+;; Do 60 four_complex_fft macros (FFT levels 6,7 on values 33 - 512)
+;;	distance between fft data elements is 2
+;;	do 30 iterations of 2
+
+	lea	esi, [esi-4*dist128+4*dist8];; U - Restore source pointer
+	mov	edi, sincos_real+SCD	;; V - Load sine/cosine table pointer
+	mov	eax, 2*256/8*256+4	;; U - 4 iters of 6 or 8 iters of 2
+b4b:	disp four_complex_fft 2*dist1, 4*dist1, dist8
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/2		;; V - Test inner loop counter
+	JNC_X	b4b			;;*V - Iterate if necessary
+	lea	esi, [esi-2*dist1+2*dist8];; U - Next source pointer
+	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
+	add	ah, 256/8		;; U - Test middle loop counter
+	JNC_X	b4b			;; V - Iterate if necessary
+	lea	esi, [esi-16*dist8+dist128];; U - Next source pointer
+	dec	al			;; V - Test outer loop counter
+	JNZ_X	b4b			;; V - Iterate if necessary
+	lea	esi, [esi-4*dist128]	;; U - Restore source pointer
+	ENDIF
+
+;; Do eight_reals_with_square_2 macros (FFT level 7,8 on values 1 - 8)
+;;	distance between fft data elements is 1
+
+	IF	type EQ 1
+	disp eight_reals_fft_2 dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 2
+	disp eight_reals_with_square_2 dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 3
+	disp eight_reals_with_mult_2 dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 4
+	disp eight_reals_with_mulf_2 dist1, 2*dist1, 4*dist1
+	ENDIF
+
+;; Do 3 four_complex_fft operations (FFT levels 7,8 on values 9 - 32)
+;;	distance between fft data elements is 1
+
+	lea	esi, [esi+dist8]	;; U - Load source pointer
+	mov	edi, sincos_real	;; V - Load sin/cos pointer
+	mov	al, 3			;; U - 3 iterations
+	IF	type EQ 1
+b5b:	disp four_complex_fft dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 2
+b5b:	disp four_complex_with_square dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 3
+b5b:	disp four_complex_with_mult dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 4
+b5b:	disp four_complex_with_mulf dist1, 2*dist1, 4*dist1
+	ENDIF
+	lea	esi, [esi+dist8]	;; U - Next source pointer
+	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
+	dec	al			;; U - Test loop counter
+	JNZ_X	b5b			;; V - Iterate if necessary
+
+;; Do 60 two_two_complex_with_square macros (FFT level 8 on values 33 - 512)
+;;	distance between fft data elements is 1
+
+	mov	al, 4*256/16+4		;; U - 4 iterations of 12 or 16
+	IF	type EQ 1
+b6b:	disp two_two_complex_fft_n dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 2
+b6b:	disp two_two_complex_with_square dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 3
+b6b:	disp two_two_complex_with_mult dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 4
+b6b:	disp two_two_complex_with_mulf dist1, 2*dist1, 4*dist1
+	ENDIF
+	lea	esi, [esi+dist8]	;; U - Next source pointer
+	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
+	add	al, 256/16		;; U - Test loop counter
+	JNC_X	b6b			;; V - Iterate if necessary
+	lea	esi, [esi-16*dist8+dist128];; U - Next source pointer
+	dec	al			;; U - Test loop counter
+	JNZ_X	b6b			;; V - Iterate if necessary
+
+;; Do 60 four_complex_unfft macros (FFT levels 6,7 on values 33 - 512)
+;;	distance between fft data elements is 2
+;;	do 30 iterations of 2
+
+	IF	type NE 1
+	lea	esi, [esi-4*dist128+4*dist8];; U - Restore source pointer
+	mov	edi, sincos_real+SCD	;; V - Load sine/cosine table pointer
+	mov	eax, 2*256/8*256+4	;; U - 4 iters of 6 or 8 iters of 2
+c4b:	disp four_complex_unfft 2*dist1, 4*dist1, dist8
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/2		;; V - Test inner loop counter
+	JNC_X	c4b			;;*V - Iterate if necessary
+	lea	esi, [esi-2*dist1+2*dist8];; U - Next source pointer
+	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
+	add	ah, 256/8		;; U - Test middle loop counter
+	JNC_X	c4b			;; V - Iterate if necessary
+	lea	esi, [esi-16*dist8+dist128];; U - Next source pointer
+	dec	al			;; V - Test outer loop counter
+	JNZ_X	c4b			;; V - Iterate if necessary
+
+;; Do 4 eight_reals_unfft macros (FFT levels 4,5,6 on values 1 - 32)
+;;	distance between fft data elements is 4
+
+;; Do 4 two_two_complex_unfft_2 macros (FFT levels 5 on values 33 - 64)
+;;	distance between fft data elements is 4
+
+;; Do nothing (FFT level 4 on values 33 - 64)
+;; This will turn these 16 complex values into 32 real values.
+
+	lea	esi, [esi-4*dist128]	;; U - Restore source pointer
+c2b:	disp eight_reals_unfft 4*dist1, dist8, 2*dist8
+	dispc two_two_complex_unfft_2 4*dist1, dist8, 2*dist8, 4*dist8
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/4		;; V - Test loop counter
+	JNC_X	c2b			;;*V - Iterate if necessary
+
+;; Do 56 four_complex_unfft macros (FFT levels 4,5 on values 65 - 512)
+;;	distance between fft data elements is 8
+;;	do 7 iterations of 8
+
+	lea	esi, [esi-4*dist1+8*dist8];; U - Restore source ptr
+	mov	edi, sincos_real	;; V - Load sine/cosine table pointer
+	mov	eax, 256/2*256+4	;; U - 4 iters of 1 or 2 iters of 8
+c3b:	disp four_complex_unfft dist8, 2*dist8, 4*dist8
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/8		;; V - Test inner loop counter
+	JNC_X	c3b			;;*V - Iterate if necessary
+	lea	esi, [esi-8*dist1+8*dist8];; U - Next source pointer
+	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
+	add	ah, 256/2		;; U - Test middle loop counter
+	JNC_X	c3b			;; V - Iterate if necessary
+	lea	esi, [esi-16*dist8+dist128];; U - Next source pointer
+	dec	al			;; V - Test outer loop counter
+	JNZ_X	c3b			;; V - Iterate if necessary
+
+;; Do 32 eight_reals_unfft macros (FFT levels 1,2,3 on values 1 - 256)
+;;	distance between fft data elements is 32
+;;	do 4 iterations of 8
+
+;; Do 32 four_complex_unfft_2 macros (FFT levels 2,3 on values 257 - 512)
+;;	distance between fft data elements is 32
+;;	do 4 iterations of 8
+
+;; Do nothing (FFT level 1 on values 257 - 512)
+;; This will turn these 128 complex values into 256 real values.
+
+	lea	esi, [esi-4*dist128]	;; U - Restore source ptr
+	mov	edi, sincos_real	;; V - Load sine/cosine table pointer
+	mov	al, 4			;; V - 4 iterations of 8
+c1b:	disp eight_reals_unfft 4*dist8, 8*dist8, dist128
+	dispc four_complex_unfft_2 4*dist8, 8*dist8, dist128, 2*dist128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/8		;; V - Test inner loop counter
+	JNC_X	c1b			;;*V - Iterate if necessary
+	lea	esi, [esi-8*dist1+dist8];; U - Next source pointer
+	dec	al			;; U - Test outer loop counter
+	JNZ_X	c1b			;; V - Iterate if necessary
+	lea	esi, [esi-4*dist8+4*dist128];; U - Next pass 2 set of data
+	ENDIF
+	ENDM
+
+
+; *************** pass2-eight-levels-complex macro ******************
+; This macro takes 256 complex values, pre multiplies them and
+; performs the final eight levels of the FFT process, squares the
+; results, and does the first eight levels of the inverse FFT.
+; NOTE: Rather than remembering 256 multipliers we break them up
+; into 64 groups of 4 columns.  By remembering these 68 values we can compute
+; all 256 multipliers using a single complex multiply.  These extra
+; complex multiplies can be done faster than the computer can read the
+; extra 188 multipliers from memory.
+; esi = Pointer to the FFT data
+; ebx/ebp = Differences to point to second and third operands
+; edx = Pointer to the group and column pre-multiplier values
+
+pass2_eight_levels_complex MACRO type
+	LOCAL	b1a, b1b, b1c, b2a, b2b, b3a, b3b, b4b
+	LOCAL	c1a, c1b, c1c, c2a, c2b, c3a, c3b
+
+;; Do 64 four_complex_fft_gpm macros (FFT levels 1,2)
+;; In this section we apply the 64 group multipliers (actually 63 since the
+;; first multiplier is always one).  We will apply the column multipliers
+;; in the next section.
+;;	distance between fft data elements is 64
+
+	IF	type NE 4
+	mov	edi, edx		;; U - The 63 group multipliers
+	mov	al, 4			;; V - 4 iterations
+b1a:	disp four_complex_gpm3_fft_0 8*dist8, dist128, 2*dist128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	dec	al			;; V - Test loop counter
+	JNZ_X	b1a			;;*V - Iterate if necessary
+	mov	eax, 256/2*256+8	;; U - 8 iters of 1 or 2 iters of 4
+b1b:	lea	edi, [edi+PMD]		;; U - Next group multiplier
+b1c:	disp four_complex_gpm4_fft_0 8*dist8, dist128, 2*dist128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/4		;; V - Test inner loop counter
+	JNC_X	b1c			;;*V - Iterate if necessary
+	add	ah, 256/2		;; U - Test middle loop counter
+	JNC_X	b1b			;; V - Iterate if necessary
+	lea	esi, [esi-8*dist1+dist8];; U - Next source pointer
+	dec	al			;; V - Test outer loop counter
+	JNZ_X	b1b			;; V - Iterate if necessary
+
+;; Do 64 four_complex_fft macros (FFT levels 3,4)
+;; In this section we also apply the 4 column multipliers (actually three
+;; since the first column multiplier is always one).  To make things
+;; run faster we precompute the column multipliers times the 4 different
+;; sine/cosine multipliers we run into in this section.  This costs some
+;; memory but saves us some complex multiplies.
+;; The 0 mod 4 values use the four_complex_fft_n macros, the 
+;; remaining values use the four_complex_cpm macros.
+;;	distance between fft data elements is 16
+
+	lea	esi, [esi-8*dist8]	;; U - Restore source pointer
+	mov	al, 2			;; U - 2 iterations of 2
+b2a:	dispc four_complex_fft_0 2*dist8, 4*dist8, 8*dist8, 0
+	dispc four_complex_fft_1 2*dist8, 4*dist8, 8*dist8, dist128
+	mov	edi, sincos_complex+2*SCD ;; Sine/cosine pointer
+	dispc four_complex_fft_2 2*dist8, 4*dist8, 8*dist8, 2*dist128
+	lea	edi, [edi+SCD]		;; Sine/cosine pointer
+	dispc four_complex_fft_3 2*dist8, 4*dist8, 8*dist8, 3*dist128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	lea	edi, [edx+16*PMD]	;; V - The 3 column multipliers
+	add	al, 256/4		;; U - 3 iterations
+b2b:	dispc four_complex_cpm_fft_0 2*dist8, 4*dist8, 8*dist8, 0
+	dispc four_complex_cpm_fft_1 2*dist8, 4*dist8, 8*dist8, dist128
+	dispc four_complex_cpm_fft_2 2*dist8, 4*dist8, 8*dist8, 2*dist128
+	dispc four_complex_cpm_fft_3 2*dist8, 4*dist8, 8*dist8, 3*dist128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	lea	edi, [edi+PMD]		;; V - Next column multiplier
+	add	al, 256/4		;; U - Test loop counter
+	JNC_X	b2b			;; V - Iterate if necessary
+	add	ah, 256/2		;; U - Test loop counter
+	JNC_X	b2a			;; V - Loop if necessary
+	lea	esi, [esi-8*dist1+dist8];; U - Next source pointer
+	dec	al			;; U - Test outer loop counter
+	JNZ_X	b2a			;; V - Iterate if necessary
+
+;; Do 64 four_complex_fft macros (FFT levels 5,6)
+;;	distance between fft data elements is 4
+;; Do 4 four_complex_fft_0 macros
+;; Do 4 four_complex_fft_1 macros
+;; Do 4 four_complex_fft_2 macros
+;; Do 4 four_complex_fft_3 macros
+;; Do 48 four_complex_fft macros
+
+	lea	esi, [esi-2*dist8]	;; U - Restore source pointer
+	mov	edi, sincos_complex+2*SCD;; U - Load sin/cos pointer
+b3a:	dispc four_complex_fft_0 4*dist1, dist8, 2*dist8, 0
+	dispc four_complex_fft_1 4*dist1, dist8, 2*dist8, 4*dist8
+	dispc four_complex_fft_2 4*dist1, dist8, 2*dist8, 8*dist8
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/4		;; V - Test inner loop counter
+	JNC_X	b3a			;;*V - Iterate if necessary
+	lea	esi, [esi-4*dist1+12*dist8];; U - Restore source ptr
+	lea	edi, [edi+SCD]		;; V - Sine/cosine pointer
+	mov	eax, 3*256/4*256+4	;; U - 4 iterations of 1 or 4 of 4
+b3b:	disp four_complex_fft 4*dist1, dist8, 2*dist8
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/4		;; V - Test inner loop counter
+	JNC_X	b3b			;;*V - Iterate if necessary
+	lea	esi, [esi-4*dist1+4*dist8];; U - Next source pointer
+	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
+	add	ah, 256/4		;; U - Test middle loop counter
+	JNC_X	b3b			;; V - Iterate if necessary
+	lea	esi, [esi-16*dist8+dist128];; U - Next source pointer
+	dec	al			;; V - Test outer loop counter
+	JNZ_X	b3b			;; V - Iterate if necessary
+	lea	esi, [esi-4*dist128]	;; U - Restore source pointer
+	ENDIF
+
+;; Do 64 four_complex_with_square macros (FFT level 7,8)
+;;	distance between fft data elements is 1
+;; Do 1 four_complex_fft_0 macros
+;; Do 1 four_complex_fft_1 macros
+;; Do 62 four_complex_fft macros
+
+;;bug/opt	dispc four_complex_fft_0 dist1, 2*dist1, 4*dist1, 0
+;;bug/opt	dispc four_complex_fft_1 dist1, 2*dist1, 4*dist1, 8*dist1
+;;bug/opt	lea	esi, [esi+16*dist1]	;; U - Restore source ptr
+;;bug/opt - do 62 iters at +16*dist1 sincos_complex+2*SCD
+	mov	edi, sincos_complex	;; V - Load sine/cosine ptr
+	mov	al, 4			;; V - 4 iterations of 16
+	IF	type EQ 1
+b4b:	disp four_complex_fft dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 2
+b4b:	disp four_complex_with_square dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 3
+b4b:	disp four_complex_with_mult dist1, 2*dist1, 4*dist1
+	ENDIF
+	IF	type EQ 4
+b4b:	disp four_complex_with_mulf dist1, 2*dist1, 4*dist1
+	ENDIF
+	lea	esi, [esi+dist8]	;; U - Next source pointer
+	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
+	add	al, 256/16		;; U - Test inner loop counter
+	JNC_X	b4b			;; V - Iterate if necessary
+	lea	esi, [esi-16*dist8+dist128];; U - Next source pointer
+	dec	al			;; U - Test outer loop counter
+	JNZ_X	b4b			;; V - Iterate if necessary
+
+;; Do 64 four_complex_unfft macros (FFT levels 5,6)
+;;	distance between fft data elements is 4
+;; Do 4 four_complex_unfft_0 macros
+;; Do 4 four_complex_unfft_1 macros
+;; Do 4 four_complex_unfft_2 macros
+;; Do 4 four_complex_unfft_3 macros
+;; Do 48 four_complex_unfft macros
+
+	IF	type NE 1
+	lea	esi, [esi-4*dist128]	;; U - Restore source pointer
+	mov	edi, sincos_complex+2*SCD;; U - Load sin/cos pointer
+c3a:	dispc four_complex_unfft_0 4*dist1, dist8, 2*dist8, 0
+	dispc four_complex_unfft_1 4*dist1, dist8, 2*dist8, 4*dist8
+	dispc four_complex_unfft_2 4*dist1, dist8, 2*dist8, 8*dist8
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/4		;; V - Test inner loop counter
+	JNC_X	c3a			;;*V - Iterate if necessary
+	lea	esi, [esi-4*dist1+12*dist8];; U - Restore source ptr
+	lea	edi, [edi+SCD]		;; V - Sine/cosine pointer
+	mov	eax, 3*256/4*256+4	;; U - 4 iterations of 1 or 4 of 4
+c3b:	disp four_complex_unfft 4*dist1, dist8, 2*dist8
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/4		;; V - Test inner loop counter
+	JNC_X	c3b			;;*V - Iterate if necessary
+	lea	esi, [esi-4*dist1+4*dist8];; U - Next source pointer
+	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
+	add	ah, 256/4		;; U - Test middle loop counter
+	JNC_X	c3b			;; V - Iterate if necessary
+	lea	esi, [esi-16*dist8+dist128];; U - Next source pointer
+	dec	al			;; V - Test outer loop counter
+	JNZ_X	c3b			;; V - Iterate if necessary
+
+;; Do 64 four_complex_fft macros (FFT levels 3,4)
+;; In this section we also apply the 4 column multipliers (actually three
+;; since the first column multiplier is always one).  To make things
+;; run faster we precompute the column multipliers times the 4 different
+;; sine/cosine multipliers we run into in this section.  This costs some
+;; memory but saves us some complex multiplies.
+;; The 0 mod 4 values use the four_complex_fft_n macros, the 
+;; remaining values use the four_complex_cpm macros.
+;;	distance between fft data elements is 16
+
+	lea	esi, [esi-4*dist128]	;; U - Restore source pointer
+	mov	al, 2			;; U - 2 iterations of 2
+c2a:	dispc four_complex_unfft_0 2*dist8, 4*dist8, 8*dist8, 0
+	dispc four_complex_unfft_1 2*dist8, 4*dist8, 8*dist8, dist128
+	mov	edi, sincos_complex+2*SCD ;; Sine/cosine pointer
+	dispc four_complex_unfft_2 2*dist8, 4*dist8, 8*dist8, 2*dist128
+	lea	edi, [edi+SCD]		;; Sine/cosine pointer
+	dispc four_complex_unfft_3 2*dist8, 4*dist8, 8*dist8, 3*dist128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	lea	edi, [edx+16*PMD]	;; V - The 3 column multipliers
+	add	al, 256/4		;; U - 3 iterations
+c2b:	dispc four_complex_cpm_unfft_0 2*dist8, 4*dist8, 8*dist8, 0
+	dispc four_complex_cpm_unfft_1 2*dist8, 4*dist8, 8*dist8, dist128
+	dispc four_complex_cpm_unfft_2 2*dist8, 4*dist8, 8*dist8, 2*dist128
+	dispc four_complex_cpm_unfft_3 2*dist8, 4*dist8, 8*dist8, 3*dist128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	lea	edi, [edi+PMD]		;; V - Next column multiplier
+	add	al, 256/4		;; U - Test loop counter
+	JNC_X	c2b			;; V - Iterate if necessary
+	add	ah, 256/2		;; U - Test loop counter
+	JNC_X	c2a			;; V - Loop if necessary
+	lea	esi, [esi-8*dist1+dist8];; U - Next source pointer
+	dec	al			;; U - Test outer loop counter
+	JNZ_X	c2a			;; V - Iterate if necessary
+
+;; Do 64 four_complex_unfft_gpm macros (FFT levels 1,2)
+;; In this section we apply the 64 group multipliers (actually 63 since the
+;; first multiplier is always one).  We will apply the column multipliers
+;; in the next section.
+;;	distance between fft data elements is 64
+
+	lea	esi, [esi-2*dist8]	;; U - Restore source pointer
+	mov	edi, edx		;; U - The 63 group multipliers
+c1a:	disp four_complex_gpm3_unfft_0 8*dist8, dist128, 2*dist128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/4		;; V - Test loop counter
+	JNC_X	c1a			;;*V - Iterate if necessary
+	mov	eax, 256/2*256+8	;; U - 8 iters of 1 or 2 iters of 4
+c1b:	lea	edi, [edi+PMD]		;; U - Next group multiplier
+c1c:	disp four_complex_gpm4_unfft_0 8*dist8, dist128, 2*dist128
+	lea	esi, [esi+dist1]	;; U - Next source pointer
+	add	al, 256/4		;; V - Test inner loop counter
+	JNC_X	c1c			;;*V - Iterate if necessary
+	add	ah, 256/2		;; U - Test middle loop counter
+	JNC_X	c1b			;; V - Iterate if necessary
+	lea	esi, [esi-8*dist1+dist8];; U - Next source pointer
+	dec	al			;; V - Test outer loop counter
+	JNZ_X	c1b			;; V - Iterate if necessary
+	lea	esi, [esi-8*dist8+4*dist128];; U - Next pass 2 set of data
+	ENDIF
+	lea	edx, [edx+19*PMD]	;; V - Next group pre-multipliers
+	ENDM

@@ -1,0 +1,835 @@
+; Copyright 1998-1999 - Just For Fun Software, Inc., all rights reserved
+; Author:  George Woltman
+; Email: woltman@alum.mit.edu
+;
+; These macros are called by the FFT setup code.
+;
+
+; ********************************************************
+; ********************************************************
+; *******************  SETUP MACROS  *********************
+; ********************************************************
+; ********************************************************
+
+
+;; This macro initializes the sine-cosine data used in pass 2 real
+;; FFTs and in power-of-2 single pass 2^N-1 real FFTs.  Enough sine-cosine
+;; data is generated to handle a 10-level real FFT.
+;; NOTE: My weird real-to-complex FFT requires us to skip
+;; half of the sine-cosine data.
+;; NOTE: When computing cosine / sine, divide by the 64-bit sine
+;; not the 80-bit sine since macros will multiply by the 64-bit sine.
+
+sincos_real_setup MACRO
+	LOCAL	sinlp, tstlp, tstdn, flplp, tstnxt
+
+	mov	edx, 2			;; First set of sine/cosine data
+sinlp:	mov	eax, edx		;; Shift right until value <= 3
+tstlp:	cmp	eax, 3			;; If value is <= 3
+	jle	short tstdn		;; then no more shifting is necessary
+	shr	eax, 1			;; divide by two until value is
+	jmp	short tstlp		;; 3 or less
+tstdn:	je	short tstnxt		;; If value is 3, then we don't
+					;; need this sin/cos data
+	mov	cl, 8			;; Flip the bits
+	mov	eax, edx
+	sub	ebx, ebx
+flplp:	shr	eax, 1
+	adc	ebx, ebx
+	dec	cl
+	jnz	short flplp
+	mov	[esi], ebx		;; Save power so that FPU can load it
+	mov	DWORD PTR [esi+4], 1024	;; Save N so FPU can load it
+					;; Compute three sin/cos values
+	fldpi				;; PI
+	fadd	st, st			;; 2*PI
+	fidiv	DWORD PTR [esi+4]	;; 2*PI / N
+	fimul	DWORD PTR [esi]		;; 2*PI*x / N
+	fld	st			;; Compute 2 times the above val
+	fadd	st, st
+	fld	st			;; Compute 3 times the above val
+	fadd	st, st(2)
+	fsincos				;; Compute sine and cosine
+	fxch	st(1)			;; Place sine on top of stack
+	fstp	QWORD PTR [esi+32]	;; Save sine
+	fdiv	QWORD PTR [esi+32]	;; Compute cosine / sine.
+	fstp	QWORD PTR [esi+40]	;; Save cosine / sine
+	fsincos				;; Compute sine and cosine
+	fxch	st(1)			;; Place sine on top of stack
+	fstp	QWORD PTR [esi+16]	;; Save sine
+	fdiv	QWORD PTR [esi+16]	;; Compute cosine / sine.
+	fstp	QWORD PTR [esi+24]	;; Save cosine / sine
+	fsincos				;; Compute sine and cosine
+	fxch	st(1)			;; Place sine on top of stack
+	fstp	QWORD PTR [esi]		;; Save sine
+	fdiv	QWORD PTR [esi]		;; Compute cosine / sine.
+	fstp	QWORD PTR [esi+8]	;; Save cosine / sine
+	lea	esi, [esi+SCD]		;; Next set of floats
+tstnxt:	inc	edx			;; Next set of sine/cosine data
+	cmp	edx, 256		;; Have we reached the end?
+	jnz	short sinlp		;; No, output more sine/cosine data
+	ENDM
+
+;; This macro initializes the sine-cosine data used in pass 2 complex
+;; FFTs and in single pass 2^N+1 complex FFTs.  Enough sine-cosine
+;; data is generated to handle a 10-level complex FFT.
+;; NOTE: When computing cosine / sine, divide by the 64-bit sine
+;; not the 80-bit sine since macros will multiply by the 64-bit sine.
+
+sincos_complex_setup MACRO
+	LOCAL	sinlp, flplp, ok
+
+	sub	edx, edx		;; First set of sine/cosine data
+sinlp:	mov	cl, 8			;; Flip the bits
+	mov	eax, edx
+	sub	ebx, ebx
+flplp:	shr	eax, 1
+	adc	ebx, ebx
+	dec	cl
+	jnz	short flplp
+	mov	[esi], ebx		;; Save power so that FPU can load it
+	mov	DWORD PTR [esi+4], 1024	;; Save N so FPU can load it
+					;; Compute three sin/cos values
+	fldpi				;; PI
+	fadd	st, st			;; 2*PI
+	fidiv	DWORD PTR [esi+4]	;; 2*PI / N
+	fimul	DWORD PTR [esi]		;; 2*PI*x / N
+
+	cmp	ebx, 0
+	jnz	short ok
+	mov	DWORD PTR [esi], -200	;; Instead of zero, make the
+	fild	DWORD PTR [esi]		;; first sine value 2 to the -200
+	fld1				;; That's close to zero
+	fscale				;; and fdiv won't blow up
+	fxch	st(2)
+	fcompp
+
+ok:	fld	st			;; Compute 2 times the above val
+	fadd	st, st
+	fld	st			;; Compute 3 times the above val
+	fadd	st, st(2)
+	fsincos				;; Compute sine and cosine
+	fxch	st(1)			;; Place sine on top of stack
+	fstp	QWORD PTR [esi+32]	;; Save sine
+	fdiv	QWORD PTR [esi+32]	;; Compute cosine / sine.
+	fstp	QWORD PTR [esi+40]	;; Save cosine / sine
+	fsincos				;; Compute sine and cosine
+	fxch	st(1)			;; Place sine on top of stack
+	fstp	QWORD PTR [esi+16]	;; Save sine
+	fdiv	QWORD PTR [esi+16]	;; Compute cosine / sine.
+	fstp	QWORD PTR [esi+24]	;; Save cosine / sine
+	fsincos				;; Compute sine and cosine
+	fxch	st(1)			;; Place sine on top of stack
+	fstp	QWORD PTR [esi]		;; Save sine
+	fdiv	QWORD PTR [esi]		;; Compute cosine / sine.
+	fstp	QWORD PTR [esi+8]	;; Save cosine / sine
+	lea	esi, [esi+SCD]		;; Next set of floats
+	inc	edx			;; Next set of sine/cosine data
+	cmp	edx, 256		;; Have we reached the end?
+	jnz	short sinlp		;; No, output more sine/cosine data
+	ENDM
+
+;; This macro initializes the sine-cosine data used in initial pass of real
+;; FFTs.  It is specially designed to work on non-power-of-2 FFTs.
+;; NOTE: My weird real-to-complex FFT requires us to skip
+;; half of the sine-cosine data.
+;; NOTE: When computing cosine / sine, divide by the 64-bit sine
+;; not the 80-bit sine since macros will multiply by the 64-bit sine.
+;; N is passed in ebx
+
+sc0_setup MACRO
+	LOCAL	sinlp, flplp, tstnxt, tstlp, tstit, tstdn, incr
+	incr = 4
+
+	;; Initialize addresses
+
+	mov	edi, incr		;; Skip first set of premultiplier data
+	mov	eax, ebx		;; Sometimes skip second set
+	and	eax, incr
+	jnz	short sinlp
+	add	edi, incr
+
+	;; Bit flip the number
+	;; Tricky due to PFA.
+
+sinlp:	mov	ecx, ebx
+	mov	ebp, edi		;; The number to bit-flip is in ebp
+	sub	eax, eax		;; The result will be in eax
+flplp:	shr	ebp, 1			;; Shift bit out of source
+	adc	eax, eax		;; Add that bit into destination
+	shr	ecx, 1			;; Shift N down
+	test	cl, 1			;; Stop when N is odd
+	jz	short flplp
+	mul	ecx			;; Now multiply result by shifted N
+	mov	edx, ebp		;; Save shifted source for later use
+	add	ebp, eax		;; Add that to the shifted source
+
+	;; See if we need this set of pre-multipliers
+	;; Case 1:  If shifted source is > shifted N/2, then we
+	;; do not need these pre-multipliers (due to Hermetian symetry).
+
+	shr	ecx, 1			;; shifted N/2
+	cmp	edx, ecx		;; Is shifted source > shifted N/2?
+	jg	short tstnxt		;; Yes, skip it
+
+	;; Case 2:  If shifted source is zero, loop to find the top
+	;; two bits.  Skip the number if the top two bits equal 3.
+
+	add	edx, edx		;; Is shifted source zero?
+	jnz	short tstit		;; No, make premults
+	mov	eax, edi		;; Shift right until value <= 3
+tstlp:	cmp	eax, 3			;; If value is <= 3
+	jle	short tstdn		;; then no more shifting is necessary
+	shr	eax, 1			;; divide by two until value is
+	jmp	short tstlp		;; 3 or less
+tstdn:	je	short tstnxt		;; If value is 3, then we don't
+					;; need this premultiplier data
+
+	;; Generate the 3 sin/cos values
+
+tstit:	mov	[esi], ebp		;; Save power so that FPU can load it
+	mov	DWORD PTR [esi+4], ebx	;; Save N so FPU can load it
+					;; Compute three sin/cos values
+	fldpi				;; PI
+	fadd	st, st			;; 2*PI
+	fidiv	DWORD PTR [esi+4]	;; 2*PI / N
+	fimul	DWORD PTR [esi]		;; 2*PI*x / N
+	fld	st			;; Compute 2 times the above val
+	fadd	st, st
+	fld	st			;; Compute 3 times the above val
+	fadd	st, st(2)
+	fsincos				;; Compute sine and cosine
+	fxch	st(1)			;; Place sine on top of stack
+	fstp	QWORD PTR [esi+32]	;; Save sine
+	fdiv	QWORD PTR [esi+32]	;; Compute cosine / sine.
+	fstp	QWORD PTR [esi+40]	;; Save cosine / sine
+	fsincos				;; Compute sine and cosine
+	fxch	st(1)			;; Place sine on top of stack
+	fstp	QWORD PTR [esi+16]	;; Save sine
+	fdiv	QWORD PTR [esi+16]	;; Compute cosine / sine.
+	fstp	QWORD PTR [esi+24]	;; Save cosine / sine
+	fsincos				;; Compute sine and cosine
+	fxch	st(1)			;; Place sine on top of stack
+	fstp	QWORD PTR [esi]		;; Save sine
+	fdiv	QWORD PTR [esi]		;; Compute cosine / sine.
+	fstp	QWORD PTR [esi+8]	;; Save cosine / sine
+	lea	esi, [esi+SCD]		;; Next set of floats
+tstnxt:	add	edi, incr		;; Next set of sine/cosine data
+	cmp	edi, ebx		;; Have we reached the end?
+	jnz	short sinlp		;; No, output more sine/cosine data
+	ENDM
+
+;; This macro initializes the premultiplier data.
+;; NOTE: My weird real-to-complex in-place FFT requires us to skip
+;; half of the premultiplier data.
+;; NOTE: When computing cosine / sine, divide by the 64-bit sine
+;; not the 80-bit sine since macros will multiply by the 64-bit sine.
+;; esi - address to store the premultiplier data
+;; eax - number of elements to generate premultiplier data for
+;; ebx - increment (or number of elements in each premultiplier group)
+
+premultiplier_setup MACRO
+	LOCAL	m1, m2, odd, sinlp, flplp, tstlp, tstdn, tstit
+	LOCAL	grplpa, grplpb, grpz, grpnz
+	LOCAL	col, collpa, collpb, colz, colnz, tstnxt
+
+	cmp	_PLUS1, 0		;; Mod 2^N+1 arithmetic?
+	jz	short m1		;; No
+	shr	eax, 1			;; Yes, we're doing a half-length FFT
+m1:	mov	NNNN, eax		;; Save N
+	mov	INCR, ebx		;; Save incr
+	shr	eax, 4			;; Compute N/16
+	mov	NOVER16, eax		;; Save it
+	shl	eax, 2			;; Compute N/4
+	mov	NOVER4, eax		;; Save it
+	shl	eax, 1			;; Compute N/2
+	mov	SZERO1, eax		;; Save it
+	add	eax, NNNN		;; Compute 3*N/2
+	mov	SZERO2, eax		;; Save it
+	shr	ebx, 4			;; Compute numbers of groups
+	mov	GRPS, ebx		;; Save it
+	shl	ebx, 6			;; Compute GRPS*PMD
+	mov	GRPSIZ, ebx		;; Save it
+
+	;; Initialize values
+
+	cmp	_PLUS1, 0		;; Mod 2^N+1 arithmetic?
+	jz	short m2		;; No
+	sub	edi, edi		;; Yes, start with the first data set
+	jz	short odd
+m2:	mov	edi, INCR		;; Skip first set of premultiplier data
+	sub	edx, edx		;; Compute N / incr
+	mov	eax, NNNN
+	div	edi
+	and	al, 1			;; If even, then skip second set
+	jnz	short odd		;; Jump if odd
+	add	edi, edi		;; Skip second set
+odd:
+
+	;; Bit flip the number
+	;; Tricky due to PFA.
+
+sinlp:	mov	ecx, NNNN
+	mov	ebp, edi		;; The number to bit-flip is in ebp
+	sub	eax, eax		;; The result will be in eax
+flplp:	shr	ebp, 1			;; Shift bit out of source
+	adc	eax, eax		;; Add that bit into destination
+	shr	ecx, 1			;; Shift N down
+	test	cl, 1			;; Stop when N is odd
+	jz	short flplp
+	mul	ecx			;; Now multiply result by shifted N
+	mov	edx, ebp		;; Save shifted source for later use
+	add	ebp, eax		;; Add that to the shifted source
+
+	;; See if we need this set of pre-multipliers
+	;; Case 0:  Mod 2^N+1 arithmetic - all pre-multipliers are computed
+
+	cmp	_PLUS1, 0		;; Mod 2^N+1 arithmetic?
+	jnz	short tstit		;; Yes
+
+	;; Case 1:  If shifted source is > shifted N/2, then we
+	;; do not need these pre-multipliers (due to Hermetian symetry).
+
+	shr	ecx, 1			;; shifted N/2
+	cmp	edx, ecx		;; Is shifted source > shifted N/2?
+	JG_X	tstnxt			;; Yes, skip it
+
+	;; Case 2:  If shifted source is zero, loop to find the top
+	;; two bits.  Skip the number if the top two bits equal 3.
+
+	add	edx, edx		;; Is shifted source zero?
+	jnz	short tstit		;; No, make premults
+	mov	eax, edi		;; Shift right until value <= 3
+tstlp:	cmp	eax, 3			;; If value is <= 3
+	jle	short tstdn		;; then no more shifting is necessary
+	shr	eax, 1			;; divide by two until value is
+	jmp	short tstlp		;; 3 or less
+tstdn:	JE_X	tstnxt			;; If value is 3, then we don't
+					;; need this premultiplier data
+
+	;; Generate the group multipliers
+
+tstit:	sub	eax, eax		;; First group multiplier is zero
+	mov	bl, 4			;; 4 iterations
+grplpa:	mov	ecx, GRPS		;; of GRPS iterations
+grplpb:	sub	edx, edx		;; Do a mod N
+	div	NNNN
+	mov	eax, edx
+	mov	[esi], eax		;; Save power so that FPU can load it
+	fldpi				;; PI
+	fadd	st, st			;; 2*PI
+	fidiv	NNNN			;; 2*PI / N
+	fimul	DWORD PTR [esi]		;; 2*PI*x / N
+	fsincos				;; Compute sine and cosine
+	fxch	st(1)			;; Place sine on top of stack
+	cmp	eax, 0			;; Test for a zero sine value (0)
+	je	short grpz		;; Sine is zero
+	cmp	eax, SZERO1		;; Test for a zero sine value (N/2)
+	je	short grpz		;; Sine is zero
+	cmp	eax, SZERO2		;; Test for other zero sine val (3N/2)
+	jne	short grpnz		;; Not zero - the divide is safe
+grpz:	mov	DWORD PTR [esi], -400	;; Instead of zero, make the
+	fild	DWORD PTR [esi]		;; sine value 2 to the -400
+	fld1				;; That's close to zero
+	fscale				;; and fdiv
+	fxch	st(2)			;; won't
+	fcompp				;; raise error
+grpnz:	fstp	QWORD PTR [esi]		;; Save sine
+	fdiv	QWORD PTR [esi]		;; Compute cosine / sine.
+	fstp	QWORD PTR [esi+8]	;; Save cosine / sine
+	lea	eax, [eax][ebp*4]	;; Next group multiplier
+	lea	esi, [esi+PMD]		;; Next output address
+	dec	ecx			;; Iterate?
+	jnz	short grplpb		;; Yes.
+	sub	esi, GRPSIZ		;; Subtract out GRPS*PMD
+	lea	esi, [esi+16]		;; Next output address
+	dec	bl			;; Iterate?
+	jnz	short grplpa		;; Yes.
+	add	esi, GRPSIZ		;; Add in GRPS*PMD
+	lea	esi, [esi-PMD]		;; Next output address
+
+	;; Generate the 3 column multipliers * 4 sin/cos values
+
+col:	mov	eax, ebp		;; First column multiplier value
+	mov	cl, 3			;; 3 iterations of
+collpa:	mov	bl, 4			;; 4 iterations
+collpb:	sub	edx, edx		;; Do a mod N
+	div	NNNN
+	mov	eax, edx
+	mov	[esi], eax		;; Save power so that FPU can load it
+	fldpi				;; PI
+	fadd	st, st			;; 2*PI
+	fidiv	NNNN			;; 2*PI / N
+	fimul	DWORD PTR [esi]		;; 2*PI*x / N
+	fsincos				;; Compute sine and cosine
+	fxch	st(1)			;; Place sine on top of stack
+	cmp	eax, 0			;; Test for a zero sine value (0)
+	je	short colz		;; The sine value is zero
+	cmp	eax, SZERO1		;; Test for a zero sine value (N/2)
+	je	short colz		;; The sine value is zero
+	cmp	eax, SZERO2		;; Test for other zero sine val (3N/2)
+	jne	short colnz		;; Not zero - the divide is safe
+colz:	mov	DWORD PTR [esi], -400	;; Instead of zero, make the
+	fild	DWORD PTR [esi]		;; sine value 2 to the -400
+	fld1				;; That's close to zero
+	fscale				;; and fdiv
+	fxch	st(2)			;; won't
+	fcompp				;; raise error
+colnz:	fstp	QWORD PTR [esi]		;; Save sine
+	fdiv	QWORD PTR [esi]		;; Compute cosine / sine.
+	fstp	QWORD PTR [esi+8]	;; Save cosine / sine
+	add	eax, NOVER16		;; Next column multiplier (N/16)
+	lea	esi, [esi+16]		;; Next output address
+	dec	bl			;; Iterate?
+	jnz	short collpb		;; Yes.
+	sub	eax, NOVER4		;; Subtract the 4 N/16's we added in
+	add	eax, NNNN		;; Add in N
+	add	eax, ebp		;; Next column multiplier
+	dec	cl			;; Iterate?
+	jnz	short collpa		;; Yes.
+
+	;; Move onto the next set of multipliers
+
+tstnxt:	add	edi, INCR		;; Next set of sine/cosine data
+	cmp	edi, NNNN		;; Have we reached the end?
+	JNZ_X	sinlp			;; No, output more sine/cosine data
+	ENDM
+
+;; *************** plus1 mult setup macro ******************
+; This macro initializes the 2^N+1 multipliers.
+; We need FFTLEN/2 multipliers
+
+plus1_mult_setup MACRO
+	LOCAL	one, onelp1, gen4, genlp, ok, done
+	LOCAL	two6, two6lp1, two6lp2, two8, two8lp1, two8lp2
+	LOCAL	three6, three6lp1, three6lp2, three8lp1, three8lp2
+
+	;; Initialize addresses
+
+	sub	edi, edi		;; First set of multipliers
+	mov	ecx, _FFTLEN		;; 
+	cmp	ecx, 1024		;; One pass FFTs?
+	JLE_X	one			;; Yes
+	cmp	ecx, 8192		;; Second FFT pass does 6 levels?
+	JLE_X	two6			;; Yes
+	cmp	ecx, 65536		;; Second FFT pass does 8 levels?
+	JLE_X	two8			;; Yes
+	cmp	count2, 2		;; Is pass1 6 or 7 levels
+	jne	short three6		;; Jump if 6 levels
+
+	mov	ebx, 16*256+128		;; 128 iterations in outer loop
+three8lp1:mov	ecx, _FFTLEN		;; FFTLEN/8/32K iterations
+	shr	ecx, 18			;; in inner loop
+	push	edi
+three8lp2:CALL_X gen4			;; Gen 4 results
+	lea	edi, [edi+32768]	;; Add 32768 to get next multiplier
+	dec	ecx			;; Have we reached the end?
+	jnz	short three8lp2		;; No, output more data
+	pop	edi
+	lea	edi, [edi+128]		;; Add 128 to get next multiplier
+	add	bh, 256/8		;; Have we reached the end?
+	jnc	short three8lp1		;; No, output more data
+	lea	edi, [edi-8*128+16384]	;; Next multiplier
+	add	ebx, 65536/2*65536	;; Have we reached the end?
+	jnc	short three8lp1		;; No, output more data
+	lea	edi, [edi-2*16384+1024]	;; Next multiplier
+	dec	bh			;; Have we reached the end?
+	jnz	short three8lp1		;; No, output more data
+	lea	edi, [edi-16*1024+1]	;; Next multiplier
+	mov	bh, 16			;; Restore counter
+	dec	bl			;; Have we reached the end?
+	jnz	short three8lp1		;; No, output more data
+	JMP_X	done			;; All done
+
+three6:	mov	ebx, 128		;; 128 iterations in outer loop
+three6lp1:mov	ecx, _FFTLEN		;; FFTLEN/8/16K iterations
+	shr	ecx, 17			;; in inner loop
+	push	edi
+three6lp2:CALL_X gen4			;; Gen 4 results
+	lea	edi, [edi+16384]	;; Add 16384 to get next multiplier
+	dec	ecx			;; Have we reached the end?
+	jnz	short three6lp2		;; No, output more data
+	pop	edi
+	lea	edi, [edi+128]		;; Add 128 to get next multiplier
+	add	bh, 256/128		;; Have we reached the end?
+	jnc	short three6lp1		;; No, output more data
+	lea	edi, [edi-128*128+1]	;; Next multiplier
+	dec	bl			;; Have we reached the end?
+	jnz	short three6lp1		;; No, output more data
+	JMP_X	done			;; All done
+
+two8:	mov	ebx, 128		;; 128 iterations in outer loop
+two8lp1:mov	ecx, _FFTLEN		;; FFTLEN/2/4/256 iterations
+	shr	ecx, 11			;; in inner loop
+	push	edi
+two8lp2:CALL_X	gen4			;; Gen 4 results
+	add	edi, 256		;; Add 256 to get next multiplier
+	dec	ecx			;; Have we reached the end?
+	jnz	short two8lp2		;; No, output more data
+	pop	edi
+	lea	edi, [edi+128]		;; Add 128 to get next multiplier
+	add	bh, 256/2		;; Have we reached the end?
+	jnc	short two8lp1		;; No, output more data
+	lea	edi, [edi-2*128+1]	;; Next multiplier
+	dec	bl			;; Have we reached the end?
+	jnz	short two8lp1		;; No, output more data
+	jmp	short done		;; All done
+
+two6:	mov	bl, 64			;; 64 iterations in outer loop
+two6lp1:mov	ecx, _FFTLEN		;; FFTLEN/2/4/64 iterations
+	shr	ecx, 9			;; in inner loop
+	push	edi
+two6lp2:CALL_X	gen4			;; Gen 4 results
+	add	edi, 64			;; Add 64 to get next multiplier
+	dec	ecx			;; Have we reached the end?
+	jnz	short two6lp2		;; No, output more data
+	pop	edi
+	inc	edi			;; Next multiplier
+	dec	bl			;; Have we reached the end?
+	jnz	short two6lp1		;; No, output more data
+	jmp	short done		;; All done
+
+one:	shr	ecx, 3			;; Compute FFTLEN/8 sets multipliers
+onelp1:	CALL_X	gen4			;; Gen 4 results
+	inc	edi			;; Next multiplier
+	dec	ecx			;; Have we reached the end?
+	jnz	short onelp1		;; No, output more data
+	jmp	short done		;; All done
+
+	;; Generate sin and cos (edi*pi/FFTLEN) 
+
+gen4:	push	ebx
+	push	edi
+	mov	eax, _FFTLEN		;; Add multiples of FFTLEN/8
+	shr	eax, 3
+	mov	bl, 4
+genlp:	mov	[esi], edi		;; Save power so that FPU can load it
+	fldpi				;; PI
+	fidiv	DWORD PTR _FFTLEN	;; PI / FFTLEN
+	fimul	DWORD PTR [esi]		;; edi*PI / FFTLEN
+
+	cmp	edi, 0
+	jnz	short ok
+	mov	DWORD PTR [esi], -200	;; Instead of zero, make the
+	fild	DWORD PTR [esi]		;; first sine value 2 to the -200
+	fld1				;; That's close to zero
+	fscale				;; and fdiv won't blow up
+	fxch	st(2)
+	fcompp
+
+ok:	fsincos				;; Compute sine and cosine
+	fxch	st(1)
+	fstp	QWORD PTR [esi]		;; Save cosine
+	fdiv	QWORD PTR [esi]		;; Compute cosine / sine.
+	fstp	QWORD PTR [esi+8]	;; Save cosine / sine
+	lea	esi, [esi+16]		;; Next set of floats
+
+	add	edi, eax		;; Next set of multipliers
+	dec	bl			;; Is set of 4 done?
+	jnz	short genlp		;; No, loop
+	pop	edi			;; Next set of multipliers
+	pop	ebx
+	retn
+done:
+	ENDM
+
+;; *************** normalize setup macro ******************
+;; This macro pre-computes the necessary two-to-phi and two-to-minus-phi
+;; group and column multipliers.  For an N=65536 FFT, we pre-compute
+;; 512 group multipliers and 128 column multipliers.  Each of the
+;; 65536 two-to-phi and two-to-minus-phi multipliers can be computed
+;; with just two multiplies and much less memory is consumed.
+
+normalize_setup MACRO
+	LOCAL	bigz, bigz2, bigz3, simlp, complex, collp, grp128, grplp, done
+
+;; The two-to-minus-phi values are adjusted for the fact that
+;; the inverse FFT multiplies the result by FFTLEN/2.  However,
+;; we sometimes need the unadjusted two-to-minus-phi value.  Create
+;; a multiplier for deriving the unadjusted value.
+
+	fild	_FFTLEN			;; Compute FFTLEN/2
+	fmul	HALF
+	fstp	ttmp_ff
+	fld1
+	fdiv	ttmp_ff
+	fstp	ttmp_ff_inv
+
+;; Compute the upper and limits (maximum values an fft entry can be).
+
+	mov	eax, _PARG		;; Compute p mod fftlen
+	sub	edx, edx
+	mov	ecx, _FFTLEN
+	div	ecx
+	mov	numbig, edx		;; num big words
+	sub	ecx, edx
+	mov	numlit, ecx		;; num small words
+	and	edx, edx		;; Handle zero big words
+	jz	short bigz
+
+;; Scale the numbig and numlit values to make the normalize code faster.
+;; We used to start with numlit and on every normalization iteration we'd
+;; subtract numbig, set the big vs. little flag, and if the result was
+;; negative, we'd add n back in.  This was done with three instructions:
+;; "sub edi,ebp  --  sbb eax,eax -- and edi,nminus1".  By scaling the
+;; values of numbig and numlit we can do it in two instructions:
+;; "sub edi,ebp  --  sbb eax,eax".  Furthermore, the three instruction
+;; case did not work for non-power-of-2 n, the two instruction case does!
+;; NOTE: To avoid round-off problems we do two things.  1) We round the
+;; scaled_numlit value up and truncate the scaled_numbig number down to
+;; insure the last value (which should be zero) is a positive number.
+;; 2) We compute an adjustment factor to subtract after every 512 iterations 
+;; of subtracting scaled_numbig.
+
+	mov	ecx, _FFTLEN
+	mov	edx, numlit		;; Compute ceil(numlit * 2^32 / fftlen)
+	mov	eax, _FFTLEN
+	dec	eax
+	div	ecx
+	mov	scaled_numlit, eax	;; Save it.
+	mov	edx, numbig		;; Compute floor (numbig * 2^32 / n)
+	sub	eax, eax
+	div	ecx
+	mov	scaled_numbig, eax	;; Save it.
+	mov	eax, edx		;; Compute remainder * 512 / fftlen
+	sub	edx, edx
+	shld	edx, eax, 9
+	shl	eax, 9
+	div	ecx
+	mov	scaling_ff, eax		;; Save the fudge factor
+	mov	eax, edx		;; Compute remainder * 256 / fftlen
+	sub	edx, edx
+	shld	edx, eax, 8
+	shl	eax, 8
+	div	ecx
+	mov	scaling_ff2, eax	;; Save the second fudge factor
+	jmp	short bigz2		;; Bypass zero-big-words code
+
+;; Special code that handles case where num big words is zero
+
+bigz:	mov	scaled_numlit, edx	;; Special scaled values to always
+	mov	scaled_numbig, -1	;; generate carries (big words)
+	mov	scaling_ff, -1		;; Save the fudge factor
+	mov	scaling_ff2, -1		;; Save the second fudge factor
+	fild	_PARG			;; Tweak #bits so that limits
+	fisub	_FFTLEN			;; computed below are correct
+	mov	eax, numlit		;; All words are big
+	mov	numbig, eax
+	mov	numlit, 0
+	jmp	short bigz3
+
+;; Compute big and little word maximum values
+
+bigz2:	fild	_PARG			;; Load the prime
+bigz3:	fidiv	_FFTLEN			;; #bits in small word = prime/fft size
+	fld1
+	fscale				;; This is the lower limit
+	fld	st
+	fadd	st, st			;; This is the upper limit
+
+	fld1				;; Compute upper limit inverse
+	fdiv	st, st(1)
+	fstp	limit_inverse_high
+
+	fld1				;; Compute lower limit inverse
+	fdiv	st, st(2)
+	fstp	limit_inverse_low
+
+	fmul	BIGVAL			;; Compute upper limit bigmax
+	fsub	BIGVAL
+	fstp	limit_bigmax_high
+
+	fmul	BIGVAL			;; Compute lower limit bigmax
+	fsub	BIGVAL
+	fstp	limit_bigmax_low
+
+	fcomp	st			;; Discard #bits
+
+;; See if we are generating constants for the simple case or
+;; the complex (two multiplies) case.
+
+	cmp	_FFTLEN, 128		;; Is FFTLEN above 128
+	jg	short complex		;; Yes, do complex case
+
+;; Compute two-to-phi and two-to-minus-phi multipliers
+
+	mov	edi, norm_col_mults	;; Address of column multipliers array
+	mov	ecx, _FFTLEN		;; Loop counter
+	sub	ebx, ebx		;; First two-to-phi exponent is zero
+simlp:	mov	eax, ebx		;; Split ebx into integer and
+	sub	edx, edx		;; fractional parts
+	div	_FFTLEN			;; divide by fftlen
+	mov	DWORD PTR [edi], edx	;; Write exponent to memory
+	fild	DWORD PTR [edi]		;; so that FPU can load it
+	fidiv	_FFTLEN			;; Compute 2 ^ (edx / fftlen)
+	f2xm1
+	fld1
+	faddp	st(1), st
+	fst	QWORD PTR [edi]		;; Save two-to-phi multiplier
+	fld	ttmp_ff_inv		;; Compute 2 ^ -(edx / fftlen), but
+	fdivr				;; adjust for the UNFFT mul by fftlen/2
+	fstp	QWORD PTR [edi+8]	;; Save two-to-minus-phi multiplier
+	add	ebx, numlit		;; Next two-to-phi exponent
+	lea	edi, [edi+16]		;; Next multiplier address
+	dec	ecx			;; Test loop counter
+	jnz	short simlp		;; Loop if necessary
+	JMP_X	done			;; All done with simple case
+
+;; Compute two-to-phi and two-to-minus-phi column multipliers
+
+complex:mov	edi, norm_col_mults	;; Address of column multipliers array
+	mov	ecx, 128		;; 128 column multipliers
+	mov	ebx, numlit		;; First two-to-phi exponent is numlit
+collp:	mov	eax, ebx		;; Split ebx into integer and
+	sub	edx, edx		;; fractional parts
+	div	_FFTLEN			;; divide by fftlen
+	mov	DWORD PTR [edi], eax	;; Write scaling factor to memory
+	fild	DWORD PTR [edi]		;; so that FPU can load it
+	mov	DWORD PTR [edi], edx	;; Write exponent to memory
+	fild	DWORD PTR [edi]		;; so that FPU can load it
+	fidiv	_FFTLEN			;; Compute 2 ^ (eax / fftlen)
+	f2xm1
+	fld1
+	faddp	st(1), st
+	fscale
+	fst	QWORD PTR [edi]		;; Save two-to-phi column multiplier
+	fld1				;; Compute 2 ^ -(eax / fftlen)
+	fdivr
+	fstp	QWORD PTR [edi+8]	;; Save two-to-minus-phi col mult
+	fcomp	st(0)			;; Discard scaling factor
+	add	ebx, numlit		;; Next two-to-phi exponent
+	lea	edi, [edi+16]		;; Next column multiplier address
+	dec	ecx			;; Test inner loop counter
+	jnz	short collp		;; Loop if necessary
+
+;; Compute two-to-phi and two-to-minus-phi group multipliers
+
+	mov	ebp, _FFTLEN		;; Compute number of group multipliers
+	mov	cl, 7			;; Assume 128 columns per group
+	cmp	_FFTLEN, 8192		;; Is FFTLEN above 8192
+	jg	short grp128		;; Yes, divide by 128
+	mov	cl, 5			;; No, divide by 32 columns per group
+grp128:	mov	edi, norm_grp_mults	;; Address of group multipliers array
+	shr	ebp, cl
+	sub	ebx, ebx		;; First two-to-phi exponent is zero
+	sub	esi, esi
+grplp:	mov	eax, ebx		;; Multiply the exponent
+	mov	edx, esi
+	shld	edx, eax, cl		;; by 32 or 128
+	shl	eax, cl
+	div	_FFTLEN			;; and do a modulo fftlen
+	mov	DWORD PTR [edi], edx	;; Write exponent to memory
+	fild	DWORD PTR [edi]		;; so that FPU can load it
+	fidiv	_FFTLEN			;; Compute 2 ^ (eax / fftlen)
+	f2xm1
+	fld1
+	faddp	st(1), st
+	fst	QWORD PTR [edi]		;; Save two-to-phi group multiplier
+	fld	ttmp_ff_inv		;; Compute 2 ^ -(eax / fftlen), but
+	fdivr				;; adjust for the UNFFT mul by fftlen/2
+	fstp	QWORD PTR [edi+8]	;; Save two-to-minus-phi grp mult
+	add	ebx, numlit		;; Next two-to-phi exponent
+	adc	esi, 0
+	lea	edi, [edi+16]		;; Next group multiplier address
+	dec	ebp			;; Test loop counter
+	jnz	short grplp		;; Loop if necessary
+done:
+	ENDM
+
+
+; *************** pfa-5-setup macro ******************
+; This macro initializes the five_reals sine-cosine data.
+; NOTE: When computing cosine / sine, divide by the 64-bit sine
+; not the 80-bit sine since macros will multiply by the 64-bit sine.
+
+pfa_5_setup MACRO
+	fldpi				;; PI
+	fadd	st, st			;; 2*PI
+	fdiv	P5			;; 2*PI * 1 / 5
+	fsincos				;; Compute cosine (0.309), sine (0.951)
+	fst	P309			;; Save cosine
+	fxch	st(1)
+	fst	P951			;; Save sine
+	fldpi				;; PI
+	fadd	st, st			;; 2*PI
+	fadd	st, st			;; 2*PI * 2
+	fdiv	P5			;; 2*PI * 2 / 5
+	fsincos				;; Compute cosine (-.809), sine (0.588)
+	fst	M809			;; Save cosine
+	fxch	st(1)
+	fst	P588			;; Save sine
+	fdiv	P951			;; 0.588 / 0.951
+	fstp	P618			;; Save
+	fdiv	P309			;; -0.809 / 0.309
+	fstp	M262			;; Save
+	fchs				;; -0.951
+	fdiv	P588			;; -0.951 / 0.588
+	fstp	M162			;; Save
+	fdiv	M809			;; 0.309 / -0.809
+	fstp	M382			;; Save
+	ENDM
+
+; *************** pfa-6-setup macro ******************
+; This macro initializes the six_reals sine-cosine data.
+; NOTE: When computing cosine / sine, divide by the 64-bit sine
+; not the 80-bit sine since macros will multiply by the 64-bit sine.
+
+pfa_6_setup MACRO
+	fldpi				;; PI
+	fadd	st, st			;; 2*PI
+	fdiv	P3			;; 2*PI / 3
+	FSIN_X				;; Compute sine (0.866)
+	fst	P866			;; Save sine
+	fmul	HALF			;; 0.5 * P866
+	fst	P433			;; Save
+	fadd	st, st
+	fld	HALF
+	fdivrp	st(1), st		;; 0.5 / 0.866
+	fstp	P577			;; Save
+	ENDM
+
+; *************** pfa-7-setup macro ******************
+; This macro initializes the seven_reals sine-cosine data.
+; NOTE: When computing cosine / sine, divide by the 64-bit sine
+; not the 80-bit sine since macros will multiply by the 64-bit sine.
+
+pfa_7_setup MACRO
+	fldpi				;; PI
+	fadd	st, st			;; 2*PI
+	fdiv	P7			;; 2*PI * 1 / 7
+	fsincos				;; Compute cosine (0.623), sine (0.782)
+	fst	P623			;; Save cosine
+	fldpi				;; PI
+	fadd	st, st			;; 2*PI
+	fadd	st, st			;; 2*PI * 2
+	fdiv	P7			;; 2*PI * 2 / 7
+	fsincos				;; Compute cosine (-.223), sine (0.975)
+	fst	M223			;; Save cosine
+	fxch	st(1)
+	fstp	P975			;; Save sine
+	fldpi				;; PI
+	fadd	st, st			;; 2*PI
+	fld	st(0)			;; 2*PI
+	fadd	st, st			;; 2*PI * 2
+	faddp	st(1), st		;; 2*PI * 3
+	fdiv	P7			;; 2*PI * 3 / 7
+	fsincos				;; Compute cosine (-.901), sine (0.434)
+	fst	M901			;; Save cosine
+	fxch	st(1)			;; .434,-.901,-.223,.623,.782
+	fdiv	P975			;; 0.434 / 0.975
+	fstp	P445			;; Save
+	fld	P975			;; .975,-.901,-.223,.623,.782
+	fmul	P445			;; .975*.445,-.901,-.223,.623,.782
+	fdivp	st(4), st		;; 0.782 / (0.975 * 0.445)
+	fxch	st(3)			;; 1.802,-.223,.623,-.901
+	fstp	P180			;; Save
+	fdiv	P623			;; -0.223 / 0.623
+	fstp	M358			;; Save
+	fdiv	M901			;; 0.623 / -0.901
+	fstp	M691			;; Save
+	fld	P623			;; .623
+	fmul	M358			;; .623*-.358
+	fdivp	st(1), st		;; -.901 / (.623 * -.358)
+	fstp	P404			;; Save
+	ENDM
+

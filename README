@@ -1,0 +1,99 @@
+Welcome,
+
+A word of warning - this code is not for the faint-of-heart.  FFT code
+can be difficult enough to understand when it is written in C.  This FFT
+code is in assembly language.  I've tried to use macros to make it as
+understandable as possible, but this code is by no means a tutorial
+on FFTs.  If you are already familiar with FFTs from the many excellent
+textbooks available, then this code may make some sense.
+
+If you did not use the -d option on pkunzip, delete everything
+and re-pkunzip with the -d option.
+
+You'll find 8 sub-directories containing the source code to the
+six different flavors of my Lucas-Lehmer test program.  You should
+have everything you need to build your own version, should you so desire.
+
+The 7 sub-directories are:
+	prime95 - The Windows 95 / Windows NT source code
+	prime - The Windows 3.1 source code
+	linux - The Linux and FreeBSD source code
+	saver95 - The Windows 95 / Windows NT screen saver version
+	saver - The Windows 3.1 screen saver version
+	ntsetup - The Setup for the Windows NT Service version
+	winnt - The Windows NT Service version
+
+Below is some brief info on the important files in each directory:
+
+prime95
+-------
+
+This may be hard to get working.  Pkzip may have mangled the long file names
+and I'm not sure that I've included every file needed by the MSVC++ 4.0
+development environment.  This version is also the hardest to port because
+of it's dependence on MFC.
+
+factor64.asm - The assembly language factoring code.
+mult*.asm - The assembly language FFT code!
+*.mac - These are the low-level FFT building blocks.  These can be
+	difficult to understand because of Pentium pipelining requirements.
+compile - This is the DOS makefile to run MASM.
+prime95.mak - The MSVC++ 4.0 makefile.
+prime9~1.cpp - The C++ code that drives the assembly code.
+
+prime
+-----
+
+compile - This is the makefile.
+main.c - The UI code.
+prime.c - The C code that calls the assembly-coded FFT and factoring code.
+
+linux
+-----
+
+The Linux source is hybrid code.  The assembly code is assembled under
+DOS and converted to COFF .obj format by the MSVC++ 4.0 library utility.
+Under Linux, the COFF .obj files are converted to ELF format, and linked
+with C code compiled by gcc.  The object files are provided in both COFF
+and ELF format in case your version of objcopy cannot perform the conversion.
+
+compile - This is the makefile for DOS.
+makefile - This is the makefile for Linux.
+prime.c - The C code that calls the assembly-coded FFT and factoring code.
+
+
+FreeBSD
+-------
+
+The FreeBSD port was done by Nick Hilliard (nick@foobar.org).  It's much the
+same as the Linux port.
+
+The version of objcopy in FreeBSD does not natively support coff->elf
+conversion (it can be made to grok coff with a small amount of work: just
+recompile the latest version of binutils with the "--enable-targets=i386-go32
+ --enable-targets=i386-elf" parameters).
+
+Alternatively, link using the linux elf object files.  Elf on FreeBSD is
+the same as elf on Linux, so there's no real difference between the elf
+object files produced by objcopy on either system.
+
+Also, because the precompiled assembly language stuff is provided in coff
+format, we're restricted to running it on versions of FreeBSD which
+understand elf, which implies version 3.0 or greater.  There are no plans
+for a 2.x port because it's not really possible to convert either elf or
+coff to a.out due to inherent limitations in the a.out binary format. The
+only way to get this to work would be to completely rewrite the assembly in
+GNU assembly format rather than M$ format and then reassemble.  This is a
+lot more trouble than it's worth.
+
+Finally, the makefile is in GNU makefile format rather than in BSD makefile
+format, so if you decide to compile it, please use GNU make.
+
+
+Have fun,
+George Woltman
+woltman@alum.mit.edu
+
+
+P.S.  The files security.h and security.c are not included.  Delete any
+references to them.  The code should compile without them.

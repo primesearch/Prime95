@@ -1,0 +1,7 @@
+# Standard options
+masm=masm /Mx /P /B63 
+
+# Create 32-bit executables
+
+mult.obj: mult.asm
+    $(masm) mult.asm mult.obj NUL NUL

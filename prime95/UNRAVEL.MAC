@@ -1,0 +1,176 @@
+;
+; macros to aid in timing chunks of code
+;
+
+RDTSC	MACRO
+	DB	0Fh, 31h
+	ENDM
+
+;
+; Macros to implement CMOV instruction
+;
+
+CMOVNC	MACRO	SRC, DEST
+	LOCAL	xxx, yyy
+	DB	0Fh
+xxx:	add	SRC, DEST
+yyy:
+	ORG	OFFSET xxx
+	DB	43h
+	ORG	OFFSET yyy
+ENDM
+
+;
+; Macros to work around MASM bugs
+;
+
+FSIN_X	MACRO
+	DB	0D9h, 0FEh
+	ENDM
+FCOS_X	MACRO
+	DB	0D9h, 0FFh
+	ENDM
+
+;
+; Call and Jump instructions to make Linux objcopy happy
+; Use these for calling or jumping to labels outside the object file
+;
+
+CALL_Y	MACRO	DEST
+	LOCAL	xxx
+	push	OFFSET xxx
+	JMP_Y	DEST
+xxx:
+	ENDM
+JMP_Y	MACRO	DEST
+	push	OFFSET DEST
+	retn
+	ENDM
+
+;
+; Call and Jump instructions to make Linux objcopy happy
+; Use these for calling or jumping to labels in the same object file
+;
+
+CALL_X	MACRO	DEST
+	LOCAL	xxx
+	DB	0E8h
+	DD	OFFSET DEST - OFFSET xxx
+xxx:
+	ENDM
+JMP_X	MACRO	DEST
+	LOCAL	xxx
+	DB	0E9h
+	DD	OFFSET DEST - OFFSET xxx
+xxx:
+	ENDM
+
+JCOND_X	MACRO	COND, DEST
+	LOCAL	xxx
+	DB	0Fh
+	DB	80h + COND
+	DD	OFFSET DEST - OFFSET xxx
+xxx:
+	ENDM
+
+JE_X	MACRO	DEST
+	JCOND_X	04h, DEST
+	ENDM
+JZ_X	MACRO	DEST
+	JCOND_X	04h, DEST
+	ENDM
+JNE_X	MACRO	DEST
+	JCOND_X	05h, DEST
+	ENDM
+JNZ_X	MACRO	DEST
+	JCOND_X	05h, DEST
+	ENDM
+JLE_X	MACRO	DEST
+	JCOND_X	0Eh, DEST
+	ENDM
+JA_X	MACRO	DEST
+	JCOND_X	07h, DEST
+	ENDM
+JB_X	MACRO	DEST
+	JCOND_X	02h, DEST
+	ENDM
+JAE_X	MACRO	DEST
+	JCOND_X	03h, DEST
+	ENDM
+JC_X	MACRO	DEST
+	JCOND_X	02h, DEST
+	ENDM
+JNC_X	MACRO	DEST
+	JCOND_X	03h, DEST
+	ENDM
+JS_X	MACRO	DEST
+	JCOND_X	08h, DEST
+	ENDM
+JNS_X	MACRO	DEST
+	JCOND_X	09h, DEST
+	ENDM
+JG_X	MACRO	DEST
+	JCOND_X	0Fh, DEST
+	ENDM
+JBE_X	MACRO	DEST
+	JCOND_X	06h, DEST
+	ENDM
+
+IFDEF OLDSTUFF
+
+Z1 MACRO
+	mov ecx,edx
+	RDTSC
+	sub _ERRCHK, eax
+	mov edx,ecx
+ENDM
+
+Z2 MACRO
+	mov ecx,edx
+	RDTSC
+	add _ERRCHK, eax
+	mov edx,ecx
+ENDM
+
+;
+; Macros used in unravelling loops
+;
+
+loopent	MACRO	y,z		; Create a entry in the loop entry table
+	DD	&y&z
+	ENDM
+looptab	MACRO	y, cnt		; Create the loop entry table
+x	=	0
+	REPT	cnt
+	loopent	y, %x
+x	=	x + 1
+	ENDM
+	ENDM
+looplab	MACRO	y,z		; Create a code label in the unravelled loop
+&y&z:
+	ENDM
+loopst	MACRO	y, cnt		; Marks the beginning of the code to unravel
+x	=	cnt
+	;REPT	cnt
+	;looplab y, %x
+	ENDM
+loopmid	MACRO
+x	=	x - 1
+	;IF	x EQ 0
+	;EXITM
+	;ENDIF
+	ENDM
+loopend	MACRO	y
+	;ENDM
+	;looplab y, 0
+	ENDM
+
+loopjmp	MACRO	jtype, x, y	; Jumps to an entry labelled by looplab
+	jtype	&x&y
+	ENDM
+
+loopcall MACRO	x, y		; Calls an entry labelled by looplab
+	call	&x&y
+	ENDM
+
+ENDIF
