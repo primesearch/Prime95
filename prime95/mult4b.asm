@@ -1,4 +1,4 @@
-; Copyright 1995-1999 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2001 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -8,7 +8,8 @@
 
 	TITLE   setup
 
-	.386
+	.686
+	.XMM
 
 _TEXT32 SEGMENT PARA USE32 PUBLIC 'DATA'
 
@@ -16,14 +17,14 @@ _TEXT32 SEGMENT PARA USE32 PUBLIC 'DATA'
 
 INCLUDE extrn.mac
 INCLUDE	unravel.mac
-INCLUDE	lucas1.mac
+INCLUDE	lucas.mac
 INCLUDE mult.mac
 INCLUDE pass1.mac
 INCLUDE pass2.mac
 INCLUDE memory.mac
 
 IFDEF PPRO
-INCLUDE	lucas1p.mac
+INCLUDE	lucasp.mac
 ENDIF
 
 	very_convoluted_distances
@@ -33,7 +34,7 @@ ENDIF
 	PUBLICP	pass2_8_levels_type_4
 	PUBLICP	pass2_8_levels_type_4p
 
-pass2_procs PROC NEAR
+PROCP	pass2_procs4
 
 ;; Branch to the proper forward FFT code - mod 2^N+1 arithmetic
 
@@ -58,7 +59,7 @@ pass2_8_levels_type_1:
 pass2_8_levels_type_1p:
 	mov	ecx, count1		;; Number of complex iterations
 	mov	edx, pass2_premults	;; Address of the group multipliers
-p281lp:	pass2_eight_levels_complex 1
+p281lp:	pass2_eight_levels_complex 1, 4
 	add	cl, 256/2
 	JNC_X	p281lp
 	lea	esi, [esi-8*dist128+dist1K]
@@ -88,7 +89,7 @@ pass2_8_levels_type_2:
 pass2_8_levels_type_2p:
 	mov	ecx, count1		;; Number of complex iterations
 	mov	edx, pass2_premults	;; Address of the group multipliers
-p282lp:	pass2_eight_levels_complex 2
+p282lp:	pass2_eight_levels_complex 2, 4
 	add	cl, 256/2
 	JNC_X	p282lp
 	lea	esi, [esi-8*dist128+dist1K]
@@ -114,7 +115,7 @@ pass2_8_levels_type_3:
 pass2_8_levels_type_3p:
 	mov	ecx, count1		;; Number of complex iterations
 	mov	edx, pass2_premults	;; Address of the group multipliers
-p283lp:	pass2_eight_levels_complex 3
+p283lp:	pass2_eight_levels_complex 3, 4
 	add	cl, 256/2
 	JNC_X	p283lp
 	lea	esi, [esi-8*dist128+dist1K]
@@ -140,7 +141,7 @@ LABELP	pass2_8_levels_type_4
 LABELP	pass2_8_levels_type_4p
 	mov	ecx, count1		;; Number of complex iterations
 	mov	edx, pass2_premults	;; Address of the group multipliers
-p284lp:	pass2_eight_levels_complex 4
+p284lp:	pass2_eight_levels_complex 4, 4
 	add	cl, 256/2
 	JNC_X	p284lp
 	lea	esi, [esi-8*dist128+dist1K]
@@ -158,7 +159,7 @@ p284lp:	pass2_eight_levels_complex 4
 	lea	esi, [esi-8*dist128K+dist1M]
 	JMP_X	p284lp
 p284dn:	ret
-pass2_procs ENDP
+ENDPP	pass2_procs4
 
 _TEXT32	ENDS
 END

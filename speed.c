@@ -375,12 +375,13 @@ static ulong NormFreq(ushort processor,ulong freq) {
 	ushort i486Speeds[] = { 25, 33, 50, 66, 75, 100, EOA };
 	ushort iPentiumSpeeds[]  = { 60, 66, 75, 90, 100, 120, 133,
 			150, 166, 185, 200, 233, 266, 300, EOA };  
-	ushort iPentiumProSpeeds[]  = { 133, 150, 167, 185, 200,
+	ushort iPentiumProSpeeds[]  = { 133, 150, 166, 180, 200,
 			220, 233, 240, 266, 300, 333, 350, 366, 400, 433,
 			450, 466, 500, 533, 550, 600, 650, 700, 733, 750,
-			800, 866, 933, 1000,
-			1050, 1066, 1100, 1133, 1150, 1200, 1250, 1266,
-			1300, 1333, 1350, 1400, 1466, 1500, EOA };
+			800, 866, 933, 1000, 1100, 1200,
+			1300, 1333, 1400, 1500, EOA };
+	ushort iPentium4Speeds[]  = { 1300, 1400, 1500, 1600, 1700, 1800,
+			1900, 2000, 2200, EOA };
 
 	int ptr = 0;
 
@@ -442,6 +443,24 @@ static ulong NormFreq(ushort processor,ulong freq) {
 		 9 == processor || 10 == processor) {
 
 		speeds = iPentiumProSpeeds;
+		
+		while (speeds[ptr] != EOA) {
+			if ( (int)freq <= (int) (speeds[ptr] + TOLP6))
+				return  speeds[ptr];
+					// Scan each speed in array until
+					//  current calculated frequency
+					//  is less than or equal to 
+					//  normalized value plus TOLP6.
+		ptr++;
+		}
+		
+		return freq;		// If raw speed is higher than 
+					//   highest normalized speed plus
+					//   TOLP6, return raw frequency.
+	}
+	else if (12 == processor) {
+
+		speeds = iPentium4Speeds;
 		
 		while (speeds[ptr] != EOA) {
 			if ( (int)freq <= (int) (speeds[ptr] + TOLP6))

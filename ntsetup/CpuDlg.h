@@ -13,6 +13,7 @@ public:
 // Dialog Data
 	//{{AFX_DATA(CCpuDlg)
 	enum { IDD = IDD_CPU };
+	CButton	c_p4;
 	CButton	c_pentium_pro;
 	CButton	c_celeron;
 	CButton	c_pii;
@@ -22,11 +23,11 @@ public:
 	CButton	c_k7;
 	UINT	m_speed;
 	UINT	m_hours;
-	int		m_cpu_type;
 	UINT	m_day_memory;
 	UINT	m_night_memory;
 	CString	m_end_time;
 	CString	m_start_time;
+	int		m_cpu_type;
 	//}}AFX_DATA
 
 

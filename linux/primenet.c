@@ -49,16 +49,22 @@ unsigned short bswap(unsigned short);
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#ifndef __IBMC__
 #include <arpa/inet.h>
+#endif
 #include <netdb.h>
 #include <string.h>
+#ifndef __IBMC__
 #include <unistd.h>
+#endif
 #include <ctype.h>
 #include <stdio.h>
 
 #ifdef __EMX__
-
 #define PRIMENET_TMP "primenet.tmp"
+#endif
+
+#if defined (__EMX__) || defined (__IBMC__)
 
 int inet_aton(char *cp, struct in_addr *inp)
 {
@@ -715,7 +721,7 @@ int (*PRIMENET)(short, void *) = PrimeNet;
 
 /* Load the PrimeNet DLL, make sure an internet connection is active */
 
-int LoadPrimeNet ()
+int LoadPrimeNet (void)
 {
 	/* Init stuff */
 	/* Set PRIMENET procedure pointer */

@@ -101,6 +101,7 @@ BEGIN
         MENUITEM "&Affinity...",                IDM_AFFINITY
         MENUITEM "&Manual Communication...",    ID_MANUALCOMM
         MENUITEM SEPARATOR
+        MENUITEM "&Unreserve Exponent...",      IDM_UNRESERVE
         MENUITEM "&Quit GIMPS...",              IDM_QUIT
     END
     POPUP "&Options"
@@ -108,12 +109,12 @@ BEGIN
         MENUITEM "&CPU...",                     IDM_CPU
         MENUITEM "&Preferences...",             IDM_PREFERENCES
         MENUITEM SEPARATOR
-        MENUITEM "&Self Test",                  ID_OPTIONS_SELFTEST
         MENUITEM "&Torture Test",               IDM_TORTURE
+        MENUITEM "&Benchmark",                  IDM_BENCHMARK
         MENUITEM SEPARATOR
         MENUITEM "Tray &Icon",                  IDM_TRAY
         MENUITEM "&No Icon",                    IDM_HIDE
-        MENUITEM "&Windows 98/95 Service",      IDM_SERVICE, CHECKED
+        MENUITEM "&Start at Bootup",            IDM_SERVICE, CHECKED
     END
     POPUP "&Help"
     BEGIN
@@ -149,9 +150,9 @@ CAPTION "About Prime95"
 FONT 8, "MS Sans Serif"
 BEGIN
     ICON            IDR_MAINFRAME,IDC_STATIC,11,17,18,20
-    LTEXT           "Mersenne Number Tests- Version 20.4.1",IDC_STATIC,40,12,
+    LTEXT           "Mersenne Number Tests- Version 21.4.1",IDC_STATIC,40,12,
                     137,8,SS_NOPREFIX
-    LTEXT           "Copyright © 1996-2000 Just For Fun Software, Inc.",
+    LTEXT           "Copyright © 1996-2001 Just For Fun Software, Inc.",
                     IDC_STATIC,39,22,154,8
     DEFPUSHBUTTON   "OK",IDOK,199,7,32,14,WS_GROUP
     LTEXT           "Author: George Woltman",IDC_STATIC,39,32,128,8
@@ -169,48 +170,50 @@ BEGIN
     LTEXT           "&Exponent to test:",IDC_STATIC,14,14,55,10
 END
 
-IDD_CPU DIALOG DISCARDABLE  0, 0, 169, 170
+IDD_CPU DIALOG DISCARDABLE  0, 0, 169, 182
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "CPU Type and Speed"
 FONT 8, "MS Sans Serif"
 BEGIN
-    CONTROL         "P&entium III",IDC_PIII,"Button",BS_AUTORADIOBUTTON | 
-                    WS_GROUP | WS_TABSTOP,7,16,52,10
-    CONTROL         "Pentiu&m II",IDC_PII,"Button",BS_AUTORADIOBUTTON,7,26,
+    CONTROL         "Pentium &4",IDC_P4,"Button",BS_AUTORADIOBUTTON | 
+                    WS_GROUP | WS_TABSTOP,7,17,52,10
+    CONTROL         "P&entium III",IDC_PIII,"Button",BS_AUTORADIOBUTTON,7,27,
                     52,10
-    CONTROL         "Ce&leron",IDC_CELERON,"Button",BS_AUTORADIOBUTTON,7,36,
+    CONTROL         "Pentiu&m II",IDC_PII,"Button",BS_AUTORADIOBUTTON,7,37,
                     52,10
-    CONTROL         "Pentium P&ro",IDC_PRO,"Button",BS_AUTORADIOBUTTON,7,46,
+    CONTROL         "Ce&leron",IDC_CELERON,"Button",BS_AUTORADIOBUTTON,7,47,
+                    52,10
+    CONTROL         "Pentium P&ro",IDC_PRO,"Button",BS_AUTORADIOBUTTON,7,57,
                     51,10
-    CONTROL         "&Pentium",IDC_PENTIUM,"Button",BS_AUTORADIOBUTTON,7,56,
+    CONTROL         "&Pentium",IDC_PENTIUM,"Button",BS_AUTORADIOBUTTON,7,67,
                     50,10
-    CONTROL         "&486",IDC_486,"Button",BS_AUTORADIOBUTTON,7,66,48,10
+    CONTROL         "4&86",IDC_486,"Button",BS_AUTORADIOBUTTON,7,77,48,10
     CONTROL         "&Athlon",IDC_K7,"Button",BS_AUTORADIOBUTTON,62,16,41,10
     CONTROL         "&K6",IDC_K6,"Button",BS_AUTORADIOBUTTON,62,26,35,10
-    CONTROL         "&6x86",IDC_CYRIX,"Button",BS_AUTORADIOBUTTON,62,56,41,
+    CONTROL         "&6x86",IDC_CYRIX,"Button",BS_AUTORADIOBUTTON,62,49,41,
                     10
-    EDITTEXT        IDC_P,91,75,34,12
-    EDITTEXT        IDC_HOURS,132,88,30,12
-    EDITTEXT        IDC_DAY_MEMORY,132,123,30,12
-    EDITTEXT        IDC_NIGHT_MEMORY,132,137,30,12
-    EDITTEXT        IDC_START_TIME,68,151,30,12,ES_AUTOHSCROLL
-    EDITTEXT        IDC_END_TIME,132,151,30,12,ES_AUTOHSCROLL
+    EDITTEXT        IDC_P,85,88,34,12
+    EDITTEXT        IDC_HOURS,126,101,36,12
+    EDITTEXT        IDC_DAY_MEMORY,126,136,36,12
+    EDITTEXT        IDC_NIGHT_MEMORY,126,150,36,12
+    EDITTEXT        IDC_START_TIME,61,163,37,12,ES_AUTOHSCROLL
+    EDITTEXT        IDC_END_TIME,126,163,36,12,ES_AUTOHSCROLL
     DEFPUSHBUTTON   "OK",IDOK,112,7,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,112,24,50,14
-    LTEXT           "Cyrix",IDC_STATIC,62,45,44,10
-    LTEXT           "end&s at:",IDC_STATIC,101,153,30,10
-    LTEXT           "&CPU speed (in MHz):",IDC_STATIC,7,77,81,10
-    LTEXT           "&Hours per day this program will run:",IDC_STATIC,7,90,
-                    123,10
+    LTEXT           "Cyrix",IDC_STATIC,62,38,44,10
+    LTEXT           "end&s:",IDC_STATIC,101,165,22,10
+    LTEXT           "&CPU speed (in MHz):",IDC_STATIC,7,90,74,10
+    LTEXT           "&Hours per day this program will run:",IDC_STATIC,7,103,
+                    116,10
     LTEXT           "Intel",IDC_STATIC,7,7,34,9
     LTEXT           "AMD",IDC_STATIC,62,7,43,10
-    LTEXT           "&Nighttime available memory  (in M&B):",IDC_STATIC,7,
-                    139,123,10
+    LTEXT           "&Nighttime available memory  (in MB):",IDC_STATIC,7,152,
+                    117,10
     LTEXT           "Please see the readme.txt file for very important information on the available memory settings.",
-                    IDC_STATIC,7,104,155,16
-    LTEXT           "&Daytime available memory  (in M&B):",IDC_STATIC,7,125,
-                    123,10
-    LTEXT           "Daytime &begins at:",IDC_STATIC,7,153,58,10
+                    IDC_STATIC,7,117,155,16
+    LTEXT           "&Daytime available memory  (in MB):",IDC_STATIC,7,138,
+                    116,10
+    LTEXT           "Daytime &begins:",IDC_STATIC,7,165,51,10
 END
 
 IDD_TIME DIALOG DISCARDABLE  0, 0, 186, 46
@@ -313,10 +316,10 @@ BEGIN
                     WS_TABSTOP,71,31,30,10
     CONTROL         "&HTTP",IDC_HTTP,"Button",BS_AUTORADIOBUTTON,104,31,37,
                     10
+    EDITTEXT        IDC_WORK,187,41,29,12
     CONTROL         "Request whatever type of work makes the most &sense",
-                    IDC_WORK_DFLT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,42,
+                    IDC_WORK_DFLT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,54,
                     186,10
-    EDITTEXT        IDC_WORK,187,53,29,12
     CONTROL         "Request &10,000,000 digit numbers to test",IDC_BIGONES,
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,76,189,10
     CONTROL         "Request Mersenne numbers to run primality &tests",
@@ -329,7 +332,7 @@ BEGIN
     DEFPUSHBUTTON   "OK",IDOK,198,7,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,198,24,50,14
     LTEXT           "Always have at least this many days of &work queued up:",
-                    IDC_WORK_TEXT,7,54,176,10
+                    IDC_WORK_TEXT,7,42,176,10
     GROUPBOX        "Types of work to request from server",IDC_WORKGROUP,7,
                     65,209,57
     LTEXT           "Network protocol:",IDC_PROTOCOL,7,31,57,8
@@ -456,6 +459,36 @@ BEGIN
     LTEXT           "Bound #&2:",-1,7,36,34,8
 END
 
+IDD_WELCOME DIALOG DISCARDABLE  0, 0, 291, 176
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Welcome to GIMPS!"
+FONT 8, "MS Sans Serif"
+BEGIN
+    DEFPUSHBUTTON   "&Join GIMPS!",IDOK,66,145,73,14
+    PUSHBUTTON      "Just  &Stress Testing",IDCANCEL,156,145,73,14
+    LTEXT           "Welcome to GIMPS, the hunt for huge prime numbers.  You will be asked a few simple questions and then the program will contact the primenet server to get some work for your computer.  Good luck!",
+                    IDC_STATIC,7,7,277,29
+    LTEXT           "Attention OVERCLOCKERS!!  Prime95 has gained a reputation as a useful stress testing tool for people that enjoy pushing their hardware to the limit.  You are more than welcome to use this software for that purpose.  Please select the stress testing button",
+                    IDC_STATIC,7,43,277,25
+    LTEXT           "below to avoid interfering with the PrimeNet server.  Use the Options/CPU menu choice to make sure your cpu type was detected properly, then use the Options/Torture Test menu choice for your stress tests.  Also, read the stress.txt file.",
+                    IDC_STATIC,7,67,277,27
+    LTEXT           "If you want to both join GIMPS and run stress tests, then click Join GIMPS below and answer the questions.  After the server gets some work for you, choose Test/Stop, then Options/Torture Test.",
+                    IDC_STATIC,7,104,277,27
+END
+
+IDD_UNRESERVE DIALOG DISCARDABLE  0, 0, 238, 64
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Unreserve a Specific Exponent"
+FONT 8, "MS Sans Serif"
+BEGIN
+    EDITTEXT        IDC_P,107,45,42,12
+    DEFPUSHBUTTON   "OK",IDOK,181,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,181,24,50,14
+    LTEXT           "&Exponent to return to server:",IDC_STATIC,7,47,96,10
+    LTEXT           "Use this only if you are sure you will not be finishing this exponent.  The exponent will be assigned to someone else.  It is not fair to them if you test an exponent assigned to someone else.",
+                    IDC_STATIC,7,7,165,37
+END
+
 
 #ifndef _MAC
 /////////////////////////////////////////////////////////////////////////////
@@ -464,8 +497,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 20,4,1,0
- PRODUCTVERSION 20,4,1,0
+ FILEVERSION 21,4,1,0
+ PRODUCTVERSION 21,4,1,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -482,12 +515,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "\0"
             VALUE "FileDescription", "PRIME95 Application\0"
-            VALUE "FileVersion", "20, 4, 1, 0\0"
+            VALUE "FileVersion", "21, 4, 1, 0\0"
             VALUE "InternalName", "PRIME95\0"
-            VALUE "LegalCopyright", "Copyright © 1996-2000\0"
+            VALUE "LegalCopyright", "Copyright © 1996-2001\0"
             VALUE "OriginalFilename", "PRIME95.EXE\0"
             VALUE "ProductName", "PRIME95 Application\0"
-            VALUE "ProductVersion", "20, 4, 1, 0\0"
+            VALUE "ProductVersion", "21, 4, 1, 0\0"
         END
     END
     BLOCK "VarFileInfo"
@@ -528,7 +561,7 @@ BEGIN
         LEFTMARGIN, 7
         RIGHTMARGIN, 162
         TOPMARGIN, 7
-        BOTTOMMARGIN, 163
+        BOTTOMMARGIN, 175
     END
 
     IDD_TIME, DIALOG
@@ -626,6 +659,22 @@ BEGIN
         TOPMARGIN, 7
         BOTTOMMARGIN, 59
     END
+
+    IDD_WELCOME, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 284
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 169
+    END
+
+    IDD_UNRESERVE, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 231
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 57
+    END
 END
 #endif    // APSTUDIO_INVOKED
 
@@ -645,7 +694,7 @@ IDC_CURSOR2             CURSOR  DISCARDABLE     "res\\cursor2.cur"
 
 STRINGTABLE PRELOAD DISCARDABLE 
 BEGIN
-    IDR_MAINFRAME           "Prime95\n\nPrime9\n\n\nPrime95.Document\nPrime9 Document"
+    IDR_MAINFRAME           "t3"
 END
 
 STRINGTABLE PRELOAD DISCARDABLE 

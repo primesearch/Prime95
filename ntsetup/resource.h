@@ -77,6 +77,7 @@
 #define IDC_TEST                        1019
 #define IDC_FACTOR2                     1019
 #define IDC_PFACTOR                     1019
+#define IDC_P4                          1019
 #define IDC_DBLCHK2                     1020
 #define IDC_WORK_DFLT                   1022
 #define IDC_WORKGROUP                   1023
@@ -151,7 +152,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        149
-#define _APS_NEXT_COMMAND_VALUE         32801
+#define _APS_NEXT_COMMAND_VALUE         32803
 #define _APS_NEXT_CONTROL_VALUE         1042
 #define _APS_NEXT_SYMED_VALUE           101
 #endif

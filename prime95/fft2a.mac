@@ -1,4 +1,4 @@
-; Copyright 1998-1999 - Just For Fun Software, Inc., all rights reserved
+; Copyright 1998-2000 - Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -35,7 +35,7 @@ b1b:
 ;;	do 4 iterations
 
 	mov	al, 4			;; U - 4 iterations of 4
-b2b:	disp five_reals_first_fft 256*dist1, dist512, 2*dist512
+b2b:	disp five_reals_first_fft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b2b			;;*V - Iterate if necessary
@@ -51,7 +51,7 @@ b2b:	disp five_reals_first_fft 256*dist1, dist512, 2*dist512
 ;; operating on 4 different sets of 20 values at once.
 
 	lea	esi, [esi-256*dist1]	;; U - Load source pointer
-b3b:	disp two_four_reals_fft dist1, 64*dist1, 128*dist1
+b3b:	disp two_four_reals_fft, dist1, 64*dist1, 128*dist1
 	lea	esi, [esi+2*dist1]	;; U - Next source pointer
 	add	al, 256/2		;; V - Test loop counter
 	JNC_X	b3b			;;*V - Iterate if necessary
@@ -63,7 +63,7 @@ b3b:	disp two_four_reals_fft dist1, 64*dist1, 128*dist1
 	lea	esi, [esi-4*dist1+256*dist1];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	al, 2			;; V - 2 iterations of 4
-b4b:	disp four_complex_fft 64*dist1, 128*dist1, (dist512-256*dist1)
+b4b:	disp four_complex_fft, 64*dist1, 128*dist1, (dist512-256*dist1)
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; U - Test inner loop counter
 	JNC_X	b4b			;; V - Iterate if necessary
@@ -106,7 +106,7 @@ c1b:
 ;; independent sets of 4 data values.  We can do this since we are
 ;; operating on 4 different sets of 20 values at once.
 
-c3b:	disp two_four_reals_unfft dist1, 64*dist1, 128*dist1
+c3b:	disp two_four_reals_unfft, dist1, 64*dist1, 128*dist1
 	lea	esi, [esi+2*dist1]	;; U - Next source pointer
 	add	al, 256/2		;; V - Test loop counter
 	JNC_X	c3b			;;*V - Iterate if necessary
@@ -118,7 +118,7 @@ c3b:	disp two_four_reals_unfft dist1, 64*dist1, 128*dist1
 	lea	esi, [esi-4*dist1+256*dist1];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	al, 2			;; V - 2 iterations of 4
-c4b:	disp four_complex_unfft 64*dist1, 128*dist1, (dist512-256*dist1)
+c4b:	disp four_complex_unfft, 64*dist1, 128*dist1, (dist512-256*dist1)
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; U - Test inner loop counter
 	JNC_X	c4b			;; V - Iterate if necessary
@@ -133,7 +133,7 @@ c4b:	disp four_complex_unfft 64*dist1, 128*dist1, (dist512-256*dist1)
 
 	lea	esi, [esi-2*dist512-256*dist1];; U - Load source pointer
 	mov	al, 4			;; U - 4 iterations of 4
-c2b:	disp five_reals_last_unfft 256*dist1, dist512, 2*dist512
+c2b:	disp five_reals_last_unfft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c2b			;;*V - Iterate if necessary
@@ -174,7 +174,7 @@ b1b:
 ;;	do 4 iterations
 
 	mov	al, 4			;; U - 4 iterations of 4
-b2b:	disp six_reals_first_fft 256*dist1, dist512, 2*dist512
+b2b:	disp six_reals_first_fft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b2b			;;*V - Iterate if necessary
@@ -186,7 +186,7 @@ b2b:	disp six_reals_first_fft 256*dist1, dist512, 2*dist512
 ;;	distance between fft data elements is 1 * 64
 
 	lea	esi, [esi-256*dist1]	;; U - Load source pointer
-b3b:	disp eight_reals_fft_2 64*dist1, 128*dist1, 256*dist1
+b3b:	disp eight_reals_fft_2, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	b3b			;;*V - Iterate if necessary
@@ -198,7 +198,7 @@ b3b:	disp eight_reals_fft_2 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	al, 2			;; V - 2 iterations of 4
-b4b:	disp four_complex_fft 64*dist1, 128*dist1, 256*dist1
+b4b:	disp four_complex_fft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; U - Test inner loop counter
 	JNC_X	b4b			;; V - Iterate if necessary
@@ -237,7 +237,7 @@ c1b:
 ;; Do 1 eight_reals_unfft_2 operations (FFT levels 4,5)
 ;;	distance between fft data elements is 1 * 64
 
-c3b:	disp eight_reals_unfft_2 64*dist1, 128*dist1, 256*dist1
+c3b:	disp eight_reals_unfft_2, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	c3b			;;*V - Iterate if necessary
@@ -249,7 +249,7 @@ c3b:	disp eight_reals_unfft_2 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	al, 2			;; V - 2 iterations of 4
-c4b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
+c4b:	disp four_complex_unfft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; U - Test inner loop counter
 	JNC_X	c4b			;; V - Iterate if necessary
@@ -264,7 +264,7 @@ c4b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
 
 	lea	esi, [esi-3*dist512]	;; U - Load source pointer
 	mov	al, 4			;; U - 4 iterations of 4
-c2b:	disp six_reals_last_unfft 256*dist1, dist512, 2*dist512
+c2b:	disp six_reals_last_unfft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c2b			;;*V - Iterate if necessary
@@ -305,7 +305,7 @@ b1b:
 ;;	do 4 iterations
 
 	mov	al, 4			;; U - 4 iterations of 4
-b2b:	disp seven_reals_first_fft 256*dist1, dist512, 2*dist512
+b2b:	disp seven_reals_first_fft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b2b			;;*V - Iterate if necessary
@@ -321,7 +321,7 @@ b2b:	disp seven_reals_first_fft 256*dist1, dist512, 2*dist512
 ;; operating on 4 different sets of 28 values at once.
 
 	lea	esi, [esi-256*dist1]	;; U - Load source pointer
-b3b:	disp two_four_reals_fft dist1, 64*dist1, 128*dist1
+b3b:	disp two_four_reals_fft, dist1, 64*dist1, 128*dist1
 	lea	esi, [esi+2*dist1]	;; U - Next source pointer
 	add	al, 256/2		;; V - Test loop counter
 	JNC_X	b3b			;;*V - Iterate if necessary
@@ -333,7 +333,7 @@ b3b:	disp two_four_reals_fft dist1, 64*dist1, 128*dist1
 	lea	esi, [esi-4*dist1+256*dist1];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	al, 3			;; V - 3 iterations of 4
-b4b:	disp four_complex_fft 64*dist1, 128*dist1, (dist512-256*dist1)
+b4b:	disp four_complex_fft, 64*dist1, 128*dist1, (dist512-256*dist1)
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; U - Test inner loop counter
 	JNC_X	b4b			;; V - Iterate if necessary
@@ -376,7 +376,7 @@ c1b:
 ;; independent sets of 4 data values.  We can do this since we are
 ;; operating on 4 different sets of 28 values at once.
 
-c3b:	disp two_four_reals_unfft dist1, 64*dist1, 128*dist1
+c3b:	disp two_four_reals_unfft, dist1, 64*dist1, 128*dist1
 	lea	esi, [esi+2*dist1]	;; U - Next source pointer
 	add	al, 256/2		;; V - Test loop counter
 	JNC_X	c3b			;;*V - Iterate if necessary
@@ -388,7 +388,7 @@ c3b:	disp two_four_reals_unfft dist1, 64*dist1, 128*dist1
 	lea	esi, [esi-4*dist1+256*dist1];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	al, 3			;; V - 3 iterations of 4
-c4b:	disp four_complex_unfft 64*dist1, 128*dist1, (dist512-256*dist1)
+c4b:	disp four_complex_unfft, 64*dist1, 128*dist1, (dist512-256*dist1)
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; U - Test inner loop counter
 	JNC_X	c4b			;; V - Iterate if necessary
@@ -403,7 +403,7 @@ c4b:	disp four_complex_unfft 64*dist1, 128*dist1, (dist512-256*dist1)
 
 	lea	esi, [esi-3*dist512-256*dist1];; U - Load source pointer
 	mov	al, 4			;; U - 4 iterations of 4
-c2b:	disp seven_reals_last_unfft 256*dist1, dist512, 2*dist512
+c2b:	disp seven_reals_last_unfft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c2b			;;*V - Iterate if necessary
@@ -444,7 +444,7 @@ b1b:
 ;;	do 4 iterations
 
 	mov	al, 4			;; U - 4 iterations of 4
-b2b:	disp eight_reals_first_fft 256*dist1, dist512, 2*dist512
+b2b:	disp eight_reals_first_fft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b2b			;;*V - Iterate if necessary
@@ -456,7 +456,7 @@ b2b:	disp eight_reals_first_fft 256*dist1, dist512, 2*dist512
 ;;	distance between fft data elements is 1 * 64
 
 	lea	esi, [esi-256*dist1]	;; U - Load source pointer
-b3b:	disp eight_reals_fft_2 64*dist1, 128*dist1, 256*dist1
+b3b:	disp eight_reals_fft_2, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	b3b			;;*V - Iterate if necessary
@@ -468,7 +468,7 @@ b3b:	disp eight_reals_fft_2 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 	mov	edi, sincos_real	;; U - Load sin/cos pointer
 	mov	al, 3			;; V - 3 iterations of 4
-b4b:	disp four_complex_fft 64*dist1, 128*dist1, 256*dist1
+b4b:	disp four_complex_fft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; U - Test inner loop counter
 	JNC_X	b4b			;; V - Iterate if necessary
@@ -507,7 +507,7 @@ c1b:
 ;; Do 1 eight_reals_unfft_2 operations (FFT levels 4,5)
 ;;	distance between fft data elements is 1 * 64
 
-c3b:	disp eight_reals_unfft_2 64*dist1, 128*dist1, 256*dist1
+c3b:	disp eight_reals_unfft_2, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	c3b			;;*V - Iterate if necessary
@@ -519,7 +519,7 @@ c3b:	disp eight_reals_unfft_2 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 	mov	edi, sincos_real	;; U - Load sin/cos pointer
 	mov	al, 3			;; V - 3 iterations of 4
-c4b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
+c4b:	disp four_complex_unfft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; U - Test inner loop counter
 	JNC_X	c4b			;; V - Iterate if necessary
@@ -534,7 +534,7 @@ c4b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
 
 	lea	esi, [esi-4*dist512]	;; U - Load source pointer
 	mov	al, 4			;; U - 4 iterations of 4
-c2b:	disp eight_reals_last_unfft 256*dist1, dist512, 2*dist512
+c2b:	disp eight_reals_last_unfft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c2b			;;*V - Iterate if necessary
@@ -573,7 +573,7 @@ b1b:
 
 	mov	edi, ecx		;; U - Address of premultipliers
 	mov	al, 4			;; V - 4 iterations
-b2b:	disp four_complex_first_fft 256*dist1, dist512, 2*dist512
+b2b:	disp four_complex_first_fft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+64*dist1]	;; U - Next source pointer
 	lea	edi, [edi+PMD]		;; V - Next multipliers
 	dec	al			;; U - Test loop counter
@@ -586,7 +586,7 @@ b2b:	disp four_complex_first_fft 256*dist1, dist512, 2*dist512
 
 	lea	esi, [esi-256*dist1]	;; U - Next source pointer
 	mov	edi, sincos_complex	;; U - Load sin/cos pointer
-b3b:	disp four_complex_fft 64*dist1, 128*dist1, 256*dist1
+b3b:	disp four_complex_fft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist512]	;; U - Next source pointer
 	lea	edi, [edi+SCD]		;; V - Next sin/cos values
 	add	al, 256/4		;; U - Test loop counter
@@ -624,7 +624,7 @@ c1b:
 
 	mov	edi, sincos_complex	;; U - Load sin/cos pointer
 	mov	al, 4			;; V - 4 iterations
-c3b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
+c3b:	disp four_complex_unfft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist512]	;; U - Next source pointer
 	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
 	dec	al			;; U - Test loop counter
@@ -636,7 +636,7 @@ c3b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
 
 	lea	esi, [esi-4*dist512]	;; U - Load source pointer
 	mov	edi, ecx		;; V - Address of premultipliers
-c2b:	disp four_complex_last_unfft 256*dist1, dist512, 2*dist512
+c2b:	disp four_complex_last_unfft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+64*dist1]	;; U - Next source pointer
 	lea	edi, [edi+PMD]		;; V - Next multipliers
 	add	al, 256/4		;; U - Test loop counter
@@ -676,7 +676,7 @@ b1b:
 ;;	do 8 iterations
 
 	mov	al, 8			;; U - 8 iterations of 4
-b2b:	disp five_reals_first_fft dist512, 2*dist512, 4*dist512
+b2b:	disp five_reals_first_fft, dist512, 2*dist512, 4*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b2b			;;*V - Iterate if necessary
@@ -691,7 +691,7 @@ b2b:	disp five_reals_first_fft dist512, 2*dist512, 4*dist512
 	lea	esi, [esi-512*dist1+dist512];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	eax, 2			;; V - 2 iterations of 2 of 4
-b3b:	disp four_complex_fft 128*dist1, 256*dist1, dist512
+b3b:	disp four_complex_fft, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	b3b			;;*V - Iterate if necessary
@@ -707,7 +707,7 @@ b3b:	disp four_complex_fft 128*dist1, 256*dist1, dist512
 ;;	distance between fft data elements is 1 * 64
 
 	lea	esi, [esi-5*dist512]	;; U - Load source pointer
-b4b:	disp eight_reals_fft 64*dist1, 128*dist1, 256*dist1
+b4b:	disp eight_reals_fft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	b4b			;;*V - Iterate if necessary
@@ -719,7 +719,7 @@ b4b:	disp eight_reals_fft 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 ;;	mov	edi, sincos2		;; U - Load sin/cos pointer
 	mov	al, 4			;; V - 4 iterations of 4
-b6b:	disp two_two_complex_fft_n 64*dist1, 128*dist1, 256*dist1
+b6b:	disp two_two_complex_fft_n, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b6b			;;*V - Iterate if necessary
@@ -758,7 +758,7 @@ c1b:
 ;; Do 1 eight_reals_unfft operations (FFT levels 4,5,6)
 ;;	distance between fft data elements is 1 * 64
 
-c4b:	disp eight_reals_unfft 64*dist1, 128*dist1, 256*dist1
+c4b:	disp eight_reals_unfft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	c4b			;;*V - Iterate if necessary
@@ -770,7 +770,7 @@ c4b:	disp eight_reals_unfft 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 	mov	edi, sincos2		;; U - Load sin/cos pointer
 	mov	al, 4			;; V - 4 iterations of 4
-c6b:	disp two_two_complex_unfft_n 64*dist1, 128*dist1, 256*dist1
+c6b:	disp two_two_complex_unfft_n, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c6b			;;*V - Iterate if necessary
@@ -786,7 +786,7 @@ c6b:	disp two_two_complex_unfft_n 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-5*dist512+dist512];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	eax, 2			;; V - 2 iterations of 2 of 4
-c3b:	disp four_complex_unfft 128*dist1, 256*dist1, dist512
+c3b:	disp four_complex_unfft, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	c3b			;;*V - Iterate if necessary
@@ -804,7 +804,7 @@ c3b:	disp four_complex_unfft 128*dist1, 256*dist1, dist512
 
 	lea	esi, [esi-5*dist512]	;; U - Load source pointer
 	mov	al, 8			;; U - 8 iterations of 4
-c2b:	disp five_reals_last_unfft dist512, 2*dist512, 4*dist512
+c2b:	disp five_reals_last_unfft, dist512, 2*dist512, 4*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c2b			;;*V - Iterate if necessary
@@ -845,7 +845,7 @@ b1b:
 ;;	do 8 iterations
 
 	mov	al, 8			;; U - 8 iterations of 4
-b2b:	disp six_reals_first_fft dist512, 2*dist512, 4*dist512
+b2b:	disp six_reals_first_fft, dist512, 2*dist512, 4*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b2b			;;*V - Iterate if necessary
@@ -860,7 +860,7 @@ b2b:	disp six_reals_first_fft dist512, 2*dist512, 4*dist512
 	lea	esi, [esi-512*dist1+2*dist512];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	eax, 2			;; V - 2 iterations of 2 of 4
-b3b:	disp four_complex_fft 128*dist1, 256*dist1, dist512
+b3b:	disp four_complex_fft, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	b3b			;;*V - Iterate if necessary
@@ -881,8 +881,8 @@ b3b:	disp four_complex_fft 128*dist1, 256*dist1, dist512
 
 	lea	esi, [esi-6*dist512]	;; U - Load source pointer
 ;;	mov	edi, sincos2		;; U - Load sin/cos pointer
-b4b:	disp eight_reals_fft 64*dist1, 128*dist1, 256*dist1
-	dispc four_complex_fft_2 64*dist1, 128*dist1, 256*dist1, dist512
+b4b:	disp eight_reals_fft, 64*dist1, 128*dist1, 256*dist1
+	dispc four_complex_fft_2, 64*dist1, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	b4b			;;*V - Iterate if necessary
@@ -894,7 +894,7 @@ b4b:	disp eight_reals_fft 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+2*dist512];; U - Load source pointer
 	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
 	mov	al, 4			;; V - 4 iterations of 4
-b6b:	disp two_two_complex_fft_n 64*dist1, 128*dist1, 256*dist1
+b6b:	disp two_two_complex_fft_n, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b6b			;;*V - Iterate if necessary
@@ -938,8 +938,8 @@ c1b:
 ;; Distance between fft data elements is 1 * 64
 
 	mov	edi, sincos2		;; U - Load sin/cos pointer
-c4b:	disp eight_reals_unfft 64*dist1, 128*dist1, 256*dist1
-	dispc four_complex_unfft_2 64*dist1, 128*dist1, 256*dist1, dist512
+c4b:	disp eight_reals_unfft, 64*dist1, 128*dist1, 256*dist1
+	dispc four_complex_unfft_2, 64*dist1, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	c4b			;;*V - Iterate if necessary
@@ -951,7 +951,7 @@ c4b:	disp eight_reals_unfft 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+2*dist512];; U - Load source pointer
 	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
 	mov	al, 4			;; V - 4 iterations of 4
-c6b:	disp two_two_complex_unfft_n 64*dist1, 128*dist1, 256*dist1
+c6b:	disp two_two_complex_unfft_n, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c6b			;;*V - Iterate if necessary
@@ -967,7 +967,7 @@ c6b:	disp two_two_complex_unfft_n 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-6*dist512+2*dist512];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	eax, 2			;; V - 2 iterations of 2 of 4
-c3b:	disp four_complex_unfft 128*dist1, 256*dist1, dist512
+c3b:	disp four_complex_unfft, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	c3b			;;*V - Iterate if necessary
@@ -985,7 +985,7 @@ c3b:	disp four_complex_unfft 128*dist1, 256*dist1, dist512
 
 	lea	esi, [esi-6*dist512]	;; U - Load source pointer
 	mov	al, 8			;; U - 8 iterations of 4
-c2b:	disp six_reals_last_unfft dist512, 2*dist512, 4*dist512
+c2b:	disp six_reals_last_unfft, dist512, 2*dist512, 4*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c2b			;;*V - Iterate if necessary
@@ -1026,7 +1026,7 @@ b1b:
 ;;	do 8 iterations
 
 	mov	al, 8			;; U - 8 iterations of 4
-b2b:	disp seven_reals_first_fft dist512, 2*dist512, 4*dist512
+b2b:	disp seven_reals_first_fft, dist512, 2*dist512, 4*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b2b			;;*V - Iterate if necessary
@@ -1041,7 +1041,7 @@ b2b:	disp seven_reals_first_fft dist512, 2*dist512, 4*dist512
 	lea	esi, [esi-512*dist1+dist512];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	eax, 3			;; V - 3 iterations of 2 of 4
-b3b:	disp four_complex_fft 128*dist1, 256*dist1, dist512
+b3b:	disp four_complex_fft, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	b3b			;;*V - Iterate if necessary
@@ -1057,7 +1057,7 @@ b3b:	disp four_complex_fft 128*dist1, 256*dist1, dist512
 ;;	distance between fft data elements is 1 * 64
 
 	lea	esi, [esi-7*dist512]	;; U - Load source pointer
-b4b:	disp eight_reals_fft 64*dist1, 128*dist1, 256*dist1
+b4b:	disp eight_reals_fft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	b4b			;;*V - Iterate if necessary
@@ -1069,7 +1069,7 @@ b4b:	disp eight_reals_fft 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 ;;	mov	edi, sincos2		;; U - Load sin/cos pointer
 	mov	al, 6			;; V - 6 iterations of 4
-b6b:	disp two_two_complex_fft_n 64*dist1, 128*dist1, 256*dist1
+b6b:	disp two_two_complex_fft_n, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b6b			;;*V - Iterate if necessary
@@ -1108,7 +1108,7 @@ c1b:
 ;; Do 1 eight_reals_unfft operations (FFT levels 4,5,6)
 ;;	distance between fft data elements is 1 * 64
 
-c4b:	disp eight_reals_unfft 64*dist1, 128*dist1, 256*dist1
+c4b:	disp eight_reals_unfft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	c4b			;;*V - Iterate if necessary
@@ -1120,7 +1120,7 @@ c4b:	disp eight_reals_unfft 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 	mov	edi, sincos2		;; U - Load sin/cos pointer
 	mov	al, 6			;; V - 6 iterations of 4
-c6b:	disp two_two_complex_unfft_n 64*dist1, 128*dist1, 256*dist1
+c6b:	disp two_two_complex_unfft_n, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c6b			;;*V - Iterate if necessary
@@ -1136,7 +1136,7 @@ c6b:	disp two_two_complex_unfft_n 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-7*dist512+dist512];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	eax, 3			;; V - 3 iterations of 2 of 4
-c3b:	disp four_complex_unfft 128*dist1, 256*dist1, dist512
+c3b:	disp four_complex_unfft, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	c3b			;;*V - Iterate if necessary
@@ -1154,7 +1154,7 @@ c3b:	disp four_complex_unfft 128*dist1, 256*dist1, dist512
 
 	lea	esi, [esi-7*dist512]	;; U - Load source pointer
 	mov	al, 8			;; U - 8 iterations of 4
-c2b:	disp seven_reals_last_unfft dist512, 2*dist512, 4*dist512
+c2b:	disp seven_reals_last_unfft, dist512, 2*dist512, 4*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c2b			;;*V - Iterate if necessary
@@ -1195,7 +1195,7 @@ b1b:
 ;;	do 8 iterations
 
 	mov	al, 8			;; U - 8 iterations of 4
-b2b:	disp eight_reals_first_fft dist512, 2*dist512, 4*dist512
+b2b:	disp eight_reals_first_fft, dist512, 2*dist512, 4*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b2b			;;*V - Iterate if necessary
@@ -1210,7 +1210,7 @@ b2b:	disp eight_reals_first_fft dist512, 2*dist512, 4*dist512
 	lea	esi, [esi-512*dist1+2*dist512];; U - Load source pointer
 	mov	edi, sincos_real	;; U - Load sin/cos pointer
 	mov	eax, 3			;; V - 3 iterations of 2 of 4
-b3b:	disp four_complex_fft 128*dist1, 256*dist1, dist512
+b3b:	disp four_complex_fft, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	b3b			;;*V - Iterate if necessary
@@ -1231,8 +1231,8 @@ b3b:	disp four_complex_fft 128*dist1, 256*dist1, dist512
 
 	lea	esi, [esi-8*dist512]	;; U - Load source pointer
 	mov	edi, sincos_real	;; V - Load sin/cos pointer
-b4b:	disp eight_reals_fft 64*dist1, 128*dist1, 256*dist1
-	dispc four_complex_fft_2 64*dist1, 128*dist1, 256*dist1, dist512
+b4b:	disp eight_reals_fft, 64*dist1, 128*dist1, 256*dist1
+	dispc four_complex_fft_2, 64*dist1, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	b4b			;;*V - Iterate if necessary
@@ -1244,7 +1244,7 @@ b4b:	disp eight_reals_fft 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+2*dist512];; U - Load source pointer
 	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
 	mov	al, 6			;; V - 6 iterations of 4
-b6b:	disp two_two_complex_fft_n 64*dist1, 128*dist1, 256*dist1
+b6b:	disp two_two_complex_fft_n, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b6b			;;*V - Iterate if necessary
@@ -1288,8 +1288,8 @@ c1b:
 ;;	distance between fft data elements is 1 * 64
 
 	mov	edi, sincos_real	;; U - Load sin/cos pointer
-c4b:	disp eight_reals_unfft 64*dist1, 128*dist1, 256*dist1
-	dispc four_complex_unfft_2 64*dist1, 128*dist1, 256*dist1, dist512
+c4b:	disp eight_reals_unfft, 64*dist1, 128*dist1, 256*dist1
+	dispc four_complex_unfft_2, 64*dist1, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	c4b			;;*V - Iterate if necessary
@@ -1301,7 +1301,7 @@ c4b:	disp eight_reals_unfft 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+2*dist512];; U - Load source pointer
 	lea	edi, [edi+SCD]		;; V - Next sine/cosine pointer
 	mov	al, 6			;; V - 6 iterations of 4
-c6b:	disp two_two_complex_unfft_n 64*dist1, 128*dist1, 256*dist1
+c6b:	disp two_two_complex_unfft_n, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c6b			;;*V - Iterate if necessary
@@ -1317,7 +1317,7 @@ c6b:	disp two_two_complex_unfft_n 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-8*dist512+2*dist512];; U - Load source pointer
 	mov	edi, sincos_real	;; U - Load sin/cos pointer
 	mov	eax, 3			;; V - 3 iterations of 2 of 4
-c3b:	disp four_complex_unfft 128*dist1, 256*dist1, dist512
+c3b:	disp four_complex_unfft, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	c3b			;;*V - Iterate if necessary
@@ -1335,7 +1335,7 @@ c3b:	disp four_complex_unfft 128*dist1, 256*dist1, dist512
 
 	lea	esi, [esi-8*dist512]	;; U - Load source pointer
 	mov	al, 8			;; U - 8 iterations of 4
-c2b:	disp eight_reals_last_unfft dist512, 2*dist512, 4*dist512
+c2b:	disp eight_reals_last_unfft, dist512, 2*dist512, 4*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c2b			;;*V - Iterate if necessary
@@ -1374,7 +1374,7 @@ b1b:
 
 	mov	edi, ecx		;; U - Address of premultipliers
 	mov	al, 8			;; V - 8 iterations
-b2b:	disp four_complex_first_fft dist512, 2*dist512, 4*dist512
+b2b:	disp four_complex_first_fft, dist512, 2*dist512, 4*dist512
 	lea	esi, [esi+64*dist1]	;; U - Next source pointer
 	lea	edi, [edi+PMD]		;; V - Next multipliers
 	dec	al			;; U - Test loop counter
@@ -1388,7 +1388,7 @@ b2b:	disp four_complex_first_fft dist512, 2*dist512, 4*dist512
 	lea	esi, [esi-512*dist1]	;; U - Next source pointer
 	mov	edi, sincos_complex	;; U - Load sin/cos pointer
 	mov	al, 4			;; V - 4 iterations of 2
-b3b:	disp four_complex_fft 128*dist1, 256*dist1, dist512
+b3b:	disp four_complex_fft, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+64*dist1]	;; U - Next source pointer
 	add	al, 256/2		;; U - Test inner loop counter
 	JNC_X	b3b			;; V - Iterate if necessary
@@ -1403,7 +1403,7 @@ b3b:	disp four_complex_fft 128*dist1, 256*dist1, dist512
 
 	lea	esi, [esi-8*dist512]	;; U - Next source pointer
 	mov	edi, sincos_complex	;; V - Load sin/cos pointer
-b4b:	disp two_two_complex_fft_n 64*dist1, 128*dist1, 256*dist1
+b4b:	disp two_two_complex_fft_n, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist512]	;; U - Next source pointer
 	lea	edi, [edi+SCD]		;; V - Next sin/cos values
 	add	al, 256/8		;; U - Test loop counter
@@ -1440,7 +1440,7 @@ c1b:
 ;;	do 8 iterations
 
 	mov	edi, sincos_complex	;; U - Load sin/cos pointer
-c4b:	disp two_two_complex_unfft_n 64*dist1, 128*dist1, 256*dist1
+c4b:	disp two_two_complex_unfft_n, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist512]	;; U - Next source pointer
 	lea	edi, [edi+SCD]		;; V - Next sin/cos values
 	add	al, 256/8		;; U - Test loop counter
@@ -1453,7 +1453,7 @@ c4b:	disp two_two_complex_unfft_n 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-8*dist512]	;; U - Next source pointer
 	mov	edi, sincos_complex	;; U - Load sin/cos pointer
 	mov	al, 4			;; V - 4 iterations of 2
-c3b:	disp four_complex_unfft 128*dist1, 256*dist1, dist512
+c3b:	disp four_complex_unfft, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+64*dist1]	;; U - Next source pointer
 	add	al, 256/2		;; U - Test inner loop counter
 	JNC_X	c3b			;; V - Iterate if necessary
@@ -1468,7 +1468,7 @@ c3b:	disp four_complex_unfft 128*dist1, 256*dist1, dist512
 
 	lea	esi, [esi-8*dist512]	;; U - Load source pointer
 	mov	edi, ecx		;; V - Address of premultipliers
-c2b:	disp four_complex_last_unfft dist512, 2*dist512, 4*dist512
+c2b:	disp four_complex_last_unfft, dist512, 2*dist512, 4*dist512
 	lea	esi, [esi+64*dist1]	;; U - Next source pointer
 	lea	edi, [edi+PMD]		;; V - Next multipliers
 	add	al, 256/8		;; U - Test loop counter
@@ -1509,7 +1509,7 @@ b1b:
 ;;	do 2 iterations of 8
 
 	mov	eax, 2			;; U - 2 iterations of 8
-b2b:	disp five_reals_first_fft 2*dist512, 4*dist512, 8*dist512
+b2b:	disp five_reals_first_fft, 2*dist512, 4*dist512, 8*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	b2b			;;*V - Iterate if necessary
@@ -1526,7 +1526,7 @@ b2b:	disp five_reals_first_fft 2*dist512, 4*dist512, 8*dist512
 
 	lea	esi, [esi-2*dist512]	;; U - Next source pointer
 	mov	al, 2			;; V - 2 iterations
-b3b:	disp eight_reals_funny_fft 128*dist1, 256*dist1, dist512
+b3b:	disp eight_reals_funny_fft, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b3b			;;*V - Iterate if necessary
@@ -1541,7 +1541,7 @@ b3b:	disp eight_reals_funny_fft 128*dist1, 256*dist1, dist512
 	lea	esi, [esi-128*dist1+2*dist512];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	eax, 2			;; V - 2 iterations of 4
-b4b:	disp four_complex_fft 256*dist1, dist512, 2*dist512
+b4b:	disp four_complex_fft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; U - Test inner loop counter
 	JNC_X	b4b			;;*V - Iterate if necessary
@@ -1557,7 +1557,7 @@ b4b:	disp four_complex_fft 256*dist1, dist512, 2*dist512
 ;;	distance between fft data elements is 1 * 64
 
 	lea	esi, [esi-10*dist512]	;; U - Load source pointer
-b5b:	disp eight_reals_fft_1 64*dist1, 128*dist1, 256*dist1
+b5b:	disp eight_reals_fft_1, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	b5b			;;*V - Iterate if necessary
@@ -1568,7 +1568,7 @@ b5b:	disp eight_reals_fft_1 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 ;;	mov	edi, sincos2		;; U - Load sin/cos pointer
 	mov	al, 9			;; U - 9 iterations
-b6b:	disp four_complex_fft 64*dist1, 128*dist1, 256*dist1
+b6b:	disp four_complex_fft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b6b			;;*V - Iterate if necessary
@@ -1607,7 +1607,7 @@ c1b:
 ;; Do 1 eight_reals_unfft_1 macros (FFT level 7)
 ;;	distance between fft data elements is 1 * 64
 
-c5b:	disp eight_reals_unfft_1 64*dist1, 128*dist1, 256*dist1
+c5b:	disp eight_reals_unfft_1, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	c5b			;;*V - Iterate if necessary
@@ -1618,7 +1618,7 @@ c5b:	disp eight_reals_unfft_1 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 	mov	edi, sincos2		;; U - Load sin/cos pointer
 	mov	al, 9			;; U - 9 iterations
-c6b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
+c6b:	disp four_complex_unfft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c6b			;;*V - Iterate if necessary
@@ -1633,7 +1633,7 @@ c6b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
 
 	lea	esi, [esi-10*dist512]	;; U - Next source pointer
 	mov	al, 2			;; V - 2 iterations
-c3b:	disp eight_reals_funny_unfft 128*dist1, 256*dist1, dist512
+c3b:	disp eight_reals_funny_unfft, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c3b			;;*V - Iterate if necessary
@@ -1648,7 +1648,7 @@ c3b:	disp eight_reals_funny_unfft 128*dist1, 256*dist1, dist512
 	lea	esi, [esi-128*dist1+2*dist512];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	eax, 2			;; V - 2 iterations of 4
-c4b:	disp four_complex_unfft 256*dist1, dist512, 2*dist512
+c4b:	disp four_complex_unfft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; U - Test inner loop counter
 	JNC_X	c4b			;;*V - Iterate if necessary
@@ -1666,7 +1666,7 @@ c4b:	disp four_complex_unfft 256*dist1, dist512, 2*dist512
 
 	lea	esi, [esi-10*dist512]	;; U - Load source pointer
 	mov	eax, 2			;; V - 2 iterations of 8
-c2b:	disp five_reals_last_unfft 2*dist512, 4*dist512, 8*dist512
+c2b:	disp five_reals_last_unfft, 2*dist512, 4*dist512, 8*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	c2b			;;*V - Iterate if necessary
@@ -1710,7 +1710,7 @@ b1b:
 ;;	do 2 iterations of 8
 
 	mov	eax, 2			;; U - 2 iterations of 8
-b2b:	disp six_reals_first_fft 2*dist512, 4*dist512, 8*dist512
+b2b:	disp six_reals_first_fft, 2*dist512, 4*dist512, 8*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	b2b			;;*V - Iterate if necessary
@@ -1736,8 +1736,8 @@ b2b:	disp six_reals_first_fft 2*dist512, 4*dist512, 8*dist512
 
 	lea	esi, [esi-2*dist512]	;; U - Next source pointer
 	mov	al, 2			;; V - 2 iterations
-b3b:	disp eight_reals_funny_fft 128*dist1, 256*dist1, dist512
-	dispc two_two_complex_fft_2 128*dist1, 256*dist1, dist512, 2*dist512
+b3b:	disp eight_reals_funny_fft, 128*dist1, 256*dist1, dist512
+	dispc two_two_complex_fft_2, 128*dist1, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b3b			;;*V - Iterate if necessary
@@ -1752,7 +1752,7 @@ b3b:	disp eight_reals_funny_fft 128*dist1, 256*dist1, dist512
 	lea	esi, [esi-128*dist1+4*dist512];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	eax, 2			;; V - 2 iterations of 4
-b4b:	disp four_complex_fft 256*dist1, dist512, 2*dist512
+b4b:	disp four_complex_fft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; U - Test inner loop counter
 	JNC_X	b4b			;;*V - Iterate if necessary
@@ -1768,7 +1768,7 @@ b4b:	disp four_complex_fft 256*dist1, dist512, 2*dist512
 ;;	distance between fft data elements is 1 * 64
 
 	lea	esi, [esi-12*dist512]	;; U - Load source pointer
-b5b:	disp eight_reals_fft_1 64*dist1, 128*dist1, 256*dist1
+b5b:	disp eight_reals_fft_1, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b5b			;;*V - Iterate if necessary
@@ -1779,7 +1779,7 @@ b5b:	disp eight_reals_fft_1 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 ;;	mov	edi, sincos2		;; U - Load sin/cos pointer
 	mov	al, 11			;; U - 11 iterations
-b6b:	disp four_complex_fft 64*dist1, 128*dist1, 256*dist1
+b6b:	disp four_complex_fft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b6b			;;*V - Iterate if necessary
@@ -1818,7 +1818,7 @@ c1b:
 ;; Do 1 eight_reals_unfft_1 macros (FFT level 7)
 ;;	distance between fft data elements is 1 * 64
 
-c5b:	disp eight_reals_unfft_1 64*dist1, 128*dist1, 256*dist1
+c5b:	disp eight_reals_unfft_1, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	c5b			;;*V - Iterate if necessary
@@ -1829,7 +1829,7 @@ c5b:	disp eight_reals_unfft_1 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 	mov	edi, sincos2		;; U - Load sin/cos pointer
 	mov	al, 11			;; U - 11 iterations
-c6b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
+c6b:	disp four_complex_unfft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c6b			;;*V - Iterate if necessary
@@ -1853,8 +1853,8 @@ c6b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
 
 	lea	esi, [esi-12*dist512]	;; U - Next source pointer
 	mov	al, 2			;; V - 2 iterations
-c3b:	disp eight_reals_funny_unfft 128*dist1, 256*dist1, dist512
-	dispc two_two_complex_unfft_2 128*dist1, 256*dist1, dist512, 2*dist512
+c3b:	disp eight_reals_funny_unfft, 128*dist1, 256*dist1, dist512
+	dispc two_two_complex_unfft_2, 128*dist1, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c3b			;;*V - Iterate if necessary
@@ -1869,7 +1869,7 @@ c3b:	disp eight_reals_funny_unfft 128*dist1, 256*dist1, dist512
 	lea	esi, [esi-128*dist1+4*dist512];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	eax, 2			;; V - 2 iterations of 4
-c4b:	disp four_complex_unfft 256*dist1, dist512, 2*dist512
+c4b:	disp four_complex_unfft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; U - Test inner loop counter
 	JNC_X	c4b			;;*V - Iterate if necessary
@@ -1887,7 +1887,7 @@ c4b:	disp four_complex_unfft 256*dist1, dist512, 2*dist512
 
 	lea	esi, [esi-12*dist512]	;; U - Load source pointer
 	mov	eax, 2			;; V - 2 iterations of 8
-c2b:	disp six_reals_last_unfft 2*dist512, 4*dist512, 8*dist512
+c2b:	disp six_reals_last_unfft, 2*dist512, 4*dist512, 8*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	c2b			;;*V - Iterate if necessary
@@ -1931,7 +1931,7 @@ b1b:
 ;;	do 2 iterations of 8
 
 	mov	eax, 2			;; U - 2 iterations of 8
-b2b:	disp seven_reals_first_fft 2*dist512, 4*dist512, 8*dist512
+b2b:	disp seven_reals_first_fft, 2*dist512, 4*dist512, 8*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	b2b			;;*V - Iterate if necessary
@@ -1948,7 +1948,7 @@ b2b:	disp seven_reals_first_fft 2*dist512, 4*dist512, 8*dist512
 
 	lea	esi, [esi-2*dist512]	;; U - Next source pointer
 	mov	al, 2			;; V - 2 iterations
-b3b:	disp eight_reals_funny_fft 128*dist1, 256*dist1, dist512
+b3b:	disp eight_reals_funny_fft, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b3b			;;*V - Iterate if necessary
@@ -1963,7 +1963,7 @@ b3b:	disp eight_reals_funny_fft 128*dist1, 256*dist1, dist512
 	lea	esi, [esi-128*dist1+2*dist512];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	eax, 3			;; V - 3 iterations of 4
-b4b:	disp four_complex_fft 256*dist1, dist512, 2*dist512
+b4b:	disp four_complex_fft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; U - Test inner loop counter
 	JNC_X	b4b			;;*V - Iterate if necessary
@@ -1979,7 +1979,7 @@ b4b:	disp four_complex_fft 256*dist1, dist512, 2*dist512
 ;;	distance between fft data elements is 1 * 64
 
 	lea	esi, [esi-14*dist512]	;; U - Load source pointer
-b5b:	disp eight_reals_fft_1 64*dist1, 128*dist1, 256*dist1
+b5b:	disp eight_reals_fft_1, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	b5b			;;*V - Iterate if necessary
@@ -1990,7 +1990,7 @@ b5b:	disp eight_reals_fft_1 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 ;;	mov	edi, sincos2		;; U - Load sin/cos pointer
 	mov	al, 13			;; U - 13 iterations
-b6b:	disp four_complex_fft 64*dist1, 128*dist1, 256*dist1
+b6b:	disp four_complex_fft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b6b			;;*V - Iterate if necessary
@@ -2029,7 +2029,7 @@ c1b:
 ;; Do 1 eight_reals_unfft_1 macros (FFT level 7)
 ;;	distance between fft data elements is 1 * 64
 
-c5b:	disp eight_reals_unfft_1 64*dist1, 128*dist1, 256*dist1
+c5b:	disp eight_reals_unfft_1, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	c5b			;;*V - Iterate if necessary
@@ -2040,7 +2040,7 @@ c5b:	disp eight_reals_unfft_1 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 	mov	edi, sincos2		;; U - Load sin/cos pointer
 	mov	al, 13			;; U - 13 iterations
-c6b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
+c6b:	disp four_complex_unfft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c6b			;;*V - Iterate if necessary
@@ -2055,7 +2055,7 @@ c6b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
 
 	lea	esi, [esi-14*dist512]	;; U - Next source pointer
 	mov	al, 2			;; V - 2 iterations
-c3b:	disp eight_reals_funny_unfft 128*dist1, 256*dist1, dist512
+c3b:	disp eight_reals_funny_unfft, 128*dist1, 256*dist1, dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c3b			;;*V - Iterate if necessary
@@ -2070,7 +2070,7 @@ c3b:	disp eight_reals_funny_unfft 128*dist1, 256*dist1, dist512
 	lea	esi, [esi-128*dist1+2*dist512];; U - Load source pointer
 	mov	edi, sincos1		;; U - Load sin/cos pointer
 	mov	eax, 3			;; V - 3 iterations of 4
-c4b:	disp four_complex_unfft 256*dist1, dist512, 2*dist512
+c4b:	disp four_complex_unfft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; U - Test inner loop counter
 	JNC_X	c4b			;;*V - Iterate if necessary
@@ -2088,7 +2088,7 @@ c4b:	disp four_complex_unfft 256*dist1, dist512, 2*dist512
 
 	lea	esi, [esi-14*dist512]	;; U - Load source pointer
 	mov	eax, 2			;; V - 2 iterations of 8
-c2b:	disp seven_reals_last_unfft 2*dist512, 4*dist512, 8*dist512
+c2b:	disp seven_reals_last_unfft, 2*dist512, 4*dist512, 8*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	c2b			;;*V - Iterate if necessary
@@ -2132,7 +2132,7 @@ b1b:
 ;;	do 2 iterations of 8
 
 	mov	eax, 2			;; U - 2 iterations of 8
-b2b:	disp eight_reals_first_fft 2*dist512, 4*dist512, 8*dist512
+b2b:	disp eight_reals_first_fft, 2*dist512, 4*dist512, 8*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	b2b			;;*V - Iterate if necessary
@@ -2158,8 +2158,8 @@ b2b:	disp eight_reals_first_fft 2*dist512, 4*dist512, 8*dist512
 
 	lea	esi, [esi-2*dist512]	;; U - Next source pointer
 	mov	al, 2			;; V - 2 iterations
-b3b:	disp eight_reals_funny_fft 128*dist1, 256*dist1, dist512
-	dispc two_two_complex_fft_2 128*dist1, 256*dist1, dist512, 2*dist512
+b3b:	disp eight_reals_funny_fft, 128*dist1, 256*dist1, dist512
+	dispc two_two_complex_fft_2, 128*dist1, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b3b			;;*V - Iterate if necessary
@@ -2174,7 +2174,7 @@ b3b:	disp eight_reals_funny_fft 128*dist1, 256*dist1, dist512
 	lea	esi, [esi-128*dist1+4*dist512];; U - Load source pointer
 	mov	edi, sincos_real	;; U - Load sin/cos pointer
 	mov	eax, 3			;; V - 3 iterations of 4
-b4b:	disp four_complex_fft 256*dist1, dist512, 2*dist512
+b4b:	disp four_complex_fft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; U - Test inner loop counter
 	JNC_X	b4b			;;*V - Iterate if necessary
@@ -2190,7 +2190,7 @@ b4b:	disp four_complex_fft 256*dist1, dist512, 2*dist512
 ;;	distance between fft data elements is 1 * 64
 
 	lea	esi, [esi-16*dist512]	;; U - Load source pointer
-b5b:	disp eight_reals_fft_1 64*dist1, 128*dist1, 256*dist1
+b5b:	disp eight_reals_fft_1, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	b5b			;;*V - Iterate if necessary
@@ -2201,7 +2201,7 @@ b5b:	disp eight_reals_fft_1 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 	mov	edi, sincos_real	;; V - Load sin/cos pointer
 	mov	al, 15			;; U - 15 iterations
-b6b:	disp four_complex_fft 64*dist1, 128*dist1, 256*dist1
+b6b:	disp four_complex_fft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	b6b			;;*V - Iterate if necessary
@@ -2240,7 +2240,7 @@ c1b:
 ;; Do 1 eight_reals_unfft_1 macros (FFT level 7)
 ;;	distance between fft data elements is 1 * 64
 
-c5b:	disp eight_reals_unfft_1 64*dist1, 128*dist1, 256*dist1
+c5b:	disp eight_reals_unfft_1, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test loop counter
 	JNC_X	c5b			;;*V - Iterate if necessary
@@ -2251,7 +2251,7 @@ c5b:	disp eight_reals_unfft_1 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-4*dist1+dist512];; U - Load source pointer
 	mov	edi, sincos_real	;; V - Load sin/cos pointer
 	mov	al, 15			;; U - 15 iterations
-c6b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
+c6b:	disp four_complex_unfft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c6b			;;*V - Iterate if necessary
@@ -2275,8 +2275,8 @@ c6b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
 
 	lea	esi, [esi-16*dist512]	;; U - Next source pointer
 	mov	al, 2			;; V - 2 iterations
-c3b:	disp eight_reals_funny_unfft 128*dist1, 256*dist1, dist512
-	dispc two_two_complex_unfft_2 128*dist1, 256*dist1, dist512, 2*dist512
+c3b:	disp eight_reals_funny_unfft, 128*dist1, 256*dist1, dist512
+	dispc two_two_complex_unfft_2, 128*dist1, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	al, 256/4		;; V - Test inner loop counter
 	JNC_X	c3b			;;*V - Iterate if necessary
@@ -2291,7 +2291,7 @@ c3b:	disp eight_reals_funny_unfft 128*dist1, 256*dist1, dist512
 	lea	esi, [esi-128*dist1+4*dist512];; U - Load source pointer
 	mov	edi, sincos_real	;; U - Load sin/cos pointer
 	mov	eax, 3			;; V - 3 iterations of 4
-c4b:	disp four_complex_unfft 256*dist1, dist512, 2*dist512
+c4b:	disp four_complex_unfft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; U - Test inner loop counter
 	JNC_X	c4b			;;*V - Iterate if necessary
@@ -2309,7 +2309,7 @@ c4b:	disp four_complex_unfft 256*dist1, dist512, 2*dist512
 
 	lea	esi, [esi-16*dist512]	;; U - Load source pointer
 	mov	eax, 2			;; V - 2 iterations of 8
-c2b:	disp eight_reals_last_unfft 2*dist512, 4*dist512, 8*dist512
+c2b:	disp eight_reals_last_unfft, 2*dist512, 4*dist512, 8*dist512
 	lea	esi, [esi+dist1]	;; U - Next source pointer
 	add	ah, 256/4		;; V - Test inner loop counter
 	JNC_X	c2b			;;*V - Iterate if necessary
@@ -2350,7 +2350,7 @@ b1b:
 
 	mov	edi, ecx		;; U - Address of premultipliers
 	mov	al, 2			;; V - 2 iterations of 8
-b2b:	disp four_complex_first_fft 2*dist512, 4*dist512, 8*dist512
+b2b:	disp four_complex_first_fft, 2*dist512, 4*dist512, 8*dist512
 	lea	esi, [esi+64*dist1]	;; U - Next source pointer
 	lea	edi, [edi+PMD]		;; V - Next multipliers
 	add	al, 256/8		;; U - Test inner loop counter
@@ -2367,7 +2367,7 @@ b2b:	disp four_complex_first_fft 2*dist512, 4*dist512, 8*dist512
 	lea	esi, [esi-2*dist512]	;; U - Next source pointer
 	mov	edi, sincos_complex	;; V - Load sin/cos pointer
 	mov	al, 4			;; U - 4 iterations of 4
-b3b:	disp four_complex_fft 256*dist1, dist512, 2*dist512
+b3b:	disp four_complex_fft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+64*dist1]	;; U - Next source pointer
 	add	al, 256/4		;; U - Test inner loop counter
 	JNC_X	b3b			;; V - Iterate if necessary
@@ -2382,7 +2382,7 @@ b3b:	disp four_complex_fft 256*dist1, dist512, 2*dist512
 
 	lea	esi, [esi-16*dist512]	;; U - Next source pointer
 	mov	edi, sincos_complex	;; U - Load sin/cos pointer
-b4b:	disp four_complex_fft 64*dist1, 128*dist1, 256*dist1
+b4b:	disp four_complex_fft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist512]	;; U - Next source pointer
 	lea	edi, [edi+SCD]		;; V - Next sin/cos values
 	add	al, 256/16		;; U - Test loop counter
@@ -2419,7 +2419,7 @@ c1b:
 ;;	do 16 iterations
 
 	mov	edi, sincos_complex	;; U - Load sin/cos pointer
-c4b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
+c4b:	disp four_complex_unfft, 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi+dist512]	;; U - Next source pointer
 	lea	edi, [edi+SCD]		;; V - Next sin/cos values
 	add	al, 256/16		;; U - Test loop counter
@@ -2432,7 +2432,7 @@ c4b:	disp four_complex_unfft 64*dist1, 128*dist1, 256*dist1
 	lea	esi, [esi-16*dist512]	;; U - Load source pointer
 	mov	edi, sincos_complex	;; U - Load sin/cos pointer
 	mov	al, 4			;; V - 4 iterations of 4
-c3b:	disp four_complex_unfft 256*dist1, dist512, 2*dist512
+c3b:	disp four_complex_unfft, 256*dist1, dist512, 2*dist512
 	lea	esi, [esi+64*dist1]	;; U - Next source pointer
 	add	al, 256/4		;; U - Test inner loop counter
 	JNC_X	c3b			;; V - Iterate if necessary
@@ -2448,7 +2448,7 @@ c3b:	disp four_complex_unfft 256*dist1, dist512, 2*dist512
 	lea	esi, [esi-16*dist512]	;; U - Load source pointer
 	mov	edi, ecx		;; V - Address of premultipliers
 	mov	al, 2			;; U - 2 iterations of 8
-c2b:	disp four_complex_last_unfft 2*dist512, 4*dist512, 8*dist512
+c2b:	disp four_complex_last_unfft, 2*dist512, 4*dist512, 8*dist512
 	lea	esi, [esi+64*dist1]	;; U - Next source pointer
 	lea	edi, [edi+PMD]		;; V - Next multipliers
 	add	al, 256/8		;; U - Test inner loop counter

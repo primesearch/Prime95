@@ -130,57 +130,59 @@ CAPTION "Setup for NT Service version of Prime95"
 FONT 8, "MS Sans Serif"
 BEGIN
     ICON            IDR_MAINFRAME,IDC_STATIC,11,17,18,20
-    LTEXT           "NTPrime Setup - Version 20.4.5",IDC_STATIC,40,12,119,8,
+    LTEXT           "NTPrime Setup - Version 21.4.5",IDC_STATIC,40,12,119,8,
                     SS_NOPREFIX
-    LTEXT           "Copyright © 1996-2000 Just For Fun Software, Inc.",
+    LTEXT           "Copyright © 1996-2001 Just For Fun Software, Inc.",
                     IDC_STATIC,39,22,154,8
     DEFPUSHBUTTON   "OK",IDOK,199,7,32,14,WS_GROUP
     LTEXT           "Author: George Woltman",IDC_STATIC,39,32,128,8
     LTEXT           "Email:  woltman@alum.mit.edu",IDC_STATIC,39,42,161,8
 END
 
-IDD_CPU DIALOG DISCARDABLE  0, 0, 171, 171
+IDD_CPU DIALOG DISCARDABLE  0, 0, 171, 182
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "CPU Type and Speed"
 FONT 8, "MS Sans Serif"
 BEGIN
-    CONTROL         "Penti&um III",IDC_PIII,"Button",BS_AUTORADIOBUTTON | 
+    CONTROL         "Pentium &4",IDC_P4,"Button",BS_AUTORADIOBUTTON | 
                     WS_GROUP | WS_TABSTOP,7,17,47,10
-    CONTROL         "Pentiu&m II",IDC_PII,"Button",BS_AUTORADIOBUTTON,7,27,
+    CONTROL         "Penti&um III",IDC_PIII,"Button",BS_AUTORADIOBUTTON,7,27,
+                    47,10
+    CONTROL         "Pentiu&m II",IDC_PII,"Button",BS_AUTORADIOBUTTON,7,37,
                     49,10
-    CONTROL         "Ce&leron",IDC_CELERON,"Button",BS_AUTORADIOBUTTON,7,37,
+    CONTROL         "Ce&leron",IDC_CELERON,"Button",BS_AUTORADIOBUTTON,7,47,
                     46,10
-    CONTROL         "Pentium P&ro",IDC_PRO,"Button",BS_AUTORADIOBUTTON,7,47,
+    CONTROL         "Pentium P&ro",IDC_PRO,"Button",BS_AUTORADIOBUTTON,7,57,
                     51,10
-    CONTROL         "&Pentium",IDC_PENTIUM,"Button",BS_AUTORADIOBUTTON,7,57,
+    CONTROL         "&Pentium",IDC_PENTIUM,"Button",BS_AUTORADIOBUTTON,7,67,
                     49,10
-    CONTROL         "&486",IDC_486,"Button",BS_AUTORADIOBUTTON,7,67,45,10
+    CONTROL         "4&86",IDC_486,"Button",BS_AUTORADIOBUTTON,7,77,45,10
     CONTROL         "&Athlon",IDC_K7,"Button",BS_AUTORADIOBUTTON,62,17,48,10
     CONTROL         "&K6",IDC_K6,"Button",BS_AUTORADIOBUTTON,62,27,36,10
     CONTROL         "&6x86",IDC_CYRIX,"Button",BS_AUTORADIOBUTTON,62,57,41,
                     10
-    EDITTEXT        IDC_P,85,77,34,12
-    EDITTEXT        IDC_HOURS,132,89,30,12
-    EDITTEXT        IDC_DAY_MEMORY,132,122,30,12
-    EDITTEXT        IDC_NIGHT_MEMORY,132,136,30,12
-    EDITTEXT        IDC_START_TIME,68,150,30,12,ES_AUTOHSCROLL
-    EDITTEXT        IDC_END_TIME,132,150,30,12,ES_AUTOHSCROLL
+    EDITTEXT        IDC_P,83,88,34,12
+    EDITTEXT        IDC_HOURS,127,103,37,12
+    EDITTEXT        IDC_DAY_MEMORY,127,135,37,12
+    EDITTEXT        IDC_NIGHT_MEMORY,127,149,37,12
+    EDITTEXT        IDC_START_TIME,61,162,37,12,ES_AUTOHSCROLL
+    EDITTEXT        IDC_END_TIME,127,162,37,12,ES_AUTOHSCROLL
     DEFPUSHBUTTON   "OK",IDOK,114,7,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,114,24,50,14
-    LTEXT           "&CPU speed (in MHz):",IDC_STATIC,7,78,75,10
-    LTEXT           "&Hours per day this program will run:",IDC_STATIC,7,91,
+    LTEXT           "&CPU speed (in MHz):",IDC_STATIC,7,90,70,10
+    LTEXT           "&Hours per day this program will run:",IDC_STATIC,7,103,
                     117,10
     LTEXT           "Intel",IDC_STATIC,7,7,47,10
     LTEXT           "AMD",IDC_STATIC,62,7,47,10
     LTEXT           "Cyrix",IDC_STATIC,62,47,47,10
-    LTEXT           "end&s at:",IDC_STATIC,101,152,30,10
-    LTEXT           "&Nighttime available memory  (in M&B):",IDC_STATIC,7,
-                    138,123,10
+    LTEXT           "end&s:",IDC_STATIC,102,165,20,10
+    LTEXT           "&Nighttime available memory  (in MB):",IDC_STATIC,7,150,
+                    117,10
     LTEXT           "Please see the readme.txt file for very important information on the available memory settings.",
-                    IDC_STATIC,7,103,155,16
-    LTEXT           "&Daytime available memory  (in M&B):",IDC_STATIC,7,124,
-                    123,10
-    LTEXT           "Daytime &begins at:",IDC_STATIC,7,152,58,10
+                    IDC_STATIC,7,115,155,16
+    LTEXT           "&Daytime available memory  (in MB):",IDC_STATIC,7,137,
+                    115,10
+    LTEXT           "Daytime &begins:",IDC_STATIC,7,164,53,10
 END
 
 IDD_PREFERENCES DIALOG DISCARDABLE  0, 0, 230, 103
@@ -402,8 +404,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 20,4,5,0
- PRODUCTVERSION 20,4,5,0
+ FILEVERSION 21,4,5,0
+ PRODUCTVERSION 21,4,5,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -420,12 +422,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "\0"
             VALUE "FileDescription", "PRIME95 MFC Application\0"
-            VALUE "FileVersion", "20, 4, 5, 0\0"
+            VALUE "FileVersion", "21, 4, 5, 0\0"
             VALUE "InternalName", "PRIME95\0"
-            VALUE "LegalCopyright", "Copyright © 1996-2000\0"
+            VALUE "LegalCopyright", "Copyright © 1996-2001\0"
             VALUE "OriginalFilename", "PRIME95.EXE\0"
             VALUE "ProductName", "PRIME95 Application\0"
-            VALUE "ProductVersion", "20, 4, 5, 0\0"
+            VALUE "ProductVersion", "21, 4, 5, 0\0"
         END
     END
     BLOCK "VarFileInfo"
@@ -458,7 +460,7 @@ BEGIN
         LEFTMARGIN, 7
         RIGHTMARGIN, 164
         TOPMARGIN, 7
-        BOTTOMMARGIN, 164
+        BOTTOMMARGIN, 175
     END
 
     IDD_PREFERENCES, DIALOG

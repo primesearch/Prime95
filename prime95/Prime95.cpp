@@ -16,6 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "HtmlHelp.h"
+
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #undef THIS_FILE
@@ -40,6 +42,62 @@ BOOL CALLBACK MyEnumProc (
 	* (HWND *) lParam = hwnd;
 	return (FALSE);
 }
+
+// HTML Help table - maps menu ids to help ids
+// Described in knowledge base article Q191118
+static const DWORD aMenuHelpIDs[] =
+      {
+	IDD_WELCOME,		IDH_WELCOME,
+	IDD_PRIMENET,		IDH_PRIMENET,
+	IDM_PRIMENET,		IDH_PRIMENET,
+	IDD_USER,		IDH_USERINFORMATION,
+	ID_RANGE_USERINFORMATION, IDH_USERINFORMATION,
+	IDD_VACATION,		IDH_VACATION,
+	IDM_VACATION,		IDH_VACATION,
+	ID_RANGE_STATUS,	IDH_RANGE_STATUS,
+	IDM_CONTINUE,		IDH_CONTINUE,
+	IDM_STOP,		IDH_STOP,
+	ID_APP_EXIT,		IDH_APP_EXIT,
+	IDD_PASSWORD,		IDH_PASSWORD,
+	IDM_PASSWORD,		IDH_PASSWORD,
+	IDD_TEST,		IDH_TEST,
+	IDM_TEST,		IDH_TEST,
+	IDD_TIME,		IDH_TIME,
+	IDM_TIME,		IDH_TIME,
+	IDD_PMINUS1,		IDH_PMINUS1,
+	IDM_PMINUS1,		IDH_PMINUS1,
+	IDD_ECM,		IDH_ECM,
+	IDM_ECM,		IDH_ECM,
+	IDM_ERRCHK,		IDH_ERRCHK,
+	IDD_PRIORITY,		IDH_PRIORITY,
+	IDM_PRIORITY,		IDH_PRIORITY,
+	IDD_AFFINITY,		IDH_AFFINITY,
+	IDM_AFFINITY,		IDH_AFFINITY,
+	IDD_MANUAL_COMM,	IDH_MANUALCOMM,
+	ID_MANUALCOMM,		IDH_MANUALCOMM,
+	IDD_UNRESERVE,		IDH_UNRESERVE,
+	IDM_UNRESERVE,		IDH_UNRESERVE,
+	IDM_QUIT,		IDH_QUIT,
+	IDD_CPU,		IDH_CPU,
+	IDM_CPU,		IDH_CPU,
+	IDD_PREFERENCES,	IDH_PREFERENCES,
+	IDM_PREFERENCES,	IDH_PREFERENCES,
+	IDM_TORTURE,		IDH_TORTURE,
+	IDM_BENCHMARK,		IDH_BENCHMARK,
+	IDM_TRAY,		IDH_TRAY,
+	IDM_HIDE,		IDH_HIDE,
+	IDM_SERVICE,		IDH_SERVICE,
+	ID_HELP_FINDER,		IDH_HELP_FINDER,
+	IDD_ABOUTBOX,		IDH_APP_ABOUT,
+	ID_APP_ABOUT,		IDH_APP_ABOUT,
+	IDD_ABOUTSERVER,	IDH_SERVER,
+	IDM_SERVER,		IDH_SERVER,
+        0,			0
+      };
+// Subtract 1 from the total number of ID pairs to account
+// for the NULL pair at the end of the array.
+DWORD numHelpIDs = (sizeof(aMenuHelpIDs)/sizeof(DWORD))/2 - 1;
+DWORD dwHelpCookie = NULL;
 
 /////////////////////////////////////////////////////////////////////////////
 // CPrime95App
@@ -249,7 +307,8 @@ BOOL CPrime95App::InitInstance()
 
 	// See if we are running as a Windows95 service
 	WINDOWS95_SERVICE = IniGetInt (INI_FILE, "Windows95Service", 0);
-	if (WINDOWS95_SERVICE) Service95 ();
+	WINDOWS95_A_SWITCH = named_ini_files;
+	if (WINDOWS95_SERVICE && isWindows95 ()) Service95 ();
 
 	// Set flag to read spool file.  We must see if there
 	// are messages queued up for the server.
@@ -267,13 +326,18 @@ BOOL CPrime95App::InitInstance()
 		sendMessage (PRIMENET_PING_SERVER_INFO, &pkt);
 	}
 
+	// Init help system
+
+#ifndef _DEBUG
+	HtmlHelp(NULL, NULL, HH_INITIALIZE, (DWORD)&dwHelpCookie);
+#endif
+
 	// On first run, get user name and email address
 	// before contacting server for a work assignment
-	if (USE_PRIMENET && USERID[0] == 0) {
+	if (USE_PRIMENET && USERID[0] == 0 && !IniGetInt (INI_FILE, "StressTester", 0)) {
 		m_pMainWnd->ShowWindow (orig_cmdShow);
 		STARTUP_IN_PROGRESS = 1;
-		m_pMainWnd->PostMessage (WM_COMMAND,
-					 ID_RANGE_USERINFORMATION, 0);
+		m_pMainWnd->PostMessage (WM_COMMAND, USR_WELCOME, 0);
 	}
 
 	// Auto-continue if there is any work to do.
@@ -393,7 +457,7 @@ void BroadcastMessage (
 
 	if (!HIDE_ICON) BlinkIcon (0);
 	if (AfxGetApp()->m_pMainWnd->IsWindowVisible ())
-		 AfxGetApp()->m_pMainWnd->PostMessage (WM_COMMAND, IDM_BROADCAST, 0);
+		 AfxGetApp()->m_pMainWnd->PostMessage (WM_COMMAND, USR_BROADCAST, 0);
 }
 
 void CPrime95App::TrayMessage (UINT message, LPCSTR prompt, UINT icon)
@@ -491,11 +555,48 @@ void CPrime95App::OnAppAbout()
 // In ExitInstance clean up previously allocated mutex
 int CPrime95App::ExitInstance() 
 {
-	if( NULL != g_hMutexInst )
+	if( NULL != g_hMutexInst ) {
 		CloseHandle( g_hMutexInst );
+#ifndef _DEBUG
+		HtmlHelp (NULL, NULL, HH_UNINITIALIZE, (DWORD)dwHelpCookie);
+#endif
+	}
 	
 	return CWinApp::ExitInstance();
 }
+
+
+// HTML help!
+
+void CPrime95App::WinHelp( DWORD dwData, UINT nCmd )
+      {
+      DWORD i;
+      switch (nCmd)
+      {
+      case HELP_CONTEXT:
+
+#ifndef _DEBUG
+         // If it is a help context command, search for the
+         // control ID in the array.
+         for (i= 0; i < numHelpIDs*2; i+=2)
+         {
+           if (aMenuHelpIDs[i] == LOWORD (dwData) )
+           {
+             i++;  // pass the help context id to HTMLHelp
+             HtmlHelp(m_pMainWnd->m_hWnd,"prime95.chm",
+                HH_HELP_CONTEXT,aMenuHelpIDs[i]);
+             return;
+           }
+         }
+
+         // If the control ID cannot be found,
+         // display the default topic.
+         if (i == numHelpIDs*2)
+         HtmlHelp(m_pMainWnd->m_hWnd,"prime95.chm",HH_DISPLAY_TOPIC,0);
+#endif
+         break;
+         }
+      }
 
 /////////////////////////////////////////////////////////////////////////////
 // CPrime95App commands
@@ -513,6 +614,7 @@ char	*lines[NumLines] = {NULL};
 int	charHeight = 0;
 
 int	WINDOWS95_SERVICE = 0;
+int	WINDOWS95_A_SWITCH = 0;
 LONG	WM_ENDSESSION_LPARAM = 0;
 int	WINDOWS95_TRAY_ADD = 0;
 int	CHECK_BATTERY = 0;

@@ -32,8 +32,8 @@ NULL=nul
 ################################################################################
 # Begin Project
 # PROP Target_Last_Scanned "Prime95 - Win32 Debug"
-RSC=rc.exe
 CPP=cl.exe
+RSC=rc.exe
 MTL=mktyplib.exe
 
 !IF  "$(CFG)" == "Prime95 - Win32 Release"
@@ -55,26 +55,28 @@ ALL : "$(OUTDIR)\Prime95.exe" "$(OUTDIR)\Prime95.hlp"
 
 CLEAN : 
 	-@erase ".\Release\Prime95.exe"
-	-@erase ".\Release\ServerDlg.obj"
-	-@erase ".\Release\Prime95.pch"
-	-@erase ".\Release\AffinityDlg.obj"
-	-@erase ".\Release\TestDlg.obj"
-	-@erase ".\Release\Prime95.obj"
-	-@erase ".\Release\Priority.obj"
-	-@erase ".\Release\MainFrm.obj"
-	-@erase ".\Release\VacationDlg.obj"
-	-@erase ".\Release\Prime95Doc.obj"
-	-@erase ".\Release\PrimenetDlg.obj"
 	-@erase ".\Release\StdAfx.obj"
-	-@erase ".\Release\PreferencesDlg.obj"
-	-@erase ".\Release\ManualCommDlg.obj"
-	-@erase ".\Release\Prime95View.obj"
-	-@erase ".\Release\CpuDlg.obj"
 	-@erase ".\Release\Password.obj"
+	-@erase ".\Release\Prime95.pch"
+	-@erase ".\Release\WelcomeDlg.obj"
+	-@erase ".\Release\UnreserveDlg.obj"
+	-@erase ".\Release\TestDlg.obj"
+	-@erase ".\Release\VacationDlg.obj"
+	-@erase ".\Release\MainFrm.obj"
+	-@erase ".\Release\PrimenetDlg.obj"
 	-@erase ".\Release\UserDlg.obj"
 	-@erase ".\Release\TimeDlg.obj"
+	-@erase ".\Release\Prime95View.obj"
+	-@erase ".\Release\AffinityDlg.obj"
+	-@erase ".\Release\Priority.obj"
+	-@erase ".\Release\ServerDlg.obj"
+	-@erase ".\Release\ManualCommDlg.obj"
+	-@erase ".\Release\Prime95.obj"
+	-@erase ".\Release\Prime95Doc.obj"
+	-@erase ".\Release\CpuDlg.obj"
 	-@erase ".\Release\Pminus1Dlg.obj"
 	-@erase ".\Release\EcmDlg.obj"
+	-@erase ".\Release\PreferencesDlg.obj"
 	-@erase ".\Release\Prime95.res"
 	-@erase ".\Release\Prime95.map"
 	-@erase ".\Release\Prime95.hlp"
@@ -102,34 +104,39 @@ BSC32_FLAGS=/nologo /o"$(OUTDIR)/Prime95.bsc"
 BSC32_SBRS=
 LINK32=link.exe
 # ADD BASE LINK32 /nologo /subsystem:windows /machine:I386
-# ADD LINK32 factor64.obj mult.obj mult1.obj mult2.obj mult2a.obj mult3.obj mult3a.obj mult4.obj mult4a.obj mult4b.obj mult1p.obj mult2p.obj mult2ap.obj mult3p.obj mult3ap.obj mult4p.obj mult4ap.obj mult4bp.obj mult4aux.obj ecmhelp.obj /nologo /subsystem:windows /map /machine:I386
+# ADD LINK32 htmlhelp.lib factor64.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2a.obj mult2aux.obj mult3.obj mult3a.obj mult3aux.obj mult4.obj mult4a.obj mult4b.obj mult1p.obj mult2p.obj mult2ap.obj mult3p.obj mult3ap.obj mult3q.obj mult3aq.obj mult3auq.obj mult4p.obj mult4ap.obj mult4bp.obj mult4aux.obj mult4q.obj mult4aq.obj mult4bq.obj mult4auq.obj ecmhelp.obj xmult1.obj xmult1ax.obj xmult2.obj xmult2a.obj xmult2ax.obj xmult3.obj xmult3a.obj xmult3ax.obj /nologo /subsystem:windows /map /machine:I386
 # SUBTRACT LINK32 /debug
-LINK32_FLAGS=factor64.obj mult.obj mult1.obj mult2.obj mult2a.obj mult3.obj\
- mult3a.obj mult4.obj mult4a.obj mult4b.obj mult1p.obj mult2p.obj mult2ap.obj\
- mult3p.obj mult3ap.obj mult4p.obj mult4ap.obj mult4bp.obj mult4aux.obj\
- ecmhelp.obj /nologo /subsystem:windows /incremental:no\
+LINK32_FLAGS=htmlhelp.lib factor64.obj mult.obj mult1.obj mult1aux.obj\
+ mult2.obj mult2a.obj mult2aux.obj mult3.obj mult3a.obj mult3aux.obj mult4.obj\
+ mult4a.obj mult4b.obj mult1p.obj mult2p.obj mult2ap.obj mult3p.obj mult3ap.obj\
+ mult3q.obj mult3aq.obj mult3auq.obj mult4p.obj mult4ap.obj mult4bp.obj\
+ mult4aux.obj mult4q.obj mult4aq.obj mult4bq.obj mult4auq.obj ecmhelp.obj\
+ xmult1.obj xmult1ax.obj xmult2.obj xmult2a.obj xmult2ax.obj xmult3.obj\
+ xmult3a.obj xmult3ax.obj /nologo /subsystem:windows /incremental:no\
  /pdb:"$(OUTDIR)/Prime95.pdb" /map:"$(INTDIR)/Prime95.map" /machine:I386\
  /out:"$(OUTDIR)/Prime95.exe" 
 LINK32_OBJS= \
-	"$(INTDIR)/ServerDlg.obj" \
-	"$(INTDIR)/AffinityDlg.obj" \
-	"$(INTDIR)/TestDlg.obj" \
-	"$(INTDIR)/Prime95.obj" \
-	"$(INTDIR)/Priority.obj" \
-	"$(INTDIR)/MainFrm.obj" \
-	"$(INTDIR)/VacationDlg.obj" \
-	"$(INTDIR)/Prime95Doc.obj" \
-	"$(INTDIR)/PrimenetDlg.obj" \
 	"$(INTDIR)/StdAfx.obj" \
-	"$(INTDIR)/PreferencesDlg.obj" \
-	"$(INTDIR)/ManualCommDlg.obj" \
-	"$(INTDIR)/Prime95View.obj" \
-	"$(INTDIR)/CpuDlg.obj" \
 	"$(INTDIR)/Password.obj" \
+	"$(INTDIR)/WelcomeDlg.obj" \
+	"$(INTDIR)/UnreserveDlg.obj" \
+	"$(INTDIR)/TestDlg.obj" \
+	"$(INTDIR)/VacationDlg.obj" \
+	"$(INTDIR)/MainFrm.obj" \
+	"$(INTDIR)/PrimenetDlg.obj" \
 	"$(INTDIR)/UserDlg.obj" \
 	"$(INTDIR)/TimeDlg.obj" \
+	"$(INTDIR)/Prime95View.obj" \
+	"$(INTDIR)/AffinityDlg.obj" \
+	"$(INTDIR)/Priority.obj" \
+	"$(INTDIR)/ServerDlg.obj" \
+	"$(INTDIR)/ManualCommDlg.obj" \
+	"$(INTDIR)/Prime95.obj" \
+	"$(INTDIR)/Prime95Doc.obj" \
+	"$(INTDIR)/CpuDlg.obj" \
 	"$(INTDIR)/Pminus1Dlg.obj" \
 	"$(INTDIR)/EcmDlg.obj" \
+	"$(INTDIR)/PreferencesDlg.obj" \
 	"$(INTDIR)/Prime95.res"
 
 "$(OUTDIR)\Prime95.exe" : "$(OUTDIR)" $(DEF_FILE) $(LINK32_OBJS)
@@ -159,25 +166,27 @@ CLEAN :
 	-@erase ".\Debug\Prime95.pch"
 	-@erase ".\Debug\vc40.idb"
 	-@erase ".\Debug\Prime95.exe"
-	-@erase ".\Debug\ManualCommDlg.obj"
-	-@erase ".\Debug\AffinityDlg.obj"
-	-@erase ".\Debug\Pminus1Dlg.obj"
-	-@erase ".\Debug\StdAfx.obj"
-	-@erase ".\Debug\VacationDlg.obj"
-	-@erase ".\Debug\TestDlg.obj"
 	-@erase ".\Debug\PrimenetDlg.obj"
-	-@erase ".\Debug\Prime95View.obj"
-	-@erase ".\Debug\CpuDlg.obj"
 	-@erase ".\Debug\Priority.obj"
-	-@erase ".\Debug\MainFrm.obj"
 	-@erase ".\Debug\ServerDlg.obj"
+	-@erase ".\Debug\Prime95View.obj"
 	-@erase ".\Debug\UserDlg.obj"
 	-@erase ".\Debug\TimeDlg.obj"
-	-@erase ".\Debug\Password.obj"
-	-@erase ".\Debug\Prime95Doc.obj"
+	-@erase ".\Debug\WelcomeDlg.obj"
+	-@erase ".\Debug\TestDlg.obj"
+	-@erase ".\Debug\StdAfx.obj"
+	-@erase ".\Debug\Pminus1Dlg.obj"
+	-@erase ".\Debug\MainFrm.obj"
 	-@erase ".\Debug\PreferencesDlg.obj"
-	-@erase ".\Debug\EcmDlg.obj"
+	-@erase ".\Debug\AffinityDlg.obj"
+	-@erase ".\Debug\UnreserveDlg.obj"
+	-@erase ".\Debug\Password.obj"
+	-@erase ".\Debug\CpuDlg.obj"
+	-@erase ".\Debug\ManualCommDlg.obj"
 	-@erase ".\Debug\Prime95.obj"
+	-@erase ".\Debug\EcmDlg.obj"
+	-@erase ".\Debug\VacationDlg.obj"
+	-@erase ".\Debug\Prime95Doc.obj"
 	-@erase ".\Debug\Prime95.res"
 	-@erase ".\Debug\Prime95.ilk"
 	-@erase ".\Debug\Prime95.pdb"
@@ -187,8 +196,8 @@ CLEAN :
     if not exist "$(OUTDIR)/$(NULL)" mkdir "$(OUTDIR)"
 
 # ADD BASE CPP /nologo /MDd /W3 /Gm /GX /Zi /Od /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /D "_AFXDLL" /D "_MBCS" /Yu"stdafx.h" /c
-# ADD CPP /nologo /MDd /W3 /Gm /GX /Zi /Ot /Oi /I ".." /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /D "_AFXDLL" /D "_MBCS" /D "GDEBUG" /Yu"stdafx.h" /c
-CPP_PROJ=/nologo /MDd /W3 /Gm /GX /Zi /Ot /Oi /I ".." /D "WIN32" /D "_DEBUG" /D\
+# ADD CPP /nologo /MDd /W3 /Gm /GX /Zi /Od /I ".." /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /D "_AFXDLL" /D "_MBCS" /D "GDEBUG" /Yu"stdafx.h" /c
+CPP_PROJ=/nologo /MDd /W3 /Gm /GX /Zi /Od /I ".." /D "WIN32" /D "_DEBUG" /D\
  "_WINDOWS" /D "_AFXDLL" /D "_MBCS" /D "GDEBUG" /Fp"$(INTDIR)/Prime95.pch"\
  /Yu"stdafx.h" /Fo"$(INTDIR)/" /Fd"$(INTDIR)/" /c 
 CPP_OBJS=.\Debug/
@@ -206,32 +215,38 @@ BSC32_FLAGS=/nologo /o"$(OUTDIR)/Prime95.bsc"
 BSC32_SBRS=
 LINK32=link.exe
 # ADD BASE LINK32 /nologo /subsystem:windows /debug /machine:I386
-# ADD LINK32 factor64.obj mult.obj mult1.obj mult2.obj mult2a.obj mult3.obj mult3a.obj mult4.obj mult4a.obj mult4b.obj mult1p.obj mult2p.obj mult2ap.obj mult3p.obj mult3ap.obj mult4p.obj mult4ap.obj mult4bp.obj mult4aux.obj ecmhelp.obj /nologo /subsystem:windows /debug /machine:I386
-LINK32_FLAGS=factor64.obj mult.obj mult1.obj mult2.obj mult2a.obj mult3.obj\
- mult3a.obj mult4.obj mult4a.obj mult4b.obj mult1p.obj mult2p.obj mult2ap.obj\
- mult3p.obj mult3ap.obj mult4p.obj mult4ap.obj mult4bp.obj mult4aux.obj\
- ecmhelp.obj /nologo /subsystem:windows /incremental:yes\
+# ADD LINK32 htmlhelp.lib factor64.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2a.obj mult2aux.obj mult3.obj mult3a.obj mult3aux.obj mult4.obj mult4a.obj mult4b.obj mult1p.obj mult2p.obj mult2ap.obj mult3p.obj mult3ap.obj mult3q.obj mult3aq.obj mult3auq.obj mult4p.obj mult4ap.obj mult4bp.obj mult4aux.obj mult4q.obj mult4aq.obj mult4bq.obj mult4auq.obj ecmhelp.obj xmult1.obj xmult1ax.obj xmult2.obj xmult2a.obj xmult2ax.obj xmult3.obj xmult3a.obj xmult3ax.obj /nologo /subsystem:windows /debug /machine:I386
+# SUBTRACT LINK32 /pdb:none /map
+LINK32_FLAGS=htmlhelp.lib factor64.obj mult.obj mult1.obj mult1aux.obj\
+ mult2.obj mult2a.obj mult2aux.obj mult3.obj mult3a.obj mult3aux.obj mult4.obj\
+ mult4a.obj mult4b.obj mult1p.obj mult2p.obj mult2ap.obj mult3p.obj mult3ap.obj\
+ mult3q.obj mult3aq.obj mult3auq.obj mult4p.obj mult4ap.obj mult4bp.obj\
+ mult4aux.obj mult4q.obj mult4aq.obj mult4bq.obj mult4auq.obj ecmhelp.obj\
+ xmult1.obj xmult1ax.obj xmult2.obj xmult2a.obj xmult2ax.obj xmult3.obj\
+ xmult3a.obj xmult3ax.obj /nologo /subsystem:windows /incremental:yes\
  /pdb:"$(OUTDIR)/Prime95.pdb" /debug /machine:I386 /out:"$(OUTDIR)/Prime95.exe" 
 LINK32_OBJS= \
-	"$(INTDIR)/ManualCommDlg.obj" \
-	"$(INTDIR)/AffinityDlg.obj" \
-	"$(INTDIR)/Pminus1Dlg.obj" \
-	"$(INTDIR)/StdAfx.obj" \
-	"$(INTDIR)/VacationDlg.obj" \
-	"$(INTDIR)/TestDlg.obj" \
 	"$(INTDIR)/PrimenetDlg.obj" \
-	"$(INTDIR)/Prime95View.obj" \
-	"$(INTDIR)/CpuDlg.obj" \
 	"$(INTDIR)/Priority.obj" \
-	"$(INTDIR)/MainFrm.obj" \
 	"$(INTDIR)/ServerDlg.obj" \
+	"$(INTDIR)/Prime95View.obj" \
 	"$(INTDIR)/UserDlg.obj" \
 	"$(INTDIR)/TimeDlg.obj" \
-	"$(INTDIR)/Password.obj" \
-	"$(INTDIR)/Prime95Doc.obj" \
+	"$(INTDIR)/WelcomeDlg.obj" \
+	"$(INTDIR)/TestDlg.obj" \
+	"$(INTDIR)/StdAfx.obj" \
+	"$(INTDIR)/Pminus1Dlg.obj" \
+	"$(INTDIR)/MainFrm.obj" \
 	"$(INTDIR)/PreferencesDlg.obj" \
-	"$(INTDIR)/EcmDlg.obj" \
+	"$(INTDIR)/AffinityDlg.obj" \
+	"$(INTDIR)/UnreserveDlg.obj" \
+	"$(INTDIR)/Password.obj" \
+	"$(INTDIR)/CpuDlg.obj" \
+	"$(INTDIR)/ManualCommDlg.obj" \
 	"$(INTDIR)/Prime95.obj" \
+	"$(INTDIR)/EcmDlg.obj" \
+	"$(INTDIR)/VacationDlg.obj" \
+	"$(INTDIR)/Prime95Doc.obj" \
 	"$(INTDIR)/Prime95.res"
 
 "$(OUTDIR)\Prime95.exe" : "$(OUTDIR)" $(DEF_FILE) $(LINK32_OBJS)
@@ -287,30 +302,13 @@ SOURCE=.\ReadMe.txt
 # Begin Source File
 
 SOURCE=.\Prime95.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
 DEP_CPP_PRIME=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
 	".\MainFrm.h"\
 	".\Prime95Doc.h"\
 	".\Prime95View.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\Prime95.obj" : $(SOURCE) $(DEP_CPP_PRIME) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
-DEP_CPP_PRIME=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\MainFrm.h"\
-	".\Prime95Doc.h"\
-	".\Prime95View.h"\
+	".\Htmlhelp.h"\
 	".\..\cpuid.h"\
 	".\..\speed.h"\
 	".\..\gwnum.h"\
@@ -327,8 +325,6 @@ DEP_CPP_PRIME=\
 "$(INTDIR)\Prime95.obj" : $(SOURCE) $(DEP_CPP_PRIME) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
@@ -360,7 +356,7 @@ BuildCmds= \
 # ADD CPP /Yc"stdafx.h"
 
 BuildCmds= \
-	$(CPP) /nologo /MDd /W3 /Gm /GX /Zi /Ot /Oi /I ".." /D "WIN32" /D "_DEBUG" /D\
+	$(CPP) /nologo /MDd /W3 /Gm /GX /Zi /Od /I ".." /D "WIN32" /D "_DEBUG" /D\
  "_WINDOWS" /D "_AFXDLL" /D "_MBCS" /D "GDEBUG" /Fp"$(INTDIR)/Prime95.pch"\
  /Yc"stdafx.h" /Fo"$(INTDIR)/" /Fd"$(INTDIR)/" /c $(SOURCE) \
 	
@@ -378,22 +374,6 @@ BuildCmds= \
 # Begin Source File
 
 SOURCE=.\MainFrm.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_MAINF=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\MainFrm.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\MainFrm.obj" : $(SOURCE) $(DEP_CPP_MAINF) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_MAINF=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -414,17 +394,12 @@ DEP_CPP_MAINF=\
 "$(INTDIR)\MainFrm.obj" : $(SOURCE) $(DEP_CPP_MAINF) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\Prime95Doc.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
 DEP_CPP_PRIME9=\
 	".\StdAfx.h"\
 	".\MainFrm.h"\
@@ -442,51 +417,12 @@ DEP_CPP_PRIME9=\
 	".\ServerDlg.h"\
 	".\TestDlg.h"\
 	".\TimeDlg.h"\
+	".\UnreserveDlg.h"\
 	".\UserDlg.h"\
 	".\VacationDlg.h"\
-	{$(INCLUDE)}"\sys\TIMEB.H"\
-	".\..\cpuid.c"\
-	".\..\speed.c"\
-	".\..\giants.h"\
-	".\..\giants.c"\
-	".\..\gwnum.c"\
-	".\..\commona.c"\
-	".\..\commonb.c"\
-	".\..\commonc.c"\
-	".\..\ecm.c"\
-	".\..\comm95a.c"\
-	".\..\comm95b.c"\
-	".\..\comm95c.c"\
-	".\..\cpuid.h"\
-	".\..\security.c"\
-	
-
-"$(INTDIR)\Prime95Doc.obj" : $(SOURCE) $(DEP_CPP_PRIME9) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
-DEP_CPP_PRIME9=\
-	".\StdAfx.h"\
-	".\MainFrm.h"\
-	".\Prime95.h"\
-	".\Prime95Doc.h"\
-	".\AffinityDlg.h"\
-	".\CpuDlg.h"\
-	".\EcmDlg.h"\
-	".\ManualCommDlg.h"\
-	".\Password.h"\
-	".\Pminus1Dlg.h"\
-	".\PreferencesDlg.h"\
-	".\PrimenetDlg.h"\
-	".\Priority.h"\
-	".\ServerDlg.h"\
-	".\TestDlg.h"\
-	".\TimeDlg.h"\
-	".\UserDlg.h"\
-	".\VacationDlg.h"\
-	{$(INCLUDE)}"\sys\TIMEB.H"\
+	".\WelcomeDlg.h"\
+	".\Htmlhelp.h"\
+	{$(INCLUDE)}"\sys\Timeb.h"\
 	".\..\cpuid.c"\
 	".\..\speed.c"\
 	".\..\giants.h"\
@@ -516,31 +452,12 @@ DEP_CPP_PRIME9=\
 "$(INTDIR)\Prime95Doc.obj" : $(SOURCE) $(DEP_CPP_PRIME9) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\Prime95View.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_PRIME95=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\Prime95Doc.h"\
-	".\Prime95View.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\Prime95View.obj" : $(SOURCE) $(DEP_CPP_PRIME95) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_PRIME95=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -562,8 +479,6 @@ DEP_CPP_PRIME95=\
 "$(INTDIR)\Prime95View.obj" : $(SOURCE) $(DEP_CPP_PRIME95) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
@@ -621,22 +536,6 @@ InputPath=.\hlp\Prime95.hpj
 # Begin Source File
 
 SOURCE=.\CpuDlg.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_CPUDL=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\CpuDlg.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\CpuDlg.obj" : $(SOURCE) $(DEP_CPP_CPUDL) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_CPUDL=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -657,30 +556,12 @@ DEP_CPP_CPUDL=\
 "$(INTDIR)\CpuDlg.obj" : $(SOURCE) $(DEP_CPP_CPUDL) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\PreferencesDlg.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_PREFE=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\PreferencesDlg.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\PreferencesDlg.obj" : $(SOURCE) $(DEP_CPP_PREFE) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_PREFE=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -701,30 +582,12 @@ DEP_CPP_PREFE=\
 "$(INTDIR)\PreferencesDlg.obj" : $(SOURCE) $(DEP_CPP_PREFE) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\TestDlg.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_TESTD=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\TestDlg.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\TestDlg.obj" : $(SOURCE) $(DEP_CPP_TESTD) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_TESTD=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -745,30 +608,12 @@ DEP_CPP_TESTD=\
 "$(INTDIR)\TestDlg.obj" : $(SOURCE) $(DEP_CPP_TESTD) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\TimeDlg.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_TIMED=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\TimeDlg.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\TimeDlg.obj" : $(SOURCE) $(DEP_CPP_TIMED) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_TIMED=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -789,30 +634,12 @@ DEP_CPP_TIMED=\
 "$(INTDIR)\TimeDlg.obj" : $(SOURCE) $(DEP_CPP_TIMED) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\Password.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_PASSW=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\Password.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\Password.obj" : $(SOURCE) $(DEP_CPP_PASSW) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_PASSW=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -833,30 +660,12 @@ DEP_CPP_PASSW=\
 "$(INTDIR)\Password.obj" : $(SOURCE) $(DEP_CPP_PASSW) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\UserDlg.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_USERD=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\UserDlg.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\UserDlg.obj" : $(SOURCE) $(DEP_CPP_USERD) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_USERD=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -877,30 +686,12 @@ DEP_CPP_USERD=\
 "$(INTDIR)\UserDlg.obj" : $(SOURCE) $(DEP_CPP_USERD) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\PrimenetDlg.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_PRIMEN=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\PrimenetDlg.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\PrimenetDlg.obj" : $(SOURCE) $(DEP_CPP_PRIMEN) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_PRIMEN=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -921,30 +712,12 @@ DEP_CPP_PRIMEN=\
 "$(INTDIR)\PrimenetDlg.obj" : $(SOURCE) $(DEP_CPP_PRIMEN) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\Priority.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_PRIOR=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\Priority.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\Priority.obj" : $(SOURCE) $(DEP_CPP_PRIOR) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_PRIOR=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -965,30 +738,12 @@ DEP_CPP_PRIOR=\
 "$(INTDIR)\Priority.obj" : $(SOURCE) $(DEP_CPP_PRIOR) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\ServerDlg.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_SERVE=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\ServerDlg.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\ServerDlg.obj" : $(SOURCE) $(DEP_CPP_SERVE) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_SERVE=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -1009,30 +764,12 @@ DEP_CPP_SERVE=\
 "$(INTDIR)\ServerDlg.obj" : $(SOURCE) $(DEP_CPP_SERVE) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\VacationDlg.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_VACAT=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\VacationDlg.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\VacationDlg.obj" : $(SOURCE) $(DEP_CPP_VACAT) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_VACAT=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -1053,30 +790,12 @@ DEP_CPP_VACAT=\
 "$(INTDIR)\VacationDlg.obj" : $(SOURCE) $(DEP_CPP_VACAT) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\ManualCommDlg.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_MANUA=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\ManualCommDlg.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\ManualCommDlg.obj" : $(SOURCE) $(DEP_CPP_MANUA) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_MANUA=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -1097,30 +816,12 @@ DEP_CPP_MANUA=\
 "$(INTDIR)\ManualCommDlg.obj" : $(SOURCE) $(DEP_CPP_MANUA) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\EcmDlg.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_ECMDL=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\EcmDlg.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\EcmDlg.obj" : $(SOURCE) $(DEP_CPP_ECMDL) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_ECMDL=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -1141,30 +842,12 @@ DEP_CPP_ECMDL=\
 "$(INTDIR)\EcmDlg.obj" : $(SOURCE) $(DEP_CPP_ECMDL) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\AffinityDlg.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_AFFIN=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\AffinityDlg.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\AffinityDlg.obj" : $(SOURCE) $(DEP_CPP_AFFIN) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_AFFIN=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -1185,30 +868,12 @@ DEP_CPP_AFFIN=\
 "$(INTDIR)\AffinityDlg.obj" : $(SOURCE) $(DEP_CPP_AFFIN) "$(INTDIR)"\
  "$(INTDIR)\Prime95.pch"
 
-
-!ENDIF 
 
 # End Source File
 ################################################################################
 # Begin Source File
 
 SOURCE=.\Pminus1Dlg.cpp
-
-!IF  "$(CFG)" == "Prime95 - Win32 Release"
-
-DEP_CPP_PMINU=\
-	".\StdAfx.h"\
-	".\Prime95.h"\
-	".\Pminus1Dlg.h"\
-	".\..\cpuid.h"\
-	
-
-"$(INTDIR)\Pminus1Dlg.obj" : $(SOURCE) $(DEP_CPP_PMINU) "$(INTDIR)"\
- "$(INTDIR)\Prime95.pch"
-
-
-!ELSEIF  "$(CFG)" == "Prime95 - Win32 Debug"
-
 DEP_CPP_PMINU=\
 	".\StdAfx.h"\
 	".\Prime95.h"\
@@ -1230,7 +895,57 @@ DEP_CPP_PMINU=\
  "$(INTDIR)\Prime95.pch"
 
 
-!ENDIF 
+# End Source File
+################################################################################
+# Begin Source File
+
+SOURCE=.\WelcomeDlg.cpp
+DEP_CPP_WELCO=\
+	".\StdAfx.h"\
+	".\Prime95.h"\
+	".\WelcomeDlg.h"\
+	".\..\cpuid.h"\
+	".\..\speed.h"\
+	".\..\gwnum.h"\
+	".\..\commona.h"\
+	".\..\commonb.h"\
+	".\..\commonc.h"\
+	".\..\comm95a.h"\
+	".\..\comm95b.h"\
+	".\..\comm95c.h"\
+	".\..\primenet.h"\
+	".\..\security.h"\
+	
+
+"$(INTDIR)\WelcomeDlg.obj" : $(SOURCE) $(DEP_CPP_WELCO) "$(INTDIR)"\
+ "$(INTDIR)\Prime95.pch"
+
+
+# End Source File
+################################################################################
+# Begin Source File
+
+SOURCE=.\UnreserveDlg.cpp
+DEP_CPP_UNRES=\
+	".\StdAfx.h"\
+	".\Prime95.h"\
+	".\UnreserveDlg.h"\
+	".\..\cpuid.h"\
+	".\..\speed.h"\
+	".\..\gwnum.h"\
+	".\..\commona.h"\
+	".\..\commonb.h"\
+	".\..\commonc.h"\
+	".\..\comm95a.h"\
+	".\..\comm95b.h"\
+	".\..\comm95c.h"\
+	".\..\primenet.h"\
+	".\..\security.h"\
+	
+
+"$(INTDIR)\UnreserveDlg.obj" : $(SOURCE) $(DEP_CPP_UNRES) "$(INTDIR)"\
+ "$(INTDIR)\Prime95.pch"
+
 
 # End Source File
 # End Target

@@ -1,4 +1,4 @@
-; Copyright 1995-1999 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2001 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -8,7 +8,8 @@
 
 	TITLE   setup
 
-	.386
+	.686
+	.XMM
 
 _TEXT32 SEGMENT PARA USE32 PUBLIC 'DATA'
 
@@ -16,14 +17,14 @@ _TEXT32 SEGMENT PARA USE32 PUBLIC 'DATA'
 
 INCLUDE extrn.mac
 INCLUDE	unravel.mac
-INCLUDE	lucas1.mac
+INCLUDE	lucas.mac
 INCLUDE mult.mac
 INCLUDE pass1.mac
 INCLUDE pass2.mac
 INCLUDE memory.mac
 
 IFDEF PPRO
-INCLUDE	lucas1p.mac
+INCLUDE	lucasp.mac
 ENDIF
 
 	very_convoluted_distances
@@ -41,7 +42,7 @@ ENDIF
 	PUBLICP	pass1_7_levels_fftp
 	PUBLICP	pass1_7_levels_unfftp
 
-pass1_procs PROC NEAR
+PROCP	pass1_procs4
 
 ;; Do 6 levels of pass 1 of the forward FFT
 ;; Caller must set ecx for the proper number of complex iterations
@@ -79,18 +80,30 @@ b9b:	ret
 ;; Do 6 levels of pass 1 of the inverse FFT
 ;; Caller must set ecx for the proper number of complex iterations
 
+LABELP	pass1_6_levels_unfftp
+	IFDEF	PFETCH
+	mov	norm_ptr1, esi
+	ENDIF
+	JMP_X	c7c
 LABELP	pass1_6a_levels_unfft
+	IFDEF	PFETCH
+	lea	ebx, [esi+2*dist16K]
+	mov	norm_ptr1, esi
+	ENDIF
 c7a:	pass1_six_levels_real64_unfft	;; The all real sub-section
 	add	cl, 256/2		;; U - Test loop counter
 	JNC_X	c7a			;; V - Iterate if necessary
 	lea	esi, [esi-2*dist128+dist16K];; U - Next source pointer
 	JMP_X	c7c			;; V - Jump to complex sections
 LABELP	pass1_6_levels_unfft
+	IFDEF	PFETCH
+	lea	ebx, [esi+2*dist16K]
+	mov	norm_ptr1, esi
+	ENDIF
 c7b:	pass1_six_levels_real128_unfft	;; The all real sub-section
 	add	cl, 256/2		;; U - Test loop counter
 	JNC_X	c7b			;; V - Iterate if necessary
 	lea	esi, [esi-2*dist128+2*dist16K];; U - Next source pointer
-LABELP	pass1_6_levels_unfftp
 c7c:	mov	edx, pass1_premults	;; V - Address of the group multipliers
 c8b:	pass1_six_levels_complex_unfft	;; Do an all complex sub-section
 	add	cl, 256/2		;; U - Test inner loop counter
@@ -139,13 +152,21 @@ b3b:	ret
 ;; Do 7 levels of pass 1 of the inverse FFT
 ;; Caller must set ecx for the proper number of complex iterations
 
+LABELP	pass1_7_levels_unfftp
+	IFDEF	PFETCH
+	mov	norm_ptr1, esi
+	ENDIF
+	JMP_X	c33b
 LABELP	pass1_7_levels_unfft
+	IFDEF	PFETCH
+	lea	ebx, [esi+4*dist16K]
+	mov	norm_ptr1, esi
+	ENDIF
 c1b:	pass1_seven_levels_real256_unfft;; The all real sub-section
 	add	cl, 256/2		;; U - Test loop counter
 	JNC_X	c1b			;; V - Iterate if necessary
 	lea	esi, [esi-2*dist128+4*dist16K];; U - Next source pointer
-LABELP	pass1_7_levels_unfftp
-	mov	edx, pass1_premults	;; V - Address of the group multipliers
+c33b:	mov	edx, pass1_premults	;; V - Address of the group multipliers
 c2b:	pass1_seven_levels_complex_unfft;; Do an all complex sub-section
 	add	cl, 256/2		;; U - Test inner loop counter
 	JNC_X	c2b			;; V - Iterate if necessary
@@ -215,7 +236,7 @@ e2b:	pass1_seven_levels_a_complex_unfft;; Do an all complex sub-section
 e3b:	pop	ebx			;; U - Restore ebx for caller
 	ret
 
-pass1_procs ENDP
+ENDPP	pass1_procs4
 
 _TEXT32	ENDS
 END

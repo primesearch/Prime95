@@ -132,8 +132,8 @@ void rangeStatusMessage (
 			time (&this_time);
 			if (est + this_time < 2147483640) {
 				this_time += (long) est;
-				strcpy (timebuf, ctime (&this_time)+4);
-				strcpy (timebuf+12, timebuf+15);
+				strcpy (timebuf, ctime (&this_time));
+				strcpy (timebuf+16, timebuf+19);
 			} else
 				strcpy (timebuf, "after Jan 1 2038\n");
 		} else

@@ -1,4 +1,4 @@
-/* Copyright 1995-2000 Just For Fun Software, Inc. */
+/* Copyright 1995-2001 Just For Fun Software, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -11,7 +11,9 @@
 #include <sys/types.h>
 #endif
 #include <ctype.h>
+#ifndef __IBMC__
 #include <dirent.h>
+#endif
 #include <fcntl.h>
 #include <math.h>
 #include <memory.h>
@@ -20,12 +22,26 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifndef __IBMC__
 #include <unistd.h>
+#endif
 #if defined (__linux__) || defined (__FreeBSD__)
 #include <sys/time.h>
 #include <sys/timeb.h>
 #endif
+#ifndef __IBMC__
 #include <sys/resource.h>
+#endif
+/* Required OS/2 header files */
+#ifdef __IBMC__
+#define INCL_DOS
+#include <os2.h>
+#include <direct.h>
+#include <io.h>
+#include <process.h>
+#include <sys/timeb.h>
+typedef int pid_t;
+#endif
 
 /* Globals */
 
@@ -51,7 +67,7 @@ int MENUING = 0;
 #ifdef __FreeBSD__
 #define PORT	6
 #endif
-#ifdef __EMX__
+#if defined (__EMX__) || defined (__IBMC__)
 #define PORT	7
 #endif
 
@@ -74,7 +90,7 @@ void sigterm_handler(int signo)
 #ifdef MPRIME_LOADAVG
 
 /* Routine to get the current load average */
-double get_load_average ()
+double get_load_average (void)
 {
 #ifdef __linux__
 	char	ldavgbuf[40];
@@ -119,7 +135,7 @@ void load_handler (
 
 /* init_load_check: initialises timer that calls load_handler
    every LOAD_CHECK_TIME seconds */
-void init_load_check ()
+void init_load_check (void)
 {
 	struct itimerval timer, otimer;
 	struct sigaction sigact;
@@ -277,6 +293,10 @@ int main (
 		}
 	}
 
+/* Ignore background request on OS/2 */
+
+#ifndef __IBMC__
+
 /* Run in background if requested.  Code courtesy of Francois Gouget. */
 
 	if (background) {
@@ -305,6 +325,7 @@ int main (
 			if (i) named_ini_files = i;
 		}
 	}
+#endif
 
 /* Determine the names of the INI files */
 /* Read the INI files */
@@ -333,11 +354,38 @@ int main (
 
 	BroadcastMessage (NULL);
 
+/* If this is a stress tester, then turn on menuing.  A stress tester */
+/* ceases to be a stress tester if he ever turns on primenet or has work */
+/* in his worktodo.ini file */
+
+	if (IniGetInt (INI_FILE, "StressTester", 0)) {
+		if (USE_PRIMENET || IniGetNumLines (WORKTODO_FILE)) {
+			IniWriteInt (INI_FILE, "StressTester", 0);
+		} else {
+			MENUING = TRUE;
+			VERBOSE = TRUE;
+			NO_GUI = FALSE;
+		}
+	}
+
+/* On first run, get user name and email address before contacting server */
+/* for a work assignment.  To make first time user more comfortable, we will */
+/* display data to the screen, rather than running silently. */
+
+	if (USE_PRIMENET &&
+	    USERID[0] == 0 &&
+	    !IniGetInt (INI_FILE, "StressTester", 0)) {
+		VERBOSE = TRUE;
+		NO_GUI = FALSE;
+		STARTUP_IN_PROGRESS = 1;
+		test_welcome ();
+	}
+
 /* If we are to contact the server, do so now.  This option lets the */
 /* user create a batch file that contacts the server at regular intervals */
 /* or when the ISP is contacted, etc. */
 
-	if (contact_server) {
+	else if (contact_server) {
 		MANUAL_COMM = 3;
 		CHECK_WORK_QUEUE = 1;
 		communicateWithServer ();
@@ -347,14 +395,6 @@ int main (
 
 	else if (MENUING)
 		main_menu ();
-
-/* On first run, get user name and email address */
-/* before contacting server for a work assignment */
-
-	else if (USE_PRIMENET && USERID[0] == 0) {
-		STARTUP_IN_PROGRESS = 1;
-		test_user ();
-	}
 
 /* Continue testing the range */
 
@@ -367,14 +407,14 @@ int main (
 
 /* Invalid args message */
 
-usage:	printf ("Usage: mprime [-aN] [-bcdhmv] [-wDIR]\n");
-	printf ("-aN\tUse an alternate set of INI and output files.\n");
-	printf ("-bN\tRun in the background.\n");
+usage:	printf ("Usage: mprime [-cdhmv] [-aN] [-b[N]] [-wDIR]\n");
 	printf ("-c\tContact the PrimeNet server, then exit.\n");
 	printf ("-d\tPrint detailed information to stdout.\n");
 	printf ("-h\tPrint this.\n");
 	printf ("-m\tMenu to configure mprime.\n");
 	printf ("-v\tPrint the version number.\n");
+	printf ("-aN\tUse an alternate set of INI and output files.\n");
+	printf ("-bN\tRun in the background.  N is number of CPUs.\n");
 	printf ("-wDIR\tRun from a different working directory.\n");
 	printf ("\n");
 	return (1);
@@ -384,14 +424,14 @@ void title (char *msg)
 {
 }
 
-void flashWindowAndBeep ()
+void flashWindowAndBeep (void)
 {
 	printf ("\007");
 }
 
 /* Return TRUE if we should stop calculating */
 
-int escapeCheck ()
+int escapeCheck (void)
 {
 	if (THREAD_STOP) {
 		THREAD_STOP = 0;
@@ -400,7 +440,7 @@ int escapeCheck ()
 	return (FALSE);
 }
 
-void doMiscTasks ()
+void doMiscTasks (void)
 {
 #ifdef MPRIME_LOADAVG
 	test_sleep ();
@@ -412,12 +452,14 @@ void OutputStr (char *buf)
 	if (VERBOSE || MENUING) printf ("%s", buf);
 }
 
-void guessCpuType ()
+void guessCpuType (void)
 {
 	FILE	*fd;
 	char	buf[80];
 
-	CPU_TYPE = isPentiumPro () ? 6 : isPentium () ? 5 : 4;
+	CPU_TYPE = isPentium4 () ? 12 :
+		   isPentium3 () ? 10 :
+		   isPentiumPro () ? 6 : isPentium () ? 5 : 4;
 	CPU_SPEED = 100;
 	fd = fopen ("/proc/cpuinfo", "r");
 	if (fd == NULL) return;
@@ -434,7 +476,7 @@ void guessCpuType ()
 	fclose (fd);
 }
 
-unsigned long physical_memory ()
+unsigned long physical_memory (void)
 {
 	FILE	*fd;
 	char	mem[80];
@@ -452,7 +494,7 @@ unsigned long physical_memory ()
 	return (atoi (mem) >> 20);
 }
 
-int getDefaultTimeFormat ()
+int getDefaultTimeFormat (void)
 {
 	return (2);
 }
@@ -460,18 +502,33 @@ int getDefaultTimeFormat ()
 void Sleep (
 	long	ms) 
 {
+#ifdef __IBMC__
+	DosSleep(ms);
+#else
 	sleep (ms/1000);
+#endif
 }
 
 /* Set priority.  Map one (prime95's lowest priority) to 20 */
 /* (linux's lowest priority).  Map eight (prime95's normal priority) to */
 /* 0 (linux's normal priority). */
 
-void SetPriority ()
+void SetPriority (void)
 {
+#ifdef __IBMC__
+	DosSetPriority(PRTYS_PROCESS,
+		(PRIORITY < 6) ? PRTYC_IDLETIME : PRTYC_REGULAR,
+		(PRIORITY == 1 || PRIORITY == 6) ? PRTYD_MINIMUM :
+		(PRIORITY == 2 || PRIORITY == 7) ? -10 :
+		(PRIORITY == 3 || PRIORITY == 8) ? 0 :
+		(PRIORITY == 4 || PRIORITY == 9) ? 10 :
+		PRTYD_MAXIMUM,
+		0);
+#else
 	int	p;
 	p = (8 - (int) PRIORITY) * 20 / 7;
 	setpriority (PRIO_PROCESS, getpid (), p);
+#endif
 }
 
 void BlinkIcon (int x)
@@ -544,6 +601,10 @@ void linuxContinue (
 	running_pid = IniGetInt (LOCALINI_FILE, "Pid", 0);
 	if (running_pid == 0 || my_pid == running_pid) goto ok;
 
+/* On OS/2 assume we have only one executable */
+
+#ifndef __IBMC__
+
 /* See if the two pids are running the same executable */
 
 	sprintf (filename, PROCNAME, my_pid);
@@ -559,6 +620,7 @@ void linuxContinue (
 	inode2 = filedata.st_ino;
 	_close (fd);
 	if (inode1 != inode2) goto ok;
+#endif
 
 /* The two pids are running the same executable, raise an error and return */
 

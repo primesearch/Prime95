@@ -1,4 +1,4 @@
-/*EXTERNC void timeit ();*/
+EXTERNC void timeit (void);
 /*
    is sieve tuned properly?  could be even faster.  use assembly?
 	do sieve once and store in a file?
@@ -18,7 +18,7 @@
  *	Other important ideas courtesy of Peter Montgomery.
  *
  *	c. 1997 Perfectly Scientific, Inc.
- *	c. 1998-2000 Just For Fun Software, Inc.
+ *	c. 1998-2001 Just For Fun Software, Inc.
  *	All Rights Reserved.
  *
  *************************************************************/
@@ -80,7 +80,7 @@ void ecm_setup1 (
 
 /* Perform setup functions, part 2. */
 
-void ecm_setup2 ()
+void ecm_setup2 (void)
 {
 	unsigned long i, max;
 
@@ -100,7 +100,7 @@ void ecm_setup2 ()
 
 /* Perform cleanup functions. */
 
-void ecm_cleanup ()
+void ecm_cleanup (void)
 {
 	free (N);
 	free (nQx);
@@ -127,7 +127,7 @@ static	struct sieve_info {
 
 /* Fill up the sieve array */
 
-void fill_sieve ()
+void fill_sieve (void)
 {
 	unsigned int i, fmax;
 
@@ -204,7 +204,7 @@ void start_sieve (
 
 /* Return next prime from the sieve */
 
-unsigned long sieve ()
+unsigned long sieve (void)
 {
 	if (si.start == 2) {
 		si.start = 3;
@@ -262,10 +262,10 @@ void ell_dbl (
 	gwsub3 (t1, x2, t3);		/* t3 = t1 - t2 = 4 * x1 * z1 */
 	gwfft (t3, t3);
 	gwfft (x2, x2);
-	gwadd3quick (t3, x2, t1);	/* Compute the fft of t1! */
+	gwfftadd3 (t3, x2, t1);		/* Compute the fft of t1! */
 	gwfftfftmul (Ad4, x2, x2);	/* x2 = t2 * Ad4 */
 	gwfft (x2, x2);
-	gwadd3quick (x2, t3, z2);	/* z2 = (t2 * Ad4 + t3) */
+	gwfftadd3 (x2, t3, z2);		/* z2 = (t2 * Ad4 + t3) */
 	gwfftfftmul (t3, z2, z2);	/* z2 = z2 * t3 */
 	gwfftfftmul (t1, x2, x2);	/* x2 = x2 * t1 */
 	gwfree (t1);
@@ -325,7 +325,7 @@ void ell_add_special (
 	gwnum	t1, t2;
 	t1 = gwalloc ();
 	t2 = gwalloc ();
-	gwaddsub4quick (x1, z1, t1, t2);/* t1 = (x1 + z1)(x2 - z2) */
+	gwfftaddsub4 (x1, z1, t1, t2);	/* t1 = (x1 + z1)(x2 - z2) */
 					/* t2 = (x1 - z1)(x2 + z2) */
 	gwfftfftmul (z2, t1, t1);
 	gwfftfftmul (x2, t2, t2);
@@ -378,10 +378,10 @@ void ell_dbl_fft (
 	gwsub3 (t1, x2, t3);		/* t3 = t1 - t2 = 4 * x1 * z1 */
 	gwfft (t3, t3);
 	gwfft (x2, x2);
-	gwadd3quick (t3, x2, t1);	/* Compute fft of t1! */
+	gwfftadd3 (t3, x2, t1);		/* Compute fft of t1! */
 	gwfftfftmul (Ad4, x2, x2);	/* x2 = t2 * Ad4 */
 	gwfft (x2, x2);
-	gwadd3quick (x2, t3, z2);	/* z2 = (t2 * Ad4 + t3) * t3 */
+	gwfftadd3 (x2, t3, z2);		/* z2 = (t2 * Ad4 + t3) * t3 */
 	gwfftfftmul (t3, z2, z2);
 	gwfftfftmul (t1, x2, x2);	/* x2 = x2 * t1 */
 	gwaddsub (x2, z2);		/* x2 = x2 + z2, z2 = x2 - z2 */
@@ -391,7 +391,7 @@ void ell_dbl_fft (
 	gwfree (t3);
 }
 
-/* Like ell_add but input arguments  are FFTs of x1=x1+z1, z1=x1-z1, */
+/* Like ell_add but input arguments are FFTs of x1=x1+z1, z1=x1-z1, */
 /* x2=x2+z2, z2=x2-z2, xdiff=xdiff+zdiff, zdiff=xdiff-zdiff. */
 /* The output arguments are also FFTs of x3=x3+z3, z3=x3-z3 */
 
@@ -413,7 +413,7 @@ void ell_add_fft (
 	gwaddsub (t2, t1);
 	gwsquare (t2);		/* t2 = (t2 + t1)^2 (will become x3) */
 	gwsquare (t1);		/* t1 = (t2 - t1)^2 (will become z3) */
-	gwaddsub4quick (xdiff, zdiff, x3, z3);
+	gwfftaddsub4 (xdiff, zdiff, x3, z3);
 				/* x3 = xdiff = (xdiff + zdiff) */
 				/* z3 = zdiff = (xdiff - zdiff) */
 	gwfftmul (z3, t2);	/* t2 = t2 * zdiff (new x3) */
@@ -446,7 +446,7 @@ void ell_add_fft_last (
 		gwaddsub4 (t2, t1, x3, z3);
 		gwsquare (x3);		/* x3 = (t2 + t1)^2 */
 		gwsquare (z3);		/* z3 = (t2 - t1)^2 */
-		gwaddsub4quick (xdiff, zdiff, t1, t2);
+		gwfftaddsub4 (xdiff, zdiff, t1, t2);
 				/* t1 = xdiff = (xdiff + zdiff) */
 				/* t2 = zdiff = (xdiff - zdiff) */
 		gwfftmul (t2, x3);	/* x3 = x3 * zdiff */
@@ -455,7 +455,7 @@ void ell_add_fft_last (
 		gwaddsub (t2, t1);
 		gwsquare (t2); gwfft (t2, t2);
 		gwsquare (t1); gwfft (t1, t1);
-		gwaddsub4quick (xdiff, zdiff, z3, x3);
+		gwfftaddsub4 (xdiff, zdiff, z3, x3);
 		gwfftfftmul (t2, x3, x3);
 		gwfftfftmul (t1, z3, z3);
 	}
@@ -776,7 +776,7 @@ int testFactor (
 
 /* Set N, the number we are trying to factor */
 
-int setN ()
+int setN (void)
 {
 	unsigned long p;
 	FILE	*fd;
@@ -842,19 +842,18 @@ void gwtobinary (
 	giant	v)
 {
 	long	val;
-	int	j, bits, bits_in_a_word, bitsout, carry;
+	int	j, bits, bitsout, carry;
 	unsigned long i, *outptr;
 
 /* Collect bits until we have all of them */
 
 	carry = 0;
-	bits_in_a_word = (int) (PARG / FFTLEN);
 	bitsout = 0;
 	outptr = v->n;
 	*outptr = 0;
 	for (i = 0; i < FFTLEN; i++) {
 		get_fft_value (gg, i, &val);
-		bits = bits_in_a_word;
+		bits = BITS_PER_WORD;
 		if (is_big_word (i)) bits++;
 		val += carry;
 		for (j = 0; j < bits; j++) {
@@ -911,7 +910,7 @@ void binarytogw (
 		return;
 	}
 
-	bits1 = (int) (PARG / FFTLEN);
+	bits1 = BITS_PER_WORD;
 	bits2 = bits1 + 1;
 	mask1 = (1L << bits1) - 1;
 	mask2 = (1L << bits2) - 1;
@@ -1227,7 +1226,7 @@ void add_to_normalize_pool (
 /* If we accidentally find a factor, it is returned in U. */
 /* Return FALSE if there is a user interrupt. */
 
-int normalize_pool ()
+int normalize_pool (void)
 {
 	unsigned int i;
 
@@ -1436,7 +1435,7 @@ int mQ_next (gwnum *retx, gwnum *retz)
 	mQx_count--;
 	return (TRUE);
 }
-void mQ_term ()
+void mQ_term (void)
 {
 	gwfree (Qprevmx);
 	gwfree (Qprevmz);
@@ -1448,7 +1447,7 @@ void mQ_term ()
 /* Test if N is a probable prime */
 /* Compute i^(N-1) mod N for i = 3,5,7 */
 
-int isProbablePrime ()
+int isProbablePrime (void)
 {
 	int	i, j, len, retval;
 	gwnum	t1, t2;
@@ -1464,7 +1463,7 @@ int isProbablePrime ()
 		dbltogw ((double) 1.0, t1);
 		dbltogw ((double) i, t2);
 		gwfft (t2, t2);
-		for (j = 0; j < len; j++) {
+		for (j = 1; j <= len; j++) {
 			gwsquare (t1);
 			if (bitval (N, len-j)) gwfftmul (t2, t1);
 		}
@@ -1482,7 +1481,7 @@ int isProbablePrime ()
 
 /* Print the factor we just found */
 
-int printFactor ()
+int printFactor (void)
 {
 	char	msg[250], buf[200];
 
@@ -1498,10 +1497,14 @@ int printFactor ()
 	OutputBoth (msg);
 	spoolMessage (PRIMENET_RESULT_MESSAGE, msg);
 
-	if (PARG < 10000 && isProbablePrime ()) {
-		OutputBoth ("Cofactor is a probable prime!\n");
-		updateWorkToDo (PARG, WORK_FACTOR, 0);
-		return (TRUE);
+	if (PARG < 10000) {
+		divg (FAC, N);
+		if (isProbablePrime ()) {
+			OutputBoth ("Cofactor is a probable prime!\n");
+			updateWorkToDo (PARG, WORK_FACTOR, 0);
+			return (TRUE);
+		}
+		mulg (FAC, N);
 	}
 	return (FALSE);
 }
@@ -1936,9 +1939,19 @@ restart:
 
 /*#define TIMING1*/
 #ifdef TIMING1
+if (p == 598) {
+	gwnum	x, y;
+	ecm_setup1 (p, plus1);
+	gwsetnormroutine (0, ERRCHK, 0);
+	x = gwalloc ();
+	y = gwalloc ();
+	dbltogw (100.0, x);
+	dbltogw (10.0, y);
+	gwaddsub (x, y);
+	OutputStr ("\n");
+}
 if (p == 599) {
 	giant x, y;
-	
 	x = newgiant (1050000);
 	y = newgiant (1050000);
 
@@ -1958,7 +1971,6 @@ if (p == 599) {
 	OutputStr (", ");
 	print_timer (0, TIMER_CLR);
 	OutputStr ("\n");
-
 }
 if (p == 600) {
 int i, j;
@@ -2028,17 +2040,35 @@ return 0;
 /*#define TIMING2*/
 #ifdef TIMING2
 if (p == 600) {
-SRCARG = malloc (9000000);
-memset (SRCARG, 0, 9000000);
-for (i = 1; i <= 1000; i++) {
+long f; int j, cnt;
+gwsetup (10000000, 0, 0);
+f = (long) malloc (20000000);
+SRCARG = (void *) ((f + 4095) & ~4095);
+memset (SRCARG, 0, 20000000 - 4096);
+        SetThreadPriority (CURRENT_THREAD, THREAD_PRIORITY_TIME_CRITICAL);
+for (j = 0; j < 4; j++) {
+	cnt = 0;
+for (i = 1; i <= 200; i++) {
 	start_timer (0);
+	DESTARG = (void *) j;
 	timeit ();
 	end_timer (0);
+/*	if (j == 0) for (int k = 0; k < 40000000; k++); */
 	if (timers[1] == 0 || timers[1] > timers[0]) timers[1] = timers[0];
+	if (i > 1 && timers[0] < 3.0 * timers[1]) {
+		if (timers[0] > 1.5 * timers[1])
+			i++;
+		timers[2] += timers[0];
+		cnt++;
+	}
 	timers[0] = 0;
 }
-free (SRCARG);
-OutputStr ("1000 iters: ");  print_timer (1, TIMER_NL | TIMER_CLR);
+OutputStr ("1000 iters: ");  print_timer (1, TIMER_CLR);
+timers[2] /= cnt;
+OutputStr (", avg: "); print_timer (2, TIMER_NL | TIMER_CLR);
+}
+
+free ((void *) f);
 return 0;
 }
 #endif
@@ -2051,6 +2081,7 @@ return 0;
 	if (plus1) filename[0]--;
 
 /* Get the current time */
+
 
 	time (&start_time);
 
@@ -2077,6 +2108,7 @@ return 0;
 /* Perform setup functions */
 
 	ecm_setup1 (p, plus1);
+	gwsetnormroutine (0, ERRCHK, 0);
 	last_output = fft_count = modinv_count = 0;
 
 /* Default is to use up to 24MB of memory */
@@ -2295,7 +2327,7 @@ restart0:
 		unsigned long hi, lo;
 		sigma = (rand () & 0x1F) * 65536.0 * 65536.0 * 65536.0;
 		sigma += (rand () & 0xFFFF) * 65536.0 * 65536.0;
-		if (CPU_TYPE >= 5) rdtsc (&hi, &lo);
+		if (CPU_FLAGS & CPU_RDTSC) rdtsc (&hi, &lo);
 		sigma += lo ^ ((unsigned long) rand () << 16);
 	} while (sigma <= 5.0);
 	if (specific_sigma > 5.0) sigma = specific_sigma;
@@ -2332,6 +2364,7 @@ restart1:
 
 		if (fft_count >= last_output + 2 * ITER_OUTPUT) {
 			sprintf (buf, "At prime %lu.  Time thusfar ", prime);
+			OutputTimeStamp ();
 			OutputStr (buf);
 			end_timer (0);
 			print_timer (0, TIMER_NL);
@@ -2470,7 +2503,7 @@ restart3:
 
 	ell_add_special (Qiminus2x, Qiminus2z, Q2x, Q2z,
 			 Qdiffx, Qdiffz, Qdiffx, Qdiffz);
-	gwaddsubquick (Q2x, Q2z);		/* Recompute fft of Q2x,Q2z */
+	gwfftaddsub (Q2x, Q2z);			/* Recompute fft of Q2x,Q2z */
 	ell_begin_fft (Qdiffx, Qdiffz, Qdiffx, Qdiffz);
 	ell_add_special (Qiminus2x, Qiminus2z, Qdiffx, Qdiffz,
 			 Q2x, Q2z, Q2x, Q2z);
@@ -2580,7 +2613,7 @@ restart3:
 				if (bittst (pairings, i)) continue;
 			} else
 				break;
-			gwsub3quick (mQx, nQx[i], t1);
+			gwfftsub3 (mQx, nQx[i], t1);
 			gwfftmul (t1, gg);
 		    }
 		}
@@ -2599,7 +2632,7 @@ restart3:
 				break;
 			gwfftfftmul (nQx[i], mQz, t1);
 			gwfft (t1, t1);
-			gwsub3quick (mQx, t1, t1);
+			gwfftsub3 (mQx, t1, t1);
 			gwfftmul (t1, gg);
 		    }
 		}
@@ -2609,6 +2642,7 @@ restart3:
 
 		if (fft_count >= last_output + 2 * ITER_OUTPUT) {
 			sprintf (buf, "At prime %lu.  Time thusfar ", prime);
+			OutputTimeStamp ();
 			OutputStr (buf);
 			end_timer (0);
 			print_timer (0, TIMER_NL);
@@ -2772,7 +2806,7 @@ void pm1_setup1 (
 
 /* Perform cleanup functions. */
 
-void pm1_cleanup ()
+void pm1_cleanup (void)
 {
 
 /* Free memory */
@@ -2891,7 +2925,7 @@ void fd_init (
 /* Code to compute next x^(start+i*incr)^E value */
 /* Value is returned in eQx[0] - already FFTed */
 
-void fd_next ()
+void fd_next (void)
 {
 	unsigned long i;
 
@@ -2903,7 +2937,7 @@ void fd_next ()
 
 /* Terminate finite differences code */
 
-void fd_term ()
+void fd_term (void)
 {
 	unsigned long i;
 
@@ -3098,7 +3132,7 @@ error:
 
 /* Compute how many values we can allocate */
 
-unsigned long choose_pminus1_numvals ()
+unsigned long choose_pminus1_numvals (void)
 {
 	unsigned long memory;		/* Available memory in MB */
 
@@ -3273,7 +3307,7 @@ int pminus1 (
 	unsigned long C_start,	/* Stage 2 starting point (usually equals B) */
 	unsigned long C,	/* Stage 2 ending point */
 	int	plus1,		/* TRUE if factoring 2^p+1 */
-	int	ll_testing)	/* TRUE if we are pre-factoring */
+	int	ll_testing)	/* Set to how_far_factored if we are pre-factoring */
 				/* for a future LL test */
 {
 	struct pm1_state state;
@@ -3284,7 +3318,7 @@ int pminus1 (
 	unsigned long i, j, m, stage2incr, prime, len, bit_number;
 	gwnum	x, gg, t3;
 	char	filename[16], buf[100];
-	int	retval, stage, escaped;
+	int	retval, stage, escaped, saving, echk;
 	long	write_time = DISK_WRITE_TIME * 60;
 	time_t	start_time, current_time;
 	double	pct;
@@ -3293,6 +3327,7 @@ int pminus1 (
 
 restart:
 	clear_timers ();
+	escaped = FALSE;
 
 /* Init filename */
 
@@ -3317,6 +3352,7 @@ restart:
 /* Perform setup functions */
 
 	pm1_setup1 (p, plus1);
+	gwsetnormroutine (0, ERRCHK, 0);
 	last_contact = last_output = last_output_r = fft_count = 0;
 	EXP_BEING_WORKED_ON = p;
 	EXP_BEING_FACTORED = 1;
@@ -3476,33 +3512,46 @@ restart0:
 
 /* Now take the exponent and raise x to that power */
 
+	gwsetmulbyconst (3);
 	while (bit_number < len) {
-
-/* Either square x or square x and multiply it by three. */
-
-		if (bitval (exp, len - bit_number - 1))
-			gwsquareandmulby3 (x);
-		else
-			gwsquare (x);
-		bit_number++;
-
-/* Test for an error */
-
-		if (gw_test_for_error ()) goto error;
-
-/* Test for user interrupt */
-
-		escaped = stopCheck ();
 
 /* Contact the server every now and then */
 
 		if (fft_count > last_contact + 200) {
 			pct = (double) bit_number / (double) len;
 			if (prime < B) pct *= (double) prime / (double) B;
-			if (B != C) EXP_PERCENT_COMPLETE = pct * 0.5;
+			if (B != C) EXP_PERCENT_COMPLETE = 0.5 - pct * 0.5;
 			if (!communicateWithServer ()) escaped = 1;
 			last_contact = fft_count;
 		}
+
+/* Set various flags.  They can control whether error-checking or */
+/* the next FFT can be started. */
+
+		escaped |= stopCheck ();
+		time (&current_time);
+		saving = (current_time - start_time > write_time);
+		echk = escaped || saving || ERRCHK || (bit_number & 127) == 64;
+
+/* Either square x or square x and multiply it by three. */
+
+		gwstartnextfft (!escaped && !saving && !(bit_number+1 == len));
+		if (bitval (exp, len - bit_number - 1)) {
+			gwsetnormroutine (0, echk, 1);
+			gwsquare (x);
+		} else {
+			gwsetnormroutine (0, echk, 0);
+			gwsquare (x);
+		}
+		bit_number++;
+//{char buf[200]; unsigned long high32, low32;
+//LLDATA = x; generateResidue64 (0, &high32, &low32);
+//sprintf (buf, "interim P-1 residue %08lX%08lX at bit %ld\n", high32, low32, bit_number);
+//OutputBoth (buf);}
+
+/* Test for an error */
+
+		if (gw_test_for_error ()) goto error;
 
 /* Every N squarings, output a progress report */
 
@@ -3519,6 +3568,7 @@ restart0:
 				 "%%lu stage 1 is %%.%df%%%% complete. Time: ",
 				 PRECISION);
 			sprintf (buf+1, mask, PARG, pct);
+			OutputTimeStamp ();
 			OutputStr (buf);
 			end_timer (0);
 			print_timer (0, TIMER_NL | TIMER_OPT_CLR);
@@ -3545,8 +3595,7 @@ restart0:
 
 /* Check for escape and/or if its time to write a save file */
 
-		time (&current_time);
-		if (escaped || current_time - start_time > write_time) {
+		if (escaped || saving) {
 			pm1_save (filename, &state, bit_number, x, NULL);
 			if (escaped) {
 				free (exp);
@@ -3561,6 +3610,7 @@ restart0:
 
 		doMiscTasks ();
 	}
+	gwsetnormroutine (0, ERRCHK, 0);
 	free (exp);
 	end_timer (0);
 	end_timer (1);
@@ -3624,6 +3674,7 @@ restart1:
 				 "%%lu stage 1 is %%.%df%%%% complete. Time: ",
 				 PRECISION);
 			sprintf (buf+1, mask, PARG, pct);
+			OutputTimeStamp ();
 			OutputStr (buf);
 			end_timer (0);
 			print_timer (0, TIMER_NL | TIMER_OPT_CLR);
@@ -3853,12 +3904,12 @@ restart3d:
 		}
 		if (nQx[i] == NULL) continue;
 		if (numvals > 12) {
-			gwsub3quick (eQx[0], nQx[i], t3);
+			gwfftsub3 (eQx[0], nQx[i], t3);
 			gwfftmul (t3, gg);
 		} else {
-			gwsub3quick (eQx[0], nQx[i], eQx[0]);
+			gwfftsub3 (eQx[0], nQx[i], eQx[0]);
 			gwfftmul (eQx[0], gg);
-			gwadd3quick (eQx[0], nQx[i], eQx[0]);
+			gwfftadd3 (eQx[0], nQx[i], eQx[0]);
 		}
 
 /* Test for errors */
@@ -3894,6 +3945,7 @@ errchk:		if (gw_test_for_error ()) goto error;
 				"%%lu stage 2 is %%.%df%%%% complete. Time: ",
 				PRECISION);
 			sprintf (buf+1, mask, PARG, pct);
+			OutputTimeStamp ();
 			OutputStr (buf);
 			end_timer (0);
 			print_timer (0, TIMER_NL | TIMER_OPT_CLR);
@@ -4013,10 +4065,22 @@ restart4:
 
 msg_and_exit:
 	buf[0] = PLUS1 ? 'P' : 'M';
-	sprintf (buf+1, "%ld completed P-1, B1=%lu, B2=%lu, WW%d: %08lX\n",
+	sprintf (buf+1, "%ld completed P-1, B1=%lu, B2=%lu, WX%d: %08lX\n",
 		 PARG, B, C, PORT, SEC5 (PARG, B, C));
 	writeResults (buf);
 	if (ll_testing) spoolMessage (PRIMENET_RESULT_MESSAGE, buf);
+
+/* Send a kludgy message to server that P-1 factoring is complete. */
+/* We add 0.5 to how_far_factored to indicate this state. */
+
+	{
+		struct primenetAssignmentResult pkt;
+		memset (&pkt, 0, sizeof (pkt));
+		pkt.exponent = p;
+		pkt.resultType = PRIMENET_RESULT_NOFACTOR;
+		pkt.resultInfo.how_far_factored = (double) ll_testing + 0.5;
+		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
+	}
 
 /* Create save file so that we can expand bound 1 or bound 2 at a later date */
 /* If this is pre-factoring for an LL test, then delete the large save file */
@@ -4049,8 +4113,12 @@ nomem:	OutputStr ("Not enough memory available to run stage 2 now.\n");
 
 /* Print a message if we found a factor! */
 
-bingo:	sprintf (buf, "P-1 found a factor in stage #%d, B1=%lu, B2=%lu.\n",
-		 stage, B, C);
+bingo:	if (stage == 1)
+		sprintf (buf, "P-1 found a factor in stage #1, B1=%lu.\n", B);
+	else
+		sprintf (buf,
+			 "P-1 found a factor in stage #2, B1=%lu, B2=%lu.\n",
+			 B, C);
 	writeResults (buf);
 	printFactor ();
 

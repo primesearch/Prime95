@@ -1,4 +1,4 @@
-; Copyright 1995-1999 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2000 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -9,7 +9,7 @@
 
 	.386
 
-_TEXT32 SEGMENT PARA USE32 PUBLIC 'DATA'
+_TEXT32 SEGMENT PAGE USE32 PUBLIC 'DATA'
 
 EXTRN	_PARG:DWORD
 EXTRN	_FFTLEN:DWORD

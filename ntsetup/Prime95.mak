@@ -55,23 +55,23 @@ ALL : "$(OUTDIR)\Prime95.exe" "$(OUTDIR)\Prime95.hlp"
 
 CLEAN : 
 	-@erase ".\Release\Prime95.exe"
-	-@erase ".\Release\Prime95View.obj"
-	-@erase ".\Release\Prime95.pch"
-	-@erase ".\Release\Prime95.obj"
-	-@erase ".\Release\AffinityDlg.obj"
-	-@erase ".\Release\Priority.obj"
-	-@erase ".\Release\EcmDlg.obj"
 	-@erase ".\Release\Prime95Doc.obj"
-	-@erase ".\Release\PreferencesDlg.obj"
-	-@erase ".\Release\Pminus1Dlg.obj"
-	-@erase ".\Release\PrimenetDlg.obj"
+	-@erase ".\Release\Prime95.pch"
+	-@erase ".\Release\EcmDlg.obj"
 	-@erase ".\Release\StdAfx.obj"
-	-@erase ".\Release\ServerDlg.obj"
 	-@erase ".\Release\MainFrm.obj"
+	-@erase ".\Release\ServerDlg.obj"
+	-@erase ".\Release\PreferencesDlg.obj"
+	-@erase ".\Release\PrimenetDlg.obj"
+	-@erase ".\Release\Priority.obj"
+	-@erase ".\Release\Prime95View.obj"
+	-@erase ".\Release\Prime95.obj"
+	-@erase ".\Release\Pminus1Dlg.obj"
 	-@erase ".\Release\VacationDlg.obj"
 	-@erase ".\Release\UserDlg.obj"
-	-@erase ".\Release\ManualCommDlg.obj"
+	-@erase ".\Release\AffinityDlg.obj"
 	-@erase ".\Release\CpuDlg.obj"
+	-@erase ".\Release\ManualCommDlg.obj"
 	-@erase ".\Release\Prime95.res"
 	-@erase ".\Release\Prime95.hlp"
 
@@ -105,22 +105,22 @@ LINK32_FLAGS=..\prime95\mult.obj mult.obj /nologo /subsystem:windows\
  /incremental:no /pdb:"$(OUTDIR)/Prime95.pdb" /machine:I386\
  /out:"$(OUTDIR)/Prime95.exe" 
 LINK32_OBJS= \
+	"$(INTDIR)/Prime95Doc.obj" \
+	"$(INTDIR)/EcmDlg.obj" \
+	"$(INTDIR)/StdAfx.obj" \
+	"$(INTDIR)/MainFrm.obj" \
+	"$(INTDIR)/ServerDlg.obj" \
+	"$(INTDIR)/PreferencesDlg.obj" \
+	"$(INTDIR)/PrimenetDlg.obj" \
+	"$(INTDIR)/Priority.obj" \
 	"$(INTDIR)/Prime95View.obj" \
 	"$(INTDIR)/Prime95.obj" \
-	"$(INTDIR)/AffinityDlg.obj" \
-	"$(INTDIR)/Priority.obj" \
-	"$(INTDIR)/EcmDlg.obj" \
-	"$(INTDIR)/Prime95Doc.obj" \
-	"$(INTDIR)/PreferencesDlg.obj" \
 	"$(INTDIR)/Pminus1Dlg.obj" \
-	"$(INTDIR)/PrimenetDlg.obj" \
-	"$(INTDIR)/StdAfx.obj" \
-	"$(INTDIR)/ServerDlg.obj" \
-	"$(INTDIR)/MainFrm.obj" \
 	"$(INTDIR)/VacationDlg.obj" \
 	"$(INTDIR)/UserDlg.obj" \
-	"$(INTDIR)/ManualCommDlg.obj" \
+	"$(INTDIR)/AffinityDlg.obj" \
 	"$(INTDIR)/CpuDlg.obj" \
+	"$(INTDIR)/ManualCommDlg.obj" \
 	"$(INTDIR)/Prime95.res"
 
 "$(OUTDIR)\Prime95.exe" : "$(OUTDIR)" $(DEF_FILE) $(LINK32_OBJS)
@@ -147,25 +147,25 @@ ALL : "$(OUTDIR)\Prime95.exe" "$(OUTDIR)\Prime95.hlp"
 
 CLEAN : 
 	-@erase ".\Debug\vc40.pdb"
+	-@erase ".\Debug\Prime95.pch"
 	-@erase ".\Debug\vc40.idb"
 	-@erase ".\Debug\Prime95.exe"
+	-@erase ".\Debug\Prime95.obj"
+	-@erase ".\Debug\ManualCommDlg.obj"
+	-@erase ".\Debug\MainFrm.obj"
+	-@erase ".\Debug\PrimenetDlg.obj"
 	-@erase ".\Debug\Pminus1Dlg.obj"
-	-@erase ".\Debug\Prime95.pch"
+	-@erase ".\Debug\CpuDlg.obj"
+	-@erase ".\Debug\PreferencesDlg.obj"
+	-@erase ".\Debug\VacationDlg.obj"
+	-@erase ".\Debug\EcmDlg.obj"
+	-@erase ".\Debug\Priority.obj"
+	-@erase ".\Debug\StdAfx.obj"
+	-@erase ".\Debug\Prime95Doc.obj"
 	-@erase ".\Debug\Prime95View.obj"
 	-@erase ".\Debug\AffinityDlg.obj"
-	-@erase ".\Debug\CpuDlg.obj"
-	-@erase ".\Debug\MainFrm.obj"
-	-@erase ".\Debug\ManualCommDlg.obj"
-	-@erase ".\Debug\EcmDlg.obj"
-	-@erase ".\Debug\ServerDlg.obj"
-	-@erase ".\Debug\Prime95Doc.obj"
-	-@erase ".\Debug\StdAfx.obj"
-	-@erase ".\Debug\Prime95.obj"
-	-@erase ".\Debug\PrimenetDlg.obj"
-	-@erase ".\Debug\Priority.obj"
-	-@erase ".\Debug\PreferencesDlg.obj"
 	-@erase ".\Debug\UserDlg.obj"
-	-@erase ".\Debug\VacationDlg.obj"
+	-@erase ".\Debug\ServerDlg.obj"
 	-@erase ".\Debug\Prime95.res"
 	-@erase ".\Debug\Prime95.ilk"
 	-@erase ".\Debug\Prime95.pdb"
@@ -199,22 +199,22 @@ LINK32_FLAGS=..\prime95\mult.obj mult.obj /nologo /subsystem:windows\
  /incremental:yes /pdb:"$(OUTDIR)/Prime95.pdb" /debug /machine:I386\
  /out:"$(OUTDIR)/Prime95.exe" 
 LINK32_OBJS= \
+	"$(INTDIR)/Prime95.obj" \
+	"$(INTDIR)/ManualCommDlg.obj" \
+	"$(INTDIR)/MainFrm.obj" \
+	"$(INTDIR)/PrimenetDlg.obj" \
 	"$(INTDIR)/Pminus1Dlg.obj" \
+	"$(INTDIR)/CpuDlg.obj" \
+	"$(INTDIR)/PreferencesDlg.obj" \
+	"$(INTDIR)/VacationDlg.obj" \
+	"$(INTDIR)/EcmDlg.obj" \
+	"$(INTDIR)/Priority.obj" \
+	"$(INTDIR)/StdAfx.obj" \
+	"$(INTDIR)/Prime95Doc.obj" \
 	"$(INTDIR)/Prime95View.obj" \
 	"$(INTDIR)/AffinityDlg.obj" \
-	"$(INTDIR)/CpuDlg.obj" \
-	"$(INTDIR)/MainFrm.obj" \
-	"$(INTDIR)/ManualCommDlg.obj" \
-	"$(INTDIR)/EcmDlg.obj" \
-	"$(INTDIR)/ServerDlg.obj" \
-	"$(INTDIR)/Prime95Doc.obj" \
-	"$(INTDIR)/StdAfx.obj" \
-	"$(INTDIR)/Prime95.obj" \
-	"$(INTDIR)/PrimenetDlg.obj" \
-	"$(INTDIR)/Priority.obj" \
-	"$(INTDIR)/PreferencesDlg.obj" \
 	"$(INTDIR)/UserDlg.obj" \
-	"$(INTDIR)/VacationDlg.obj" \
+	"$(INTDIR)/ServerDlg.obj" \
 	"$(INTDIR)/Prime95.res"
 
 "$(OUTDIR)\Prime95.exe" : "$(OUTDIR)" $(DEF_FILE) $(LINK32_OBJS)

@@ -1,4 +1,4 @@
-; Copyright 1995-1999 - Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2000 - Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -21,7 +21,7 @@
 ; I3 = (R2-R5)*.588 + (R3-R4)*-.951
 ; NOTE: Optimal = 37 clocks, Actual = 37 clocks
 
-five_reals_first_fft MACRO R1,R2,R3,R4,R5
+five_reals_first_fft MACRO R1,R2,R3,R4,R5,R6,R7,R8
 	fld	R2[ebx]			;; R2
 	fadd	R5[ebx]			;; T1 = R2 + R5
 	fld	R3[ebx]			;; R3,T1
@@ -91,7 +91,7 @@ five_reals_first_fft MACRO R1,R2,R3,R4,R5
 ; R4 = R1 - R2*.809 - I2*.588 + R3*.309 + I3*.951
 ; R5 = R1 + R2*.309 - I2*.951 - R3*.809 - I3*.588
 
-five_reals_last_unfft MACRO R1,R2,R3,R4,R5
+five_reals_last_unfft MACRO R1,R2,R3,R4,R5,R6,R7,R8
 	fld	R2			;; R2
 	fmul	P309			;; T1 = R2 * .309
 	fld	R4			;; R3,T1
@@ -171,7 +171,7 @@ five_reals_last_unfft MACRO R1,R2,R3,R4,R5
 
 ; Note: below we combine the "T4 = T4 * 0.866" step with the complex multiply
 
-six_reals_first_fft MACRO R1,R2,R3,R4,R5,R6
+six_reals_first_fft MACRO R1,R2,R3,R4,R5,R6,R7,R8
 	fld	R4[ebx]			;; R4
 	fadd	R6[ebx]			;; T3 = R4 + R6
 	fld	R4[ebx]			;; R4,T3
@@ -264,7 +264,7 @@ six_reals_first_fft MACRO R1,R2,R3,R4,R5,R6
 ; Note: below we combine the 0.866 * I4 and 0.5 * R4 steps with the
 ; complex multiply to save one clock.
 
-six_reals_last_unfft MACRO R1,R2,R3,R4,R5,R6
+six_reals_last_unfft MACRO R1,R2,R3,R4,R5,R6,R7,R8
 	fld	R3
 	fsub	R5			;; R3 - R5 (new R4)
 	fld	R4
@@ -334,7 +334,7 @@ six_reals_last_unfft MACRO R1,R2,R3,R4,R5,R6
 ; I4 = (R2-R7)*.434 + (R3-R6)*-.782 + (R4-R5)*.975
 ; NOTE: Optimal = 69 clocks, Actual = 69 clocks
 
-seven_reals_first_fft MACRO R1,R2,R3,R4,R5,R6,R7
+seven_reals_first_fft MACRO R1,R2,R3,R4,R5,R6,R7,R8
 	fld	R2[ebx]			;; R2
 	fadd	R7[ebx]			;; T1 = R2+R7
 	fld	R3[ebx]			;; R3,T1
@@ -434,7 +434,7 @@ seven_reals_first_fft MACRO R1,R2,R3,R4,R5,R6,R7
 ; R7 = R1 + R2*.623 - I2*.782 - R3*.223 - I3*.975 - R4*.901 - I4*.434
 ; NOTE: Optimal = 71 clocks, Actual = 71 clocks
 
-seven_reals_last_unfft MACRO R1,R2,R3,R4,R5,R6,R7
+seven_reals_last_unfft MACRO R1,R2,R3,R4,R5,R6,R7,R8
 	fld	R3			;; I2
 	fmul	P975			;; T2 = I2*.975
 	fld	R5			;; I3,T2

@@ -21,9 +21,12 @@
 #include "ServerDlg.h"
 #include "TestDlg.h"
 #include "TimeDlg.h"
+#include "UnreserveDlg.h"
 #include "UserDlg.h"
 #include "VacationDlg.h"
+#include "WelcomeDlg.h"
 
+#include "HtmlHelp.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -33,7 +36,7 @@ static char THIS_FILE[] = __FILE__;
 
 #define OP_CONTINUE	1
 #define OP_TIME		2
-#define OP_SELFTEST	4
+#define OP_BENCH	3
 #define OP_TORTURE	5
 struct thread_info {
 	int	op;		// Opcode defined above
@@ -65,8 +68,6 @@ BEGIN_MESSAGE_MAP(CPrime95Doc, CDocument)
 	ON_UPDATE_COMMAND_UI(IDM_TIME, OnUpdateTime)
 	ON_COMMAND(IDM_TIME, OnTime)
 	ON_COMMAND(ID_RANGE_STATUS, OnRangeStatus)
-	ON_COMMAND(ID_OPTIONS_SELFTEST, OnOptionsSelftest)
-	ON_UPDATE_COMMAND_UI(ID_OPTIONS_SELFTEST, OnUpdateOptionsSelftest)
 	ON_COMMAND(IDM_PASSWORD, OnPassword)
 	ON_UPDATE_COMMAND_UI(IDM_PASSWORD, OnUpdatePassword)
 	ON_UPDATE_COMMAND_UI(ID_HELP_FINDER, OnUpdateHelpFinder)
@@ -95,7 +96,15 @@ BEGIN_MESSAGE_MAP(CPrime95Doc, CDocument)
 	ON_UPDATE_COMMAND_UI(IDM_AFFINITY, OnUpdateAffinity)
 	ON_COMMAND(IDM_PMINUS1, OnPminus1)
 	ON_UPDATE_COMMAND_UI(IDM_PMINUS1, OnUpdatePminus1)
-	ON_COMMAND(IDM_BROADCAST, OnBroadcast)
+	ON_COMMAND(USR_WELCOME, OnWelcome)
+	ON_COMMAND(USR_BROADCAST, OnBroadcast)
+	ON_COMMAND(ID_HELP_FINDER, OnHelpFinder)
+	ON_COMMAND(IDM_UNRESERVE, OnUnreserve)
+	ON_UPDATE_COMMAND_UI(IDM_UNRESERVE, OnUpdateUnreserve)
+	ON_UPDATE_COMMAND_UI(IDM_VACATION, OnUpdateVacation)
+	ON_UPDATE_COMMAND_UI(IDM_QUIT, OnUpdateQuit)
+	ON_COMMAND(IDM_BENCHMARK, OnBenchmark)
+	ON_UPDATE_COMMAND_UI(IDM_BENCHMARK, OnUpdateBenchmark)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
@@ -268,22 +277,33 @@ void CPrime95Doc::OnPrimenet()
 		STARTUP_IN_PROGRESS = 0;
 }
 
+void CPrime95Doc::OnUpdateQuit(CCmdUI* pCmdUI) 
+{
+	pCmdUI->Enable (USE_PRIMENET || IniGetNumLines (WORKTODO_FILE));
+}
+
 void CPrime95Doc::OnQuitGimps() 
 {
 	if (!USE_PRIMENET) {
 		if (AfxMessageBox (MANUAL_QUIT, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES) {
-			writeResults ("Quitting GIMPS.\n");
+			OutputBoth ("Quitting GIMPS.\n");
 			IniDeleteAllLines (WORKTODO_FILE);
 			THREAD_STOP = 1;
 			GIMPS_QUIT = 1;
 			if (WINDOWS95_SERVICE) OnService ();
 		}
 	} else {
-		if (AfxMessageBox (PRIMENET_QUIT, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES) {
-			writeResults ("Quitting GIMPS.\n");
+		int	res;
+		res = AfxMessageBox (PRIMENET_QUIT, MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON3);
+		if (res == IDYES) {
+			OutputBoth ("Quitting GIMPS after current work completes.\n");
+			IniWriteInt (INI_FILE, "NoMoreWork", 1);
+			if (!THREAD_ACTIVE) OnContinue ();
+		}
+		if (res == IDNO) {
+			OutputBoth ("Quitting GIMPS immediately.\n");
 			spoolMessage (999, NULL);
 			if (!THREAD_ACTIVE) OnContinue ();
-			if (WINDOWS95_SERVICE) OnService ();
 		}
 	}
 }
@@ -344,6 +364,12 @@ void CPrime95Doc::OnRangeUserinformation()
 		STARTUP_IN_PROGRESS = 0;
 }
 
+
+void CPrime95Doc::OnUpdateVacation(CCmdUI* pCmdUI) 
+{
+	pCmdUI->Enable (USE_PRIMENET);
+}
+
 void CPrime95Doc::OnVacation() 
 {
 	CVacationDlg dlg;
@@ -373,7 +399,8 @@ void CPrime95Doc::OnRangeStatus()
 
 void CPrime95Doc::OnUpdateContinue(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (! THREAD_ACTIVE);
+	pCmdUI->Enable (! THREAD_ACTIVE &&
+			(USE_PRIMENET || IniGetNumLines (WORKTODO_FILE)));
 }
 
 void CPrime95Doc::OnContinue() 
@@ -406,7 +433,7 @@ void CPrime95Doc::OnStop()
 {
 	THREAD_STOP = 1;
 	SetPriorityClass (GetCurrentProcess (), NORMAL_PRIORITY_CLASS);
-	SetThreadPriority (CURRENT_THREAD, THREAD_PRIORITY_ABOVE_NORMAL);
+	SetThreadPriority (WORKER_THREAD, THREAD_PRIORITY_ABOVE_NORMAL);
 }
 
 // Advanced Menu
@@ -518,22 +545,19 @@ void CPrime95Doc::OnEcm()
 
 void CPrime95Doc::OnUpdateErrchk(CCmdUI* pCmdUI) 
 {
-	int	echk = IniGetInt (INI_FILE, "ErrorCheck", 0);
-	pCmdUI->SetCheck (echk);
+	pCmdUI->SetCheck (ERRCHK);
 	pCmdUI->Enable (ADVANCED_ENABLED);
 }
 
 void CPrime95Doc::OnErrchk() 
 {
-	int	echk = IniGetInt (INI_FILE, "ErrorCheck", 0);
-	echk = !echk;
-	IniWriteInt (INI_FILE, "ErrorCheck", echk);
-	if (echk) ERRCHK++; else ERRCHK--;
+	ERRCHK = !ERRCHK;
+	IniWriteInt (INI_FILE, "ErrorCheck", ERRCHK);
 }
 
 void CPrime95Doc::OnUpdatePriority(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (!THREAD_ACTIVE && ADVANCED_ENABLED);
+	pCmdUI->Enable (ADVANCED_ENABLED);
 }
 
 void CPrime95Doc::OnPriority() 
@@ -543,8 +567,10 @@ void CPrime95Doc::OnPriority()
 	dlg.m_priority = PRIORITY;
 	if (dlg.DoModal () == IDOK) {
 		if (PRIORITY != dlg.m_priority) {
+			Restart1 ();
 			PRIORITY = dlg.m_priority;
 			IniWriteInt (INI_FILE, "Priority", PRIORITY);
+			Restart2 ();
 		}
 	}
 }
@@ -596,6 +622,27 @@ void CPrime95Doc::OnManualcomm()
 	}
 }
 
+void CPrime95Doc::OnUpdateUnreserve(CCmdUI* pCmdUI) 
+{
+	pCmdUI->Enable (ADVANCED_ENABLED && USE_PRIMENET);
+}
+
+void CPrime95Doc::OnUnreserve() 
+{
+	CUnreserveDlg dlg;
+
+	if (dlg.DoModal () == IDOK) {
+		if (THREAD_ACTIVE) {
+			Restart1 ();
+			unreserve (dlg.m_p);
+			Restart2 ();
+		} else {
+			unreserve (dlg.m_p);
+			OnContinue ();
+		}
+	}
+}
+
 
 // Options menu
 
@@ -606,10 +653,11 @@ void CPrime95Doc::OnCpu()
 
 	dlg.m_speed = CPU_SPEED;
 	dlg.m_cpu_type =
-		(CPU_TYPE == 10) ? 0 : (CPU_TYPE == 9) ? 1 :
-		(CPU_TYPE == 8) ? 2 : (CPU_TYPE == 6) ? 3 :
-		(CPU_TYPE == 5) ? 4 : (CPU_TYPE == 4) ? 5 :
-		(CPU_TYPE == 11) ? 6 : (CPU_TYPE == 7) ? 7 : 8;
+		(CPU_TYPE == 12) ? 0 :
+		(CPU_TYPE == 10) ? 1 : (CPU_TYPE == 9) ? 2 :
+		(CPU_TYPE == 8) ? 3 : (CPU_TYPE == 6) ? 4 :
+		(CPU_TYPE == 5) ? 5 : (CPU_TYPE == 4) ? 6 :
+		(CPU_TYPE == 11) ? 7 : (CPU_TYPE == 7) ? 8 : 9;
 	dlg.m_hours = CPU_HOURS;
 	dlg.m_day_memory = DAY_MEMORY;
 	dlg.m_night_memory = NIGHT_MEMORY;
@@ -620,14 +668,26 @@ void CPrime95Doc::OnCpu()
 again:	if (dlg.DoModal () == IDOK) {
 		unsigned int new_cpu_type, new_day_start_time, new_day_end_time;
 
-		new_cpu_type = (dlg.m_cpu_type == 0) ? 10 :
-			       (dlg.m_cpu_type == 1) ? 9 :
-			       (dlg.m_cpu_type == 2) ? 8 :
-			       (dlg.m_cpu_type == 3) ? 6 :
-			       (dlg.m_cpu_type == 4) ? 5 :
-			       (dlg.m_cpu_type == 5) ? 4 :
-			       (dlg.m_cpu_type == 6) ? 11 :
-			       (dlg.m_cpu_type == 7) ? 7 : 3;
+		if (CPU_SPEED != dlg.m_speed) {
+			if (! isReasonableCpuSpeed (dlg.m_speed)) {
+				if (AfxMessageBox (MSG_SPEED,
+						   MB_YESNO | MB_ICONQUESTION)
+							== IDNO)
+					goto again;
+				IniWriteInt (INI_FILE, "AskedAboutSpeed", 1);
+			} else
+				IniWriteInt (INI_FILE, "AskedAboutSpeed", 0);
+		}
+
+		new_cpu_type = (dlg.m_cpu_type == 0) ? 12 :
+			       (dlg.m_cpu_type == 1) ? 10 :
+			       (dlg.m_cpu_type == 2) ? 9 :
+			       (dlg.m_cpu_type == 3) ? 8 :
+			       (dlg.m_cpu_type == 4) ? 6 :
+			       (dlg.m_cpu_type == 5) ? 5 :
+			       (dlg.m_cpu_type == 6) ? 4 :
+			       (dlg.m_cpu_type == 7) ? 11 :
+			       (dlg.m_cpu_type == 8) ? 7 : 3;
 		if (CPU_SPEED != dlg.m_speed ||
 		    CPU_TYPE != new_cpu_type ||
 		    CPU_HOURS != dlg.m_hours) {
@@ -643,9 +703,20 @@ again:	if (dlg.DoModal () == IDOK) {
 		    NIGHT_MEMORY != dlg.m_night_memory ||
 		    DAY_START_TIME != new_day_start_time ||
 		    DAY_END_TIME != new_day_end_time)
-			memSettingsChanged ();
+			if (THREAD_ACTIVE) memSettingsChanged ();
+
+/* Prevent crashes caused by changing to or from Pentium 4 CPU type */
+/* in mid execution. */
+
+		if ((CPU_TYPE >= 12 && new_cpu_type < 12) ||
+		    (CPU_TYPE < 12 && new_cpu_type >= 12))
+			Restart1 ();
+
+/* Save the new information */
+
 		CPU_SPEED = dlg.m_speed;
 		CPU_TYPE = new_cpu_type;
+		setCpuFlags ();
 		CPU_HOURS = dlg.m_hours;
 		DAY_MEMORY = dlg.m_day_memory;
 		NIGHT_MEMORY = dlg.m_night_memory;
@@ -658,6 +729,8 @@ again:	if (dlg.DoModal () == IDOK) {
 		IniWriteInt (LOCALINI_FILE, "NightMemory", NIGHT_MEMORY);
 		IniWriteInt (LOCALINI_FILE, "DayStartTime", DAY_START_TIME);
 		IniWriteInt (LOCALINI_FILE, "DayEndTime", DAY_END_TIME);
+
+		Restart2 ();
 
 		if (!IniGetInt (INI_FILE, "AskedAboutMemory", 0)) {
 			IniWriteInt (INI_FILE, "AskedAboutMemory", 1);
@@ -707,15 +780,20 @@ void CPrime95Doc::OnPreferences()
 	}
 }
 
-void CPrime95Doc::OnUpdateOptionsSelftest(CCmdUI* pCmdUI) 
+void CPrime95Doc::OnUpdateBenchmark(CCmdUI* pCmdUI) 
 {
 	pCmdUI->Enable (! THREAD_ACTIVE);
 }
 
-void CPrime95Doc::OnOptionsSelftest() 
+void CPrime95Doc::OnBenchmark() 
 {
 	CWinThread *thread;
-	thread_pkt.op = OP_SELFTEST;
+
+	if (! isReasonableCpuSpeed (CPU_SPEED) &&
+	    AfxMessageBox (BENCH_SPEED, MB_YESNO | MB_ICONQUESTION) == IDNO)
+		return;
+
+	thread_pkt.op = OP_BENCH;
 	thread_pkt.doc = this;
 	thread = AfxBeginThread (threadDispatch, NULL);
 }
@@ -774,7 +852,6 @@ void CPrime95Doc::OnHide()
 
 void CPrime95Doc::OnUpdateService(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (isWindows95 ());
 	pCmdUI->SetCheck (WINDOWS95_SERVICE);
 }
 
@@ -792,6 +869,13 @@ void CPrime95Doc::OnService()
 void CPrime95Doc::OnUpdateHelpFinder(CCmdUI* pCmdUI) 
 {
 	pCmdUI->Enable (TRUE);
+}
+
+void CPrime95Doc::OnHelpFinder() 
+{
+#ifndef _DEBUG
+	HtmlHelp(AfxGetApp()->m_pMainWnd->m_hWnd,"prime95.chm",HH_DISPLAY_TOPIC,0);
+#endif
 }
 
 void CPrime95Doc::OnUpdateServer(CCmdUI* pCmdUI) 
@@ -818,6 +902,23 @@ void CPrime95Doc::OnServer()
 
 // Other internal commands
 
+void CPrime95Doc::OnWelcome() 
+{
+	CWelcomeDlg dlg;
+
+// After the welcome screen, install prime95 as an auto-start program
+// and then go collect the user information.
+
+	if (dlg.DoModal () == IDOK) {
+		if (!WINDOWS95_SERVICE) OnService ();
+		OnRangeUserinformation();
+	} else {
+		IniWriteInt (INI_FILE, "StressTester", 1);
+		IniWriteInt (INI_FILE, "UsePrimenet", USE_PRIMENET = 0);
+		STARTUP_IN_PROGRESS = 0;
+	}
+}
+
 void CPrime95Doc::OnBroadcast() 
 {
 static	int	msg_box_up = 0;
@@ -838,6 +939,32 @@ static	int	msg_box_up = 0;
 
 /////////////////////////////////////////////////////////////////////////////
 // CPrime95Doc private routines
+
+// Crude routine to stop and restart the worker thread
+
+int	RESTARTING = FALSE;
+
+void CPrime95Doc::Restart1 ()
+{
+	if (!THREAD_ACTIVE) return;
+	RESTARTING = TRUE;
+	OutputStr ("Stopping and restarting using new settings.\n");
+	OnStop ();
+	while (THREAD_ACTIVE) {
+		MSG m;
+		while (PeekMessage (&m, NULL, 0, 0, PM_NOREMOVE))
+			AfxGetApp()->PumpMessage ();
+		Sleep (100);
+	}
+}
+
+void CPrime95Doc::Restart2 ()
+{
+	if (RESTARTING) {
+		RESTARTING = FALSE;
+		OnContinue ();
+	}
+}
 
 void CPrime95Doc::LineFeed ()
 {
@@ -923,6 +1050,23 @@ UINT threadDispatch (
 
 	THREAD_ACTIVE = TRUE;
 	THREAD_STOP = 0;
+
+// Stall if we've just booted (within 5 minutes of Windows starting)
+
+	if (GetTickCount () < 300000) {
+		int	delay;
+		delay = IniGetInt (INI_FILE, "BootDelay", 90);
+		delay -= GetTickCount () / 1000;
+		if (delay > 0) {
+			char buf[50];
+			sprintf (buf, "Waiting %d seconds for boot to complete.\n", delay);
+			OutputStr (buf);
+			Sleep (delay * 1000);
+		}
+	}
+
+// Change the icon
+
 	ChangeIcon (WORKING_ICON);
 
 // Dispatch to the correct code
@@ -934,8 +1078,8 @@ UINT threadDispatch (
 	case OP_TIME:
 		primeTime (thread_pkt.p, thread_pkt.p2);
 		break;
-	case OP_SELFTEST:
-		selfTest (0);
+	case OP_BENCH:
+		primeBench ();
 		break;
 	case OP_TORTURE:
 		selfTest (1);
@@ -944,7 +1088,7 @@ UINT threadDispatch (
 
 // Output informative message
 
-	if (!GIMPS_QUIT && !STOPPED_ON_BATTERY) {
+	if (!GIMPS_QUIT && !STOPPED_ON_BATTERY && !RESTARTING) {
 		OutputStr ("Execution halted.\n");
 		OutputStr ("Choose Test/Continue to restart.\n");
 	}

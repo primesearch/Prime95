@@ -1,8 +1,9 @@
 /* Constants */
 
-#define VERSION		"20.4"
-#define VERSION_BIT	10      	/* Bit number in broadcast map */
+#define VERSION		"21.4"
+#define VERSION_BIT	11      	/* Bit number in broadcast map */
 /* The list of assigned version bits follows: */
+/* Version 21.0    uses bit #11 */
 /* Version 20.0    uses bit #10 */
 /* Version 19.1    uses bit #9 */
 /* Version 19.0    uses bit #8 */
@@ -69,16 +70,22 @@ extern time_t VACATION_END;		/* Date vacation is expected to end */
 extern int ON_DURING_VACATION;		/* TRUE if computer is on while */
 					/* vacationing */
 extern int ADVANCED_ENABLED;		/* 1 if advanced menu is enabled */
-EXTERNC int volatile ERRCHK;		/* 1 to turn on error checking */
+extern int volatile ERRCHK;		/* 1 to turn on error checking */
 extern unsigned int PRIORITY;		/* Desired priority level */
 extern unsigned int CPU_AFFINITY;	/* NT Processor affinity */
 extern int MANUAL_COMM;			/* Set on if user explicitly starts */
 					/* all communication with the server */
 EXTERNC unsigned int volatile CPU_TYPE;	/* 3=Cyrix, 4=486, 5=Pentium, */
 					/* 6=Pro, 7=K6, 8=Celeron, 9=P-II */
-					/* 10=P-III, 11=K7 */
+					/* 10=P-III, 11=K7, 12=P4 */
 extern unsigned long volatile CPU_SPEED;/* Speed in MHz */
 extern unsigned int volatile CPU_HOURS;	/* Hours per day program will run */
+#define CPU_RDTSC	0x0001
+#define CPU_CMOV	0x0002
+#define CPU_PREFETCH	0x0004
+#define CPU_SSE		0x0008
+#define CPU_SSE2	0x0010
+EXTERNC unsigned int volatile CPU_FLAGS;/* Cpu capabilities */
 extern unsigned int volatile DAY_MEMORY;/* Mem available in megabytes */
 extern unsigned int volatile NIGHT_MEMORY;/* Mem available in megabytes */
 extern unsigned int volatile DAY_START_TIME;/* When mem is first avail */
@@ -110,6 +117,7 @@ extern time_t END_TIME;			/* Time at which we should reread */
 extern time_t SLEEP_TIME;		/* Time at which we should wake up */
 					/* from sleep and read INI files */
 extern int RDTSC_TIMING;		/* True if RDTSC is used to time */
+extern int TIMESTAMPING;		/* True is timestamps to be output */
 extern int CUMULATIVE_TIMING;		/* True if outputting cumulative time*/
 extern int WELL_BEHAVED_WORK;		/* TRUE if undocumented feature */
 					/* "well behaved worktodo file" */
@@ -134,15 +142,20 @@ extern char READFILEERR[];
 
 /* Common routines */
 
-int isPentium ();
-int isPentiumPro ();
+int isPentium (void);
+int isPentiumPro (void);
+int isPentiumMMX (void);
+int isPentium3 (void);
+int isPentium4 (void);
+void setCpuFlags (void);
+
 int isPrime (unsigned long p);
-unsigned int max_mem ();
+unsigned int max_mem (void);
 unsigned int strToMinutes (char	*);
 void minutesToStr (unsigned int, char *);
 
 void nameIniFiles (int named_ini_files);
-void readIniFiles ();
+void readIniFiles (void);
 
 void IniGetString (char *, char *, char *, unsigned int, char *);
 long IniGetInt (char *, char *, long);
@@ -165,12 +178,12 @@ void IniAppendLineAsInt (char *, char *, long);
 void IniDeleteLine (char *, unsigned int);
 void IniDeleteAllLines (char *);
 
-void UpdateEndDates ();
-void ConditionallyUpdateEndDates ();
+void UpdateEndDates (void);
+void ConditionallyUpdateEndDates (void);
 void spoolMessage (short, void *);
 void readMessage (int, long *, short *, void *);
 int sendMessage (short, void *);
-void spoolExistingResultsFile ();
+void spoolExistingResultsFile (void);
 void OutputBoth (char *);
 void OutputSomewhere (char *);
 void LogMsg (char *);
@@ -188,7 +201,7 @@ struct work_unit {
 	double	curve;		/* ECM - Specific curve to test */
 	int	plus1;		/* Flag for factoring 2^p+1 */
 };
-short default_work_type ();
+short default_work_type (void);
 #define WORK_FACTOR		0
 #define WORK_TEST		1
 #define WORK_ADVANCEDTEST	2
@@ -202,7 +215,7 @@ void addWorkToDoLine (struct work_unit *);
 void checkResultsFile (unsigned long, int *, int *);
 void getWorkFromDatabase (unsigned long, unsigned long, int, int);
 
-unsigned long secondsUntilVacationEnds ();
+unsigned long secondsUntilVacationEnds (void);
 double pct_complete (int, unsigned long, unsigned long *);
 double raw_work_estimate (struct work_unit *);
 double work_estimate (struct work_unit *);
@@ -216,18 +229,20 @@ int fileExists (char *);
 int readFileHeader (char *, int *, short *, unsigned long *);
 int writeResults (char	*);
 
-int communicateWithServer ();
+int communicateWithServer (void);
+void unreserve (unsigned long);
 
 /* Routines called by common routines */
 
-int LoadPrimeNet ();
+int LoadPrimeNet (void);
 void OutputStr (char *);
-void guessCpuType ();
-unsigned long physical_memory ();
-unsigned long num_cpus ();
-int getDefaultTimeFormat ();
-void doMiscTasks ();
-int escapeCheck ();
+void guessCpuType (void);
+int isReasonableCpuSpeed (unsigned int);
+unsigned long physical_memory (void);
+unsigned long num_cpus (void);
+int getDefaultTimeFormat (void);
+void doMiscTasks (void);
+int escapeCheck (void);
 void BroadcastMessage (char *);
 #define	WORKING_ICON	0
 #define	IDLE_ICON	1

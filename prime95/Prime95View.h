@@ -38,8 +38,6 @@ protected:
 // Generated message map functions
 protected:
 	//{{AFX_MSG(CPrime95View)
-		// NOTE - the ClassWizard will add and remove member functions here.
-		//    DO NOT EDIT what you see in these blocks of generated code !
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };

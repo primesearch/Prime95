@@ -1,4 +1,4 @@
-; Copyright 1995-1999 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2000 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -8,7 +8,8 @@
 
 	TITLE   setup
 
-	.386
+	.686
+	.XMM
 
 _TEXT32 SEGMENT PARA USE32 PUBLIC 'DATA'
 
@@ -16,13 +17,13 @@ _TEXT32 SEGMENT PARA USE32 PUBLIC 'DATA'
 
 INCLUDE extrn.mac
 INCLUDE	unravel.mac
-INCLUDE	lucas1.mac
+INCLUDE	lucas.mac
 INCLUDE mult.mac
 INCLUDE pass2.mac
 INCLUDE memory.mac
 
 IFDEF PPRO
-INCLUDE	lucas1p.mac
+INCLUDE	lucasp.mac
 ENDIF
 
 	flat_distances
@@ -34,7 +35,7 @@ ENDIF
 	PUBLICP	pass2_six_levels_type_4
 	PUBLICP	pass2_six_levels_type_4p
 
-pass2_procs PROC NEAR
+PROCP	pass2_procs2
 
 ;; Branch to the proper forward FFT code - mod 2^N+1 arithmetic
 
@@ -119,7 +120,7 @@ p264lp:	pass2_six_levels_complex 4
 p264lq:	dec	ch
 	JNZ_X	p264lp
 	ret
-pass2_procs ENDP
+ENDPP	pass2_procs2
 
 _TEXT32	ENDS
 END

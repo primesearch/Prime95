@@ -3,15 +3,28 @@
 ; Email: woltman@alum.mit.edu
 ;
 ; These macros efficiently implement the normalization to integers
-; and multiplication by two-to-phi powers.
-;
-
-; *************** simple normalize macro ******************
-; This macro "normalizes" eight FFT data values.  This involves
-; multiplying the data value by two-to-minus-phi.  Rounding the
+; and multiplication by two-to-phi powers.  Normalization generally
+; consists of multiplying the data value by two-to-minus-phi.  Rounding the
 ; value to an integer.  Making sure the integer is smaller than
 ; the maximum allowable integer, generating a carry if necessary.
 ; Finally, the value is multiplied by two-to-phi and stored.
+;
+; All combinations of the following variations are supported:
+; 1)  None, 1D-array, 2D-array of two-to-phi multipliers
+; 2)  With and without maximum convolution error checking
+; 3)  With and without multiplying by a small constant
+; 4)  With and without zeroing of upper FFT data values
+;
+; All macros do eight FFT data values so that some degree of pipelining
+; can be achieved.
+;
+; For 0D (no two-to-phi array) macros, these registers are set on input:
+; st(2) = ttmp_ff_inv
+; st(1) = sumout
+; st(0) = carry
+; esi = pointer to the FFT data values
+;
+; For 1D macros, these registers are set on input:
 ; st(1) = sumout
 ; st(0) = carry
 ; esi = pointer to the FFT data values
@@ -19,6 +32,374 @@
 ; ebp = number of big words
 ; edi = big vs. little running sum
 ; eax = this big vs. little word flag
+;
+; For 2D macros, these registers are set on input:
+; st(5) = sumout
+; st(4) = carry
+; st(3) = two-to-phi multiplier
+; st(2) = two-to-minus-phi group multiplier
+; st(1) = two-to-phi group multiplier
+; st(0) = two-to-minus-phi multiplier
+; esi = pointer to the FFT data values
+; ebx = pointer two-to-power column multipliers
+; edx = pointer two-to-power group multipliers
+; ebp = number of big words
+; edi = big vs. little running sum
+; eax = the big vs. little word flag
+
+
+;
+; These macros implement the variants of the normalization routines
+; in a non-pipelined way.  It is simply too much work to hand optimize
+; all 24 normalization macros.
+;
+
+; Compute the convolution error and if greater than MAXERR, set MAXERR
+
+brute_force_error_check MACRO e, save
+	LOCAL	less
+	IFNB <e>
+	IF e EQ 1
+	fld	BIGVAL
+	fadd	st, st(1)
+	fsub	BIGVAL			;; This is the integer value
+	fsub	st, st(1)		;; This is the convolution error
+	fabs
+	fcom	_MAXERR			;; Compare to maximum error
+	IFNB <save>
+	push	eax
+	pushf
+	ENDIF
+	fstsw	ax			;; Copy comparison results
+	test	ax, 100h		;; Isolate C0 bit
+	jnz	short less		;; Error is less than maximum
+	fst	_MAXERR			;; Error is greater
+less:	fcomp	st			;; Pop non-maximum
+	IFNB <save>
+	popf
+	pop	eax
+	ENDIF
+	ENDIF
+	ENDIF
+	ENDM
+
+; Multiply the FFT result by a small constant
+
+brute_force_mul_by_const MACRO c
+	IFNB <c>
+	IF c EQ 1
+	fadd	BIGVAL			;; Round to an integer
+	fsub	BIGVAL
+	fmul	XMM_MULCONST		;; Multiply by the small constant
+	ENDIF
+	ENDIF
+	ENDM
+
+; Zero upper words of FFT
+
+brute_force_zero_part1 MACRO z, sumout, bzlabel, save
+	LOCAL	xxx
+	IFNB <z>
+	IF z EQ 1
+	IFNB <save>
+	push	edx
+	mov	edx, _FFTZERO		;; Words that are NOT to be zeroed
+	ENDIF
+;;	dec	edx			;; Decrement count of words
+;;	jns	short xxx		;; If positive, then process normally
+;;BUG - the last set of 8 vals must be done
+;; using part2 to generate proper carry
+;; Unfortunately, this requires maintaining the two-to-phi
+;; multipliers all along the way.
+;; This could be made faster in a future version, but it
+;; is non-trivial (but worth it - at least for the 0d case)
+;;	fxch	sumout			;; Load SUMOUT
+;;	fadd	QWORD PTR [esi+0*dist1]
+;;	fadd	QWORD PTR [esi+1*dist1]
+;;	fadd	QWORD PTR [esi+2*dist1]
+;;	fadd	QWORD PTR [esi+3*dist1]
+;;	fadd	QWORD PTR [esi+4*dist1]
+;;	fadd	QWORD PTR [esi+5*dist1]
+;;	fadd	QWORD PTR [esi+6*dist1]
+;;	fadd	QWORD PTR [esi+7*dist1]
+;;	fxch	sumout			;; Replace SUMOUT
+;;	fldz				;; Zero eight words
+;;	fst	QWORD PTR [esi+0*dist1]
+;;	fst	QWORD PTR [esi+1*dist1]
+;;	fst	QWORD PTR [esi+2*dist1]
+;;	fst	QWORD PTR [esi+3*dist1]
+;;	fst	QWORD PTR [esi+4*dist1]
+;;	fst	QWORD PTR [esi+5*dist1]
+;;	fst	QWORD PTR [esi+6*dist1]
+;;	fstp	QWORD PTR [esi+7*dist1]
+;;	JMP_X	bzlabel			;; Skip normalizing these 8 values
+;;xxx:					;; Fall-through to normalization code
+	ENDIF
+	ENDIF
+	ENDM
+
+brute_force_zero_part2 MACRO z
+	LOCAL	xxx
+	IFNB <z>
+	IF z EQ 1
+	dec	edx			;; Decrement count of words
+	jns	short xxx		;; If positive, then process normally
+	fsub	st, st			;; Zero this word
+xxx:					;; Fall-through to normalization code
+	ENDIF
+	ENDIF
+	ENDM
+
+brute_force_zero_part3 MACRO z, save
+	IFNB <z>
+	IF z EQ 1
+	IFNB <save>
+	mov	_FFTZERO, edx
+	pop	edx			;; Restore edx
+	ENDIF
+	ENDIF
+	ENDIF
+	ENDM
+
+
+
+; *************** no-two-to-phi-array macro ******************
+; A pipelined version of this code:
+;	fld	QWORD PTR [esi+0*dist1]	;; Load value
+;	fmul	st(1)			;; Mul value by ttmp_ff_inv
+;	faddp	st(4), st		;; x = value + carry
+;	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+;	fadd	st, st(4)		;; y = top bits of x
+;	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+;	fsubr	st, st(3)		;; z = y - (maximum * BIGVAL - BIGVAL)
+;	fmul	limit_inverse_high	;; next carry = shifted y
+;	fsubp	st(6), st		;; rounded value = x - z
+;	fadd	QWORD PTR [esi+0*dist1]	;; sumout += value
+;	fstp	QWORD PTR [esi+0*dist1]	;; Save the value
+
+norm_0d MACRO z, e, c			;; carry, sumout, ttmp_ff_inv
+	LOCAL	bzdone
+	brute_force_zero_part1 z, st(1), bzdone
+
+	fld	QWORD PTR [esi+0*dist1]	;; Load value
+	fmul	st, st(3)		;; Mul value by ttmp_ff_inv
+	brute_force_error_check e
+	brute_force_mul_by_const c
+	 fld	QWORD PTR [esi+1*dist1]	;; Load val (v1, v0, c0, sumout, ttmp)
+	 fmul	st, st(4)		;; Mul value by ttmp_ff_inv
+	 brute_force_error_check e
+	 brute_force_mul_by_const c
+	 fxch	st(1)			;; v0, v1, c0, sumout, ttmp
+	faddp	st(2), st		;; x = value + carry
+	  fld	QWORD PTR [esi+2*dist1]	;; Load val (v2, v1, x0, sumout, ttmp)
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(3)		;; y = top bits of x
+	  fxch	st(1)			;; v2, y0, v1, x0, sumout, ttmp
+	  fmul	st, st(5)		;; Mul value by ttmp_ff_inv
+	  brute_force_error_check e
+	  brute_force_mul_by_const c
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(2)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(2)			;; y0, v2, z0, v1, x0, sumout, ttmp
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(5)			;; sumout, v2, z0, v1, x0, c1, ttmp
+	fadd	QWORD PTR [esi+0*dist1]	;; sumout += value
+	fxch	st(2)			;; z0, v2, sumout, v1, x0, c1, ttmp
+	fsubp	st(4), st		;; rounded value = x - z
+
+	 fxch	st(4)			;; c1, sumout, v1, v0, v2, ttmp
+	 faddp	st(2), st		;; x = value + carry
+	fld	QWORD PTR [esi+3*dist1]	;; Load val
+	fmul	st, st(5)		;; Mul value by ttmp_ff_inv
+	brute_force_error_check e
+	brute_force_mul_by_const c
+	 fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	 fadd	st, st(3)		;; y = top bits of x
+	fxch	st(4)			;; v0, v3, sumout, x1, y1, v2, ttmp
+	brute_force_zero_part2 z
+	fstp	QWORD PTR [esi+0*dist1]	;; Save the value
+	 fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	 fsubr	st, st(4)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	 fxch	st(4)			;; y1, v3, sumout, x1, z1, v2, ttmp
+	 fmul	limit_inverse_high	;; next carry = shifted y
+	 fxch	st(2)			;; sumout, v3, c2, x1, z1, v2, ttmp
+	 fadd	QWORD PTR [esi+1*dist1]	;; sumout += value
+	 fxch	st(4)			;; z1, v3, c2, x1, sumout, v2, ttmp
+	 fsubp	st(3), st		;; rounded value = x - z
+
+	  fxch	st(1)			;; c2, v3, v1, sumout, v2, ttmp
+	  faddp	st(4), st		;; x = value + carry
+	 fld	QWORD PTR [esi+4*dist1]	;; Load value
+	 fmul	st, st(5)		;; Mul value by ttmp_ff_inv
+	 brute_force_error_check e
+	 brute_force_mul_by_const c
+	  fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	  fadd	st, st(5)		;; y = top bits of x
+	 fxch	st(3)			;; v1, v4, v3, y2, sumout, x2, ttmp
+	 brute_force_zero_part2 z
+	 fstp	QWORD PTR [esi+1*dist1]	;; Save the value
+	  fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	  fsubr	st, st(3)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	  fxch	st(3)			;; y2, v4, v3, z2, sumout, x2, ttmp
+	  fmul	limit_inverse_high	;; next carry = shifted y
+	  fxch	st(4)			;; sumout, v4, v3, z2, c3, x2, ttmp
+	  fadd	QWORD PTR [esi+2*dist1]	;; sumout += value
+	  fxch	st(3)			;; z2, v4, v3, sumout, c3, x2, ttmp
+	  fsubp	st(5), st		;; rounded value = x - z
+
+	fxch	st(3)			;; c3, v3, sumout, v4, v2, ttmp
+	faddp	st(1), st		;; x = value + carry
+	  fld	QWORD PTR [esi+5*dist1]	;; Load value
+	  fmul	st, st(5)		;; Mul value by ttmp_ff_inv
+	  brute_force_error_check e
+	  brute_force_mul_by_const c
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(2)		;; y = top bits of x
+	  fxch	st(5)			;; v2, v5, x3, sumout, v4, y3, ttmp
+	  brute_force_zero_part2 z
+	  fstp	QWORD PTR [esi+2*dist1]	;; Save the value
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(5)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(5)			;; y3, v5, x3, sumout, v4, z3, ttmp
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(3)			;; sumout, v5, x3, c4, v4, z3, ttmp
+	fadd	QWORD PTR [esi+3*dist1]	;; sumout += value
+	fxch	st(5)			;; z3, v5, x3, c4, v4, sumout, ttmp
+	fsubp	st(2), st		;; rounded value = x - z
+
+	 fxch	st(2)			;; c4, v3, v5, v4, sumout, ttmp
+	 faddp	st(3), st		;; x = value + carry
+	fld	QWORD PTR [esi+6*dist1]	;; Load value
+	fmul	st, st(5)		;; Mul value by ttmp_ff_inv
+	brute_force_error_check e
+	brute_force_mul_by_const c
+	 fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	 fadd	st, st(4)		;; y = top bits of x
+	fxch	st(2)			;; v3, v6, y4, v5, x4, sumout, ttmp
+	brute_force_zero_part2 z
+	fstp	QWORD PTR [esi+3*dist1]	;; Save the value
+	 fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	 fsubr	st, st(2)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	 fxch	st(2)			;; y4, v6, z4, v5, x4, sumout, ttmp
+	 fmul	limit_inverse_high	;; next carry = shifted y
+	 fxch	st(5)			;; sumout, v6, z4, v5, x4, c5, ttmp
+	 fadd	QWORD PTR [esi+4*dist1]	;; sumout += value
+	 fxch	st(2)			;; z4, v6, sumout, v5, x4, c5, ttmp
+	 fsubp	st(4), st		;; rounded value = x - z
+
+	  fxch	st(4)			;; c5, sumout, v5, v4, v6, ttmp
+	  faddp	st(2), st		;; x = value + carry
+	 fld	QWORD PTR [esi+7*dist1]	;; Load value
+	 fmul	st, st(5)		;; Mul value by ttmp_ff_inv
+	 brute_force_error_check e
+	 brute_force_mul_by_const c
+	  fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	  fadd	st, st(3)		;; y = top bits of x
+	 fxch	st(4)			;; v4, v7, sumout, x5, y5, v6, ttmp
+	 brute_force_zero_part2 z
+	 fstp	QWORD PTR [esi+4*dist1]	;; Save the value
+	  fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	  fsubr	st, st(4)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	  fxch	st(4)			;; y5, v7, sumout, x5, z5, v6, ttmp
+	  fmul	limit_inverse_high	;; next carry = shifted y
+	  fxch	st(2)			;; sumout, v7, c6, x5, z5, v6, ttmp
+	  fadd	QWORD PTR [esi+5*dist1]	;; sumout += value
+	  fxch	st(4)			;; z5, v7, c6, x5, sumout, v6, ttmp
+ 	  fsubp	st(3), st		;; rounded value = x - z
+
+	fxch	st(1)			;; c6, v7, v5, sumout, v6, ttmp
+	faddp	st(4), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(4)		;; y = top bits of x
+	  fxch	st(2)			;; v5, v7, y6, sumout, x6, ttmp
+	  brute_force_zero_part2 z
+	  fstp	QWORD PTR [esi+5*dist1]	;; Save the value
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(2)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(2)			;; y6, v7, z6, sumout, x6, ttmp
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(3)			;; sumout, v7, z6, c7, x6, ttmp
+	fadd	QWORD PTR [esi+6*dist1]	;; sumout += value
+	fxch	st(2)			;; z6, v7, sumout, c7, x6, ttmp
+	fsubp	st(4), st		;; rounded value = x - z
+
+					;; v7, sumout, c7, v6, ttmp
+	 faddp	st(2), st		;; x = value + carry
+	 fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	 fadd	st, st(2)		;; y = top bits of x
+	fxch	st(3)			;; v6, sumout, x7, y7, ttmp
+	brute_force_zero_part2 z
+	fstp	QWORD PTR [esi+6*dist1]	;; Save the value
+	 fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	 fsubr	st, st(3)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	 fxch	st(3)			;; y7, sumout, x7, z7, ttmp
+	 fmul	limit_inverse_high	;; next carry = shifted y
+	 fxch	st(1)			;; sumout, carry, x7, z7, ttmp
+	 fadd	QWORD PTR [esi+7*dist1]	;; sumout += value
+	 fxch	st(3)			;; z7, carry, x7, sumout, ttmp
+	 fsubp	st(2), st		;; rounded value = x - z
+	 fxch	st(1)			;; v7, carry, sumout, ttmp
+	 brute_force_zero_part2 z
+	 fstp	QWORD PTR [esi+7*dist1]	;; Save the value
+
+bzdone:	brute_force_zero_part3 z
+	ENDM
+
+norm_0d_c MACRO
+	norm_0d 0, 0, 1
+	ENDM
+norm_0d_e MACRO
+	norm_0d 0, 1, 0
+	ENDM
+norm_0d_e_c MACRO
+	norm_0d 0, 1, 1
+	ENDM
+norm_0d_z MACRO
+	norm_0d 1, 0, 0
+	ENDM
+norm_0d_z_c MACRO
+	norm_0d 1, 0, 1
+	ENDM
+norm_0d_z_e MACRO
+	norm_0d 1, 1, 0
+	ENDM
+norm_0d_z_e_c MACRO
+	norm_0d 1, 1, 1
+	ENDM
+
+; *************** no-array followup macro ******************
+; This macro finishes the normalize process by adding the final
+; carry from the first pass back into the lower two data values.
+; st(0) = carry
+; esi = pointer to the FFT data values
+
+norm012_0d MACRO
+	LOCAL	signok
+	cmp	_PLUS1, 0
+	jz	short signok
+	fsub	BIGVAL
+	fchs
+	fadd	BIGVAL
+signok:	fadd	QWORD PTR [esi]		;; x = value + carry	;x0
+	fld	limit_bigmax_high	;; y = rounding const	;y0,x0
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_inverse_high	;; Load carry shifter	;c1,y0,x0
+	fmul	st, st(1)		;; carry = shifted y
+	fxch	st(1)						;y0,c1,x0
+	fsub	limit_bigmax_high	;; y = y - (maximum * BIGVAL - BIGVAL)
+	fsubp	st(2), st		;; value = x - y	;c1,x0
+	 fsub	BIGVAL			;; carry -= round off const
+	 fadd	QWORD PTR [esi+dist1]	;; new value = value + carry
+	 fstp	QWORD PTR [esi+dist1]	;; Save the value
+	fstp	QWORD PTR [esi]		;; Save the value
+
+	fxch	st(1)			;; ttmp_ff_inv, sumout
+	fcomp	st			;; pop ttmp_ff_inv
+	ENDM
+
+
+
+; *************** 1D macro ******************
 ; A pipelined version of this code:
 ;	fld	QWORD PTR [esi+0*8]	;; Load value
 ;	fmul	QWORD PTR [ebx+0*16+8]	;; Mul value by two-to-minus-phi
@@ -31,18 +412,24 @@
 ;	fsubp	st(6), st		;; rounded value = x - z
 ;	fadd	QWORD PTR [esi+0*8]	;; sumout += value
 ;	fmulp	QWORD PTR [ebx+0*16]	;; new value = val * two-to-phi
-;	sub	edi, ebp		;; U - 2 steps to compute
-;	sbb	eax, eax		;;*U - next big vs. little flag
-;	fstp	QWORD PTR [esi+0*8]	;; Save the previous value
+;	sub	edi, ebp		;; 2 steps to compute
+;	sbb	eax, eax		;; next big vs. little flag
+;	fstp	QWORD PTR [esi+0*8]	;; Save the value
 
-simple_normalize MACRO
+norm_1d MACRO z, e, c
+	LOCAL	bzdone
+	brute_force_zero_part1 z, st(1), bzdone
 	fld	QWORD PTR [esi+0*8]	;; Load value		;v0,c0,s
 	fmul	QWORD PTR [ebx+0*16+8]	;; Mul value by two-to-minus-phi
+	brute_force_error_check e, 1
+	brute_force_mul_by_const c
 	sub	edi, ebp		;;*U - 2 steps to compute
 	 fld	QWORD PTR [esi+1*8]	;; Load value		;v1,v0,c0,s
 	 fxch	st(1)						;v0,v1,c0,s
 	faddp	st(2), st		;; x = value + carry	;v1,x0,s
 	 fmul	QWORD PTR [ebx+1*16+8]	;; Mul value by two-to-minus-phi
+	 brute_force_error_check e, 1
+	 brute_force_mul_by_const c
 	fld	limit_bigmax[eax*8]	;; y = rounding const	;y0,v1,x0,s
 	fadd	st, st(2)		;; y = top bits of x
 	fxch	st(3)						;s,v1,x0,y0
@@ -66,11 +453,14 @@ simple_normalize MACRO
 	 fadd	QWORD PTR [esi+1*8]	;; sumout += value
 	 fxch	st(4)						;v2,y1,x1,v0,s
 	  fmul	QWORD PTR [ebx+2*16+8]	;; Mul value by two-to-minus-phi
+	  brute_force_error_check e, 1
+	  brute_force_mul_by_const c
 	 fld	limit_bigmax[eax*8]	;; z = rounding const ;z1,v2,y1,x1,v0,s
 	 fsubr	st, st(2)		;; z = y - z
 	 fxch	st(2)					      ;y1,v2,z1,x1,v0,s
 	 fmul	limit_inverse[eax*8]	;; carry = shift y    ;c2,v2,z1,x1,v0,s
 	 fxch	st(4)					      ;v0,v2,z1,x1,c2,s
+	brute_force_zero_part2 z
 	fstp	QWORD PTR [esi+0*8]	;; Save the value	;v2,z1,x1,c2,s
 	 sbb	eax, eax		;; U - next big vs. little flag
 	  sub	edi, ebp		;; V - 2 steps to compute
@@ -87,11 +477,14 @@ simple_normalize MACRO
 	  fadd	QWORD PTR [esi+2*8]	;; sumout += value
 	  fxch	st(1)						;v3,s,v1,x2,y2
 	fmul	QWORD PTR [ebx+3*16+8]	;; Mul value by two-to-minus-phi
+	brute_force_error_check e, 1
+	brute_force_mul_by_const c
 	  fld	limit_bigmax[eax*8]	;; z = rounding const ;z2,v3,s,v1,x2,y2
 	  fsubr	st, st(5)		;; z = y - z
 	  fxch	st(5)					      ;y2,v3,s,v1,x2,z2
 	  fmul	limit_inverse[eax*8]	;; carry = shifted y  ;c3,v3,s,v1,x2,z2
 	  fxch	st(3)					      ;v1,v3,s,c3,x2,z2
+	 brute_force_zero_part2 z
 	 fstp	QWORD PTR [esi+1*8]	;; Save the value	;v3,s,c3,x2,z2
 	  sbb	eax, eax		;; U - next big vs. little flag
 	sub	edi, ebp		;; V - 2 steps to compute
@@ -108,11 +501,14 @@ simple_normalize MACRO
 	fadd	QWORD PTR [esi+3*8]	;; sumout += value
 	fxch	st(4)						;v4,y3,x3,v2,s
 	 fmul	QWORD PTR [ebx+4*16+8]	;; Mul value by two-to-minus-phi
+	 brute_force_error_check e, 1
+	 brute_force_mul_by_const c
 	fld	limit_bigmax[eax*8]	;; z = rounding const ;z3,v4,y3,x3,v2,s
 	fsubr	st, st(2)		;; z = y - z
 	fxch	st(2)					      ;y3,v4,z3,x3,v2,s
 	fmul	limit_inverse[eax*8]	;; carry = shifted y  ;c4,v4,z3,x3,v2,s
 	fxch	st(4)					      ;v2,v4,z3,x3,c4,s
+	  brute_force_zero_part2 z
 	  fstp	QWORD PTR [esi+2*8]	;; Save previous value	;v4,z3,x3,c4,s
 	sbb	eax, eax		;; U - next big vs. little flag
 	 sub	edi, ebp		;; V - 2 steps to compute
@@ -129,11 +525,14 @@ simple_normalize MACRO
 	 fadd	QWORD PTR [esi+4*8]	;; sumout += value
 	 fxch	st(1)						;v5,s,v3,x4,y4
 	  fmul	QWORD PTR [ebx+5*16+8]	;; Mul value by two-to-minus-phi
+	  brute_force_error_check e, 1
+	  brute_force_mul_by_const c
 	 fld	limit_bigmax[eax*8]	;; z = rounding const ;z4,v5,s,v3,x4,y4
 	 fsubr	st, st(5)		;; z = y - z
 	 fxch	st(5)					      ;y4,v5,s,v3,x4,z4
 	 fmul	limit_inverse[eax*8]	;; carry = shifted y  ;c5,v5,s,v3,x4,z4
 	 fxch	st(3)					      ;v3,v5,s,c5,x4,z4
+	brute_force_zero_part2 z
 	fstp	QWORD PTR [esi+3*8]	;; Save previous value	;v5,s,c5,x4,z4
 	 sbb	eax, eax		;; U - next big vs. little flag
 	  sub	edi, ebp		;; V - 2 steps to compute
@@ -150,11 +549,14 @@ simple_normalize MACRO
 	  fadd	QWORD PTR [esi+5*8]	;; sumout += value
 	  fxch	st(4)						;v6,y5,x5,v4,s
 	fmul	QWORD PTR [ebx+6*16+8]	;; Mul value by two-to-minus-phi
+	brute_force_error_check e, 1
+	brute_force_mul_by_const c
 	  fld	limit_bigmax[eax*8]	;; z = rounding const ;z5,v6,y5,x5,v4,s
 	  fsubr	st, st(2)		;; z = y - z
 	  fxch	st(2)					      ;y5,v6,z5,x5,v4,s
 	  fmul	limit_inverse[eax*8]	;; carry = shifted y  ;c6,v6,z5,x5,v4,s
 	  fxch	st(4)					      ;v4,v6,z5,x5,c6,s
+	 brute_force_zero_part2 z
 	 fstp	QWORD PTR [esi+4*8]	;; Save previous value	;v6,z5,x5,c6,s
 	  sbb	eax, eax		;; U - next big vs. little flag
 	sub	edi, ebp		;; V - 2 steps to compute
@@ -171,11 +573,14 @@ simple_normalize MACRO
 	fadd	QWORD PTR [esi+6*8]	;; sumout += value
 	fxch	st(1)						;v7,s,v5,x6,y6
 	 fmul	QWORD PTR [ebx+7*16+8]	;; Mul value by two-to-minus-phi
+	 brute_force_error_check e, 1
+	 brute_force_mul_by_const c
 	fld	limit_bigmax[eax*8]	;; z = rounding const ;z6,v7,s,v5,x6,y6
 	fsubr	st, st(5)		;; z = y - z
 	fxch	st(5)					      ;y6,v7,s,v5,x6,z6
 	fmul	limit_inverse[eax*8]	;; carry = shifted y  ;c7,v7,s,v5,x6,z6
 	fxch	st(3)					      ;v5,v7,s,c7,x6,z6
+	  brute_force_zero_part2 z
 	  fstp	QWORD PTR [esi+5*8]	;; Save previous value	;v7,s,c7,x6,z6
 	sbb	eax, eax		;; U - next big vs. little flag
 	 sub	edi, ebp		;; V - 2 steps to compute
@@ -194,17 +599,41 @@ simple_normalize MACRO
 	 fadd	QWORD PTR [esi+7*8]	;; sumout += value
 	 fxch	st(4)						;z7,v6,x7,c,s
 	 fsubp	st(2), st		;; value = x - z	;v6,v7,c,s
+	brute_force_zero_part2 z
 	fstp	QWORD PTR [esi+6*8]	;; Save previous value	;v7,c,s
 	 fmul	QWORD PTR [ebx+7*16]	;; new value = val * two-to-phi
 	 sbb	eax, eax		;;*U - next big vs. little flag
 					;; STALL
 					;; STALL
+	 brute_force_zero_part2 z
 	 fstp	QWORD PTR [esi+7*8]	;; Save previous value	;c,s
+bzdone:	brute_force_zero_part3 z
 	ENDM
 
+norm_1d_c MACRO
+	norm_1d 0, 0, 1
+	ENDM
+norm_1d_e MACRO
+	norm_1d 0, 1, 0
+	ENDM
+norm_1d_e_c MACRO
+	norm_1d 0, 1, 1
+	ENDM
+norm_1d_z MACRO
+	norm_1d 1, 0, 0
+	ENDM
+norm_1d_z_c MACRO
+	norm_1d 1, 0, 1
+	ENDM
+norm_1d_z_e MACRO
+	norm_1d 1, 1, 0
+	ENDM
+norm_1d_z_e_c MACRO
+	norm_1d 1, 1, 1
+	ENDM
 
-; *************** simple normalize macro ******************
-; This macro finisishes the normalize process by adding the final
+; *************** 1D followup macro ******************
+; This macro finishes the normalize process by adding the final
 ; carry from the first pass back into the lower two data values.
 ; We take advantage of the fact that the first two-to-phi multiplier
 ; and the first two-to-minus-phi multiplier are one.  We also know
@@ -213,8 +642,14 @@ simple_normalize MACRO
 ; esi = pointer to the FFT data values
 ; ebx = pointer two-to-power multipliers
 
-simple_normalize_012 MACRO
-	fadd	QWORD PTR [esi]		;; x = value + carry	;x0
+norm012_1d MACRO
+	LOCAL	signok
+	cmp	_PLUS1, 0
+	jz	short signok
+	fsub	BIGVAL
+	fchs
+	fadd	BIGVAL
+signok:	fadd	QWORD PTR [esi]		;; x = value + carry	;x0
 	fld	limit_bigmax_high	;; y = rounding const	;y0,x0
 	fadd	st, st(1)		;; y = top bits of x
 	fld	limit_inverse_high	;; Load carry shifter	;c1,y0,x0
@@ -230,29 +665,37 @@ simple_normalize_012 MACRO
 	ENDM
 
 
-; *************** normalize macro ******************
-; This macro "normalizes" eight FFT data values.  This involves
-; multiplying the data value by two-to-minus-phi.  Rounding the
-; value to an integer.  Making sure the integer is smaller than
-; the maximum allowable integer, generating a carry if necessary.
-; Finally, the value is multiplied by two-to-phi and stored.
-; st(5) = sumout
-; st(4) = carry
-; st(3) = two-to-phi multiplier
-; st(2) = two-to-minus-phi group multiplier
-; st(1) = two-to-phi group multiplier
-; st(0) = two-to-minus-phi multiplier
-; esi = pointer to the FFT data values
-; ebx = pointer two-to-power column multipliers
-; edx = pointer two-to-power group multipliers
-; ebp = number of big words
-; edi = big vs. little running sum
-; eax = the big vs. little word flag
+; *************** 2D macro ******************
+; A pipelined version of this code:
+;	fld	QWORD PTR [esi+0*dist1]	;; Load value
+;	fmul	st(2)			;; Mul value by two-to-minus-phi
+;	faddp	st(4), st		;; x = value + carry
+;	fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
+;	fadd	st, st(4)		;; y = top bits of x
+;	fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
+;	fsubr	st, st(3)		;; z = y - (maximum * BIGVAL - BIGVAL)
+;	fmul	limit_inverse[eax*8]	;; next carry = shifted y
+;	fsubp	st(6), st		;; rounded value = x - z
+;	fadd	QWORD PTR [esi+0*dist1]	;; sumout += value
+;	fmulp	st(2)			;; new value = val * two-to-phi
+;	fmul	limit_ttp_mult[eax*4]	;; Adjust next two-to-phi grp mult
+;	fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
+;	fld	QWORD PTR [ebx+0*16]	;; Load next two-to-phi
+;	fmul	st, st(2)		;; Compute next two-to-phi
+;	fld	QWORD PTR [ebx+0*16+8]	;; Load next two-to-minus-phi col mult
+;	fmul	st, st(5)		;; Compute next two-to-minus-phi
+;	sub	edi, ebp		;; 2 steps to compute
+;	sbb	eax, eax		;; next big vs. little flag
+;	fstp	QWORD PTR [esi+0*dist1]	;; Save the value
 
-normalize MACRO				;; ttmp,ttpg,ttmpg,ttp,carry,sum
+norm_2d MACRO z, e, c			;; ttmp,ttpg,ttmpg,ttp,carry,sum
+	LOCAL	bzdone
+	brute_force_zero_part1 z, st(5), bzdone, 1
 	fmul	QWORD PTR [esi]		;; Mul value by two-to-minus-phi
 					;; STALL
 					;; STALL
+	brute_force_error_check e, 1
+	brute_force_mul_by_const c
 	faddp	st(4), st		;; x = value + carry
 	  				;; ttpg,ttmpg,ttp,x,sum
 	  fmul	limit_ttp_mult[eax*4]	;; Adjust next two-to-phi grp mult 
@@ -284,7 +727,10 @@ normalize MACRO				;; ttmp,ttpg,ttmpg,ttp,carry,sum
 
 				;; ttmp,prev,ttpg,carry,sum,ttmpg,ttp
 	fmul	QWORD PTR [esi+dist1]	;; Mul value by two-to-minus-phi
+	brute_force_error_check e, 1
+	brute_force_mul_by_const c
 	  fxch	st(1)			;; prev,val,ttpg,carry,sum,ttmpg,ttp
+	  brute_force_zero_part2 z
 	  fstp	QWORD PTR [esi]		;; Save the previous value
 	  				;; val,ttpg,carry,sum,ttmpg,ttp
 	faddp	st(2), st		;; x = value + carry
@@ -318,7 +764,10 @@ normalize MACRO				;; ttmp,ttpg,ttmpg,ttp,carry,sum
 
 				;; ttmp,prev,ttpg,ttmpg,ttp,carry,sum
 	fmul	QWORD PTR [esi+2*dist1]	;; Mul value by two-to-minus-phi
+	brute_force_error_check e, 1
+	brute_force_mul_by_const c
 	  fxch	st(1)			;; prev,val,ttpg,ttmpg,ttp,carry,sum
+	  brute_force_zero_part2 z
 	  fstp	QWORD PTR [esi+dist1]	;; Save the previous value
 	  				;; val,ttpg,ttmpg,ttp,carry,sum
 	faddp	st(4), st		;; x = value + carry
@@ -352,7 +801,10 @@ normalize MACRO				;; ttmp,ttpg,ttmpg,ttp,carry,sum
 
 				;; ttmp,prev,ttpg,carry,sum,ttmpg,ttp
 	fmul	QWORD PTR [esi+3*dist1]	;; Mul value by two-to-minus-phi
+	brute_force_error_check e, 1
+	brute_force_mul_by_const c
 	  fxch	st(1)			;; prev,val,ttpg,carry,sum,ttmpg,ttp
+	  brute_force_zero_part2 z
 	  fstp	QWORD PTR [esi+2*dist1]	;; Save the previous value
 	  				;; val,ttpg,carry,sum,ttmpg,ttp
 	faddp	st(2), st		;; x = value + carry
@@ -386,7 +838,10 @@ normalize MACRO				;; ttmp,ttpg,ttmpg,ttp,carry,sum
 
 				;; ttmp,prev,ttpg,ttmpg,ttp,carry,sum
 	fmul	QWORD PTR [esi+4*dist1]	;; Mul value by two-to-minus-phi
+	brute_force_error_check e, 1
+	brute_force_mul_by_const c
 	  fxch	st(1)			;; prev,val,ttpg,ttmpg,ttp,carry,sum
+	  brute_force_zero_part2 z
 	  fstp	QWORD PTR [esi+3*dist1]	;; Save the previous value
 	  				;; val,ttpg,ttmpg,ttp,carry,sum
 	faddp	st(4), st		;; x = value + carry
@@ -420,7 +875,10 @@ normalize MACRO				;; ttmp,ttpg,ttmpg,ttp,carry,sum
 
 				;; ttmp,prev,ttpg,carry,sum,ttmpg,ttp
 	fmul	QWORD PTR [esi+5*dist1]	;; Mul value by two-to-minus-phi
+	brute_force_error_check e, 1
+	brute_force_mul_by_const c
 	  fxch	st(1)			;; prev,val,ttpg,carry,sum,ttmpg,ttp
+	  brute_force_zero_part2 z
 	  fstp	QWORD PTR [esi+4*dist1]	;; Save the previous value
 	  				;; val,ttpg,carry,sum,ttmpg,ttp
 	faddp	st(2), st		;; x = value + carry
@@ -454,7 +912,10 @@ normalize MACRO				;; ttmp,ttpg,ttmpg,ttp,carry,sum
 
 				;; ttmp,prev,ttpg,ttmpg,ttp,carry,sum
 	fmul	QWORD PTR [esi+6*dist1]	;; Mul value by two-to-minus-phi
+	brute_force_error_check e, 1
+	brute_force_mul_by_const c
 	  fxch	st(1)			;; prev,val,ttpg,ttmpg,ttp,carry,sum
+	  brute_force_zero_part2 z
 	  fstp	QWORD PTR [esi+5*dist1]	;; Save the previous value
 	  				;; val,ttpg,ttmpg,ttp,carry,sum
 	faddp	st(4), st		;; x = value + carry
@@ -488,7 +949,10 @@ normalize MACRO				;; ttmp,ttpg,ttmpg,ttp,carry,sum
 
 				;; ttmp,prev,ttpg,carry,sum,ttmpg,ttp
 	fmul	QWORD PTR [esi+7*dist1]	;; Mul value by two-to-minus-phi
+	brute_force_error_check e, 1
+	brute_force_mul_by_const c
 	  fxch	st(1)			;; prev,val,ttpg,carry,sum,ttmpg,ttp
+	  brute_force_zero_part2 z
 	  fstp	QWORD PTR [esi+6*dist1]	;; Save the previous value
 	  				;; val,ttpg,carry,sum,ttmpg,ttp
 	faddp	st(2), st		;; x = value + carry
@@ -522,12 +986,36 @@ normalize MACRO				;; ttmp,ttpg,ttmpg,ttp,carry,sum
 
 				;; ttmp,prev,ttpg,ttmpg,ttp,carry,sum
 	fxch	st(1)
+	brute_force_zero_part2 z
 	fstp	QWORD PTR [esi+7*dist1]
+bzdone:	brute_force_zero_part3 z, 1
 	ENDM
 
 
-; *************** normalize macro ******************
-; This macro finisishes the normalize process by adding the final
+norm_2d_c MACRO
+	norm_2d 0, 0, 1
+	ENDM
+norm_2d_e MACRO
+	norm_2d 0, 1, 0
+	ENDM
+norm_2d_e_c MACRO
+	norm_2d 0, 1, 1
+	ENDM
+norm_2d_z MACRO
+	norm_2d 1, 0, 0
+	ENDM
+norm_2d_z_c MACRO
+	norm_2d 1, 0, 1
+	ENDM
+norm_2d_z_e MACRO
+	norm_2d 1, 1, 0
+	ENDM
+norm_2d_z_e_c MACRO
+	norm_2d 1, 1, 1
+	ENDM
+
+; *************** 2D followup macro ******************
+; This macro finishes the normalize process by adding the final
 ; carry from the first pass back into the lower three data value.
 ; We take advantage of the fact that the first two-to-phi multiplier
 ; and the first two-to-minus-phi multiplier are one.  We also know
@@ -538,8 +1026,14 @@ normalize MACRO				;; ttmp,ttpg,ttmpg,ttp,carry,sum
 ; ebp = number of big words
 ; edi = big vs. little running sum
 
-normalize_012 MACRO
-	fadd	QWORD PTR [esi]		;; x = value + carry
+norm012_2d MACRO
+	LOCAL	signok
+	cmp	_PLUS1, 0
+	jz	short signok
+	fsub	BIGVAL
+	fchs
+	fadd	BIGVAL
+signok:	fadd	QWORD PTR [esi]		;; x = value + carry
 	  fld	limit_ttp_mult_high	;; Load next two-to-phi grp mult
 	  fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
 					;; bigmax,ttpg,x
@@ -605,504 +1099,416 @@ normalize_012 MACRO
 	ENDM
 
 
-; *************** normalize-times-3 macro ******************
-; Like the normalize macros except that it multiplies the result by three.
-; This is used in the P-1 factoring code.  Note: this code could probably
-; be optimized further.
+; *************** no-array add/sub macro ******************
+; This macro adds or subtracts, then "normalizes" eight FFT
+; data values.  This involves making sure the integer is smaller than
+; the maximum allowable integer, generating a carry if necessary.
+; st(0) = carry
+; ecx = pointer to first number
+; edx = pointer to second number
+; esi = destination
+; A pipelined version of this code:
+;	fld	QWORD PTR [edx+0*dist1]	;; Load second value
+;	fop	QWORD PTR [ecx+0*dist1]	;; Add/sub in first value
+;	faddp	st(1), st		;; x = value + carry
+;	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+;	fadd	st, st(1)		;; y = top bits of x
+;	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+;	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+;	fmul	limit_inverse_high	;; next carry = shifted y
+;	fsubp	st(2), st		;; new value = x - z
+;	fstp	QWORD PTR [esi+0*dist1]	;; Save new value
 
-simple_normalize_times_3 MACRO
-	fld	QWORD PTR [esi+0*8]	;; Load value		;v0,c0,s
-	fmul	QWORD PTR [ebx+0*16+8]	;; Mul value by two-to-minus-phi
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	sub	edi, ebp		;;*U - 2 steps to compute
-	 fld	QWORD PTR [esi+1*8]	;; Load value		;v1,v0,c0,s
-	 fxch	st(1)						;v0,v1,c0,s
-	faddp	st(2), st		;; x = value + carry	;v1,x0,s
-	 fmul	QWORD PTR [ebx+1*16+8]	;; Mul value by two-to-minus-phi
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	fld	limit_bigmax[eax*8]	;; y = rounding const	;y0,v1,x0,s
-	fadd	st, st(2)		;; y = top bits of x
-	fxch	st(3)						;s,v1,x0,y0
-	fadd	QWORD PTR [esi+0*8]	;; sumout += value
-	fld	limit_bigmax[eax*8]	;; z = rounding const	;z0,s,v1,x0,y0
-	fsubr	st, st(4)		;; z = y - z
-	fxch	st(4)						;y0,s,v1,x0,z0
-	fmul	limit_inverse[eax*8]	;; next carry = shift y	;c1,s,v1,x0,z0
-	sbb	eax, eax		;; U - next big vs. little flag
-	 sub	edi, ebp		;; V - 2 steps to compute
-	  fld	QWORD PTR [esi+2*8]	;; Load value	;v2,c1,s,v1,x0,z0
-	  fxch	st(5)					;z0,c1,s,v1,x0,v2
-	fsubp	st(4), st		;; new value = x - z	;c1,s,v1,v0,v2
-	 faddp	st(2), st		;; x = value + carry	;s,x1,v0,v2
-	 fld	limit_bigmax[eax*8]	;; y = rounding const	;y1,s,x1,v0,v2
-	 fxch	st(3)						;v0,s,x1,y1,v2
-	fmul	QWORD PTR [ebx+0*16]	;; new value = val * two-to-phi
-	fxch	st(3)						;y1,s,x1,v0,v2
-	 fadd	st, st(2)		;; y = top bits of x
-	 fxch	st(1)						;s,y1,x1,v0,v2
-	 fadd	QWORD PTR [esi+1*8]	;; sumout += value
-	 fxch	st(4)						;v2,y1,x1,v0,s
-	  fmul	QWORD PTR [ebx+2*16+8]	;; Mul value by two-to-minus-phi
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	 fld	limit_bigmax[eax*8]	;; z = rounding const ;z1,v2,y1,x1,v0,s
-	 fsubr	st, st(2)		;; z = y - z
-	 fxch	st(2)					      ;y1,v2,z1,x1,v0,s
-	 fmul	limit_inverse[eax*8]	;; carry = shift y    ;c2,v2,z1,x1,v0,s
-	 fxch	st(4)					      ;v0,v2,z1,x1,c2,s
-	fstp	QWORD PTR [esi+0*8]	;; Save the value	;v2,z1,x1,c2,s
-	 sbb	eax, eax		;; U - next big vs. little flag
-	  sub	edi, ebp		;; V - 2 steps to compute
-	fld	QWORD PTR [esi+3*8]	;; Load value	      ;v3,v2,z1,x1,c2,s
-	fxch	st(2)					      ;z1,v2,v3,x1,c2,s
-	 fsubp	st(3), st		;; new value = x - z	;v2,v3,v1,c2,s
-	  faddp	st(3), st		;; x = value + carry	;v3,v1,x2,s
-	  fld	limit_bigmax[eax*8]	;; y = rounding const	;y2,v3,v1,x2,s
-	  fxch	st(2)						;v1,v3,y2,x2,s
-	 fmul	QWORD PTR [ebx+1*16]	;; new value = val * two-to-phi
-	 fxch	st(2)						;y2,v3,v1,x2,s
-	  fadd	st, st(3)		;; y = top bits of x
-	  fxch	st(4)						;s,v3,v1,x2,y2
-	  fadd	QWORD PTR [esi+2*8]	;; sumout += value
-	  fxch	st(1)						;v3,s,v1,x2,y2
-	fmul	QWORD PTR [ebx+3*16+8]	;; Mul value by two-to-minus-phi
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	  fld	limit_bigmax[eax*8]	;; z = rounding const ;z2,v3,s,v1,x2,y2
-	  fsubr	st, st(5)		;; z = y - z
-	  fxch	st(5)					      ;y2,v3,s,v1,x2,z2
-	  fmul	limit_inverse[eax*8]	;; carry = shifted y  ;c3,v3,s,v1,x2,z2
-	  fxch	st(3)					      ;v1,v3,s,c3,x2,z2
-	 fstp	QWORD PTR [esi+1*8]	;; Save the value	;v3,s,c3,x2,z2
-	  sbb	eax, eax		;; U - next big vs. little flag
-	sub	edi, ebp		;; V - 2 steps to compute
-	 fld	QWORD PTR [esi+4*8]	;; Load value	      ;v4,v3,s,c3,x2,z2
-	 fxch	st(5)					      ;z2,v3,s,c3,x2,v4
-	  fsubp	st(4), st		;; value = x - z	;v3,s,c3,v2,v4
-	faddp	st(2), st		;; x = value + carry	;s,x3,v2,v4
-	fld	limit_bigmax[eax*8]	;; y = rounding const	;y3,s,x3,v2,v4
-	fxch	st(3)						;v2,s,x3,y3,v4
-	  fmul	QWORD PTR [ebx+2*16]	;; new value = val * two-to-phi
-	  fxch	st(3)						;y3,s,x3,v2,v4
-	fadd	st, st(2)		;; y = top bits of x
-	fxch	st(1)						;s,y3,x3,v2,v4
-	fadd	QWORD PTR [esi+3*8]	;; sumout += value
-	fxch	st(4)						;v4,y3,x3,v2,s
-	 fmul	QWORD PTR [ebx+4*16+8]	;; Mul value by two-to-minus-phi
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	fld	limit_bigmax[eax*8]	;; z = rounding const ;z3,v4,y3,x3,v2,s
-	fsubr	st, st(2)		;; z = y - z
-	fxch	st(2)					      ;y3,v4,z3,x3,v2,s
-	fmul	limit_inverse[eax*8]	;; carry = shifted y  ;c4,v4,z3,x3,v2,s
-	fxch	st(4)					      ;v2,v4,z3,x3,c4,s
-	  fstp	QWORD PTR [esi+2*8]	;; Save previous value	;v4,z3,x3,c4,s
-	sbb	eax, eax		;; U - next big vs. little flag
-	 sub	edi, ebp		;; V - 2 steps to compute
-	  fld	QWORD PTR [esi+5*8]	;; Load value	      ;v5,v4,z3,x3,c4,s
-	  fxch	st(2)					      ;z3,v4,v5,x3,c4,s
-	fsubp	st(3), st		;; value = x - z	;v4,v5,v3,c4,s
-	 faddp	st(3), st		;; x = value + carry	;v5,v3,x4,s
-	 fld	limit_bigmax[eax*8]	;; y = rounding const	;y4,v5,v3,x4,s
-	 fxch	st(2)						;v3,v5,y4,x4,s
-	fmul	QWORD PTR [ebx+3*16]	;; new value = val * two-to-phi
-	fxch	st(2)						;y4,v5,v3,x4,s
-	 fadd	st, st(3)		;; y = top bits of x
-	 fxch	st(4)						;s,v5,v3,x4,y4
-	 fadd	QWORD PTR [esi+4*8]	;; sumout += value
-	 fxch	st(1)						;v5,s,v3,x4,y4
-	  fmul	QWORD PTR [ebx+5*16+8]	;; Mul value by two-to-minus-phi
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	 fld	limit_bigmax[eax*8]	;; z = rounding const ;z4,v5,s,v3,x4,y4
-	 fsubr	st, st(5)		;; z = y - z
-	 fxch	st(5)					      ;y4,v5,s,v3,x4,z4
-	 fmul	limit_inverse[eax*8]	;; carry = shifted y  ;c5,v5,s,v3,x4,z4
-	 fxch	st(3)					      ;v3,v5,s,c5,x4,z4
-	fstp	QWORD PTR [esi+3*8]	;; Save previous value	;v5,s,c5,x4,z4
-	 sbb	eax, eax		;; U - next big vs. little flag
-	  sub	edi, ebp		;; V - 2 steps to compute
-	fld	QWORD PTR [esi+6*8]	;; Load value	      ;v6,v5,s,c5,x4,z4
-	fxch	st(5)					      ;z4,v5,s,c5,x4,v6
-	 fsubp	st(4), st		;; value = x - z	;v5,s,c5,v4,v6
-	  faddp	st(2), st		;; x = value + carry	;s,x5,v4,v6
-	  fld	limit_bigmax[eax*8]	;; y = rounding const	;y5,s,x5,v4,v6
-	  fxch	st(3)						;v4,s,x5,y5,v6
-	 fmul	QWORD PTR [ebx+4*16]	;; new value = val * two-to-phi
-	 fxch	st(3)						;y5,s,x5,v4,v6
-	  fadd	st, st(2)		;; y = top bits of x
-	  fxch	st(1)						;s,y5,x5,v4,v6
-	  fadd	QWORD PTR [esi+5*8]	;; sumout += value
-	  fxch	st(4)						;v6,y5,x5,v4,s
-	fmul	QWORD PTR [ebx+6*16+8]	;; Mul value by two-to-minus-phi
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	  fld	limit_bigmax[eax*8]	;; z = rounding const ;z5,v6,y5,x5,v4,s
-	  fsubr	st, st(2)		;; z = y - z
-	  fxch	st(2)					      ;y5,v6,z5,x5,v4,s
-	  fmul	limit_inverse[eax*8]	;; carry = shifted y  ;c6,v6,z5,x5,v4,s
-	  fxch	st(4)					      ;v4,v6,z5,x5,c6,s
-	 fstp	QWORD PTR [esi+4*8]	;; Save previous value	;v6,z5,x5,c6,s
-	  sbb	eax, eax		;; U - next big vs. little flag
-	sub	edi, ebp		;; V - 2 steps to compute
-	 fld	QWORD PTR [esi+7*8]	;; Load value	      ;v7,v6,z5,x5,c6,s
-	 fxch	st(2)					      ;z5,v6,v7,x5,c6,s
-	  fsubp	st(3), st		;; value = x - z	;v6,v7,v5,c6,s
-	faddp	st(3), st		;; x = value + carry	;v7,v5,x6,s
-	fld	limit_bigmax[eax*8]	;; y = rounding const	;y6,v7,v5,x6,s
-	fxch	st(2)						;v5,v7,y6,x6,s
-	  fmul	QWORD PTR [ebx+5*16]	;; new value = val * two-to-phi
-	  fxch	st(2)						;y6,v7,v5,x6,s
-	fadd	st, st(3)		;; y = top bits of x
-	fxch	st(4)						;s,v7,v5,x6,y6
-	fadd	QWORD PTR [esi+6*8]	;; sumout += value
-	fxch	st(1)						;v7,s,v5,x6,y6
-	 fmul	QWORD PTR [ebx+7*16+8]	;; Mul value by two-to-minus-phi
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	fld	limit_bigmax[eax*8]	;; z = rounding const ;z6,v7,s,v5,x6,y6
-	fsubr	st, st(5)		;; z = y - z
-	fxch	st(5)					      ;y6,v7,s,v5,x6,z6
-	fmul	limit_inverse[eax*8]	;; carry = shifted y  ;c7,v7,s,v5,x6,z6
-	fxch	st(3)					      ;v5,v7,s,c7,x6,z6
-	  fstp	QWORD PTR [esi+5*8]	;; Save previous value	;v7,s,c7,x6,z6
-	sbb	eax, eax		;; U - next big vs. little flag
-	 sub	edi, ebp		;; V - 2 steps to compute
-	 faddp	st(2), st		;; x = value + carry	;s,x7,x6,z6
-	 fxch	st(2)						;x6,x7,s,z6
-	fsubrp	st(3), st		;; value = x - z	;x7,s,v6
-	 fld	limit_bigmax[eax*8]	;; y = rounding const	;y7,x7,s,v6
-	 fadd	st, st(1)		;; y = top bits of x
-	 fxch	st(3)						;v6,x7,s,y7
-	fmul	QWORD PTR [ebx+6*16]	;; new value = val * two-to-phi
-	 fld	limit_bigmax[eax*8]	;; z = rounding const	;z7,v6,x7,s,y7
-	 fsubr	st, st(4)		;; z = y - z
-	 fxch	st(4)						;y7,v6,x7,s,z7
-	 fmul	limit_inverse[eax*8]	;; carry = shifted y	;c,v6,x7,s,z7
-	 fxch	st(3)						;s,v6,x7,c,z7
-	 fadd	QWORD PTR [esi+7*8]	;; sumout += value
-	 fxch	st(4)						;z7,v6,x7,c,s
-	 fsubp	st(2), st		;; value = x - z	;v6,v7,c,s
-	fstp	QWORD PTR [esi+6*8]	;; Save previous value	;v7,c,s
-	 fmul	QWORD PTR [ebx+7*16]	;; new value = val * two-to-phi
-	 sbb	eax, eax		;;*U - next big vs. little flag
-					;; STALL
-					;; STALL
-	 fstp	QWORD PTR [esi+7*8]	;; Save previous value	;c,s
+norm_op_0d MACRO fop
+	fld	QWORD PTR [edx+0*dist1]	;; Load second value
+	fop	QWORD PTR [ecx+0*dist1]	;; Add/sub in first value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; y,z,x
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(2)			;; x,z,carry
+	fsubrp	st(1), st		;; new value = x - z
+	fstp	QWORD PTR [esi+0*dist1]	;; Save new value
+
+	fld	QWORD PTR [edx+1*dist1]	;; Load second value
+	fop	QWORD PTR [ecx+1*dist1]	;; Add/sub in first value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; y,z,x
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(2)			;; x,z,carry
+	fsubrp	st(1), st		;; new value = x - z
+	fstp	QWORD PTR [esi+1*dist1]	;; Save new value
+
+	fld	QWORD PTR [edx+2*dist1]	;; Load second value
+	fop	QWORD PTR [ecx+2*dist1]	;; Add/sub in first value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; y,z,x
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(2)			;; x,z,carry
+	fsubrp	st(1), st		;; new value = x - z
+	fstp	QWORD PTR [esi+2*dist1]	;; Save new value
+
+	fld	QWORD PTR [edx+3*dist1]	;; Load second value
+	fop	QWORD PTR [ecx+3*dist1]	;; Add/sub in first value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; y,z,x
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(2)			;; x,z,carry
+	fsubrp	st(1), st		;; new value = x - z
+	fstp	QWORD PTR [esi+3*dist1]	;; Save new value
+
+	fld	QWORD PTR [edx+4*dist1]	;; Load second value
+	fop	QWORD PTR [ecx+4*dist1]	;; Add/sub in first value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; y,z,x
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(2)			;; x,z,carry
+	fsubrp	st(1), st		;; new value = x - z
+	fstp	QWORD PTR [esi+4*dist1]	;; Save new value
+
+	fld	QWORD PTR [edx+5*dist1]	;; Load second value
+	fop	QWORD PTR [ecx+5*dist1]	;; Add/sub in first value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; y,z,x
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(2)			;; x,z,carry
+	fsubrp	st(1), st		;; new value = x - z
+	fstp	QWORD PTR [esi+5*dist1]	;; Save new value
+
+	fld	QWORD PTR [edx+6*dist1]	;; Load second value
+	fop	QWORD PTR [ecx+6*dist1]	;; Add/sub in first value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; y,z,x
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(2)			;; x,z,carry
+	fsubrp	st(1), st		;; new value = x - z
+	fstp	QWORD PTR [esi+6*dist1]	;; Save new value
+
+	fld	QWORD PTR [edx+7*dist1]	;; Load second value
+	fop	QWORD PTR [ecx+7*dist1]	;; Add/sub in first value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; y,z,x
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(2)			;; x,z,carry
+	fsubrp	st(1), st		;; new value = x - z
+	fstp	QWORD PTR [esi+7*dist1]	;; Save new value
 	ENDM
 
-normalize_times_3 MACRO			;; ttmp,ttpg,ttmpg,ttp,carry,sum
-	fmul	QWORD PTR [esi]		;; Mul value by two-to-minus-phi
-					;; STALL
-					;; STALL
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	faddp	st(4), st		;; x = value + carry
-	  				;; ttpg,ttmpg,ttp,x,sum
-	  fmul	limit_ttp_mult[eax*4]	;; Adjust next two-to-phi grp mult 
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttpg,ttmpg,ttp,x,sum
-	fadd	st, st(4)		;; y = top bits of x
-	  fxch	st(2)			;; ttmpg,ttpg,y,ttp,x,sum
-	  fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttmpg,ttpg,y,ttp,x,sum
-	fsubr	st, st(3)		;; z = y - (maximum * BIGVAL - BIGVAL)
-	  fxch	st(3)			;; y,ttmpg,ttpg,z,ttp,x,sum
-	  fmul	limit_inverse[eax*8]	;; next carry = shifted y
-	  fld	QWORD PTR [ebx]		;; Load next two-to-phi
-	  fxch	st(4)			;; z,carry,ttmpg,ttpg,nxtttp,ttp,x,sum
-	fsubp	st(6), st		;; rounded value = x - z
-	  fxch	st(3)			;; nxtttp,ttmpg,ttpg,carry,ttp,val,sum
-	  fmul	st, st(2)		;; Compute next two-to-phi
-	  fxch	st(6)			;; sum,ttmpg,ttpg,carry,ttp,val,nxtttp
-	  fadd	QWORD PTR [esi]		;; sumout += value
-	  fxch	st(4)			;; ttp,ttmpg,ttpg,carry,sum,val,nxtttp
-	fmulp	st(5), st		;; new value = val * two-to-phi
-	fxch	st(4)			;; val,ttpg,carry,sum,ttmpg,nxtttp
-	fld	QWORD PTR [ebx+8]	;; Load next two-to-minus-phi col mult
-	fmul	st, st(5)		;; Compute next two-to-minus-phi
-	  sub	edi, ebp		;; U - 2 steps to compute
-	  sbb	eax, eax		;;*U - next big vs. little flag
-				;; nxtttmp,val,ttpg,carry,sum,ttmpg,nxtttp
+; *************** no-array add/sub macro ******************
+; This macro adds and subtracts, eight FFT data values.  This involves
+; making sure the integer is smaller than the maximum allowable integer,
+; generating a carry if necessary.
+; st(1) = add carry
+; st(0) = sub carry
+; ecx = pointer to first number
+; edx = pointer to second number
+; esi = destination for added numbers
+; ebp = destination for subtracted numbers
+; A pipelined version of this code:
+;	fld	QWORD PTR [ecx+0*dist1]	;; Load first value
+;	fld	st(0)			;; Copy first value
+;	fadd	QWORD PTR [edx+0*dist1]	;; Add in second value
+;	fsub	QWORD PTR [edx+0*dist1]	;; Subtract second value
+;	faddp	st(1), st		;; x1 = value + carry
+;	faddp	st(1), st		;; x2 = value + carry
+;	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+;	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+;	fadd	st, st(1)		;; y1 = top bits of x1
+;	fadd	st, st(1)		;; y2 = top bits of x2
+;	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+;	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+;	fsubr	st, st(1)		;; z1 = y1-(maximum * BIGVAL - BIGVAL)
+;	fsubr	st, st(1)		;; z2 = y2-(maximum * BIGVAL - BIGVAL)
+;	fmul	limit_inverse_high	;; next carry = shifted y1
+;	fmul	limit_inverse_high	;; next carry = shifted y2
+;	fsubp	st(2), st		;; new value = x1 - z1
+;	fsubp	st(2), st		;; new value = x2 - z2
+;	fstp	QWORD PTR [esi+0*dist1]	;; Save new value
+;	fstp	QWORD PTR [ebp+0*dist1]	;; Save new value
 
-				;; ttmp,prev,ttpg,carry,sum,ttmpg,ttp
-	fmul	QWORD PTR [esi+dist1]	;; Mul value by two-to-minus-phi
-	  fxch	st(1)			;; prev,val,ttpg,carry,sum,ttmpg,ttp
-	  fstp	QWORD PTR [esi]		;; Save the previous value
-	  				;; val,ttpg,carry,sum,ttmpg,ttp
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	faddp	st(2), st		;; x = value + carry
-	  				;; ttpg,x,sum,ttmpg,ttp
-	  fmul	limit_ttp_mult[eax*4]	;; Adjust next two-to-phi grp mult 
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttpg,x,sum,ttmpg,ttp
-	fadd	st, st(2)		;; y = top bits of x
-	  fxch	st(4)			;; ttmpg,ttpg,x,sum,y,ttp
-	  fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttmpg,ttpg,x,sum,y,ttp
-	fsubr	st, st(5)		;; z = y - (maximum * BIGVAL - BIGVAL)
-	  fxch	st(5)			;; y,ttmpg,ttpg,x,sum,z,ttp
-	  fmul	limit_inverse[eax*8]	;; next carry = shifted y
-	  fld	QWORD PTR [ebx+16]	;; Load next two-to-phi
-	  fxch	st(6)			;; z,carry,ttmpg,ttpg,x,sum,nxtttp,ttp
-	fsubp	st(4), st		;; rounded value = x - z
-	  fxch	st(5)			;; nxtttp,ttmpg,ttpg,val,sum,carry,ttp
-	  fmul	st, st(2)		;; Compute next two-to-phi
-	  fxch	st(4)			;; sum,ttmpg,ttpg,val,nxtttp,carry,ttp
-	  fadd	QWORD PTR [esi+dist1]	;; sumout += value
-	  fxch	st(6)			;; ttp,ttmpg,ttpg,val,nxtttp,carry,sum
-	fmulp	st(3), st		;; new value = val * two-to-phi
-	fxch	st(2)			;; val,ttpg,ttmpg,nxtttp,carry,sum
-	fld	QWORD PTR [ebx+24]	;; Load next two-to-minus-phi col mult
-	fmul	st, st(3)		;; Compute next two-to-minus-phi
-	  sub	edi, ebp		;; U - 2 steps to compute
-	  sbb	eax, eax		;;*U - next big vs. little flag
-				;; nxtttmp,val,ttpg,ttmpg,nxtttp,carry,sum
+norm_addsub_0d MACRO
+	fld	QWORD PTR [ecx+0*dist1]	;; Load first value
+	fld	st(0)			;; Copy first value
+	fadd	QWORD PTR [edx+0*dist1]	;; Add in second value
+	fxch	st(1)			;; subval, addval, subcarry, addcarry
+	fsub	QWORD PTR [edx+0*dist1]	;; Subtract second value
+	fxch	st(1)			;; addval, subval, subcarry, addcarry
+	faddp	st(3), st		;; x1 = value + carry
+	faddp	st(1), st		;; x2 = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(3)		;; y1 = top bits of x1
+	fxch	st(1)			;; y2, y1, x2, x1
+	fadd	st, st(2)		;; y2 = top bits of x2
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(3)		;; z1 = y1-(maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; z2, z1, y2, y1, x2, x1
+	fsubr	st, st(2)		;; z2 = y2-(maximum * BIGVAL - BIGVAL)
+	fxch	st(3)			;; y1, z1, y2, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y1
+	fxch	st(2)			;; y2, z1, addcarry, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y2
+	fxch	st(1)			;; z1, subcarry, addcarry, z2, x2, x1
+	fsubp	st(5), st		;; new value = x1 - z1
+	fxch	st(2)			;; z2, addcarry, subcarry, x2, x1
+	fsubp	st(3), st		;; new value = x2 - z2
+	fxch	st(3)			;; x1, subcarry, x2, addcarry
+	fstp	QWORD PTR [esi+0*dist1]	;; Save new value
+	fxch	st(1)			;; x2, subcarry, addcarry
+	fstp	QWORD PTR [ebp+0*dist1]	;; Save new value
 
-				;; ttmp,prev,ttpg,ttmpg,ttp,carry,sum
-	fmul	QWORD PTR [esi+2*dist1]	;; Mul value by two-to-minus-phi
-	  fxch	st(1)			;; prev,val,ttpg,ttmpg,ttp,carry,sum
-	  fstp	QWORD PTR [esi+dist1]	;; Save the previous value
-	  				;; val,ttpg,ttmpg,ttp,carry,sum
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	faddp	st(4), st		;; x = value + carry
-	  				;; ttpg,ttmpg,ttp,x,sum
-	  fmul	limit_ttp_mult[eax*4]	;; Adjust next two-to-phi grp mult 
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttpg,ttmpg,ttp,x,sum
-	fadd	st, st(4)		;; y = top bits of x
-	  fxch	st(2)			;; ttmpg,ttpg,y,ttp,x,sum
-	  fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttmpg,ttpg,y,ttp,x,sum
-	fsubr	st, st(3)		;; z = y - (maximum * BIGVAL - BIGVAL)
-	  fxch	st(3)			;; y,ttmpg,ttpg,z,ttp,x,sum
-	  fmul	limit_inverse[eax*8]	;; next carry = shifted y
-	  fld	QWORD PTR [ebx+32]	;; Load next two-to-phi
-	  fxch	st(4)			;; z,carry,ttmpg,ttpg,nxtttp,ttp,x,sum
-	fsubp	st(6), st		;; rounded value = x - z
-	  fxch	st(3)			;; nxtttp,ttmpg,ttpg,carry,ttp,val,sum
-	  fmul	st, st(2)		;; Compute next two-to-phi
-	  fxch	st(6)			;; sum,ttmpg,ttpg,carry,ttp,val,nxtttp
-	  fadd	QWORD PTR [esi+2*dist1]	;; sumout += value
-	  fxch	st(4)			;; ttp,ttmpg,ttpg,carry,sum,val,nxtttp
-	fmulp	st(5), st		;; new value = val * two-to-phi
-	fxch	st(4)			;; val,ttpg,carry,sum,ttmpg,nxtttp
-	fld	QWORD PTR [ebx+32+8]	;; Load next two-to-minus-phi col mult
-	fmul	st, st(5)		;; Compute next two-to-minus-phi
-	  sub	edi, ebp		;; U - 2 steps to compute
-	  sbb	eax, eax		;;*U - next big vs. little flag
-				;; nxtttmp,val,ttpg,carry,sum,ttmpg,nxtttp
+	fld	QWORD PTR [ecx+1*dist1]	;; Load first value
+	fld	st(0)			;; Copy first value
+	fadd	QWORD PTR [edx+1*dist1]	;; Add in second value
+	fxch	st(1)			;; subval, addval, subcarry, addcarry
+	fsub	QWORD PTR [edx+1*dist1]	;; Subtract second value
+	fxch	st(1)			;; addval, subval, subcarry, addcarry
+	faddp	st(3), st		;; x1 = value + carry
+	faddp	st(1), st		;; x2 = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(3)		;; y1 = top bits of x1
+	fxch	st(1)			;; y2, y1, x2, x1
+	fadd	st, st(2)		;; y2 = top bits of x2
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(3)		;; z1 = y1-(maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; z2, z1, y2, y1, x2, x1
+	fsubr	st, st(2)		;; z2 = y2-(maximum * BIGVAL - BIGVAL)
+	fxch	st(3)			;; y1, z1, y2, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y1
+	fxch	st(2)			;; y2, z1, addcarry, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y2
+	fxch	st(1)			;; z1, subcarry, addcarry, z2, x2, x1
+	fsubp	st(5), st		;; new value = x1 - z1
+	fxch	st(2)			;; z2, addcarry, subcarry, x2, x1
+	fsubp	st(3), st		;; new value = x2 - z2
+	fxch	st(3)			;; x1, subcarry, x2, addcarry
+	fstp	QWORD PTR [esi+1*dist1]	;; Save new value
+	fxch	st(1)			;; x2, subcarry, addcarry
+	fstp	QWORD PTR [ebp+1*dist1]	;; Save new value
 
-				;; ttmp,prev,ttpg,carry,sum,ttmpg,ttp
-	fmul	QWORD PTR [esi+3*dist1]	;; Mul value by two-to-minus-phi
-	  fxch	st(1)			;; prev,val,ttpg,carry,sum,ttmpg,ttp
-	  fstp	QWORD PTR [esi+2*dist1]	;; Save the previous value
-	  				;; val,ttpg,carry,sum,ttmpg,ttp
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	faddp	st(2), st		;; x = value + carry
-	  				;; ttpg,x,sum,ttmpg,ttp
-	  fmul	limit_ttp_mult[eax*4]	;; Adjust next two-to-phi grp mult 
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttpg,x,sum,ttmpg,ttp
-	fadd	st, st(2)		;; y = top bits of x
-	  fxch	st(4)			;; ttmpg,ttpg,x,sum,y,ttp
-	  fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttmpg,ttpg,x,sum,y,ttp
-	fsubr	st, st(5)		;; z = y - (maximum * BIGVAL - BIGVAL)
-	  fxch	st(5)			;; y,ttmpg,ttpg,x,sum,z,ttp
-	  fmul	limit_inverse[eax*8]	;; next carry = shifted y
-	  fld	QWORD PTR [ebx+32+16]	;; Load next two-to-phi
-	  fxch	st(6)			;; z,carry,ttmpg,ttpg,x,sum,nxtttp,ttp
-	fsubp	st(4), st		;; rounded value = x - z
-	  fxch	st(5)			;; nxtttp,ttmpg,ttpg,val,sum,carry,ttp
-	  fmul	st, st(2)		;; Compute next two-to-phi
-	  fxch	st(4)			;; sum,ttmpg,ttpg,val,nxtttp,carry,ttp
-	  fadd	QWORD PTR [esi+3*dist1]	;; sumout += value
-	  fxch	st(6)			;; ttp,ttmpg,ttpg,val,nxtttp,carry,sum
-	fmulp	st(3), st		;; new value = val * two-to-phi
-	fxch	st(2)			;; val,ttpg,ttmpg,nxtttp,carry,sum
-	fld	QWORD PTR [ebx+32+24]	;; Load next two-to-minus-phi col mult
-	fmul	st, st(3)		;; Compute next two-to-minus-phi
-	  sub	edi, ebp		;; U - 2 steps to compute
-	  sbb	eax, eax		;;*U - next big vs. little flag
-				;; nxtttmp,val,ttpg,ttmpg,nxtttp,carry,sum
+	fld	QWORD PTR [ecx+2*dist1]	;; Load first value
+	fld	st(0)			;; Copy first value
+	fadd	QWORD PTR [edx+2*dist1]	;; Add in second value
+	fxch	st(1)			;; subval, addval, subcarry, addcarry
+	fsub	QWORD PTR [edx+2*dist1]	;; Subtract second value
+	fxch	st(1)			;; addval, subval, subcarry, addcarry
+	faddp	st(3), st		;; x1 = value + carry
+	faddp	st(1), st		;; x2 = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(3)		;; y1 = top bits of x1
+	fxch	st(1)			;; y2, y1, x2, x1
+	fadd	st, st(2)		;; y2 = top bits of x2
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(3)		;; z1 = y1-(maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; z2, z1, y2, y1, x2, x1
+	fsubr	st, st(2)		;; z2 = y2-(maximum * BIGVAL - BIGVAL)
+	fxch	st(3)			;; y1, z1, y2, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y1
+	fxch	st(2)			;; y2, z1, addcarry, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y2
+	fxch	st(1)			;; z1, subcarry, addcarry, z2, x2, x1
+	fsubp	st(5), st		;; new value = x1 - z1
+	fxch	st(2)			;; z2, addcarry, subcarry, x2, x1
+	fsubp	st(3), st		;; new value = x2 - z2
+	fxch	st(3)			;; x1, subcarry, x2, addcarry
+	fstp	QWORD PTR [esi+2*dist1]	;; Save new value
+	fxch	st(1)			;; x2, subcarry, addcarry
+	fstp	QWORD PTR [ebp+2*dist1]	;; Save new value
 
-				;; ttmp,prev,ttpg,ttmpg,ttp,carry,sum
-	fmul	QWORD PTR [esi+4*dist1]	;; Mul value by two-to-minus-phi
-	  fxch	st(1)			;; prev,val,ttpg,ttmpg,ttp,carry,sum
-	  fstp	QWORD PTR [esi+3*dist1]	;; Save the previous value
-	  				;; val,ttpg,ttmpg,ttp,carry,sum
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	faddp	st(4), st		;; x = value + carry
-	  				;; ttpg,ttmpg,ttp,x,sum
-	  fmul	limit_ttp_mult[eax*4]	;; Adjust next two-to-phi grp mult 
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttpg,ttmpg,ttp,x,sum
-	fadd	st, st(4)		;; y = top bits of x
-	  fxch	st(2)			;; ttmpg,ttpg,y,ttp,x,sum
-	  fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttmpg,ttpg,y,ttp,x,sum
-	fsubr	st, st(3)		;; z = y - (maximum * BIGVAL - BIGVAL)
-	  fxch	st(3)			;; y,ttmpg,ttpg,z,ttp,x,sum
-	  fmul	limit_inverse[eax*8]	;; next carry = shifted y
-	  fld	QWORD PTR [ebx+2*32]	;; Load next two-to-phi
-	  fxch	st(4)			;; z,carry,ttmpg,ttpg,nxtttp,ttp,x,sum
-	fsubp	st(6), st		;; rounded value = x - z
-	  fxch	st(3)			;; nxtttp,ttmpg,ttpg,carry,ttp,val,sum
-	  fmul	st, st(2)		;; Compute next two-to-phi
-	  fxch	st(6)			;; sum,ttmpg,ttpg,carry,ttp,val,nxtttp
-	  fadd	QWORD PTR [esi+4*dist1]	;; sumout += value
-	  fxch	st(4)			;; ttp,ttmpg,ttpg,carry,sum,val,nxtttp
-	fmulp	st(5), st		;; new value = val * two-to-phi
-	fxch	st(4)			;; val,ttpg,carry,sum,ttmpg,nxtttp
-	fld	QWORD PTR [ebx+2*32+8]	;; Load next two-to-minus-phi col mult
-	fmul	st, st(5)		;; Compute next two-to-minus-phi
-	  sub	edi, ebp		;; U - 2 steps to compute
-	  sbb	eax, eax		;;*U - next big vs. little flag
-				;; nxtttmp,val,ttpg,carry,sum,ttmpg,nxtttp
+	fld	QWORD PTR [ecx+3*dist1]	;; Load first value
+	fld	st(0)			;; Copy first value
+	fadd	QWORD PTR [edx+3*dist1]	;; Add in second value
+	fxch	st(1)			;; subval, addval, subcarry, addcarry
+	fsub	QWORD PTR [edx+3*dist1]	;; Subtract second value
+	fxch	st(1)			;; addval, subval, subcarry, addcarry
+	faddp	st(3), st		;; x1 = value + carry
+	faddp	st(1), st		;; x2 = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(3)		;; y1 = top bits of x1
+	fxch	st(1)			;; y2, y1, x2, x1
+	fadd	st, st(2)		;; y2 = top bits of x2
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(3)		;; z1 = y1-(maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; z2, z1, y2, y1, x2, x1
+	fsubr	st, st(2)		;; z2 = y2-(maximum * BIGVAL - BIGVAL)
+	fxch	st(3)			;; y1, z1, y2, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y1
+	fxch	st(2)			;; y2, z1, addcarry, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y2
+	fxch	st(1)			;; z1, subcarry, addcarry, z2, x2, x1
+	fsubp	st(5), st		;; new value = x1 - z1
+	fxch	st(2)			;; z2, addcarry, subcarry, x2, x1
+	fsubp	st(3), st		;; new value = x2 - z2
+	fxch	st(3)			;; x1, subcarry, x2, addcarry
+	fstp	QWORD PTR [esi+3*dist1]	;; Save new value
+	fxch	st(1)			;; x2, subcarry, addcarry
+	fstp	QWORD PTR [ebp+3*dist1]	;; Save new value
 
-				;; ttmp,prev,ttpg,carry,sum,ttmpg,ttp
-	fmul	QWORD PTR [esi+5*dist1]	;; Mul value by two-to-minus-phi
-	  fxch	st(1)			;; prev,val,ttpg,carry,sum,ttmpg,ttp
-	  fstp	QWORD PTR [esi+4*dist1]	;; Save the previous value
-	  				;; val,ttpg,carry,sum,ttmpg,ttp
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	faddp	st(2), st		;; x = value + carry
-	  				;; ttpg,x,sum,ttmpg,ttp
-	  fmul	limit_ttp_mult[eax*4]	;; Adjust next two-to-phi grp mult 
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttpg,x,sum,ttmpg,ttp
-	fadd	st, st(2)		;; y = top bits of x
-	  fxch	st(4)			;; ttmpg,ttpg,x,sum,y,ttp
-	  fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttmpg,ttpg,x,sum,y,ttp
-	fsubr	st, st(5)		;; z = y - (maximum * BIGVAL - BIGVAL)
-	  fxch	st(5)			;; y,ttmpg,ttpg,x,sum,z,ttp
-	  fmul	limit_inverse[eax*8]	;; next carry = shifted y
-	  fld	QWORD PTR [ebx+2*32+16];; Load next two-to-phi
-	  fxch	st(6)			;; z,carry,ttmpg,ttpg,x,sum,nxtttp,ttp
-	fsubp	st(4), st		;; rounded value = x - z
-	  fxch	st(5)			;; nxtttp,ttmpg,ttpg,val,sum,carry,ttp
-	  fmul	st, st(2)		;; Compute next two-to-phi
-	  fxch	st(4)			;; sum,ttmpg,ttpg,val,nxtttp,carry,ttp
-	  fadd	QWORD PTR [esi+5*dist1]	;; sumout += value
-	  fxch	st(6)			;; ttp,ttmpg,ttpg,val,nxtttp,carry,sum
-	fmulp	st(3), st		;; new value = val * two-to-phi
-	fxch	st(2)			;; val,ttpg,ttmpg,nxtttp,carry,sum
-	fld	QWORD PTR [ebx+2*32+24];; Load next two-to-minus-phi col mult
-	fmul	st, st(3)		;; Compute next two-to-minus-phi
-	  sub	edi, ebp		;; U - 2 steps to compute
-	  sbb	eax, eax		;;*U - next big vs. little flag
-				;; nxtttmp,val,ttpg,ttmpg,nxtttp,carry,sum
+	fld	QWORD PTR [ecx+4*dist1]	;; Load first value
+	fld	st(0)			;; Copy first value
+	fadd	QWORD PTR [edx+4*dist1]	;; Add in second value
+	fxch	st(1)			;; subval, addval, subcarry, addcarry
+	fsub	QWORD PTR [edx+4*dist1]	;; Subtract second value
+	fxch	st(1)			;; addval, subval, subcarry, addcarry
+	faddp	st(3), st		;; x1 = value + carry
+	faddp	st(1), st		;; x2 = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(3)		;; y1 = top bits of x1
+	fxch	st(1)			;; y2, y1, x2, x1
+	fadd	st, st(2)		;; y2 = top bits of x2
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(3)		;; z1 = y1-(maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; z2, z1, y2, y1, x2, x1
+	fsubr	st, st(2)		;; z2 = y2-(maximum * BIGVAL - BIGVAL)
+	fxch	st(3)			;; y1, z1, y2, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y1
+	fxch	st(2)			;; y2, z1, addcarry, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y2
+	fxch	st(1)			;; z1, subcarry, addcarry, z2, x2, x1
+	fsubp	st(5), st		;; new value = x1 - z1
+	fxch	st(2)			;; z2, addcarry, subcarry, x2, x1
+	fsubp	st(3), st		;; new value = x2 - z2
+	fxch	st(3)			;; x1, subcarry, x2, addcarry
+	fstp	QWORD PTR [esi+4*dist1]	;; Save new value
+	fxch	st(1)			;; x2, subcarry, addcarry
+	fstp	QWORD PTR [ebp+4*dist1]	;; Save new value
 
-				;; ttmp,prev,ttpg,ttmpg,ttp,carry,sum
-	fmul	QWORD PTR [esi+6*dist1]	;; Mul value by two-to-minus-phi
-	  fxch	st(1)			;; prev,val,ttpg,ttmpg,ttp,carry,sum
-	  fstp	QWORD PTR [esi+5*dist1]	;; Save the previous value
-	  				;; val,ttpg,ttmpg,ttp,carry,sum
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	faddp	st(4), st		;; x = value + carry
-	  				;; ttpg,ttmpg,ttp,x,sum
-	  fmul	limit_ttp_mult[eax*4]	;; Adjust next two-to-phi grp mult 
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttpg,ttmpg,ttp,x,sum
-	fadd	st, st(4)		;; y = top bits of x
-	  fxch	st(2)			;; ttmpg,ttpg,y,ttp,x,sum
-	  fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttmpg,ttpg,y,ttp,x,sum
-	fsubr	st, st(3)		;; z = y - (maximum * BIGVAL - BIGVAL)
-	  fxch	st(3)			;; y,ttmpg,ttpg,z,ttp,x,sum
-	  fmul	limit_inverse[eax*8]	;; next carry = shifted y
-	  fld	QWORD PTR [ebx+3*32]	;; Load next two-to-phi
-	  fxch	st(4)			;; z,carry,ttmpg,ttpg,nxtttp,ttp,x,sum
-	fsubp	st(6), st		;; rounded value = x - z
-	  fxch	st(3)			;; nxtttp,ttmpg,ttpg,carry,ttp,val,sum
-	  fmul	st, st(2)		;; Compute next two-to-phi
-	  fxch	st(6)			;; sum,ttmpg,ttpg,carry,ttp,val,nxtttp
-	  fadd	QWORD PTR [esi+6*dist1]	;; sumout += value
-	  fxch	st(4)			;; ttp,ttmpg,ttpg,carry,sum,val,nxtttp
-	fmulp	st(5), st		;; new value = val * two-to-phi
-	fxch	st(4)			;; val,ttpg,carry,sum,ttmpg,nxtttp
-	fld	QWORD PTR [ebx+3*32+8]	;; Load next two-to-minus-phi col mult
-	fmul	st, st(5)		;; Compute next two-to-minus-phi
-	  sub	edi, ebp		;; U - 2 steps to compute
-	  sbb	eax, eax		;;*U - next big vs. little flag
-				;; nxtttmp,val,ttpg,carry,sum,ttmpg,nxtttp
+	fld	QWORD PTR [ecx+5*dist1]	;; Load first value
+	fld	st(0)			;; Copy first value
+	fadd	QWORD PTR [edx+5*dist1]	;; Add in second value
+	fxch	st(1)			;; subval, addval, subcarry, addcarry
+	fsub	QWORD PTR [edx+5*dist1]	;; Subtract second value
+	fxch	st(1)			;; addval, subval, subcarry, addcarry
+	faddp	st(3), st		;; x1 = value + carry
+	faddp	st(1), st		;; x2 = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(3)		;; y1 = top bits of x1
+	fxch	st(1)			;; y2, y1, x2, x1
+	fadd	st, st(2)		;; y2 = top bits of x2
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(3)		;; z1 = y1-(maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; z2, z1, y2, y1, x2, x1
+	fsubr	st, st(2)		;; z2 = y2-(maximum * BIGVAL - BIGVAL)
+	fxch	st(3)			;; y1, z1, y2, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y1
+	fxch	st(2)			;; y2, z1, addcarry, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y2
+	fxch	st(1)			;; z1, subcarry, addcarry, z2, x2, x1
+	fsubp	st(5), st		;; new value = x1 - z1
+	fxch	st(2)			;; z2, addcarry, subcarry, x2, x1
+	fsubp	st(3), st		;; new value = x2 - z2
+	fxch	st(3)			;; x1, subcarry, x2, addcarry
+	fstp	QWORD PTR [esi+5*dist1]	;; Save new value
+	fxch	st(1)			;; x2, subcarry, addcarry
+	fstp	QWORD PTR [ebp+5*dist1]	;; Save new value
 
-				;; ttmp,prev,ttpg,carry,sum,ttmpg,ttp
-	fmul	QWORD PTR [esi+7*dist1]	;; Mul value by two-to-minus-phi
-	  fxch	st(1)			;; prev,val,ttpg,carry,sum,ttmpg,ttp
-	  fstp	QWORD PTR [esi+6*dist1]	;; Save the previous value
-	  				;; val,ttpg,carry,sum,ttmpg,ttp
-fadd BIGVAL
-fsub BIGVAL
-fmul P3
-	faddp	st(2), st		;; x = value + carry
-	  				;; ttpg,x,sum,ttmpg,ttp
-	  fmul	limit_ttp_mult[eax*4]	;; Adjust next two-to-phi grp mult 
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttpg,x,sum,ttmpg,ttp
-	fadd	st, st(2)		;; y = top bits of x
-	  fxch	st(4)			;; ttmpg,ttpg,x,sum,y,ttp
-	  fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	  fld	limit_bigmax[eax*8]	;; Load maximum * BIGVAL - BIGVAL
-					;; bigmax,ttmpg,ttpg,x,sum,y,ttp
-	fsubr	st, st(5)		;; z = y - (maximum * BIGVAL - BIGVAL)
-	  fxch	st(5)			;; y,ttmpg,ttpg,x,sum,z,ttp
-	  fmul	limit_inverse[eax*8]	;; next carry = shifted y
-	  fld	QWORD PTR [ebx+3*32+16];; Load next two-to-phi
-	  fxch	st(6)			;; z,carry,ttmpg,ttpg,x,sum,nxtttp,ttp
-	fsubp	st(4), st		;; rounded value = x - z
-	  fxch	st(5)			;; nxtttp,ttmpg,ttpg,val,sum,carry,ttp
-	  fmul	st, st(2)		;; Compute next two-to-phi
-	  fxch	st(4)			;; sum,ttmpg,ttpg,val,nxtttp,carry,ttp
-	  fadd	QWORD PTR [esi+7*dist1]	;; sumout += value
-	  fxch	st(6)			;; ttp,ttmpg,ttpg,val,nxtttp,carry,sum
-	fmulp	st(3), st		;; new value = val * two-to-phi
-	fxch	st(2)			;; val,ttpg,ttmpg,nxtttp,carry,sum
-	fld	QWORD PTR [ebx+3*32+24];; Load next two-to-minus-phi col mult
-	fmul	st, st(3)		;; Compute next two-to-minus-phi
-	  sub	edi, ebp		;; U - 2 steps to compute
-	  sbb	eax, eax		;;*U - next big vs. little flag
-				;; nxtttmp,val,ttpg,ttmpg,nxtttp,carry,sum
+	fld	QWORD PTR [ecx+6*dist1]	;; Load first value
+	fld	st(0)			;; Copy first value
+	fadd	QWORD PTR [edx+6*dist1]	;; Add in second value
+	fxch	st(1)			;; subval, addval, subcarry, addcarry
+	fsub	QWORD PTR [edx+6*dist1]	;; Subtract second value
+	fxch	st(1)			;; addval, subval, subcarry, addcarry
+	faddp	st(3), st		;; x1 = value + carry
+	faddp	st(1), st		;; x2 = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(3)		;; y1 = top bits of x1
+	fxch	st(1)			;; y2, y1, x2, x1
+	fadd	st, st(2)		;; y2 = top bits of x2
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(3)		;; z1 = y1-(maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; z2, z1, y2, y1, x2, x1
+	fsubr	st, st(2)		;; z2 = y2-(maximum * BIGVAL - BIGVAL)
+	fxch	st(3)			;; y1, z1, y2, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y1
+	fxch	st(2)			;; y2, z1, addcarry, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y2
+	fxch	st(1)			;; z1, subcarry, addcarry, z2, x2, x1
+	fsubp	st(5), st		;; new value = x1 - z1
+	fxch	st(2)			;; z2, addcarry, subcarry, x2, x1
+	fsubp	st(3), st		;; new value = x2 - z2
+	fxch	st(3)			;; x1, subcarry, x2, addcarry
+	fstp	QWORD PTR [esi+6*dist1]	;; Save new value
+	fxch	st(1)			;; x2, subcarry, addcarry
+	fstp	QWORD PTR [ebp+6*dist1]	;; Save new value
 
-				;; ttmp,prev,ttpg,ttmpg,ttp,carry,sum
-	fxch	st(1)
-	fstp	QWORD PTR [esi+7*dist1]
+	fld	QWORD PTR [ecx+7*dist1]	;; Load first value
+	fld	st(0)			;; Copy first value
+	fadd	QWORD PTR [edx+7*dist1]	;; Add in second value
+	fxch	st(1)			;; subval, addval, subcarry, addcarry
+	fsub	QWORD PTR [edx+7*dist1]	;; Subtract second value
+	fxch	st(1)			;; addval, subval, subcarry, addcarry
+	faddp	st(3), st		;; x1 = value + carry
+	faddp	st(1), st		;; x2 = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(3)		;; y1 = top bits of x1
+	fxch	st(1)			;; y2, y1, x2, x1
+	fadd	st, st(2)		;; y2 = top bits of x2
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fld	st(0)			;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(3)		;; z1 = y1-(maximum * BIGVAL - BIGVAL)
+	fxch	st(1)			;; z2, z1, y2, y1, x2, x1
+	fsubr	st, st(2)		;; z2 = y2-(maximum * BIGVAL - BIGVAL)
+	fxch	st(3)			;; y1, z1, y2, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y1
+	fxch	st(2)			;; y2, z1, addcarry, z2, x2, x1
+	fmul	limit_inverse_high	;; next carry = shifted y2
+	fxch	st(1)			;; z1, subcarry, addcarry, z2, x2, x1
+	fsubp	st(5), st		;; new value = x1 - z1
+	fxch	st(2)			;; z2, addcarry, subcarry, x2, x1
+	fsubp	st(3), st		;; new value = x2 - z2
+	fxch	st(3)			;; x1, subcarry, x2, addcarry
+	fstp	QWORD PTR [esi+7*dist1]	;; Save new value
+	fxch	st(1)			;; x2, subcarry, addcarry
+	fstp	QWORD PTR [ebp+7*dist1]	;; Save new value
 	ENDM
 
 
-; *************** simple normalized add/sub macro ******************
+; *************** 1D normalized add/sub macro ******************
 ; This macro adds or subtracts, then "normalizes" eight FFT
 ; data values.  This involves multiplying the summed values by
 ; two-to-minus-phi.  Rounding the value to an integer.  Making sure
@@ -1111,15 +1517,15 @@ fmul P3
 ; and stored.
 ; st(0) = carry
 ; ecx = pointer to first number
-; edx = distance to second number
+; edx = pointer to second number
 ; ebp = big vs. little running sum
 ; ebx = pointer two-to-power multipliers
 ; esi = destination
 ; eax = the big vs. little word flag
 ; edi is preserved
 ; A pipelined version of this code:
-;	fld	QWORD PTR [edx+0*8]	;; Load value
-;	fop	QWORD PTR [ecx+0*8]	;; Add in second value
+;	fld	QWORD PTR [edx+0*8]	;; Load second value
+;	fop	QWORD PTR [ecx+0*8]	;; Add/sub in first value
 ;	fmul	ttmp_ff			;; Mul value by two-to-minus-phi fudge
 ;	fmul	QWORD PTR [ebx+0*16+8]	;; Mul value by two-to-minus-phi
 ;	faddp	st(1), st		;; x = value + carry
@@ -1134,20 +1540,20 @@ fmul P3
 ;	fmul	QWORD PTR [ebx+0*16]	;; new value = val * two-to-phi
 ;	fstp	QWORD PTR [esi+0*8]	;; Save new value
 
-simple_norm_op MACRO fop
-	fld	QWORD PTR [edx+0*8]	;; Load value
-	fop	QWORD PTR [ecx+0*8]	;; Add in second value
+norm_op_1d MACRO fop
+	fld	QWORD PTR [edx+0*8]	;; Load second value
+	fop	QWORD PTR [ecx+0*8]	;; Add/sub in first value
 	push	edi			;; U - Save edi
 	mov	edi, scaled_numbig	;; V - Value to compute big-vs-little
 	sub	ebp, edi		;; U - 2 steps to compute
 	lea	ebx, [ebx+8*16]		;; V - Next set of 8 multipliers
 	fmul	ttmp_ff			;; Mul value by two-to-minus-phi fudge
-	 fld	QWORD PTR [edx+1*8]	;; Load value
-	 fop	QWORD PTR [ecx+1*8]	;; Add in second value
+	 fld	QWORD PTR [edx+1*8]	;; Load second value
+	 fop	QWORD PTR [ecx+1*8]	;; Add/sub in first value
 	fxch	st(1)			;; val,nxtval,carry
 	fmul	QWORD PTR [ebx-8*16+0*16+8];; Mul value by two-to-minus-phi
-	  fld	QWORD PTR [edx+2*8]	;; Load value
-	  fop	QWORD PTR [ecx+2*8]	;; Add in second value
+	  fld	QWORD PTR [edx+2*8]	;; Load second value
+	  fop	QWORD PTR [ecx+2*8]	;; Add/sub in first value
 	fxch	st(3)			;; carry,val,nxtval,nxtnxtval
 	faddp	st(1), st		;; x = value + carry
 	fxch	st(1)			;; nxtval,x,nxtnxtval
@@ -1162,8 +1568,8 @@ simple_norm_op MACRO fop
 	fmul	limit_inverse[eax*8]	;; next carry = shifted y
 	sbb	eax, eax		;; U - next big vs. little flag
 	 sub	ebp, edi		;; V - 2 steps to compute
-	  fld	QWORD PTR [edx+3*8]	;; Load value
-	  fop	QWORD PTR [ecx+3*8]	;; Add in second value
+	  fld	QWORD PTR [edx+3*8]	;; Load second value
+	  fop	QWORD PTR [ecx+3*8]	;; Add/sub in first value
 	fxch	st(3)			;; z,carry,nxtval,nnnval,x,nxtnxtval
 	fsubp	st(4), st		;; new value = x - z
 					;; carry,nxtval,nnnval,val,nxtnxtval
@@ -1185,11 +1591,11 @@ simple_norm_op MACRO fop
 	 fstp	QWORD PTR [esi+0*8]	;; Save previous value
 	sbb	eax, eax		;; U - next big vs. little flag
 	sub	ebp, edi		;; V - 2 steps to compute
-	 fld	QWORD PTR [edx+4*8]	;; Load future value
+	 fld	QWORD PTR [edx+4*8]	;; Load second value
 	fxch	st(1)			;; nxtval,nnnval,x,nxtnxtval,carry,z
 	 fmul	QWORD PTR [ebx-8*16+2*16+8];; Mul nxtval by two-to-minus-phi
 	fxch	st(1)			;; nnnval,nxtval,x,nxtnxtval,carry,z
-	 fop	QWORD PTR [ecx+4*8]	;; Add in second value
+	 fop	QWORD PTR [ecx+4*8]	;; Add/sub in first value
 	fxch	st(5)			;; z,nxtval,x,nxtnxtval,carry,nnnval
 	fsubp	st(2), st		;; new value = x - z
 					;; nxtval,val,nxtnxtval,carry,nnnval
@@ -1211,11 +1617,11 @@ simple_norm_op MACRO fop
 	 fstp	QWORD PTR [esi+1*8]	;; Save previous value
 	sbb	eax, eax		;; U - next big vs. little flag
 	sub	ebp, edi		;; V - 2 steps to compute
-	 fld	QWORD PTR [edx+5*8]	;; Load future value
+	 fld	QWORD PTR [edx+5*8]	;; Load second value
 	fxch	st(1)			;; nxtval,nnnval,carry,z,x,nxtnxtval
 	 fmul	QWORD PTR [ebx-8*16+3*16+8];; Mul nxtval by two-to-minus-phi
 	fxch	st(1)			;; nnnval,nxtval,carry,z,x,nxtnxtval
-	 fop	QWORD PTR [ecx+5*8]	;; Add in second value
+	 fop	QWORD PTR [ecx+5*8]	;; Add/sub in first value
 	fxch	st(3)			;; z,nxtval,carry,nnnval,x,nxtnxtval
 	fsubp	st(4), st		;; new value = x - z
 					;; nxtval,carry,nnnval,val,nxtnxtval
@@ -1237,11 +1643,11 @@ simple_norm_op MACRO fop
 	 fstp	QWORD PTR [esi+2*8]	;; Save previous value
 	sbb	eax, eax		;; U - next big vs. little flag
 	sub	ebp, edi		;; V - 2 steps to compute
-	 fld	QWORD PTR [edx+6*8]	;; Load future value
+	 fld	QWORD PTR [edx+6*8]	;; Load second value
 	fxch	st(1)			;; nxtval,nnnval,x,nxtnxtval,carry,z
 	 fmul	QWORD PTR [ebx-8*16+4*16+8];; Mul nxtval by two-to-minus-phi
 	fxch	st(1)			;; nnnval,nxtval,x,nxtnxtval,carry,z
-	 fop	QWORD PTR [ecx+6*8]	;; Add in second value
+	 fop	QWORD PTR [ecx+6*8]	;; Add/sub in first value
 	fxch	st(5)			;; z,nxtval,x,nxtnxtval,carry,nnnval
 	fsubp	st(2), st		;; new value = x - z
 					;; nxtval,val,nxtnxtval,carry,nnnval
@@ -1263,11 +1669,11 @@ simple_norm_op MACRO fop
 	 fstp	QWORD PTR [esi+3*8]	;; Save previous value
 	sbb	eax, eax		;; U - next big vs. little flag
 	sub	ebp, edi		;; V - 2 steps to compute
-	 fld	QWORD PTR [edx+7*8]	;; Load future value
+	 fld	QWORD PTR [edx+7*8]	;; Load second value
 	fxch	st(1)			;; nxtval,nnnval,carry,z,x,nxtnxtval
 	 fmul	QWORD PTR [ebx-8*16+5*16+8];; Mul nxtval by two-to-minus-phi
 	fxch	st(1)			;; nnnval,nxtval,carry,z,x,nxtnxtval
-	 fop	QWORD PTR [ecx+7*8]	;; Add in second value
+	 fop	QWORD PTR [ecx+7*8]	;; Add/sub in first value
 	fxch	st(3)			;; z,nxtval,carry,nnnval,x,nxtnxtval
 	fsubp	st(4), st		;; new value = x - z
 					;; nxtval,carry,nnnval,val,nxtnxtval
@@ -1340,7 +1746,7 @@ simple_norm_op MACRO fop
 	ENDM
 
 
-; *************** simple normalized add and sub macro ******************
+; *************** 1D normalized add and sub macro ******************
 ; This macro adds and subtracts, then "normalizes" eight FFT
 ; data values.  This involves multiplying the sum values by
 ; two-to-minus-phi.  Adding, subtracting and rounding the value to an
@@ -1350,17 +1756,17 @@ simple_norm_op MACRO fop
 ; st(1) = add carry
 ; st(0) = sub carry
 ; ecx = pointer to first number
-; edx = distance to second number
+; edx = pointer to second number
 ; esi = destination for added numbers
 ; ebp = destination for subtracted numbers
 ; edi = big vs. little running sum
 ; ebx = pointer two-to-power multipliers
 ; eax = the big vs. little word flag
 ; A pipelined version of this code:
-;	fld	QWORD PTR [edx+0*8]	;; Load first value
+;	fld	QWORD PTR [ecx+0*8]	;; Load first value
 ;	fld	st(0)			;; Copy first value
-;	fadd	QWORD PTR [ecx+0*8]	;; Add in second value
-;	fsub	QWORD PTR [ecx+0*8]	;; Subtract second value
+;	fadd	QWORD PTR [edx+0*8]	;; Add in second value
+;	fsub	QWORD PTR [edx+0*8]	;; Subtract second value
 ;	fld	ttmp_ff			;; Load two-to-minus-phi fudge
 ;	fmul	QWORD PTR [ebx+0*16+8]	;; Mul by two-to-minus-phi
 ;	fmul	st, st(2)		;; Mul added val by two-to-minus-phi
@@ -1386,13 +1792,13 @@ simple_norm_op MACRO fop
 ;	fstp	QWORD PTR [esi+0*8]	;; Save new value
 ;	fstp	QWORD PTR [ebp+0*8]	;; Save new value
 
-simple_norm_addsub MACRO
+norm_addsub_1d MACRO
 	fld	ttmp_ff			;; Load two-to-minus-phi fudge
 	fmul	QWORD PTR [ebx+0*16+8]	;; Mul by two-to-minus-phi
-	fld	QWORD PTR [edx+0*8]	;; Load first value
-	fadd	QWORD PTR [ecx+0*8]	;; Add in second value
-	fld	QWORD PTR [edx+0*8]	;; Load first value
-	fsub	QWORD PTR [ecx+0*8]	;; Subtract second value
+	fld	QWORD PTR [ecx+0*8]	;; Load first value
+	fadd	QWORD PTR [edx+0*8]	;; Add in second value
+	fld	QWORD PTR [ecx+0*8]	;; Load first value
+	fsub	QWORD PTR [edx+0*8]	;; Subtract second value
 	fxch	st(1)			;; v1,v2,ttmp,c2,c1
 	fmul	st, st(2)		;; Mul added val by two-to-minus-phi
 	fld	limit_bigmax[eax*8]	;; z1 = maximum * BIGVAL - BIGVAL
@@ -1429,10 +1835,10 @@ simple_norm_addsub MACRO
 	fstp	QWORD PTR [ebp+0*8]	;; Save new value
 
 	fmul	QWORD PTR [ebx+1*16+8]	;; Mul by two-to-minus-phi
-	fld	QWORD PTR [edx+1*8]	;; Load first value
-	fadd	QWORD PTR [ecx+1*8]	;; Add in second value
-	fld	QWORD PTR [edx+1*8]	;; Load first value
-	fsub	QWORD PTR [ecx+1*8]	;; Subtract second value
+	fld	QWORD PTR [ecx+1*8]	;; Load first value
+	fadd	QWORD PTR [edx+1*8]	;; Add in second value
+	fld	QWORD PTR [ecx+1*8]	;; Load first value
+	fsub	QWORD PTR [edx+1*8]	;; Subtract second value
 	fxch	st(1)			;; v1,v2,ttmp,c2,c1
 	fmul	st, st(2)		;; Mul added val by two-to-minus-phi
 	fld	limit_bigmax[eax*8]	;; z1 = maximum * BIGVAL - BIGVAL
@@ -1469,10 +1875,10 @@ simple_norm_addsub MACRO
 	fstp	QWORD PTR [ebp+1*8]	;; Save new value
 
 	fmul	QWORD PTR [ebx+2*16+8]	;; Mul by two-to-minus-phi
-	fld	QWORD PTR [edx+2*8]	;; Load first value
-	fadd	QWORD PTR [ecx+2*8]	;; Add in second value
-	fld	QWORD PTR [edx+2*8]	;; Load first value
-	fsub	QWORD PTR [ecx+2*8]	;; Subtract second value
+	fld	QWORD PTR [ecx+2*8]	;; Load first value
+	fadd	QWORD PTR [edx+2*8]	;; Add in second value
+	fld	QWORD PTR [ecx+2*8]	;; Load first value
+	fsub	QWORD PTR [edx+2*8]	;; Subtract second value
 	fxch	st(1)			;; v1,v2,ttmp,c2,c1
 	fmul	st, st(2)		;; Mul added val by two-to-minus-phi
 	fld	limit_bigmax[eax*8]	;; z1 = maximum * BIGVAL - BIGVAL
@@ -1509,10 +1915,10 @@ simple_norm_addsub MACRO
 	fstp	QWORD PTR [ebp+2*8]	;; Save new value
 
 	fmul	QWORD PTR [ebx+3*16+8]	;; Mul by two-to-minus-phi
-	fld	QWORD PTR [edx+3*8]	;; Load first value
-	fadd	QWORD PTR [ecx+3*8]	;; Add in second value
-	fld	QWORD PTR [edx+3*8]	;; Load first value
-	fsub	QWORD PTR [ecx+3*8]	;; Subtract second value
+	fld	QWORD PTR [ecx+3*8]	;; Load first value
+	fadd	QWORD PTR [edx+3*8]	;; Add in second value
+	fld	QWORD PTR [ecx+3*8]	;; Load first value
+	fsub	QWORD PTR [edx+3*8]	;; Subtract second value
 	fxch	st(1)			;; v1,v2,ttmp,c2,c1
 	fmul	st, st(2)		;; Mul added val by two-to-minus-phi
 	fld	limit_bigmax[eax*8]	;; z1 = maximum * BIGVAL - BIGVAL
@@ -1549,10 +1955,10 @@ simple_norm_addsub MACRO
 	fstp	QWORD PTR [ebp+3*8]	;; Save new value
 
 	fmul	QWORD PTR [ebx+4*16+8]	;; Mul by two-to-minus-phi
-	fld	QWORD PTR [edx+4*8]	;; Load first value
-	fadd	QWORD PTR [ecx+4*8]	;; Add in second value
-	fld	QWORD PTR [edx+4*8]	;; Load first value
-	fsub	QWORD PTR [ecx+4*8]	;; Subtract second value
+	fld	QWORD PTR [ecx+4*8]	;; Load first value
+	fadd	QWORD PTR [edx+4*8]	;; Add in second value
+	fld	QWORD PTR [ecx+4*8]	;; Load first value
+	fsub	QWORD PTR [edx+4*8]	;; Subtract second value
 	fxch	st(1)			;; v1,v2,ttmp,c2,c1
 	fmul	st, st(2)		;; Mul added val by two-to-minus-phi
 	fld	limit_bigmax[eax*8]	;; z1 = maximum * BIGVAL - BIGVAL
@@ -1589,10 +1995,10 @@ simple_norm_addsub MACRO
 	fstp	QWORD PTR [ebp+4*8]	;; Save new value
 
 	fmul	QWORD PTR [ebx+5*16+8]	;; Mul by two-to-minus-phi
-	fld	QWORD PTR [edx+5*8]	;; Load first value
-	fadd	QWORD PTR [ecx+5*8]	;; Add in second value
-	fld	QWORD PTR [edx+5*8]	;; Load first value
-	fsub	QWORD PTR [ecx+5*8]	;; Subtract second value
+	fld	QWORD PTR [ecx+5*8]	;; Load first value
+	fadd	QWORD PTR [edx+5*8]	;; Add in second value
+	fld	QWORD PTR [ecx+5*8]	;; Load first value
+	fsub	QWORD PTR [edx+5*8]	;; Subtract second value
 	fxch	st(1)			;; v1,v2,ttmp,c2,c1
 	fmul	st, st(2)		;; Mul added val by two-to-minus-phi
 	fld	limit_bigmax[eax*8]	;; z1 = maximum * BIGVAL - BIGVAL
@@ -1629,10 +2035,10 @@ simple_norm_addsub MACRO
 	fstp	QWORD PTR [ebp+5*8]	;; Save new value
 
 	fmul	QWORD PTR [ebx+6*16+8]	;; Mul by two-to-minus-phi
-	fld	QWORD PTR [edx+6*8]	;; Load first value
-	fadd	QWORD PTR [ecx+6*8]	;; Add in second value
-	fld	QWORD PTR [edx+6*8]	;; Load first value
-	fsub	QWORD PTR [ecx+6*8]	;; Subtract second value
+	fld	QWORD PTR [ecx+6*8]	;; Load first value
+	fadd	QWORD PTR [edx+6*8]	;; Add in second value
+	fld	QWORD PTR [ecx+6*8]	;; Load first value
+	fsub	QWORD PTR [edx+6*8]	;; Subtract second value
 	fxch	st(1)			;; v1,v2,ttmp,c2,c1
 	fmul	st, st(2)		;; Mul added val by two-to-minus-phi
 	fld	limit_bigmax[eax*8]	;; z1 = maximum * BIGVAL - BIGVAL
@@ -1669,10 +2075,10 @@ simple_norm_addsub MACRO
 	fstp	QWORD PTR [ebp+6*8]	;; Save new value
 
 	fmul	QWORD PTR [ebx+7*16+8]	;; Mul by two-to-minus-phi
-	fld	QWORD PTR [edx+7*8]	;; Load first value
-	fadd	QWORD PTR [ecx+7*8]	;; Add in second value
-	fld	QWORD PTR [edx+7*8]	;; Load first value
-	fsub	QWORD PTR [ecx+7*8]	;; Subtract second value
+	fld	QWORD PTR [ecx+7*8]	;; Load first value
+	fadd	QWORD PTR [edx+7*8]	;; Add in second value
+	fld	QWORD PTR [ecx+7*8]	;; Load first value
+	fsub	QWORD PTR [edx+7*8]	;; Subtract second value
 	fxch	st(1)			;; v1,v2,ttmp,c2,c1
 	fmul	st, st(2)		;; Mul added val by two-to-minus-phi
 	fld	limit_bigmax[eax*8]	;; z1 = maximum * BIGVAL - BIGVAL
@@ -1715,7 +2121,7 @@ simple_norm_addsub MACRO
 	ENDM
 
 
-; *************** normalized add/sub macro ******************
+; *************** 2D normalized add/sub macro ******************
 ; This macro adds or subtracts, then "normalizes" eight FFT
 ; data values.  This involves multiplying the summed values by
 ; two-to-minus-phi.  Rounding the value to an integer.  Making sure
@@ -1724,15 +2130,15 @@ simple_norm_addsub MACRO
 ; and stored.
 ; st(0) = carry
 ; ecx = pointer to first number
-; edx = pointer to second number
+; edx = distance to second number
 ; ebp = big vs. little running sum
 ; edi = pointer two-to-power multipliers
 ; esi = destination
 ; eax = the big vs. little word flag
 ; ebx is preserved
 ; A pipelined version of this code:
-;	fld	QWORD PTR [ecx+0*dist1][edx];; Load source
-;	fop	QWORD PTR [ecx+0*dist1]	;; Add in the second source
+;	fld	QWORD PTR [ecx+0*dist1][edx];; Load second number
+;	fop	QWORD PTR [ecx+0*dist1] ;; Add/sub the first number
 ;	fmulp	st(1), st		;; Mul value by two-to-minus-phi
 ;	faddp	st(4), st		;; x = value + carry
 ;	fmul	limit_ttp_mult[eax*4]	;; Adjust next two-to-phi grp mult
@@ -1752,16 +2158,16 @@ simple_norm_addsub MACRO
 ;	sbb	eax, eax		;;*U - next big vs. little flag
 ;	fstp	QWORD PTR [esi+0*dist1]	;; Save the value
 
-norm_op MACRO fop, nextdist		;; ttmp,ttpg,ttmpg,ttp,carry
-	fld	QWORD PTR [ecx+0*dist1][edx];; Load source
-	fop	QWORD PTR [ecx+0*dist1]	;; Add in the second source
+norm_op_2d MACRO fop, nextdist		;; ttmp,ttpg,ttmpg,ttp,carry
+	fld	QWORD PTR [ecx+0*dist1][edx];; Load second number
+	fop	QWORD PTR [ecx+0*dist1]	;; Add/sub in first number
 	push	ebx			;; U - Save ebx
 	mov	ebx, scaled_numbig	;; V - Value to compute big-vs-little
 	sub	ebp, ebx		;; U - Adjust scaled counter
 	lea	edi, [edi+8*16]		;; V - Next set of 8 multipliers
 	fmulp	st(1), st		;; Mul value by two-to-minus-phi
-	 fld	QWORD PTR [ecx+1*dist1][edx];; Load source
-	 fop	QWORD PTR [ecx+1*dist1]	;; Add in the second source
+	 fld	QWORD PTR [ecx+1*dist1][edx];; Load second number
+	 fop	QWORD PTR [ecx+1*dist1]	;; Add/sub in first number
 	fxch	st(1)			;; value,nxtval,ttpg,ttmpg,ttp,carry
 	faddp	st(5), st		;; x = value + carry
 	fxch	st(1)			;; ttpg,nxtval,ttmpg,ttp,x
@@ -1779,8 +2185,8 @@ norm_op MACRO fop, nextdist		;; ttmp,ttpg,ttmpg,ttp,carry
 	fmul	limit_inverse[eax*8]	;; next carry = shifted y
 	sbb	eax, eax		;; U - next big vs. little flag
 	sub	ebp, ebx		;; V - Adjust scaled counter
-	  fld	QWORD PTR [ecx+2*dist1][edx];; Load source
-	  fop	QWORD PTR [ecx+2*dist1]	;; Add in the second source
+	  fld	QWORD PTR [ecx+2*dist1][edx];; Load second number
+	  fop	QWORD PTR [ecx+2*dist1]	;; Add/sub in first number
 	fxch	st(5)			;; z,carry,ttmpg,ttpg,nxtval,val2,ttp,x
 	fsubp	st(7), st		;; rounded value = x - z
 	fxch	st(1)			;; ttmpg,carry,ttpg,nxtval,val2,ttp,val
@@ -1812,8 +2218,8 @@ norm_op MACRO fop, nextdist		;; ttmp,ttpg,ttmpg,ttp,carry
 	fmul	limit_inverse[eax*8]	;; next carry = shifted y
 	sbb	eax, eax		;; U - next big vs. little flag
 	sub	ebp, ebx		;; V - Adjust scaled counter
-	  fld	QWORD PTR [ecx+3*dist1][edx];; Load source
-	  fop	QWORD PTR [ecx+3*dist1]	;; Add in the second source
+	  fld	QWORD PTR [ecx+3*dist1][edx];; Load second number
+	  fop	QWORD PTR [ecx+3*dist1]	;; Add/sub in first number
 	fxch	st(5)			;; z,carry,ttp,ttpg,x,val2,nxtval,ttmpg
 	fsubp	st(4), st		;; rounded value = x - z
 	fxch	st(6)			;; ttmpg,ttp,ttpg,val,val2,nxtval,carry
@@ -1845,8 +2251,8 @@ norm_op MACRO fop, nextdist		;; ttmp,ttpg,ttmpg,ttp,carry
 	fmul	limit_inverse[eax*8]	;; next carry = shifted y
 	sbb	eax, eax		;; U - next big vs. little flag
 	sub	ebp, ebx		;; V - Adjust scaled counter
-	  fld	QWORD PTR [ecx+4*dist1][edx];; Load source
-	  fop	QWORD PTR [ecx+4*dist1]	;; Add in the second source
+	  fld	QWORD PTR [ecx+4*dist1][edx];; Load second number
+	  fop	QWORD PTR [ecx+4*dist1]	;; Add/sub in first number
 	fxch	st(5)			;; z,carry,ttp,ttpg,ttmpg,val2,x,nxtval
 	fsubp	st(6), st		;; rounded value = x - z
 	fxch	st(3)			;; ttmpg,ttp,ttpg,carry,val2,val,nxtval
@@ -1878,8 +2284,8 @@ norm_op MACRO fop, nextdist		;; ttmp,ttpg,ttmpg,ttp,carry
 	fmul	limit_inverse[eax*8]	;; next carry = shifted y
 	sbb	eax, eax		;; U - next big vs. little flag
 	sub	ebp, ebx		;; V - Adjust scaled counter
-	  fld	QWORD PTR [ecx+5*dist1][edx];; Load source
-	  fop	QWORD PTR [ecx+5*dist1]	;; Add in the second source
+	  fld	QWORD PTR [ecx+5*dist1][edx];; Load second number
+	  fop	QWORD PTR [ecx+5*dist1]	;; Add/sub in first number
 	fxch	st(5)			;; z,carry,ttp,ttpg,nxtval,val2,ttmpg,x
 	fsubp	st(7), st		;; rounded value = x - z
 	fxch	st(5)			;; ttmpg,ttp,ttpg,nxtval,val2,carry,val
@@ -1911,8 +2317,8 @@ norm_op MACRO fop, nextdist		;; ttmp,ttpg,ttmpg,ttp,carry
 	fmul	limit_inverse[eax*8]	;; next carry = shifted y
 	sbb	eax, eax		;; U - next big vs. little flag
 	sub	ebp, ebx		;; V - Adjust scaled counter
-	  fld	QWORD PTR [ecx+6*dist1][edx];; Load source
-	  fop	QWORD PTR [ecx+6*dist1]	;; Add in the second source
+	  fld	QWORD PTR [ecx+6*dist1][edx];; Load second number
+	  fop	QWORD PTR [ecx+6*dist1]	;; Add/sub in first number
 	fxch	st(5)			;; z,carry,ttp,ttpg,x,val2,nxtval,ttmpg
 	fsubp	st(4), st		;; rounded value = x - z
 	fxch	st(6)			;; ttmpg,ttp,ttpg,val,val2,nxtval,carry
@@ -1944,8 +2350,8 @@ norm_op MACRO fop, nextdist		;; ttmp,ttpg,ttmpg,ttp,carry
 	fmul	limit_inverse[eax*8]	;; next carry = shifted y
 	sbb	eax, eax		;; U - next big vs. little flag
 	sub	ebp, ebx		;; V - Adjust scaled counter
-	  fld	QWORD PTR [ecx+7*dist1][edx];; Load source
-	  fop	QWORD PTR [ecx+7*dist1]	;; Add in the second source
+	  fld	QWORD PTR [ecx+7*dist1][edx];; Load second number
+	  fop	QWORD PTR [ecx+7*dist1]	;; Add/sub in first number
 	fxch	st(5)			;; z,carry,ttp,ttpg,ttmpg,val2,x,nxtval
 	fsubp	st(6), st		;; rounded value = x - z
 	fxch	st(3)			;; ttmpg,ttp,ttpg,carry,val2,val,nxtval
@@ -2022,7 +2428,7 @@ norm_op MACRO fop, nextdist		;; ttmp,ttpg,ttmpg,ttp,carry
 	ENDM
 
 
-; *************** normalized add and sub macro ******************
+; *************** 2D normalized add and sub macro ******************
 ; This macro adds and subtracts, then "normalizes" eight FFT
 ; data values.  This involves multiplying the summed values by
 ; two-to-minus-phi.  Rounding the value to an integer.  Making sure
@@ -2044,10 +2450,10 @@ norm_op MACRO fop, nextdist		;; ttmp,ttpg,ttmpg,ttp,carry
 ; ebx = big vs. little running sum
 ; NOTE:  Pops edx (assumes the caller pushed edx)
 ; A pipelined version of this code:
-;	fld	QWORD PTR [ecx+0*dist1][edx];; Load source
-;	fadd	QWORD PTR [ecx+0*dist1]	;; Add in the second source
-;	fld	QWORD PTR [ecx+0*dist1][edx];; Load source
-;	fsub	QWORD PTR [ecx+0*dist1]	;; Subtract out the second source
+;	fld	QWORD PTR [ecx+0*dist1]	;; Load first number
+;	fadd	QWORD PTR [ecx+0*dist1][edx];; Add the second number
+;	fld	QWORD PTR [ecx+0*dist1]	;; Load first number
+;	fsub	QWORD PTR [ecx+0*dist1][edx];; Subtract the second number
 ;	fmul	st(1), st		;; Mul value by two-to-minus-phi
 ;	fmulp	st(1), st		;; Mul value by two-to-minus-phi
 ;	faddp	st(4), st		;; x1 = value + carry
@@ -2077,11 +2483,11 @@ norm_op MACRO fop, nextdist		;; ttmp,ttpg,ttmpg,ttp,carry
 ;	fstp	QWORD PTR [esi+0*dist1]	;; Save the value
 ;	fstp	QWORD PTR [esi+0*dist1][ebp];; Save the value
 
-norm_addsub MACRO nextdist		;; ttmp,ttpg,ttmpg,ttp,c2,c1
-	fld	QWORD PTR [ecx+0*dist1]	;; Load source
-	fadd	QWORD PTR [ecx+0*dist1][edx];; Add in the second source
-	fld	QWORD PTR [ecx+0*dist1][edx];; Load source
-	fsub	QWORD PTR [ecx+0*dist1]	;; Subtract out the second source
+norm_addsub_2d MACRO nextdist		;; ttmp,ttpg,ttmpg,ttp,c2,c1
+	fld	QWORD PTR [ecx+0*dist1]	;; Load first number
+	fadd	QWORD PTR [ecx+0*dist1][edx];; Add the second number
+	fld	QWORD PTR [ecx+0*dist1]	;; Load first number
+	fsub	QWORD PTR [ecx+0*dist1][edx];; Subtract the second number
 	fxch	st(1)			;; v1,v2,ttmp,ttpg,ttmpg,ttp,c2,c1
 	fmul	st, st(2)		;; Mul value by two-to-minus-phi
 	fxch	st(1)			;; v2,v1,ttmp,ttpg,ttmpg,ttp,c2,c1
@@ -2128,10 +2534,10 @@ norm_addsub MACRO nextdist		;; ttmp,ttpg,ttmpg,ttp,c2,c1
 	sub	ebx, scaled_numbig	;; UU - Adjust scaled counter
 	sbb	eax, eax		;;*U - next big vs. little flag
 
-	fld	QWORD PTR [ecx+1*dist1]	;; Load source
-	fadd	QWORD PTR [ecx+1*dist1][edx];; Add in the second source
-	fld	QWORD PTR [ecx+1*dist1][edx];; Load source
-	fsub	QWORD PTR [ecx+1*dist1]	;; Subtract out the second source
+	fld	QWORD PTR [ecx+1*dist1]	;; Load first number
+	fadd	QWORD PTR [ecx+1*dist1][edx];; Add the second number
+	fld	QWORD PTR [ecx+1*dist1]	;; Load first number
+	fsub	QWORD PTR [ecx+1*dist1][edx];; Subtract the second number
 	fxch	st(1)			;; v1,v2,ttmp,ttpg,ttmpg,ttp,c2,c1
 	fmul	st, st(2)		;; Mul value by two-to-minus-phi
 	fxch	st(1)			;; v2,v1,ttmp,ttpg,ttmpg,ttp,c2,c1
@@ -2178,10 +2584,10 @@ norm_addsub MACRO nextdist		;; ttmp,ttpg,ttmpg,ttp,c2,c1
 	sub	ebx, scaled_numbig	;; UU - Adjust scaled counter
 	sbb	eax, eax		;;*U - next big vs. little flag
 
-	fld	QWORD PTR [ecx+2*dist1]	;; Load source
-	fadd	QWORD PTR [ecx+2*dist1][edx];; Add in the second source
-	fld	QWORD PTR [ecx+2*dist1][edx];; Load source
-	fsub	QWORD PTR [ecx+2*dist1]	;; Subtract out the second source
+	fld	QWORD PTR [ecx+2*dist1]	;; Load first number
+	fadd	QWORD PTR [ecx+2*dist1][edx];; Add the second number
+	fld	QWORD PTR [ecx+2*dist1]	;; Load first number
+	fsub	QWORD PTR [ecx+2*dist1][edx];; Subtract the second number
 	fxch	st(1)			;; v1,v2,ttmp,ttpg,ttmpg,ttp,c2,c1
 	fmul	st, st(2)		;; Mul value by two-to-minus-phi
 	fxch	st(1)			;; v2,v1,ttmp,ttpg,ttmpg,ttp,c2,c1
@@ -2228,10 +2634,10 @@ norm_addsub MACRO nextdist		;; ttmp,ttpg,ttmpg,ttp,c2,c1
 	sub	ebx, scaled_numbig	;; UU - Adjust scaled counter
 	sbb	eax, eax		;;*U - next big vs. little flag
 
-	fld	QWORD PTR [ecx+3*dist1]	;; Load source
-	fadd	QWORD PTR [ecx+3*dist1][edx];; Add in the second source
-	fld	QWORD PTR [ecx+3*dist1][edx];; Load source
-	fsub	QWORD PTR [ecx+3*dist1]	;; Subtract out the second source
+	fld	QWORD PTR [ecx+3*dist1]	;; Load first number
+	fadd	QWORD PTR [ecx+3*dist1][edx];; Add the second number
+	fld	QWORD PTR [ecx+3*dist1]	;; Load first number
+	fsub	QWORD PTR [ecx+3*dist1][edx];; Subtract the second number
 	fxch	st(1)			;; v1,v2,ttmp,ttpg,ttmpg,ttp,c2,c1
 	fmul	st, st(2)		;; Mul value by two-to-minus-phi
 	fxch	st(1)			;; v2,v1,ttmp,ttpg,ttmpg,ttp,c2,c1
@@ -2278,10 +2684,10 @@ norm_addsub MACRO nextdist		;; ttmp,ttpg,ttmpg,ttp,c2,c1
 	sub	ebx, scaled_numbig	;; UU - Adjust scaled counter
 	sbb	eax, eax		;;*U - next big vs. little flag
 
-	fld	QWORD PTR [ecx+4*dist1]	;; Load source
-	fadd	QWORD PTR [ecx+4*dist1][edx];; Add in the second source
-	fld	QWORD PTR [ecx+4*dist1][edx];; Load source
-	fsub	QWORD PTR [ecx+4*dist1]	;; Subtract out the second source
+	fld	QWORD PTR [ecx+4*dist1]	;; Load first number
+	fadd	QWORD PTR [ecx+4*dist1][edx];; Add the second number
+	fld	QWORD PTR [ecx+4*dist1]	;; Load first number
+	fsub	QWORD PTR [ecx+4*dist1][edx];; Subtract the second number
 	fxch	st(1)			;; v1,v2,ttmp,ttpg,ttmpg,ttp,c2,c1
 	fmul	st, st(2)		;; Mul value by two-to-minus-phi
 	fxch	st(1)			;; v2,v1,ttmp,ttpg,ttmpg,ttp,c2,c1
@@ -2328,10 +2734,10 @@ norm_addsub MACRO nextdist		;; ttmp,ttpg,ttmpg,ttp,c2,c1
 	sub	ebx, scaled_numbig	;; UU - Adjust scaled counter
 	sbb	eax, eax		;;*U - next big vs. little flag
 
-	fld	QWORD PTR [ecx+5*dist1]	;; Load source
-	fadd	QWORD PTR [ecx+5*dist1][edx];; Add in the second source
-	fld	QWORD PTR [ecx+5*dist1][edx];; Load source
-	fsub	QWORD PTR [ecx+5*dist1]	;; Subtract out the second source
+	fld	QWORD PTR [ecx+5*dist1]	;; Load first number
+	fadd	QWORD PTR [ecx+5*dist1][edx];; Add the second number
+	fld	QWORD PTR [ecx+5*dist1]	;; Load first number
+	fsub	QWORD PTR [ecx+5*dist1][edx];; Subtract the second number
 	fxch	st(1)			;; v1,v2,ttmp,ttpg,ttmpg,ttp,c2,c1
 	fmul	st, st(2)		;; Mul value by two-to-minus-phi
 	fxch	st(1)			;; v2,v1,ttmp,ttpg,ttmpg,ttp,c2,c1
@@ -2378,10 +2784,10 @@ norm_addsub MACRO nextdist		;; ttmp,ttpg,ttmpg,ttp,c2,c1
 	sub	ebx, scaled_numbig	;; UU - Adjust scaled counter
 	sbb	eax, eax		;;*U - next big vs. little flag
 
-	fld	QWORD PTR [ecx+6*dist1]	;; Load source
-	fadd	QWORD PTR [ecx+6*dist1][edx];; Add in the second source
-	fld	QWORD PTR [ecx+6*dist1][edx];; Load source
-	fsub	QWORD PTR [ecx+6*dist1]	;; Subtract out the second source
+	fld	QWORD PTR [ecx+6*dist1]	;; Load first number
+	fadd	QWORD PTR [ecx+6*dist1][edx];; Add the second number
+	fld	QWORD PTR [ecx+6*dist1]	;; Load first number
+	fsub	QWORD PTR [ecx+6*dist1][edx];; Subtract the second number
 	fxch	st(1)			;; v1,v2,ttmp,ttpg,ttmpg,ttp,c2,c1
 	fmul	st, st(2)		;; Mul value by two-to-minus-phi
 	fxch	st(1)			;; v2,v1,ttmp,ttpg,ttmpg,ttp,c2,c1
@@ -2428,10 +2834,10 @@ norm_addsub MACRO nextdist		;; ttmp,ttpg,ttmpg,ttp,c2,c1
 	sub	ebx, scaled_numbig	;; UU - Adjust scaled counter
 	sbb	eax, eax		;;*U - next big vs. little flag
 
-	fld	QWORD PTR [ecx+7*dist1]	;; Load source
-	fadd	QWORD PTR [ecx+7*dist1][edx];; Add in the second source
-	fld	QWORD PTR [ecx+7*dist1][edx];; Load source
-	fsub	QWORD PTR [ecx+7*dist1]	;; Subtract out the second source
+	fld	QWORD PTR [ecx+7*dist1]	;; Load first number
+	fadd	QWORD PTR [ecx+7*dist1][edx];; Add the second number
+	fld	QWORD PTR [ecx+7*dist1]	;; Load first number
+	fsub	QWORD PTR [ecx+7*dist1][edx];; Subtract the second number
 	fxch	st(1)			;; v1,v2,ttmp,ttpg,ttmpg,ttp,c2,c1
 	fmul	st, st(2)		;; Mul value by two-to-minus-phi
 	fxch	st(1)			;; v2,v1,ttmp,ttpg,ttmpg,ttp,c2,c1
@@ -2484,235 +2890,523 @@ norm_addsub MACRO nextdist		;; ttmp,ttpg,ttmpg,ttp,c2,c1
 	ENDM
 
 
-; *************** error_check macro ******************
-; This macro finds the maximum error (distance from an integer).
-; st(0) = The current maximum error
-; esi = pointer to the FFT data values
-; ebx = pointer two-to-phi multipliers
+; *************** no-array proth mod macro ******************
+; This macro aids in computing the FFT value mod k*2^n+/-1.
+; The upper part of the FFT is divided by k for later addition
+; (or subtraction) into the lower part of the FFT.
+; st(5) = BIGVAL
+; st(4) = limit_high
+; st(3) = prothshift
+; st(2) = 1/k
+; st(1) = k
+; st(0) = carry
+; esi = source
+; edi = destination (a scrath area)
+; A pipelined version of this code:
+;	fmul	limit_high		;; carry * limit_high
+;	fadd	QWORD PTR [esi-0*dist1]	;; add in fft value
+;	fld	k_inverse		;; Load 1/k
+;	fmul	st(1), st		;; mul by 1/k
+;	fadd	BIGVAL			;; round quotient to an integer
+;	fsub	BIGVAL			;; round quotient to an integer
+;	fmul	k			;; mul by k
+;	fsub	st, st(1)		;; remainder = next carry
+;	fmul	prothshift		;; shift quotient for later
+;	fstp	QWORD PTR [edi+0*8]	;; save shifted quotient
+;	dec	counter			;; done yet?
+;	jz	done			;; exit code will save remainder
 
-simple_error_check MACRO
-	LOCAL	less
-	fld	QWORD PTR [esi]		;; Load value
-	fmul	QWORD PTR [ebx+8]	;; Mul by two-to-minus-phi
-	fld	BIGVAL			;; bigval,value,maxerr
-	fadd	st, st(1)		;; Round off the value - step 1
-	fsub	BIGVAL			;; Round off the value - step 2
-	fsubp	st(1), st		;; This is the error
-	fabs
-	fcom	st(1)			;; Compare to maximum error
-	fstsw	ax			;; Copy comparison results
-	and	eax, 100h		;; Isolate C0 bit
-	jnz	short less		;; Error is less than maximum
-	fxch	st(1)			;; Error is greater - swap with maximum
-less:	fcomp	st			;; Pop non-maximum
+prothmod_upper_prep_0d MACRO donelabel
+	mov	edi, DWORD PTR _PROTHVALS+11*8 ;; Address of scratch area
+	fldz
+	fst	QWORD PTR [edi+0*8]	;; pad scratch area
+	fst	QWORD PTR [edi+1*8]	;; pad scratch area
+	fst	QWORD PTR [edi+2*8]	;; pad scratch area
+	fst	QWORD PTR [edi+3*8]	;; pad scratch area
+	fst	QWORD PTR [edi+4*8]	;; pad scratch area
+	fst	QWORD PTR [edi+5*8]	;; pad scratch area
+	fst	QWORD PTR [edi+6*8]	;; pad scratch area
+	fst	QWORD PTR [edi+7*8]	;; pad scratch area
+	fst	QWORD PTR [edi+8*8]	;; pad scratch area
+	fst	QWORD PTR [edi+9*8]	;; pad scratch area
+	fst	QWORD PTR [edi+10*8]	;; pad scratch area
+	fstp	QWORD PTR [edi+11*8]	;; pad scratch area
+	lea	edi, [edi+12*8]
+	fld	BIGVAL
+	fld	limit_high
+	fld	_PROTHVALS+2*8		;; st(3) = prothshift
+	fld	_PROTHVALS+1*8		;; st(2) = 1/k
+	fld	_PROTHVALS+0*8		;; st(1) = k
+	fldz				;; st(0) = initial carry
+	add	esi, DWORD PTR _PROTHVALS+3*8 ;; Point to last FFT word
+	mov	edx, DWORD PTR _PROTHVALS+4*8 ;; Count of upper FFT words
+	ENDM
+
+prothmod_upper_0d MACRO donelabel
+	LOCAL	p1, p2, p3, p4, p5, p6, p7, p8
+
+	fmul	st, st(4)		;; carry * limit_high
+	fadd	QWORD PTR [esi-0*dist1]	;; add in fft value
+	fld	st(2)			;; Load 1/k
+	fmul	st, st(1)		;; mul by 1/k
+	fadd	st, st(6)		;; round quotient to an integer
+	fldz				;; Clear source fft value
+	fstp	QWORD PTR [esi-0*dist1]
+	fsub	st, st(6)		;; round quotient to an integer
+	fld	st(2)
+	fmul	st, st(1)		;; mul by k
+	fsubp	st(2), st		;; remainder = next carry
+	fmul	st, st(4)		;; shift quotient for later
+	fstp	QWORD PTR [edi+0*8]	;; save shifted quotient
+	dec	edx			;; done yet?
+	jnz	short p1		;; no
+	fstp	QWORD PTR [esi-0*dist1]	;; save remainder
+	lea	edi, [edi+0*8]
+	JMP_X	donelabel
+
+p1:	fmul	st, st(4)		;; carry * limit_high
+	fadd	QWORD PTR [esi-1*dist1]	;; add in fft value
+	fld	st(2)			;; Load 1/k
+	fmul	st, st(1)		;; mul by 1/k
+	fadd	st, st(6)		;; round quotient to an integer
+	fldz				;; Clear source fft value
+	fstp	QWORD PTR [esi-1*dist1]
+	fsub	st, st(6)		;; round quotient to an integer
+	fld	st(2)
+	fmul	st, st(1)		;; mul by k
+	fsubp	st(2), st		;; remainder = next carry
+	fmul	st, st(4)		;; shift quotient for later
+	fstp	QWORD PTR [edi+1*8]	;; save shifted quotient
+	dec	edx			;; done yet?
+	jnz	short p2		;; no
+	fstp	QWORD PTR [esi-1*dist1]	;; save remainder
+	lea	edi, [edi+1*8]
+	JMP_X	donelabel
+
+p2:	fmul	st, st(4)		;; carry * limit_high
+	fadd	QWORD PTR [esi-2*dist1]	;; add in fft value
+	fld	st(2)			;; Load 1/k
+	fmul	st, st(1)		;; mul by 1/k
+	fadd	st, st(6)		;; round quotient to an integer
+	fldz				;; Clear source fft value
+	fstp	QWORD PTR [esi-2*dist1]
+	fsub	st, st(6)		;; round quotient to an integer
+	fld	st(2)
+	fmul	st, st(1)		;; mul by k
+	fsubp	st(2), st		;; remainder = next carry
+	fmul	st, st(4)		;; shift quotient for later
+	fstp	QWORD PTR [edi+2*8]	;; save shifted quotient
+	dec	edx			;; done yet?
+	jnz	short p3		;; no
+	fstp	QWORD PTR [esi-2*dist1]	;; save remainder
+	lea	edi, [edi+2*8]
+	JMP_X	donelabel
+
+p3:	fmul	st, st(4)		;; carry * limit_high
+	fadd	QWORD PTR [esi-3*dist1]	;; add in fft value
+	fld	st(2)			;; Load 1/k
+	fmul	st, st(1)		;; mul by 1/k
+	fadd	st, st(6)		;; round quotient to an integer
+	fldz				;; Clear source fft value
+	fstp	QWORD PTR [esi-3*dist1]
+	fsub	st, st(6)		;; round quotient to an integer
+	fld	st(2)
+	fmul	st, st(1)		;; mul by k
+	fsubp	st(2), st		;; remainder = next carry
+	fmul	st, st(4)		;; shift quotient for later
+	fstp	QWORD PTR [edi+3*8]	;; save shifted quotient
+	dec	edx			;; done yet?
+	jnz	short p4		;; no
+	fstp	QWORD PTR [esi-3*dist1]	;; save remainder
+	lea	edi, [edi+3*8]
+	JMP_X	donelabel
+
+p4:	fmul	st, st(4)		;; carry * limit_high
+	fadd	QWORD PTR [esi-4*dist1]	;; add in fft value
+	fld	st(2)			;; Load 1/k
+	fmul	st, st(1)		;; mul by 1/k
+	fadd	st, st(6)		;; round quotient to an integer
+	fldz				;; Clear source fft value
+	fstp	QWORD PTR [esi-4*dist1]
+	fsub	st, st(6)		;; round quotient to an integer
+	fld	st(2)
+	fmul	st, st(1)		;; mul by k
+	fsubp	st(2), st		;; remainder = next carry
+	fmul	st, st(4)		;; shift quotient for later
+	fstp	QWORD PTR [edi+4*8]	;; save shifted quotient
+	dec	edx			;; done yet?
+	jnz	short p5		;; no
+	fstp	QWORD PTR [esi-4*dist1]	;; save remainder
+	lea	edi, [edi+4*8]
+	JMP_X	donelabel
+
+p5:	fmul	st, st(4)		;; carry * limit_high
+	fadd	QWORD PTR [esi-5*dist1]	;; add in fft value
+	fld	st(2)			;; Load 1/k
+	fmul	st, st(1)		;; mul by 1/k
+	fadd	st, st(6)		;; round quotient to an integer
+	fldz				;; Clear source fft value
+	fstp	QWORD PTR [esi-5*dist1]
+	fsub	st, st(6)		;; round quotient to an integer
+	fld	st(2)
+	fmul	st, st(1)		;; mul by k
+	fsubp	st(2), st		;; remainder = next carry
+	fmul	st, st(4)		;; shift quotient for later
+	fstp	QWORD PTR [edi+5*8]	;; save shifted quotient
+	dec	edx			;; done yet?
+	jnz	short p6		;; no
+	fstp	QWORD PTR [esi-5*dist1]	;; save remainder
+	lea	edi, [edi+5*8]
+	JMP_X	donelabel
+
+p6:	fmul	st, st(4)		;; carry * limit_high
+	fadd	QWORD PTR [esi-6*dist1]	;; add in fft value
+	fld	st(2)			;; Load 1/k
+	fmul	st, st(1)		;; mul by 1/k
+	fadd	st, st(6)		;; round quotient to an integer
+	fldz				;; Clear source fft value
+	fstp	QWORD PTR [esi-6*dist1]
+	fsub	st, st(6)		;; round quotient to an integer
+	fld	st(2)
+	fmul	st, st(1)		;; mul by k
+	fsubp	st(2), st		;; remainder = next carry
+	fmul	st, st(4)		;; shift quotient for later
+	fstp	QWORD PTR [edi+6*8]	;; save shifted quotient
+	dec	edx			;; done yet?
+	jnz	short p7		;; no
+	fstp	QWORD PTR [esi-6*dist1]	;; save remainder
+	lea	edi, [edi+6*8]
+	JMP_X	donelabel
+
+p7:	fmul	st, st(4)		;; carry * limit_high
+	fadd	QWORD PTR [esi-7*dist1]	;; add in fft value
+	fld	st(2)			;; Load 1/k
+	fmul	st, st(1)		;; mul by 1/k
+	fadd	st, st(6)		;; round quotient to an integer
+	fldz				;; Clear source fft value
+	fstp	QWORD PTR [esi-7*dist1]
+	fsub	st, st(6)		;; round quotient to an integer
+	fld	st(2)
+	fmul	st, st(1)		;; mul by k
+	fsubp	st(2), st		;; remainder = next carry
+	fmul	st, st(4)		;; shift quotient for later
+	fstp	QWORD PTR [edi+7*8]	;; save shifted quotient
+	dec	edx			;; done yet?
+	jnz	short p8		;; no
+	fstp	QWORD PTR [esi-7*dist1]	;; save remainder
+	lea	edi, [edi+7*8]
+	JMP_X	donelabel
+p8:
+	ENDM
+
+prothmod_lower_prep_0d MACRO
+	fcompp				;; Pop 4 values leaving BIGVAL
+	fcompp
+	mov	esi, _SRCARG		;; U - Address of first number
+	mov	edx, DWORD PTR _PROTHVALS+5*8 ;; Count of lower FFT 8 word sets
 	ENDM
 
 
-; *************** error_check macro ******************
-; This macro finds the maximum error (distance from an integer).
-; st(2) = The current maximum error
-; st(1) = two-to-minus-phi group multiplier
-; st(0) = two-to-minus-phi multiplier
-; esi = pointer to the FFT data values
-; ebx = pointer two-to-power column multipliers
-; edx = pointer two-to-power group multipliers
-; ebp = number of big words
-; edi = big vs. little running sum
-; eax = this big vs. little word flag
+; *************** no-array proth mod macro ******************
+; This macro aids in computing the FFT value mod k*2^n+/-1.
+; The upper part of the FFT is divided by k for later addition
+; (or subtraction) into the lower part of the FFT.
+; st(0) = carry
+; esi = source
+; edi = source #2 (a scrath area)
+; A pipelined version of this code:
+;	fld	QWORD PTR [esi+0*dist1]	;; Load value
+;	fadd	QWORD PTR [edi-0*8]	;; Add in second value
+;	faddp	st(1), st		;; x = value + carry
+;	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+;	fadd	st, st(1)		;; y = top bits of x
+;	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+;	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+;	fmul	limit_inverse_high	;; next carry = shifted y
+;	fsubp	st(2), st		;; new value = x - z
+;	fstp	QWORD PTR [esi+0*dist1]	;; Save new value
 
-error_check MACRO
-	LOCAL	less1, less2, less3, less4, less5, less6, less7, less8
+prothmod_lower_0d MACRO
+	fld	QWORD PTR [esi+0*dist1]	;; Load value
+	fadd	QWORD PTR [edi-0*8]	;; Add in second value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(1)
+	fsubp	st(2), st		;; new value = x - z
+	fxch	st(1)
+	fstp	QWORD PTR [esi+0*dist1]	;; Save new value
 
-					;; ttmp,ttmpg,maxerr
-	fmul	QWORD PTR [esi]		;; Mul value by two-to-minus-phi
-	fld	BIGVAL			;; bigval,value,ttmpg,maxerr
-	fxch	st(2)			;; ttmpg,value,bigval,maxerr
-	fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	fxch	st(2)			;; bigval,value,ttmpg,maxerr
-	fadd	st, st(1)		;; Round off the value - step 1
-	fld	QWORD PTR [ebx+8]	;; Load next two-to-minus-phi col mult
-	fmul	st, st(3)		;; Compute next two-to-minus-phi
-	fxch	st(1)			;; intval,nxtttmp,value,ttmpg,maxerr
-	fsub	BIGVAL			;; Round off the value - step 2
-	fsubp	st(2), st		;; This is the error
-	fxch	st(1)			;; error,nxtttmp,ttmpg,maxerr
-	fabs
-	fcom	st(3)			;; Compare to maximum error
-	fstsw	ax			;; Copy comparison results
-	and	eax, 100h		;; Isolate C0 bit
-	jnz	short less1		;; Error is less than maximum
-	fxch	st(3)			;; Error is greater - swap with maximum
-less1:	fcomp	st(3)			;; Pop non-maximum
-	sub	edi, ebp		;; U - 2 steps to compute
-	sbb	eax, eax		;;*U - next big vs. little flag
-					;; nxtttmp,ttmpg,maxerr
+	fld	QWORD PTR [esi+1*dist1]	;; Load value
+	fadd	QWORD PTR [edi-1*8]	;; Add in second value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(1)
+	fsubp	st(2), st		;; new value = x - z
+	fxch	st(1)
+	fstp	QWORD PTR [esi+1*dist1]	;; Save new value
 
-					;; ttmp,ttmpg,maxerr
-	fmul	QWORD PTR [esi+dist1]	;; Mul value by two-to-minus-phi
-	fld	BIGVAL			;; bigval,value,ttmpg,maxerr
-	fxch	st(2)			;; ttmpg,value,bigval,maxerr
-	fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	fxch	st(2)			;; bigval,value,ttmpg,maxerr
-	fadd	st, st(1)		;; Round off the value - step 1
-	fld	QWORD PTR [ebx+24]	;; Load next two-to-minus-phi col mult
-	fmul	st, st(3)		;; Compute next two-to-minus-phi
-	fxch	st(1)			;; intval,nxtttmp,value,ttmpg,maxerr
-	fsub	BIGVAL			;; Round off the value - step 2
-	fsubp	st(2), st		;; This is the error
-	fxch	st(1)			;; error,nxtttmp,ttmpg,maxerr
-	fabs
-	fcom	st(3)			;; Compare to maximum error
-	fstsw	ax			;; Copy comparison results
-	and	eax, 100h		;; Isolate C0 bit
-	jnz	short less2		;; Error is less than maximum
-	fxch	st(3)			;; Error is greater - swap with maximum
-less2:	fcomp	st(3)			;; Pop non-maximum
-	sub	edi, ebp		;; U - 2 steps to compute
-	sbb	eax, eax		;;*U - next big vs. little flag
-					;; nxtttmp,ttmpg,maxerr
+	fld	QWORD PTR [esi+2*dist1]	;; Load value
+	fadd	QWORD PTR [edi-2*8]	;; Add in second value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(1)
+	fsubp	st(2), st		;; new value = x - z
+	fxch	st(1)
+	fstp	QWORD PTR [esi+2*dist1]	;; Save new value
 
-					;; ttmp,ttmpg,maxerr
-	fmul	QWORD PTR [esi+2*dist1]	;; Mul value by two-to-minus-phi
-	fld	BIGVAL			;; bigval,value,ttmpg,maxerr
-	fxch	st(2)			;; ttmpg,value,bigval,maxerr
-	fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	fxch	st(2)			;; bigval,value,ttmpg,maxerr
-	fadd	st, st(1)		;; Round off the value - step 1
-	fld	QWORD PTR [ebx+32+8]	;; Load next two-to-minus-phi col mult
-	fmul	st, st(3)		;; Compute next two-to-minus-phi
-	fxch	st(1)			;; intval,nxtttmp,value,ttmpg,maxerr
-	fsub	BIGVAL			;; Round off the value - step 2
-	fsubp	st(2), st		;; This is the error
-	fxch	st(1)			;; error,nxtttmp,ttmpg,maxerr
-	fabs
-	fcom	st(3)			;; Compare to maximum error
-	fstsw	ax			;; Copy comparison results
-	and	eax, 100h		;; Isolate C0 bit
-	jnz	short less3		;; Error is less than maximum
-	fxch	st(3)			;; Error is greater - swap with maximum
-less3:	fcomp	st(3)			;; Pop non-maximum
-	sub	edi, ebp		;; U - 2 steps to compute
-	sbb	eax, eax		;;*U - next big vs. little flag
-					;; nxtttmp,ttmpg,maxerr
+	fld	QWORD PTR [esi+3*dist1]	;; Load value
+	fadd	QWORD PTR [edi-3*8]	;; Add in second value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(1)
+	fsubp	st(2), st		;; new value = x - z
+	fxch	st(1)
+	fstp	QWORD PTR [esi+3*dist1]	;; Save new value
 
-					;; ttmp,ttmpg,maxerr
-	fmul	QWORD PTR [esi+3*dist1]	;; Mul value by two-to-minus-phi
-	fld	BIGVAL			;; bigval,value,ttmpg,maxerr
-	fxch	st(2)			;; ttmpg,value,bigval,maxerr
-	fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	fxch	st(2)			;; bigval,value,ttmpg,maxerr
-	fadd	st, st(1)		;; Round off the value - step 1
-	fld	QWORD PTR [ebx+32+24]	;; Load next two-to-minus-phi col mult
-	fmul	st, st(3)		;; Compute next two-to-minus-phi
-	fxch	st(1)			;; intval,nxtttmp,value,ttmpg,maxerr
-	fsub	BIGVAL			;; Round off the value - step 2
-	fsubp	st(2), st		;; This is the error
-	fxch	st(1)			;; error,nxtttmp,ttmpg,maxerr
-	fabs
-	fcom	st(3)			;; Compare to maximum error
-	fstsw	ax			;; Copy comparison results
-	and	eax, 100h		;; Isolate C0 bit
-	jnz	short less4		;; Error is less than maximum
-	fxch	st(3)			;; Error is greater - swap with maximum
-less4:	fcomp	st(3)			;; Pop non-maximum
-	sub	edi, ebp		;; U - 2 steps to compute
-	sbb	eax, eax		;;*U - next big vs. little flag
-					;; nxtttmp,ttmpg,maxerr
+	fld	QWORD PTR [esi+4*dist1]	;; Load value
+	fadd	QWORD PTR [edi-4*8]	;; Add in second value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(1)
+	fsubp	st(2), st		;; new value = x - z
+	fxch	st(1)
+	fstp	QWORD PTR [esi+4*dist1]	;; Save new value
 
-					;; ttmp,ttmpg,maxerr
-	fmul	QWORD PTR [esi+4*dist1]	;; Mul value by two-to-minus-phi
-	fld	BIGVAL			;; bigval,value,ttmpg,maxerr
-	fxch	st(2)			;; ttmpg,value,bigval,maxerr
-	fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	fxch	st(2)			;; bigval,value,ttmpg,maxerr
-	fadd	st, st(1)		;; Round off the value - step 1
-	fld	QWORD PTR [ebx+2*32+8]	;; Load next two-to-minus-phi col mult
-	fmul	st, st(3)		;; Compute next two-to-minus-phi
-	fxch	st(1)			;; intval,nxtttmp,value,ttmpg,maxerr
-	fsub	BIGVAL			;; Round off the value - step 2
-	fsubp	st(2), st		;; This is the error
-	fxch	st(1)			;; error,nxtttmp,ttmpg,maxerr
-	fabs
-	fcom	st(3)			;; Compare to maximum error
-	fstsw	ax			;; Copy comparison results
-	and	eax, 100h		;; Isolate C0 bit
-	jnz	short less5		;; Error is less than maximum
-	fxch	st(3)			;; Error is greater - swap with maximum
-less5:	fcomp	st(3)			;; Pop non-maximum
-	sub	edi, ebp		;; U - 2 steps to compute
-	sbb	eax, eax		;;*U - next big vs. little flag
-					;; nxtttmp,ttmpg,maxerr
+	fld	QWORD PTR [esi+5*dist1]	;; Load value
+	fadd	QWORD PTR [edi-5*8]	;; Add in second value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(1)
+	fsubp	st(2), st		;; new value = x - z
+	fxch	st(1)
+	fstp	QWORD PTR [esi+5*dist1]	;; Save new value
 
-					;; ttmp,ttmpg,maxerr
-	fmul	QWORD PTR [esi+5*dist1]	;; Mul value by two-to-minus-phi
-	fld	BIGVAL			;; bigval,value,ttmpg,maxerr
-	fxch	st(2)			;; ttmpg,value,bigval,maxerr
-	fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	fxch	st(2)			;; bigval,value,ttmpg,maxerr
-	fadd	st, st(1)		;; Round off the value - step 1
-	fld	QWORD PTR [ebx+2*32+24];; Load next two-to-minus-phi col mult
-	fmul	st, st(3)		;; Compute next two-to-minus-phi
-	fxch	st(1)			;; intval,nxtttmp,value,ttmpg,maxerr
-	fsub	BIGVAL			;; Round off the value - step 2
-	fsubp	st(2), st		;; This is the error
-	fxch	st(1)			;; error,nxtttmp,ttmpg,maxerr
-	fabs
-	fcom	st(3)			;; Compare to maximum error
-	fstsw	ax			;; Copy comparison results
-	and	eax, 100h		;; Isolate C0 bit
-	jnz	short less6		;; Error is less than maximum
-	fxch	st(3)			;; Error is greater - swap with maximum
-less6:	fcomp	st(3)			;; Pop non-maximum
-	sub	edi, ebp		;; U - 2 steps to compute
-	sbb	eax, eax		;;*U - next big vs. little flag
-					;; nxtttmp,ttmpg,maxerr
+	fld	QWORD PTR [esi+6*dist1]	;; Load value
+	fadd	QWORD PTR [edi-6*8]	;; Add in second value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(1)
+	fsubp	st(2), st		;; new value = x - z
+	fxch	st(1)
+	fstp	QWORD PTR [esi+6*dist1]	;; Save new value
 
-					;; ttmp,ttmpg,maxerr
-	fmul	QWORD PTR [esi+6*dist1]	;; Mul value by two-to-minus-phi
-	fld	BIGVAL			;; bigval,value,ttmpg,maxerr
-	fxch	st(2)			;; ttmpg,value,bigval,maxerr
-	fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	fxch	st(2)			;; bigval,value,ttmpg,maxerr
-	fadd	st, st(1)		;; Round off the value - step 1
-	fld	QWORD PTR [ebx+3*32+8]	;; Load next two-to-minus-phi col mult
-	fmul	st, st(3)		;; Compute next two-to-minus-phi
-	fxch	st(1)			;; intval,nxtttmp,value,ttmpg,maxerr
-	fsub	BIGVAL			;; Round off the value - step 2
-	fsubp	st(2), st		;; This is the error
-	fxch	st(1)			;; error,nxtttmp,ttmpg,maxerr
-	fabs
-	fcom	st(3)			;; Compare to maximum error
-	fstsw	ax			;; Copy comparison results
-	and	eax, 100h		;; Isolate C0 bit
-	jnz	short less7		;; Error is less than maximum
-	fxch	st(3)			;; Error is greater - swap with maximum
-less7:	fcomp	st(3)			;; Pop non-maximum
-	sub	edi, ebp		;; U - 2 steps to compute
-	sbb	eax, eax		;;*U - next big vs. little flag
-					;; nxtttmp,ttmpg,maxerr
-
-					;; ttmp,ttmpg,maxerr
-	fmul	QWORD PTR [esi+7*dist1]	;; Mul value by two-to-minus-phi
-	fld	BIGVAL			;; bigval,value,ttmpg,maxerr
-	fxch	st(2)			;; ttmpg,value,bigval,maxerr
-	fmul	limit_ttmp_mult[eax*4]	;; Adjust nxt two-to-minus-phi grp mult
-	fxch	st(2)			;; bigval,value,ttmpg,maxerr
-	fadd	st, st(1)		;; Round off the value - step 1
-	fld	QWORD PTR [ebx+3*32+24];; Load next two-to-minus-phi col mult
-	fmul	st, st(3)		;; Compute next two-to-minus-phi
-	fxch	st(1)			;; intval,nxtttmp,value,ttmpg,maxerr
-	fsub	BIGVAL			;; Round off the value - step 2
-	fsubp	st(2), st		;; This is the error
-	fxch	st(1)			;; error,nxtttmp,ttmpg,maxerr
-	fabs
-	fcom	st(3)			;; Compare to maximum error
-	fstsw	ax			;; Copy comparison results
-	and	eax, 100h		;; Isolate C0 bit
-	jnz	short less8		;; Error is less than maximum
-	fxch	st(3)			;; Error is greater - swap with maximum
-less8:	fcomp	st(3)			;; Pop non-maximum
-	sub	edi, ebp		;; U - 2 steps to compute
-	sbb	eax, eax		;;*U - next big vs. little flag
-					;; nxtttmp,ttmpg,maxerr
-
+	fld	QWORD PTR [esi+7*dist1]	;; Load value
+	fadd	QWORD PTR [edi-7*8]	;; Add in second value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(1)
+	fsubp	st(2), st		;; new value = x - z
+	fxch	st(1)
+	fstp	QWORD PTR [esi+7*dist1]	;; Save new value
 	ENDM
+
+; *************** no-array proth mod macro ******************
+; The final step in computing the FFT value mod k*2^n+/-1.
+; This is just like the above macros except that it redoes
+; the final 5 values to handle carries that occured.
+; st(0) should be BIGVAL after prothmod_lower
+
+prothmod_final_0d MACRO
+	fld	limit_high
+	fld	_PROTHVALS+2*8		;; st(3) = prothshift
+	fld	_PROTHVALS+1*8		;; st(2) = 1/k
+	fld	_PROTHVALS+0*8		;; st(1) = k
+	mov	esi, _SRCARG
+	add	esi, DWORD PTR _PROTHVALS+6*8 ;; Point to 5th upper FFT word
+	fld	QWORD PTR [esi]		;; Load 5th upper fft value
+	fldz				;; Clear 5th upper fft value
+	fstp	QWORD PTR [esi]
+
+	fmul	st, st(4)		;; carry * limit_high
+	mov	esi, _SRCARG
+	add	esi, DWORD PTR _PROTHVALS+7*8 ;; Point to 4th upper FFT word
+	fadd	QWORD PTR [esi]		;; add in 4th upper fft value
+	fld	st(2)			;; Load 1/k
+	fmul	st, st(1)		;; mul by 1/k
+	fadd	st, st(6)		;; round quotient to an integer
+	fldz				;; Clear 4th upper fft value
+	fstp	QWORD PTR [esi]
+	fsub	st, st(6)		;; round quotient to an integer
+	fld	st(2)
+	fmul	st, st(1)		;; mul by k
+	fsubp	st(2), st		;; remainder = next carry
+	fmul	st, st(4)		;; shift quotient for later
+	fstp	QWORD PTR [edi+0*8]	;; save shifted quotient
+
+	fmul	st, st(4)		;; carry * limit_high
+	mov	esi, _SRCARG
+	add	esi, DWORD PTR _PROTHVALS+8*8 ;; Point to 3rd upper FFT word
+	fadd	QWORD PTR [esi]		;; add in fft value
+	fld	st(2)			;; Load 1/k
+	fmul	st, st(1)		;; mul by 1/k
+	fadd	st, st(6)		;; round quotient to an integer
+	fldz				;; Clear 3rd upper fft value
+	fstp	QWORD PTR [esi]
+	fsub	st, st(6)		;; round quotient to an integer
+	fld	st(2)
+	fmul	st, st(1)		;; mul by k
+	fsubp	st(2), st		;; remainder = next carry
+	fmul	st, st(4)		;; shift quotient for later
+	fstp	QWORD PTR [edi+1*8]	;; save shifted quotient
+
+	fmul	st, st(4)		;; carry * limit_high
+	mov	edx, _SRCARG
+	add	edx, DWORD PTR _PROTHVALS+9*8 ;; Point to 2nd upper FFT word
+	fadd	QWORD PTR [edx]		;; add in fft value
+	fld	st(2)			;; Load 1/k
+	fmul	st, st(1)		;; mul by 1/k
+	fadd	st, st(6)		;; round quotient to an integer
+	fsub	st, st(6)		;; round quotient to an integer
+	fld	st(2)
+	fmul	st, st(1)		;; mul by k
+	fsubp	st(2), st		;; remainder = next carry
+	fmul	st, st(4)		;; shift quotient for later
+	fstp	QWORD PTR [edi+2*8]	;; save shifted quotient
+
+	fmul	st, st(4)		;; carry * limit_high
+	mov	esi, _SRCARG
+	add	esi, DWORD PTR _PROTHVALS+10*8 ;; Point to 1st upper FFT word
+	fadd	QWORD PTR [esi]		;; add in fft value
+	fld	st(2)			;; Load 1/k
+	fmul	st, st(1)		;; mul by 1/k
+	fadd	st, st(6)		;; round quotient to an integer
+	fsub	st, st(6)		;; round quotient to an integer
+	fld	st(2)
+	fmul	st, st(1)		;; mul by k
+	fsubp	st(2), st		;; remainder = next carry
+	fmul	st, st(4)		;; shift quotient for later
+	fstp	QWORD PTR [edi+3*8]	;; save shifted quotient
+
+					;; Split the remainder
+	fadd	st, st(5)		;; Add in BIGVAL
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(1)
+	fsubp	st(2), st		;; new value = x - z
+	fxch	st(1)
+	fstp	QWORD PTR [esi]		;; Lower bits in 1st upper FFT word
+	fsub	st, st(5)		;; Subtract out BIGVAL
+	fstp	QWORD PTR [edx]		;; Upper bits in 2nd upper FFT word
+
+	fcompp				;; Pop 4 values leaving BIGVAL
+	fcompp
+	mov	esi, _SRCARG		;; Reload source pointer
+
+	fld	QWORD PTR [esi+0*dist1]	;; Load value
+	fadd	QWORD PTR [edi+3*8]	;; Add in second value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(1)
+	fsubp	st(2), st		;; new value = x - z
+	fxch	st(1)
+	fstp	QWORD PTR [esi+0*dist1]	;; Save new value
+
+	fld	QWORD PTR [esi+1*dist1]	;; Load value
+	fadd	QWORD PTR [edi+2*8]	;; Add in second value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(1)
+	fsubp	st(2), st		;; new value = x - z
+	fxch	st(1)
+	fstp	QWORD PTR [esi+1*dist1]	;; Save new value
+
+	fld	QWORD PTR [esi+2*dist1]	;; Load value
+	fadd	QWORD PTR [edi+1*8]	;; Add in second value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(1)
+	fsubp	st(2), st		;; new value = x - z
+	fxch	st(1)
+	fstp	QWORD PTR [esi+2*dist1]	;; Save new value
+
+	fld	QWORD PTR [esi+3*dist1]	;; Load value
+	fadd	QWORD PTR [edi+0*8]	;; Add in second value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(1)
+	fsubp	st(2), st		;; new value = x - z
+	fxch	st(1)
+	fstp	QWORD PTR [esi+3*dist1]	;; Save new value
+
+	fld	QWORD PTR [esi+4*dist1]	;; Load value
+	faddp	st(1), st		;; x = value + carry
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fadd	st, st(1)		;; y = top bits of x
+	fld	limit_bigmax_high	;; Load maximum * BIGVAL - BIGVAL
+	fsubr	st, st(1)		;; z = y - (maximum * BIGVAL - BIGVAL)
+	fxch	st(1)
+	fmul	limit_inverse_high	;; next carry = shifted y
+	fxch	st(1)
+	fsubp	st(2), st		;; new value = x - z
+	fxch	st(1)
+	fstp	QWORD PTR [esi+4*dist1]	;; Save new value
+
+	fsub	BIGVAL
+	fadd	QWORD PTR [esi+5*dist1]	;; Load value
+	fstp	QWORD PTR [esi+5*dist1]	;; Save new value
+	ENDM
+

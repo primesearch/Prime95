@@ -1,0 +1,43 @@
+# Makefile for Linux mprime
+# by Jeremy Buhler (jbuhler@cs.washington.edu)
+#
+# NOTE: To convert the included object files to ELF, your binutils 
+# installation must be able to read the coff-i386 object format.  
+#
+# Assuming your binutils are dynamically linked, you can add COFF support
+# by configuring binutils with the switch '--enable-targets=i386-go32'
+# and rebuilding libbfd.so .
+
+CC = gcc
+CFLAGS = -I..
+#CFLAGS for Pentium
+#CFLAGS = -O2 -m486 -malign-loops=2 -malign-jumps=2 -malign-functions=2
+
+# fixup data segment offset to accomodate asm objects
+LFLAGS = -Wl,-M
+LIBS   = -lm
+LIBS2  = -lm -static
+
+# arrange factor64.o below so that it is on a 8 byte boundary
+COFFOBJS = mult.o mult1.o mult2.o mult2a.o mult3.o mult3a.o mult4.o mult4a.o mult4b.o mult1p.o mult2p.o mult2ap.o mult3p.o mult3ap.o mult4p.o mult4ap.o mult4bp.o mult1aux.o mult2aux.o mult3aux.o mult4aux.o ecmhelp.o
+DUMMYOBJS = dummy4.o dummy8.o dummy12.o dummy16.o dummy20.o dummy24.o dummy28.o
+LINUXOBJS = prime.o menu.o
+EXE      = prp
+EXE2	 = sprp
+
+#########################################################################
+
+$(EXE): $(LINUXOBJS) $(COFFOBJS) $(DUMMYOBJS)
+	$(CC) $(LFLAGS) -o $(EXE) $(LINUXOBJS) dummy24.o $(COFFOBJS) $(LIBS)
+
+$(EXE2): $(LINUXOBJS) $(COFFOBJS) $(DUMMYOBJS)
+	$(CC) $(LFLAGS) -o $(EXE2) $(LINUXOBJS) dummy24.o $(COFFOBJS) $(LIBS2)
+
+clean:
+	rm -f $(EXE) $(LINUXOBJS) $(COFFOBJS) $(DUMMYOBJS)
+
+$(COFFOBJS) $(DUMMYOBJS): %.o : %.obj
+	objcopy -Oelf32-i386 -Icoff-i386 $< $@
+
+.c.o:
+	$(CC) $(CFLAGS) -c $<

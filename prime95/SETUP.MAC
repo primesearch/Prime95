@@ -1,4 +1,4 @@
-; Copyright 1998-1999 - Just For Fun Software, Inc., all rights reserved
+; Copyright 1998-2001 - Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -541,31 +541,12 @@ done:
 ;; with just two multiplies and much less memory is consumed.
 
 normalize_setup MACRO
-	LOCAL	bigz, bigz2, bigz3, simlp, complex, collp, grp128, grplp, done
+	LOCAL	bigz, bigz3, simlp, complex, collp, grp128, grplp, done
 
-;; The two-to-minus-phi values are adjusted for the fact that
-;; the inverse FFT multiplies the result by FFTLEN/2.  However,
-;; we sometimes need the unadjusted two-to-minus-phi value.  Create
-;; a multiplier for deriving the unadjusted value.
+;; Check for special case where all words are big words. 
 
-	fild	_FFTLEN			;; Compute FFTLEN/2
-	fmul	HALF
-	fstp	ttmp_ff
-	fld1
-	fdiv	ttmp_ff
-	fstp	ttmp_ff_inv
-
-;; Compute the upper and limits (maximum values an fft entry can be).
-
-	mov	eax, _PARG		;; Compute p mod fftlen
-	sub	edx, edx
-	mov	ecx, _FFTLEN
-	div	ecx
-	mov	numbig, edx		;; num big words
-	sub	ecx, edx
-	mov	numlit, ecx		;; num small words
-	and	edx, edx		;; Handle zero big words
-	jz	short bigz
+	cmp	_NUMLIT, 0
+	je	short bigz
 
 ;; Scale the numbig and numlit values to make the normalize code faster.
 ;; We used to start with numlit and on every normalization iteration we'd
@@ -582,12 +563,12 @@ normalize_setup MACRO
 ;; of subtracting scaled_numbig.
 
 	mov	ecx, _FFTLEN
-	mov	edx, numlit		;; Compute ceil(numlit * 2^32 / fftlen)
+	mov	edx, _NUMLIT		;; Compute ceil(numlit * 2^32 / fftlen)
 	mov	eax, _FFTLEN
 	dec	eax
 	div	ecx
 	mov	scaled_numlit, eax	;; Save it.
-	mov	edx, numbig		;; Compute floor (numbig * 2^32 / n)
+	mov	edx, _NUMBIG		;; Compute floor (numbig * 2^32 / n)
 	sub	eax, eax
 	div	ecx
 	mov	scaled_numbig, eax	;; Save it.
@@ -603,29 +584,25 @@ normalize_setup MACRO
 	shl	eax, 8
 	div	ecx
 	mov	scaling_ff2, eax	;; Save the second fudge factor
-	jmp	short bigz2		;; Bypass zero-big-words code
+	jmp	short bigz3		;; Bypass all-big-words code
 
 ;; Special code that handles case where num big words is zero
 
-bigz:	mov	scaled_numlit, edx	;; Special scaled values to always
+bigz:	mov	scaled_numlit, 0	;; Special scaled values to always
 	mov	scaled_numbig, -1	;; generate carries (big words)
 	mov	scaling_ff, -1		;; Save the fudge factor
 	mov	scaling_ff2, -1		;; Save the second fudge factor
-	fild	_PARG			;; Tweak #bits so that limits
-	fisub	_FFTLEN			;; computed below are correct
-	mov	eax, numlit		;; All words are big
-	mov	numbig, eax
-	mov	numlit, 0
 	jmp	short bigz3
 
 ;; Compute big and little word maximum values
 
-bigz2:	fild	_PARG			;; Load the prime
-bigz3:	fidiv	_FFTLEN			;; #bits in small word = prime/fft size
+bigz3:	fild	_BITS_PER_WORD		;; #bits in small word
 	fld1
 	fscale				;; This is the lower limit
+	fst	limit_low
 	fld	st
 	fadd	st, st			;; This is the upper limit
+	fst	limit_high
 
 	fld1				;; Compute upper limit inverse
 	fdiv	st, st(1)
@@ -669,7 +646,7 @@ simlp:	mov	eax, ebx		;; Split ebx into integer and
 	fld	ttmp_ff_inv		;; Compute 2 ^ -(edx / fftlen), but
 	fdivr				;; adjust for the UNFFT mul by fftlen/2
 	fstp	QWORD PTR [edi+8]	;; Save two-to-minus-phi multiplier
-	add	ebx, numlit		;; Next two-to-phi exponent
+	add	ebx, _NUMLIT		;; Next two-to-phi exponent
 	lea	edi, [edi+16]		;; Next multiplier address
 	dec	ecx			;; Test loop counter
 	jnz	short simlp		;; Loop if necessary
@@ -679,7 +656,7 @@ simlp:	mov	eax, ebx		;; Split ebx into integer and
 
 complex:mov	edi, norm_col_mults	;; Address of column multipliers array
 	mov	ecx, 128		;; 128 column multipliers
-	mov	ebx, numlit		;; First two-to-phi exponent is numlit
+	mov	ebx, _NUMLIT		;; First two-to-phi exponent is numlit
 collp:	mov	eax, ebx		;; Split ebx into integer and
 	sub	edx, edx		;; fractional parts
 	div	_FFTLEN			;; divide by fftlen
@@ -697,7 +674,7 @@ collp:	mov	eax, ebx		;; Split ebx into integer and
 	fdivr
 	fstp	QWORD PTR [edi+8]	;; Save two-to-minus-phi col mult
 	fcomp	st(0)			;; Discard scaling factor
-	add	ebx, numlit		;; Next two-to-phi exponent
+	add	ebx, _NUMLIT		;; Next two-to-phi exponent
 	lea	edi, [edi+16]		;; Next column multiplier address
 	dec	ecx			;; Test inner loop counter
 	jnz	short collp		;; Loop if necessary
@@ -728,7 +705,7 @@ grplp:	mov	eax, ebx		;; Multiply the exponent
 	fld	ttmp_ff_inv		;; Compute 2 ^ -(eax / fftlen), but
 	fdivr				;; adjust for the UNFFT mul by fftlen/2
 	fstp	QWORD PTR [edi+8]	;; Save two-to-minus-phi grp mult
-	add	ebx, numlit		;; Next two-to-phi exponent
+	add	ebx, _NUMLIT		;; Next two-to-phi exponent
 	adc	esi, 0
 	lea	edi, [edi+16]		;; Next group multiplier address
 	dec	ebp			;; Test loop counter
@@ -747,25 +724,41 @@ pfa_5_setup MACRO
 	fadd	st, st			;; 2*PI
 	fdiv	P5			;; 2*PI * 1 / 5
 	fsincos				;; Compute cosine (0.309), sine (0.951)
+	fst	XMM_P309
+	fst	XMM_P309+8
 	fst	P309			;; Save cosine
 	fxch	st(1)
+	fst	XMM_P951
+	fst	XMM_P951+8
 	fst	P951			;; Save sine
 	fldpi				;; PI
 	fadd	st, st			;; 2*PI
 	fadd	st, st			;; 2*PI * 2
 	fdiv	P5			;; 2*PI * 2 / 5
 	fsincos				;; Compute cosine (-.809), sine (0.588)
+	fst	XMM_M809
+	fst	XMM_M809+8
 	fst	M809			;; Save cosine
 	fxch	st(1)
+	fst	XMM_P588
+	fst	XMM_P588+8
 	fst	P588			;; Save sine
 	fdiv	P951			;; 0.588 / 0.951
+	fst	XMM_P618
+	fst	XMM_P618+8
 	fstp	P618			;; Save
 	fdiv	P309			;; -0.809 / 0.309
+	fst	XMM_M262
+	fst	XMM_M262+8
 	fstp	M262			;; Save
 	fchs				;; -0.951
 	fdiv	P588			;; -0.951 / 0.588
+	fst	XMM_M162
+	fst	XMM_M162+8
 	fstp	M162			;; Save
 	fdiv	M809			;; 0.309 / -0.809
+	fst	XMM_M382
+	fst	XMM_M382+8
 	fstp	M382			;; Save
 	ENDM
 
@@ -779,12 +772,18 @@ pfa_6_setup MACRO
 	fadd	st, st			;; 2*PI
 	fdiv	P3			;; 2*PI / 3
 	FSIN_X				;; Compute sine (0.866)
+	fst	XMM_P866
+	fst	XMM_P866+8
 	fst	P866			;; Save sine
 	fmul	HALF			;; 0.5 * P866
+	fst	XMM_P433
+	fst	XMM_P433+8
 	fst	P433			;; Save
 	fadd	st, st
 	fld	HALF
 	fdivrp	st(1), st		;; 0.5 / 0.866
+	fst	XMM_P577
+	fst	XMM_P577+8
 	fstp	P577			;; Save
 	ENDM
 
@@ -798,6 +797,8 @@ pfa_7_setup MACRO
 	fadd	st, st			;; 2*PI
 	fdiv	P7			;; 2*PI * 1 / 7
 	fsincos				;; Compute cosine (0.623), sine (0.782)
+	fst	XMM_P623
+	fst	XMM_P623+8
 	fst	P623			;; Save cosine
 	fldpi				;; PI
 	fadd	st, st			;; 2*PI
@@ -806,6 +807,8 @@ pfa_7_setup MACRO
 	fsincos				;; Compute cosine (-.223), sine (0.975)
 	fst	M223			;; Save cosine
 	fxch	st(1)
+	fst	XMM_P975
+	fst	XMM_P975+8
 	fstp	P975			;; Save sine
 	fldpi				;; PI
 	fadd	st, st			;; 2*PI
@@ -817,19 +820,27 @@ pfa_7_setup MACRO
 	fst	M901			;; Save cosine
 	fxch	st(1)			;; .434,-.901,-.223,.623,.782
 	fdiv	P975			;; 0.434 / 0.975
+	fst	XMM_P445
+	fst	XMM_P445+8
 	fstp	P445			;; Save
 	fld	P975			;; .975,-.901,-.223,.623,.782
 	fmul	P445			;; .975*.445,-.901,-.223,.623,.782
 	fdivp	st(4), st		;; 0.782 / (0.975 * 0.445)
 	fxch	st(3)			;; 1.802,-.223,.623,-.901
+	fst	XMM_P180
+	fst	XMM_P180+8
 	fstp	P180			;; Save
 	fdiv	P623			;; -0.223 / 0.623
+	fst	XMM_M358
+	fst	XMM_M358+8
 	fstp	M358			;; Save
 	fdiv	M901			;; 0.623 / -0.901
 	fstp	M691			;; Save
 	fld	P623			;; .623
 	fmul	M358			;; .623*-.358
 	fdivp	st(1), st		;; -.901 / (.623 * -.358)
+	fst	XMM_P404
+	fst	XMM_P404+8
 	fstp	P404			;; Save
 	ENDM
 

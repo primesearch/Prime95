@@ -240,12 +240,18 @@ void CPrime95Doc::OnQuitGimps()
 {
 	if (!USE_PRIMENET) {
 		if (AfxMessageBox (MANUAL_QUIT, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES) {
-			writeResults ("Quitting GIMPS.\n");
+			OutputBoth ("Quitting GIMPS.\n");
 			IniDeleteAllLines (WORKTODO_FILE);
 		}
 	} else {
-		if (AfxMessageBox (PRIMENET_QUIT, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES) {
-			writeResults ("Quitting GIMPS.\n");
+		int	res;
+		res = AfxMessageBox (PRIMENET_QUIT, MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON3);
+		if (res == IDYES) {
+			OutputBoth ("Quitting GIMPS after current work completes.\n");
+			IniWriteInt (INI_FILE, "NoMoreWork", 1);
+		}
+		if (res == IDNO) {
+			OutputBoth ("Quitting GIMPS immediately.\n");
 			spoolMessage (999, NULL);
 			MANUAL_COMM |= 0x2;
 			CHECK_WORK_QUEUE = 1;
@@ -345,10 +351,11 @@ void CPrime95Doc::OnCpu()
 
 	dlg.m_speed = CPU_SPEED;
 	dlg.m_cpu_type =
-		(CPU_TYPE == 10) ? 0 : (CPU_TYPE == 9) ? 1 :
-		(CPU_TYPE == 8) ? 2 : (CPU_TYPE == 6) ? 3 :
-		(CPU_TYPE == 5) ? 4 : (CPU_TYPE == 4) ? 5 :
-		(CPU_TYPE == 11) ? 6 : (CPU_TYPE == 7) ? 7 : 8;
+		(CPU_TYPE == 12) ? 0 :
+		(CPU_TYPE == 10) ? 1 : (CPU_TYPE == 9) ? 2 :
+		(CPU_TYPE == 8) ? 3 : (CPU_TYPE == 6) ? 4 :
+		(CPU_TYPE == 5) ? 5 : (CPU_TYPE == 4) ? 6 :
+		(CPU_TYPE == 11) ? 7 : (CPU_TYPE == 7) ? 8 : 9;
 	dlg.m_hours = CPU_HOURS;
 	dlg.m_day_memory = DAY_MEMORY;
 	dlg.m_night_memory = NIGHT_MEMORY;
@@ -359,14 +366,15 @@ void CPrime95Doc::OnCpu()
 again:	if (dlg.DoModal () == IDOK) {
 		unsigned int new_cpu_type;
 
-		new_cpu_type = (dlg.m_cpu_type == 0) ? 10 :
-			       (dlg.m_cpu_type == 1) ? 9 :
-			       (dlg.m_cpu_type == 2) ? 8 :
-			       (dlg.m_cpu_type == 3) ? 6 :
-			       (dlg.m_cpu_type == 4) ? 5 :
-			       (dlg.m_cpu_type == 5) ? 4 :
-			       (dlg.m_cpu_type == 6) ? 11 :
-			       (dlg.m_cpu_type == 7) ? 7 : 3;
+		new_cpu_type = (dlg.m_cpu_type == 0) ? 12 :
+			       (dlg.m_cpu_type == 1) ? 10 :
+			       (dlg.m_cpu_type == 2) ? 9 :
+			       (dlg.m_cpu_type == 3) ? 8 :
+			       (dlg.m_cpu_type == 4) ? 6 :
+			       (dlg.m_cpu_type == 5) ? 5 :
+			       (dlg.m_cpu_type == 6) ? 4 :
+			       (dlg.m_cpu_type == 7) ? 11 :
+			       (dlg.m_cpu_type == 8) ? 7 : 3;
 		if (CPU_SPEED != dlg.m_speed ||
 		    CPU_TYPE != new_cpu_type ||
 		    CPU_HOURS != dlg.m_hours) {

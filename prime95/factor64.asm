@@ -1,23 +1,15 @@
 TITLE   setup
 
-	.386
+	.686
 
-_TEXT32	SEGMENT USE32 PARA PUBLIC 'DATA'
+_TEXT32	SEGMENT USE32 PAGE PUBLIC 'DATA'
 
-IFDEF WIN31
-_FACHSW		DD	0
-_FACMSW		DD	0
-_FACLSW		DD	0
-_FACPASS	DD	0
-_CPU_TYPE	DD	0
-ELSE
 EXTRN	_SRCARG:DWORD
 EXTRN	_FACHSW:DWORD
 EXTRN	_FACMSW:DWORD
 EXTRN	_FACLSW:DWORD
 EXTRN	_FACPASS:DWORD
 EXTRN	_CPU_TYPE:DWORD
-ENDIF
 
 ;
 ; Global variables
@@ -159,21 +151,11 @@ _TEXT32	SEGMENT
 ; Initialize - FACLSW contains p
 
 	PUBLIC	_setupf
-	IFDEF WIN31
-	ORG	0800h
-_setupf	PROC FAR
-	push	es			; USE32 routines must preserve es,bp
-	push	ebp
-	push	ds			; copy ds to es
-	pop	es
-	mov	_FACLSW, ecx		; Prime exponent passed in FACLSW
-	ELSE
 _setupf	PROC NEAR
 	push	edi
 	push	esi
 	push	ebp
 	push	ebx
-	ENDIF
 
 ; Save p (passed in _FACLSW), compute various constants and addresses
 
@@ -217,7 +199,7 @@ fdlp:	mov	[edi], ebx
 	mov	[ebp+4], ebx
 	mov	[ebp+10], cl
 	fild	QWORD PTR [edi]		; Convert from integer to float point
-	fstp	QWORD PTR [edi + OFFSET facdistsflt - OFFSET facdists]
+	fstp	QWORD PTR [edi][00000000h + OFFSET facdistsflt - OFFSET facdists]
 	lea	edi, [edi+8]		; Bump pointers
 	lea	esi, [esi+4]
 	add	ebx, eax		; Next distance
@@ -354,15 +336,10 @@ ilp6:	sub	edx, ecx		; Compute bit# mod smallp
 
 ; Return
 
-	IFDEF WIN31
-	pop	ebp
-	pop	es
-	ELSE
 	pop	ebx
 	pop	ebp
 	pop	esi
 	pop	edi
-	ENDIF
 	ret
 _setupf	ENDP
 
@@ -432,17 +409,20 @@ idone2:	mov	initval0, eax		; Save bits 65-96 of initval
 	cmp	_CPU_TYPE, 6		; Is this a Pentium Pro?
 	je	short cp1		; Yes, jump
 	cmp	_CPU_TYPE, 8		; Is this a Pentium II?
-	je	short cp1		; Yes, jump
-	cmp	_CPU_TYPE, 9		; Is this a Celeron?
-	je	short cp1		; Yes, jump
-	cmp	_CPU_TYPE, 10		; Is this a Pentium III?
-	je	short cp1		; Yes, jump
+;	je	short cp1		; Yes, jump
+;	cmp	_CPU_TYPE, 9		; Is this a Celeron?
+;	je	short cp1		; Yes, jump
+;	cmp	_CPU_TYPE, 10		; Is this a Pentium III?
+;	je	short cp1		; Yes, jump
+;	cmp	_CPU_TYPE, 11		; Is this an AMD K7?
+;	je	short cp1		; Yes, jump
+;	cmp	_CPU_TYPE, 12		; Is this a P4?
+;	je	short cp1		; Yes, jump
+	jge	short cp1		; Assume all later CPUs use PPRO code
 	mov	eax, OFFSET ulp		; 486 version
 	cmp	_CPU_TYPE, 4		; Is this a 486?
 	jle	short cp1		; Yes, jump
 	cmp	_CPU_TYPE, 7		; Is this an AMD K6?
-	je	short cp1		; Yes, jump
-	cmp	_CPU_TYPE, 11		; Is this an AMD K7?
 	je	short cp1		; Yes, jump
 	mov	eax, OFFSET tlp60	; 60 bit Pentium version
 	cmp	edx, 0FFFFFFFh		; Are we testing 61-bits or greater?
@@ -604,25 +584,11 @@ fac2	equ	ecx
 ;
 
 	PUBLIC	_factor64
-	IFDEF WIN31
-	ORG	1800h
-_factor64 PROC FAR
-	push	es			; USE32 routines must preserve es,bp
-	push	ebp
-	push	ds			; copy ds to es
-	pop	es
-	and	edx, 0FFFFh
-	mov	_CPU_TYPE, edx
-	mov	_FACPASS, esi
-	mov	_FACHSW, edi
-	mov	_FACMSW, ecx
-	ELSE
 _factor64 PROC NEAR
 	push	edi
 	push	esi
 	push	ebp
 	push	ebx
-	ENDIF
 
 ; Init the FPU every iteration just to be safe
 
@@ -1606,18 +1572,10 @@ winner:	mov	eax, savefac1		; Load MSW
 	add	esp, 12			; pop sieve testing registers and
 					; return address
 	
-done:	IFDEF WIN31
-	mov	esi, _FACLSW		; Return factor LSW
-	mov	edi, _FACMSW		; Return factor MSW
-	mov	edx, _FACHSW		; Return factor HSW
-	pop	ebp
-	pop	es
-	ELSE
-	pop	ebx
+done:	pop	ebx
 	pop	ebp
 	pop	esi
 	pop	edi
-	ENDIF
 	ret
 
 ;***********************************************************************

@@ -1,4 +1,4 @@
-; Copyright 1995-1999 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2001 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -10,10 +10,10 @@
 
 	.386
 
-_TEXT32A SEGMENT PAGE USE32 PUBLIC 'DATA'
+_DATA SEGMENT PAGE USE32 PUBLIC 'DATA'
 
 dummy1		DD	0
 
-_TEXT32A ENDS
+_DATA ENDS
 
 END

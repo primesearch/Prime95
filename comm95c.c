@@ -127,6 +127,18 @@ void guessCpuType ()
 	}
 }
 
+/* Return TRUE if given cpu speed value is plausible */
+
+int isReasonableCpuSpeed (
+	unsigned int mhz)
+{
+	struct FREQ_INFO freq;
+
+	freq = cpuspeed (0);
+	if (freq.raw_freq == 0) return (TRUE);
+	return (mhz > 0.96 * freq.raw_freq && mhz < 1.04 * freq.raw_freq);
+}
+
 /* Return the number of MB of physical memory */
 
 unsigned long physical_memory ()

@@ -30,6 +30,7 @@ class CPrime95App : public CWinApp
 public:
 	CPrime95App();
 	void TrayMessage (UINT, LPCSTR, UINT);
+	virtual void WinHelp( DWORD dwData, UINT nCmd = HELP_CONTEXT ); 
 
 // Overrides
 	// ClassWizard generated virtual function overrides
@@ -66,6 +67,7 @@ extern char *lines[NumLines];
 extern int charHeight;
 
 extern int WINDOWS95_SERVICE;		// True if we're running as a Win95 service
+extern int WINDOWS95_A_SWITCH;		// Value of the -A command line switch
 extern LONG WM_ENDSESSION_LPARAM;	// LPARAM of WM_ENDSESSION message
 extern int WINDOWS95_TRAY_ADD;		// True if we need to add the icon
 					// to the shell once the user logs in

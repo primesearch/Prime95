@@ -1,6 +1,6 @@
 /* Common definitions in Prime95, Saver95, and NTPrime */
 
-extern HANDLE CURRENT_THREAD;
+extern HANDLE WORKER_THREAD;
 
 EXTERNC void setupf ();
 EXTERNC int factor64 ();

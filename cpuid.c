@@ -586,6 +586,8 @@ end_IDProc:
 		if (model == 3 || model == 5) cpu_type = 9;
 		if (model > 5) cpu_type = 10;
 	}
+	if (cpu_type == 15)
+		cpu_type = 12;
 	return cpu_type;
 
 } // Check_IDProc()

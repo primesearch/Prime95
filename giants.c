@@ -107,7 +107,7 @@ int 		lpt(int);
 void 		addsignal(giant, int, double *, int);
 void 		FFTsquareg(giant x);
 void 		FFTmulg(giant y, giant x);
-void 		scramble_real();
+void 		scramble_real(double *, int);
 void 		fft_real_to_hermitian(double *z, int n);
 void 		fftinv_hermitian_to_real(double *z, int n);
 void 		mul_hermitian(double *a, double *b, int n);
@@ -135,7 +135,7 @@ EXTERNC unsigned long EGCD_ODD=0;
 
 /* Internal routines */
 
-EXTERNC int egcdhlp ();
+EXTERNC int egcdhlp (void);
 
 
 /**************************************************************
@@ -144,7 +144,7 @@ EXTERNC int egcdhlp ();
  *
  **************************************************************/
 
-void term_giants ()
+void term_giants (void)
 {
 	pushg (cur_stack_elem);
 	free (stack);
@@ -472,6 +472,20 @@ void uladdg (			/* Giant g becomes g + i. */
 	addg (&tmp, g);
 }
 
+void ulsubg (			/* Giant g becomes g - i. */
+	unsigned long i,
+	giant	g)
+{
+	giantstruct tmp;
+
+	if (i == 0) return;
+
+	tmp.sign = 1;
+	tmp.n = &i;
+	setmaxsize (&tmp, 1);
+	subg (&tmp, g);
+}
+
 void subg (		/* b := b - a, any signs, any result. */
 	giant	a,
 	giant	b)
@@ -637,71 +651,19 @@ void modg (		/* n becomes n%d. n is arbitrary, but the
 	giant 	d,
 	giant 	n)
 {
-	int	nsign, nsize, dsize;
-	giant	r;
+	giant	tmp;
 
 	ASSERTG (d->sign > 0);
 	ASSERTG (d->n[d->sign-1] != 0);
 	ASSERTG (n->sign == 0 || n->n[abs(n->sign)-1] != 0);
 
-/* Handle simple case */
+/* Use divg to compute the mod */
 
-	nsign = n->sign;
-	nsize = abs (nsign);
-	dsize = d->sign;
-	if (nsize < dsize) return;
-
-/* Handle cases where we can (probably) guess the quotient using the FPU */
-/* I say probably because the floating point result is accurate to 53 bits. */
-/* If, for example, qflt is exactly 3 then it could really be */
-/* 2.999999999999999995 and we need to do a full divide to find out whether */
-/* we should return 2 or 3. */
-/* This speedup is especially important during GCDs which tend to generate */
-/* very small quotients. */
-
-	if (nsize - dsize <= 1) {
-		double	dflt, nflt, qflt;
-		unsigned long q;
-
-		nflt = n->n[nsize-1];
-		if (nsize > 1) nflt = nflt * 4294967296.0 + n->n[nsize-2];
-		if (nsize > 2) nflt = nflt * 4294967296.0 + n->n[nsize-3];
-		if (nsize > dsize && nsize > 3) nflt *= 4294967296.0;
-		dflt = d->n[dsize-1];
-		if (dsize > 1) dflt = dflt * 4294967296.0 + d->n[dsize-2];
-		if (dsize > 2) dflt = dflt * 4294967296.0 + d->n[dsize-3];
-
-		qflt = nflt / dflt;
-		if (qflt < 4294967295.0) {
-			q = (unsigned long) qflt;
-			qflt = qflt - (double) q;
-			if (nsize == 1 ||	/* We have an exact result */
-			    (qflt >= TWO_TO_MINUS_19 &&
-			     qflt <= ONE_MINUS_TWO_TO_MINUS_19)) {
-				if (q == 0) return;
-				absg (n);
-				if (q == 1) {
-					subg (d, n);
-				} else {
-					giant	tmp;
-					tmp = popg (nsize);
-					tmp->sign = 1;
-					tmp->n[0] = q;
-					grammarmulg (d, tmp);
-					subg (tmp, n);
-					pushg (1);
-				}
-				if (nsign < 0) negg (n);
-				return;
-			}
-		}
-	}
-
-/* Do it the hard way */
-
-	r = popg (d->sign << 1);
-	make_recip (d, r);
-	modg_via_recip (d, r, n);
+	tmp = popg (n->sign);
+	gtog (n, tmp);
+	divg (d, tmp);
+	mulg (d, tmp);
+	subg (tmp, n);
 	pushg (1);
 
 	ASSERTG (n->sign == 0 || n->n[abs(n->sign)-1] != 0);
@@ -833,6 +795,36 @@ void divg (		/* n becomes n/d. n is arbitrary, but the
 	}
 
 	ASSERTG (n->sign == 0 || n->n[abs(n->sign)-1] != 0);
+}
+
+void powerg (			/* x becomes x^n, NO mod performed. */
+	giant	x,
+	giant	n)
+{
+	int 	len;
+	giant	scratch;
+
+	ASSERTG (x->sign > 0);
+
+	scratch = popg (x->sign << 1);
+	gtog (x, scratch);
+	for (len = bitlen (n) - 1; len; len--) {
+		squareg (x);
+		if (bitval (n, len-1)) mulg (scratch, x);
+	}
+	pushg (1);
+}
+
+void power (			/* x becomes x^n. */
+	giant	x,
+	int 	n)
+{
+	giant ng;
+
+	ng = popg (1);
+	itog (n, ng);
+	powerg (x, ng);
+	pushg (1);
 }
 
 void powermodg (		/* x becomes x^n (mod g). */
@@ -1505,7 +1497,8 @@ static	long	gwnumsize = 0;
 		cur_stack_size = STACK_GROW;
 		stack = (gstacknode *)
 			malloc (cur_stack_size * sizeof (gstacknode));
-		gwnumsize = (long) addr (NULL, FFTLEN-1) + 8;
+		if (FFTLEN) gwnumsize = (long) addr (NULL, FFTLEN-1) + 8;
+		else gwnumsize = 0;
 	}
 
 /* Expand the stack if we need to. */
@@ -1698,40 +1691,6 @@ void divg_via_recip (		/* n := n/d, where r is the precalculated
 	gtog (tmp2, n);
 	n->sign *= sign;
 	pushg (2);
-}
-
-void modg_via_recip (	/* This is the fastest mod of the present collection.
-			 * n := n % d, where r is the precalculated
-			 * steady-state reciprocal of d. */
-	giant 	d,
-	giant 	r,
-	giant 	n)
-{
-	int	s = (bitlen(r)-1), sign = n->sign;
-	giant 	tmp, tmp2;
-
-	ASSERTG (d->sign > 0);
-	
-	tmp = popg (n->sign + r->sign);
-	tmp2 = popg (n->sign + r->sign);
-	
-	n->sign = abs (n->sign);
-	while (1) {
-		gtogshiftright (s-1, n, tmp);
-		mulg (r, tmp);
-		gshiftright (s+1, tmp);
-		mulg (d, tmp);
-		subg (tmp, n);
-		if (gcompg (n, d) >= 0) 
-			subg (d, n);
-		if (gcompg (n, d) < 0)
-			break;
-	}
-	if (sign < 0 && n->sign) {
-		negg (n);
-		addg (d, n);
-	}
-	pushg(2);
 }
 
 
@@ -2419,11 +2378,7 @@ int ggcd (		/* A giant gcd.  Modifies its arguments. */
 
 /* Do the last few words in a brute force way */
 
-	cextgcdg (x, y, NULL);
-
-/* All done */
-
-	return (TRUE);
+	return (cextgcdg (x, y, NULL));
 }
 
 int rhgcd (	/* recursive hgcd calls accumulating extended GCD info */

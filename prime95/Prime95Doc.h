@@ -17,7 +17,8 @@ public:
 	void rangeStatus ();
 	void LineFeed ();
 	void OutputStr (char *);
-
+	void Restart1 ();
+	void Restart2 ();
 
 // Overrides
 	// ClassWizard generated virtual function overrides
@@ -54,8 +55,6 @@ protected:
 	afx_msg void OnUpdateTime(CCmdUI* pCmdUI);
 	afx_msg void OnTime();
 	afx_msg void OnRangeStatus();
-	afx_msg void OnOptionsSelftest();
-	afx_msg void OnUpdateOptionsSelftest(CCmdUI* pCmdUI);
 	afx_msg void OnPassword();
 	afx_msg void OnUpdatePassword(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateHelpFinder(CCmdUI* pCmdUI);
@@ -84,11 +83,19 @@ protected:
 	afx_msg void OnUpdateAffinity(CCmdUI* pCmdUI);
 	afx_msg void OnPminus1();
 	afx_msg void OnUpdatePminus1(CCmdUI* pCmdUI);
+	afx_msg void OnWelcome();
 	afx_msg void OnBroadcast();
+	afx_msg void OnOutputStr();
+	afx_msg void OnTitle();
+	afx_msg void OnHelpFinder();
+	afx_msg void OnUnreserve();
+	afx_msg void OnUpdateUnreserve(CCmdUI* pCmdUI);
+	afx_msg void OnUpdateVacation(CCmdUI* pCmdUI);
+	afx_msg void OnUpdateQuit(CCmdUI* pCmdUI);
+	afx_msg void OnBenchmark();
+	afx_msg void OnUpdateBenchmark(CCmdUI* pCmdUI);
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };
 
 /////////////////////////////////////////////////////////////////////////////
-
-extern CPrime95Doc *OUTPUT_STR_HACK;

@@ -138,62 +138,135 @@ void Service95 ()
 
 /* Call RegisterServiceProcess in the Kernel */
 
-	hlib = LoadLibrary ("KERNEL32.DLL");
-	if (!hlib) {
-		OutputStr ("Unable to load KERNEL32.DLL\n");
-		return;
+	if (isWindows95 ()) {
+		hlib = LoadLibrary ("KERNEL32.DLL");
+		if (!hlib) {
+			OutputStr ("Unable to load KERNEL32.DLL\n");
+			return;
+		}
+		proc = (DWORD (__stdcall *)(DWORD, DWORD))
+			GetProcAddress (hlib, "RegisterServiceProcess");
+		if (proc == NULL)
+			OutputStr ("Unable to find RegisterServiceProcess\n");
+		else {
+			if (WINDOWS95_SERVICE)
+				rc = (*proc) (NULL, RSP_SIMPLE_SERVICE);
+			else
+				rc = (*proc) (NULL, RSP_UNREGISTER_SERVICE);
+			if (!rc)
+				OutputStr ("RegisterServiceProcess failed\n");
+		}
+		FreeLibrary (hlib);
 	}
-	proc = (DWORD (__stdcall *)(DWORD, DWORD))
-		GetProcAddress (hlib, "RegisterServiceProcess");
-	if (proc == NULL)
-		OutputStr ("Unable to find RegisterServiceProcess\n");
-	else {
-		if (WINDOWS95_SERVICE)
-			rc = (*proc) (NULL, RSP_SIMPLE_SERVICE);
-		else
-			rc = (*proc) (NULL, RSP_UNREGISTER_SERVICE);
-		if (!rc)
-			OutputStr ("RegisterServiceProcess failed\n");
-	}
-	FreeLibrary (hlib);
 
 /* Make sure the registry has an entry to run the service */
+/* For Windows 95/98/Me create a RunServices entry */
+/* For Windows NT/2000/XP create a Run entry for the local machine or current user */
 
 	HKEY	hkey;
 	DWORD	disposition;
 
-	if (RegCreateKeyEx (
-			HKEY_LOCAL_MACHINE,
-			"Software\\Microsoft\\Windows\\CurrentVersion\\RunServices",
-			0,
-			NULL,
-			REG_OPTION_NON_VOLATILE,
-			KEY_ALL_ACCESS,
-			NULL,
-			&hkey,
-			&disposition) != ERROR_SUCCESS) {
-		OutputStr ("Can't create registry key.\n");
-		return;
+	if (isWindows95 ()) {
+		if (RegCreateKeyEx (
+				HKEY_LOCAL_MACHINE,
+				"Software\\Microsoft\\Windows\\CurrentVersion\\RunServices",
+				0,
+				NULL,
+				REG_OPTION_NON_VOLATILE,
+				KEY_ALL_ACCESS,
+				NULL,
+				&hkey,
+				&disposition) != ERROR_SUCCESS) {
+			OutputStr ("Can't create registry key.\n");
+			return;
+		}
+	} else {
+		if (RegCreateKeyEx (
+				HKEY_LOCAL_MACHINE,
+				"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+				0,
+				NULL,
+				REG_OPTION_NON_VOLATILE,
+				KEY_ALL_ACCESS,
+				NULL,
+				&hkey,
+				&disposition) != ERROR_SUCCESS &&
+		    RegCreateKeyEx (
+				HKEY_CURRENT_USER,
+				"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+				0,
+				NULL,
+				REG_OPTION_NON_VOLATILE,
+				KEY_ALL_ACCESS,
+				NULL,
+				&hkey,
+				&disposition) != ERROR_SUCCESS) {
+			OutputStr ("Can't create registry key.\n");
+			return;
+		}
 	}
+
+/* We create a different entry for each -A command line value */
+
+	char prog[20];
+	if (WINDOWS95_A_SWITCH < 0)
+		strcpy (prog, "Prime95");
+	else
+		sprintf (prog, "Prime95-%d", WINDOWS95_A_SWITCH);
+
+/* Now create or delete an entry for prime95 */
 
 	if (WINDOWS95_SERVICE) {
 		char	buf[256];
 		GetModuleFileName (NULL, buf, sizeof (buf));
-		rc = RegSetValueEx (hkey,"Prime95", 0, REG_SZ,
+		if (WINDOWS95_A_SWITCH >= 0) {
+			char	append[20];
+			sprintf (append, " -A%d", WINDOWS95_A_SWITCH);
+			strcat (buf, append);
+		}
+		rc = RegSetValueEx (hkey, prog, 0, REG_SZ,
 				    (BYTE *) buf, strlen (buf) + 1);
 	} else
-		rc = RegDeleteValue (hkey, "Prime95");
+		rc = RegDeleteValue (hkey, prog);
 	if (rc != ERROR_SUCCESS)
 		OutputStr ("Can't write registry value.\n");
-
 	RegCloseKey (hkey);
+
+/* Now delete and shortcuts to the program.  We do this so that as users upgrade */
+/* from version 20 and try this menu choice they do not end up with both a registry */
+/* entry and a StartUp menu shortcut. */
+
+	if (WINDOWS95_SERVICE) {
+		char	buf[256];
+		DWORD	type;
+		DWORD	bufsize = sizeof (buf);
+
+		if (RegCreateKeyEx (
+				HKEY_CURRENT_USER,
+				"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders",
+				0,
+				NULL,
+				REG_OPTION_NON_VOLATILE,
+				KEY_ALL_ACCESS,
+				NULL,
+				&hkey,
+				&disposition) != ERROR_SUCCESS)
+			return;
+		if (RegQueryValueEx (hkey, "Startup", NULL, &type,
+				(BYTE *) buf, &bufsize) == ERROR_SUCCESS &&
+		    type == REG_SZ) {
+			strcat (buf, "\\prime95.lnk");
+			_unlink (buf);
+		}
+		RegCloseKey (hkey);
+	}
 }
 
 void CMainFrame::OnActivateApp(BOOL bActive, HTASK hTask) 
 {
 	if (bActive && BROADCAST_MESSAGE != NULL) {
 		if (HIDE_ICON) BlinkIcon (0);
-		AfxGetApp()->m_pMainWnd->PostMessage (WM_COMMAND, IDM_BROADCAST, 0);
+		AfxGetApp()->m_pMainWnd->PostMessage (WM_COMMAND, USR_BROADCAST, 0);
 	}
 	CFrameWnd::OnActivateApp(bActive, hTask);
 }

@@ -1,0 +1,456 @@
+//Microsoft Developer Studio generated resource script.
+//
+#include "resource.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 2 resource.
+//
+#include "afxres.h"
+
+/////////////////////////////////////////////////////////////////////////////
+#undef APSTUDIO_READONLY_SYMBOLS
+
+/////////////////////////////////////////////////////////////////////////////
+// English (U.S.) resources
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
+#ifdef _WIN32
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+#pragma code_page(1252)
+#endif //_WIN32
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+
+1 TEXTINCLUDE DISCARDABLE 
+BEGIN
+    "resource.h\0"
+END
+
+2 TEXTINCLUDE DISCARDABLE 
+BEGIN
+    "#include ""afxres.h""\r\n"
+    "\0"
+END
+
+3 TEXTINCLUDE DISCARDABLE 
+BEGIN
+    "#define _AFX_NO_SPLITTER_RESOURCES\r\n"
+    "#define _AFX_NO_OLE_RESOURCES\r\n"
+    "#define _AFX_NO_TRACKER_RESOURCES\r\n"
+    "#define _AFX_NO_PROPERTY_RESOURCES\r\n"
+    "\r\n"
+    "#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)\r\n"
+    "#ifdef _WIN32\r\n"
+    "LANGUAGE 9, 1\r\n"
+    "#pragma code_page(1252)\r\n"
+    "#endif\r\n"
+    "#include ""res\\Prime95.rc2""  // non-Microsoft Visual C++ edited resources\r\n"
+    "#include ""afxres.rc""         // Standard components\r\n"
+    "#endif\0"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
+IDR_MAINFRAME           ICON    DISCARDABLE     "res\\Prime95.ico"
+IDI_YELLOW_ICON         ICON    DISCARDABLE     "res\\yellow_i.ico"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Menu
+//
+
+IDR_MAINFRAME MENU PRELOAD DISCARDABLE 
+BEGIN
+    POPUP "&Test"
+    BEGIN
+        MENUITEM "&Input Data...",              IDM_TEST
+        MENUITEM "&Continue",                   IDM_CONTINUE
+        MENUITEM "St&op",                       IDM_STOP
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit",                       ID_APP_EXIT
+    END
+    POPUP "&Options"
+    BEGIN
+        MENUITEM "&CPU...",                     IDM_CPU
+        MENUITEM "&Preferences...",             IDM_PREFERENCES
+        MENUITEM SEPARATOR
+        MENUITEM "Tray &Icon",                  IDM_TRAY
+        MENUITEM "&No Icon",                    IDM_HIDE
+        MENUITEM "&Windows Me/98/95 Service",   IDM_SERVICE, CHECKED
+        MENUITEM SEPARATOR
+        MENUITEM "&Round off checking",         IDM_ERRCHK, CHECKED
+        MENUITEM "Priorit&y...",                IDM_PRIORITY
+        MENUITEM "&Affinity...",                IDM_AFFINITY
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&Contents...",                ID_HELP_CONTENTS
+        MENUITEM "&About PRP...",               ID_APP_ABOUT
+    END
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Accelerator
+//
+
+IDR_MAINFRAME ACCELERATORS PRELOAD MOVEABLE PURE 
+BEGIN
+    VK_ESCAPE,      IDM_STOP,               VIRTKEY, NOINVERT
+    VK_F1,          ID_HELP,                VIRTKEY, NOINVERT
+    VK_F1,          ID_CONTEXT_HELP,        VIRTKEY, SHIFT, NOINVERT
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_ABOUTBOX DIALOG DISCARDABLE  0, 0, 238, 63
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "About Prp"
+FONT 8, "MS Sans Serif"
+BEGIN
+    ICON            IDR_MAINFRAME,IDC_STATIC,11,17,18,20
+    LTEXT           "Probable Prime Tests - Version 2.1.0",IDC_STATIC,40,12,
+                    137,8,SS_NOPREFIX
+    LTEXT           "Copyright © 2000-2001 Just For Fun Software, Inc.",
+                    IDC_STATIC,39,22,177,8
+    DEFPUSHBUTTON   "OK",IDOK,199,7,32,14,WS_GROUP
+    LTEXT           "Author: George Woltman",IDC_STATIC,39,32,128,8
+    LTEXT           "Email:  woltman@alum.mit.edu",IDC_STATIC,39,42,161,8
+END
+
+IDD_TEST DIALOGEX 0, 0, 304, 162
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Test Data"
+FONT 8, "MS Sans Serif"
+BEGIN
+    CONTROL         "Numbers pre-factored by NewPGEN",IDC_WORK_PGEN,"Button",
+                    BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,7,7,158,10
+    CONTROL         "An &expression",IDC_WORK_EXPR,"Button",
+                    BS_AUTORADIOBUTTON,7,65,146,10
+    CONTROL         "A &file of expressions",IDC_WORK_EXPRFILE,"Button",
+                    BS_AUTORADIOBUTTON,7,113,146,10
+    EDITTEXT        IDC_PGEN_INPUT,130,18,102,12,ES_AUTOHSCROLL,
+                    WS_EX_ACCEPTFILES
+    EDITTEXT        IDC_PGEN_OUTPUT,130,33,102,12,ES_AUTOHSCROLL,
+                    WS_EX_ACCEPTFILES
+    EDITTEXT        IDC_PGEN_LINE,130,48,102,12
+    EDITTEXT        IDC_EXPR,41,79,217,31,ES_MULTILINE | ES_AUTOVSCROLL | 
+                    ES_AUTOHSCROLL
+    EDITTEXT        IDC_EXPRFILE,130,127,102,12,ES_AUTOHSCROLL,
+                    WS_EX_ACCEPTFILES
+    EDITTEXT        IDC_EXPRFILE_LINE,130,143,102,12
+    DEFPUSHBUTTON   "OK",IDOK,247,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,247,24,50,14
+    LTEXT           "&Input file (from NewPGEN):",IDS_PGEN_INPUT,41,20,86,11
+    LTEXT           "&Starting line number:",IDS_PGEN_LINE,41,48,87,11
+    LTEXT           "Output file (for proth.exe):",IDS_PGEN_OUTPUT,41,34,86,
+                    11
+    LTEXT           "&Input file:",IDS_EXPRFILE,41,129,68,10
+    LTEXT           "&Starting line number:",IDS_EXPRFILE_LINE,41,143,87,11
+END
+
+IDD_CPU DIALOG DISCARDABLE  0, 0, 158, 105
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "CPU Type and Speed"
+FONT 8, "MS Sans Serif"
+BEGIN
+    CONTROL         "Pentium &4",IDC_P4,"Button",BS_AUTORADIOBUTTON | 
+                    WS_GROUP | WS_TABSTOP,7,17,52,10
+    CONTROL         "P&entium III",IDC_PIII,"Button",BS_AUTORADIOBUTTON,7,27,
+                    52,10
+    CONTROL         "Pentiu&m II",IDC_PII,"Button",BS_AUTORADIOBUTTON,7,37,
+                    52,10
+    CONTROL         "Ce&leron",IDC_CELERON,"Button",BS_AUTORADIOBUTTON,7,47,
+                    52,10
+    CONTROL         "Pentium P&ro",IDC_PRO,"Button",BS_AUTORADIOBUTTON,7,57,
+                    51,10
+    CONTROL         "&Pentium",IDC_PENTIUM,"Button",BS_AUTORADIOBUTTON,7,67,
+                    50,10
+    CONTROL         "4&86",IDC_486,"Button",BS_AUTORADIOBUTTON,7,77,48,10
+    CONTROL         "&Athlon",IDC_K7,"Button",BS_AUTORADIOBUTTON,62,16,35,10
+    CONTROL         "&K6",IDC_K6,"Button",BS_AUTORADIOBUTTON,62,26,31,10
+    CONTROL         "&6x86",IDC_CYRIX,"Button",BS_AUTORADIOBUTTON,62,56,41,
+                    10
+    EDITTEXT        IDC_P,91,87,34,12
+    DEFPUSHBUTTON   "OK",IDOK,101,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,101,24,50,14
+    LTEXT           "Cyrix",IDC_STATIC,62,45,44,10
+    LTEXT           "&CPU speed (in MHz):",IDC_STATIC,7,89,81,10
+    LTEXT           "Intel",IDC_STATIC,7,7,34,9
+    LTEXT           "AMD",IDC_STATIC,62,7,34,10
+END
+
+IDD_PREFERENCES DIALOG DISCARDABLE  0, 0, 240, 98
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Preferences"
+FONT 8, "MS Sans Serif"
+BEGIN
+    EDITTEXT        IDC_P,135,7,42,12
+    EDITTEXT        IDC_R_ITER,135,20,42,12
+    EDITTEXT        IDC_DISK,135,33,42,12
+    CONTROL         "Cumulative &Timings",IDC_CUMULATIVE,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,7,52,107,10
+    CONTROL         "&Create Two Backup Files",IDC_BACKUP,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,7,67,107,10
+    CONTROL         "Run program even when using laptop &battery power",
+                    IDC_BATTERY,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,81,
+                    203,10
+    DEFPUSHBUTTON   "OK",IDOK,183,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,183,24,50,14
+    LTEXT           "Iterations between &screen outputs:",IDC_STATIC,7,9,112,
+                    10
+    LTEXT           "Minutes between &disk writes:",IDC_STATIC,7,35,92,10
+    LTEXT           "Iterations between &results file outputs:",IDC_STATIC,7,
+                    22,121,10
+END
+
+IDD_PRIORITY DIALOG DISCARDABLE  0, 0, 221, 121
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Set Priority"
+FONT 8, "MS Sans Serif"
+BEGIN
+    EDITTEXT        IDC_PRIORITY,39,95,40,14,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,164,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,164,24,50,14
+    LTEXT           "Priority:",IDC_STATIC,7,98,22,8
+    LTEXT           "Pick a priority between 1 and 10 where 1 is the lowest priority and 10 is the highest.  Screen savers run at priority 4.  Most applications run at priority 9.",
+                    IDC_STATIC,7,7,151,35
+    LTEXT           "It is strongly recommended that you use the default priority of 1.  This program is unlikely to run any faster at a higher priority.",
+                    IDC_STATIC,7,43,202,19
+    LTEXT           "The only time you should raise the priority is when another process, such as a screen saver, is stealing CPU cycles from this program.",
+                    IDC_STATIC,7,66,200,26
+END
+
+IDD_AFFINITY DIALOG DISCARDABLE  0, 0, 221, 97
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Set Processor Affinity"
+FONT 8, "MS Sans Serif"
+BEGIN
+    CONTROL         "Let program run on &any CPU",IDC_ALL_CPUS,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,7,63,107,10
+    EDITTEXT        IDC_AFFINITY,85,76,40,13,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,164,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,164,24,50,14
+    LTEXT           "On multi-CPU systems, performance will be enhanced if you assign each instance of the program to run on a specific CPU.",
+                    -1,7,7,151,25
+    LTEXT           "For example, if you have a dual-CPU machine, run one instance of PRP on CPU 0, run another instance on CPU 1.",
+                    -1,7,33,156,26
+    LTEXT           "Specific &CPU to run on:",IDC_AFFINITY_TEXT,7,78,75,8
+END
+
+IDD_CONTENTS DIALOG DISCARDABLE  0, 0, 282, 201
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Contents"
+FONT 8, "MS Sans Serif"
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,225,7,50,14
+    EDITTEXT        IDC_HELP_TEXT,7,26,268,168,ES_MULTILINE | ES_READONLY | 
+                    WS_VSCROLL
+END
+
+
+#ifndef _MAC
+/////////////////////////////////////////////////////////////////////////////
+//
+// Version
+//
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 2,1,0,0
+ PRODUCTVERSION 2,1,0,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x4L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "\0"
+            VALUE "FileDescription", "PRP Application\0"
+            VALUE "FileVersion", "2, 1, 0, 0\0"
+            VALUE "InternalName", "PRP\0"
+            VALUE "LegalCopyright", "Copyright © 2000-2001\0"
+            VALUE "OriginalFilename", "PRP.EXE\0"
+            VALUE "ProductName", "PRP Application\0"
+            VALUE "ProductVersion", "2, 1, 0, 0\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
+
+#endif    // !_MAC
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO DISCARDABLE 
+BEGIN
+    IDD_ABOUTBOX, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 231
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 56
+    END
+
+    IDD_TEST, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 297
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 155
+    END
+
+    IDD_CPU, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 151
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 99
+    END
+
+    IDD_PREFERENCES, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 233
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 91
+    END
+
+    IDD_PRIORITY, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 214
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 110
+    END
+
+    IDD_AFFINITY, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 214
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 89
+    END
+
+    IDD_CONTENTS, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 275
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 194
+    END
+END
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Cursor
+//
+
+IDC_CURSOR1             CURSOR  DISCARDABLE     "res\\cursor1.cur"
+IDC_CURSOR2             CURSOR  DISCARDABLE     "res\\cursor2.cur"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// String Table
+//
+
+STRINGTABLE PRELOAD DISCARDABLE 
+BEGIN
+    IDR_MAINFRAME           "Prime95\n\nPrime9\n\n\nPrime95.Document\nPrime9 Document"
+END
+
+STRINGTABLE PRELOAD DISCARDABLE 
+BEGIN
+    AFX_IDS_APP_TITLE       "Prime95"
+    AFX_IDS_IDLEMESSAGE     "For Help, press F1"
+    AFX_IDS_HELPMODEMESSAGE "Select an object on which to get Help"
+END
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    ID_APP_ABOUT            "Display program information, version number and copyright\nAbout"
+    ID_APP_EXIT             "Quit the application; prompts to save documents\nExit"
+    ID_HELP_INDEX           "Opens Help\nHelp Topics"
+    ID_HELP_FINDER          "List Help topics\nHelp Topics"
+    ID_HELP_USING           "Display instructions about how to use help\nHelp"
+    ID_CONTEXT_HELP         "Display help for clicked on buttons, menus and windows\nHelp"
+    ID_HELP                 "Display help for current task or command\nHelp"
+END
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    AFX_IDS_SCSIZE          "Change the window size"
+    AFX_IDS_SCMOVE          "Change the window position"
+    AFX_IDS_SCMINIMIZE      "Reduce the window to an icon"
+    AFX_IDS_SCMAXIMIZE      "Enlarge the window to full size"
+    AFX_IDS_SCCLOSE         "Close the active window and prompts to save the documents"
+END
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    AFX_IDS_SCRESTORE       "Restore the window to normal size"
+    AFX_IDS_SCTASKLIST      "Activate Task List"
+END
+
+#endif    // English (U.S.) resources
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#ifndef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 3 resource.
+//
+#define _AFX_NO_SPLITTER_RESOURCES
+#define _AFX_NO_OLE_RESOURCES
+#define _AFX_NO_TRACKER_RESOURCES
+#define _AFX_NO_PROPERTY_RESOURCES
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
+#ifdef _WIN32
+LANGUAGE 9, 1
+#pragma code_page(1252)
+#endif
+#include "res\Prime95.rc2"  // non-Microsoft Visual C++ edited resources
+#include "afxres.rc"         // Standard components
+#endif
+/////////////////////////////////////////////////////////////////////////////
+#endif    // not APSTUDIO_INVOKED
+

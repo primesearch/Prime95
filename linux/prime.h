@@ -50,6 +50,20 @@
 #define CARRYH	_CARRYH
 #define PLUS1	_PLUS1
 
+#define NORMRTN		_NORMRTN
+#define FFTZERO		_FFTZERO
+#define CPU_FLAGS	_CPU_FLAGS
+#define NUMLIT		_NUMLIT
+#define NUMBIG		_NUMBIG
+#define BITS_PER_WORD	_BITS_PER_WORD
+#define FFTLEN_INV	_FFTLEN_INV
+#define PROTHVALS 	_PROTHVALS
+#define ADDIN_ROW	_ADDIN_ROW
+#define ADDIN_OFFSET	_ADDIN_OFFSET
+#define ADDIN_VALUE	_ADDIN_VALUE
+#define COPYZERO	_COPYZERO
+#define POSTFFT		_POSTFFT
+
 /* Handle the difference in the way the two C compilers name routines */
 
 #define setupf	 _setupf
@@ -69,6 +83,11 @@
 #define emulmod	_emulmod
 #define fpu_init _fpu_init
 #define erdtsc	_erdtsc
+#define etwo_to_pow _etwo_to_pow
+#define esincos	_esincos
+#define esincos3 _esincos3
+#define etwo_to_pow_over_fftlen _etwo_to_pow_over_fftlen
+#define eset_mul_const _eset_mul_const
 
 /* Handle differences between Windows and Linux runtime libraries */
 
@@ -94,6 +113,14 @@
 #define _O_BINARY 	0
 #define _O_TEXT		0
 
+/* Handle differences between Windows and OS/2 runtime libraries */
+
+#ifdef __IBMC__
+#define stricmp(x,y)  stricmp(x,y)
+#define _commit(f)    /* no commit/fsync on OS/2 */
+#define _ftime        _ftime
+#endif
+
 /* The common include files */
 
 #include <time.h>
@@ -116,12 +143,14 @@ extern int (*PRIMENET)(short, void *);
 
 /* Internal routines */
 
-void main_menu ();
+void main_menu (void);
 void linuxContinue (char *);
 void Sleep (long);
+void test_user(void);
+void test_welcome(void);
 
 /* Assembly routines */
 
-void setupf ();
-int factor64 ();
+void setupf (void);
+int factor64 (void);
 

@@ -9,7 +9,8 @@
 | Commonc contains information used during setup and execution
 +---------------------------------------------------------------------*/
 
-char JUNK[]="Copyright 1996-2000 Just For Fun Software, All rights reserved";
+char JUNK[]="Copyright 1996-2001 Just For Fun Software, All rights reserved";
+
 char	INI_FILE[80] = {0};
 char	LOCALINI_FILE[80] = {0};
 char	WORKTODO_FILE[80] = {0};
@@ -34,13 +35,14 @@ unsigned int DAYS_OF_WORK = 20;
 time_t	VACATION_END = 0;
 int	ON_DURING_VACATION = 1;
 int	ADVANCED_ENABLED = 0;
-EXTERNC int volatile ERRCHK = 0;
+int volatile ERRCHK = 0;
 unsigned int PRIORITY = 1;
 unsigned int CPU_AFFINITY = 99;
 int	MANUAL_COMM = 0;
 EXTERNC unsigned int volatile CPU_TYPE = 0;
 unsigned long volatile CPU_SPEED = 0;
 unsigned int volatile CPU_HOURS = 0;
+EXTERNC unsigned int volatile CPU_FLAGS = 0;
 unsigned int volatile DAY_MEMORY = 0;
 unsigned int volatile NIGHT_MEMORY = 0;
 unsigned int volatile DAY_START_TIME = 0;
@@ -61,6 +63,7 @@ unsigned int PRECISION = 2;
 time_t	END_TIME = 0;
 time_t	SLEEP_TIME = 0;
 int	RDTSC_TIMING = 2;
+int	TIMESTAMPING = 1;
 int	CUMULATIVE_TIMING = 0;
 int	WELL_BEHAVED_WORK = 0;
 
@@ -78,8 +81,12 @@ char BLACKMSG1[] = "The PrimeNet Server has temporarily requested your computer 
 char BLACKMSG2[] = "The PrimeNet Server has permanently requested your computer not contact the server.\nTry downloading a new version from http://www.mersenne.org/freesoft.htm or contact primenet@entropia.com\n";
 
 /* Try pentium-specific instruction (RDTSC) */
+/* Try pentium pro-specific instruction (CMOV) */
+/* Try pentium III-specific instruction (ORPS) */
+/* Try pentium 4-specific instruction (ADDPD) */
 
 #if defined (__linux__) || defined (__FreeBSD__) || defined (__EMX__)
+
 #include <setjmp.h>
 int	boom;
 jmp_buf	env;
@@ -88,7 +95,7 @@ void sigboom_handler(int i)
 	boom = TRUE;
 	longjmp (env, 1);
 }
-int isPentium ()
+int isPentium (void)			/* Supports RDTSC instruction */
 {
 	boom = FALSE;
 	(void) signal (SIGILL, sigboom_handler);
@@ -97,13 +104,69 @@ int isPentium ()
 	(void) signal (SIGILL, SIG_DFL);
 	return (!boom);
 }
-#elif defined (WIN31)
-int isPentium ()
+int isPentiumPro (void)			/* Supports CMOV instruction */
 {
-	return (TRUE);
+	boom = FALSE;
+	(void) signal (SIGILL, sigboom_handler);
+	if (setjmp (env) == 0)
+		__asm__ __volatile__ (".byte 0x0F\n .byte 0x42\n .byte 0xC0\n");
+	(void) signal (SIGILL, SIG_DFL);
+	return (!boom);
 }
+int isPentiumMMX (void)			/* Supports prefetcht1 MMX inst. */
+{
+	boom = FALSE;
+	(void) signal (SIGILL, sigboom_handler);
+	if (setjmp (env) == 0)
+		__asm__ __volatile__ (".byte 0x0F\n .byte 0x18\n .byte 0x16\n");
+	(void) signal (SIGILL, SIG_DFL);
+	return (!boom);
+}
+int isPentium3 (void)			/* Supports SSE instructions */
+{
+	boom = FALSE;
+	(void) signal (SIGILL, sigboom_handler);
+	if (setjmp (env) == 0)
+		__asm__ __volatile__ (".byte 0x0F\n .byte 0x56\n .byte 0xC0\n");
+	(void) signal (SIGILL, SIG_DFL);
+	return (!boom);
+}
+int isPentium4 (void)			/* Supports SSE2 instructions */
+{
+	boom = FALSE;
+	(void) signal (SIGILL, sigboom_handler);
+	if (setjmp (env) == 0)
+		__asm__ __volatile__ (".byte 0x66\n .byte 0x0F\n .byte 0x58\n .byte 0xC0\n");
+	(void) signal (SIGILL, SIG_DFL);
+	return (!boom);
+}
+
+#elif defined (__IBMC__)
+
+int isPentium (void)
+{
+	return TRUE;
+}
+int isPentiumPro (void)
+{
+	return FALSE;
+}
+int isPentiumMMX (void)
+{
+	return FALSE;
+}
+int isPentium3 (void)
+{
+	return FALSE;
+}
+int isPentium4 (void)
+{
+	return FALSE;
+}
+
 #else
-int isPentium ()
+
+int isPentium (void)			/* Supports RDTSC instruction */
 {
 	int	rdtsc_succeeded;
 	__try {
@@ -116,28 +179,7 @@ int isPentium ()
 	}
 	return (rdtsc_succeeded);
 }
-#endif
-
-
-/* Try pentium pro-specific instruction (CMOV) */
-
-#if defined (__linux__) || defined (__FreeBSD__) || defined (__EMX__)
-int isPentiumPro ()
-{
-	boom = FALSE;
-	(void) signal (SIGILL, sigboom_handler);
-	if (setjmp (env) == 0)
-		__asm__ __volatile__ (".byte 0x0F\n .byte 0x42\n .byte 0xC0\n");
-	(void) signal (SIGILL, SIG_DFL);
-	return (!boom);
-}
-#elif defined (WIN31)
-int isPentiumPro ()
-{
-	return (TRUE);
-}
-#else
-int isPentiumPro ()
+int isPentiumPro (void)			/* Supports CMOV instruction */
 {
 	int	cmov_succeeded;
 	__try {
@@ -151,7 +193,75 @@ int isPentiumPro ()
 	}
 	return (cmov_succeeded);
 }
+int isPentiumMMX (void)			/* Supports prefetcht1 MMX inst. */
+{
+	int	prefetch_succeeded;
+	__try {
+		__asm __emit 0x0F
+		__asm __emit 0x18
+		__asm __emit 0x16
+		prefetch_succeeded = TRUE;
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		prefetch_succeeded = FALSE;
+	}
+	return (prefetch_succeeded);
+}
+int isPentium3 (void)			/* Supports SSE instructions */
+{
+	int	orps_succeeded;
+	__try {
+		__asm __emit 0x0F
+		__asm __emit 0x56
+		__asm __emit 0xC0
+		orps_succeeded = TRUE;
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		orps_succeeded = FALSE;
+	}
+	return (orps_succeeded);
+}
+int isPentium4 (void)			/* Supports SSE2 instructions */
+{
+	int	addpd_succeeded;
+	__try {
+		__asm __emit 0x66
+		__asm __emit 0x0F
+		__asm __emit 0x58
+		__asm __emit 0xC0
+		addpd_succeeded = TRUE;
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		addpd_succeeded = FALSE;
+	}
+	return (addpd_succeeded);
+}
+
 #endif
+
+/* Set the CPU flags based on the user supplied CPU type and the routines */
+/* above.  Also, the advanced user can override our guesses. */
+
+void setCpuFlags (void)
+{
+	CPU_FLAGS = 0;
+	if (IniGetInt (LOCALINI_FILE, "CpuSupportsRDTSC",
+		       CPU_TYPE >= 5 && isPentium ()))
+		CPU_FLAGS |= CPU_RDTSC;
+	if (IniGetInt (LOCALINI_FILE, "CpuSupportsCMOV",
+		       (CPU_TYPE == 6 || CPU_TYPE >= 8) && isPentiumPro ()))
+		CPU_FLAGS |= CPU_CMOV;
+	if (IniGetInt (LOCALINI_FILE, "CpuSupportsPrefetch",
+		       ((CPU_TYPE == 8 && CPU_SPEED > 533) ||
+			CPU_TYPE >= 10) && isPentiumMMX ()))
+		CPU_FLAGS |= CPU_PREFETCH;
+	if (IniGetInt (LOCALINI_FILE, "CpuSupportsSSE",
+		       (CPU_TYPE == 8 || CPU_TYPE >= 10) && isPentium3 ()))
+		CPU_FLAGS |= CPU_SSE;
+	if (IniGetInt (LOCALINI_FILE, "CpuSupportsSSE2",
+		       CPU_TYPE >= 12 && isPentium4 ()))
+		CPU_FLAGS |= CPU_SSE2;
+}
 
 /* Determine if a number is prime */
 
@@ -166,7 +276,7 @@ int isPrime (
 
 /* Return maximum available memory */
 
-unsigned int max_mem ()
+unsigned int max_mem (void)
 {
 	if (DAY_MEMORY > NIGHT_MEMORY) return (DAY_MEMORY);
 	return (NIGHT_MEMORY);
@@ -254,7 +364,7 @@ void nameIniFiles (
 
 /* Read the INI files */
 
-void readIniFiles ()
+void readIniFiles (void)
 {
 	int	change;
 	int	temp;
@@ -324,7 +434,7 @@ void readIniFiles ()
 	PRECISION = (unsigned int) IniGetInt (INI_FILE, "PercentPrecision", 2);
 	if (PRECISION > 6) PRECISION = 6;
 
-	ITER_OUTPUT = IniGetInt (INI_FILE, "OutputIterations", 100);
+	ITER_OUTPUT = IniGetInt (INI_FILE, "OutputIterations", 1000);
 	if (ITER_OUTPUT <= 0) ITER_OUTPUT = 1;
 	ITER_OUTPUT_RES = IniGetInt (INI_FILE, "ResultsFileIterations",
 				     99999999);
@@ -346,7 +456,8 @@ void readIniFiles ()
 	RUN_ON_BATTERY = (int) IniGetInt (LOCALINI_FILE, "RunOnBattery", 1);
 
 	ADVANCED_ENABLED = (int) IniGetInt (INI_FILE, "Advanced", 0);
-	ERRCHK = (int) IniGetInt (INI_FILE, "ErrorCheck", 0);
+	temp = (int) IniGetInt (INI_FILE, "ErrorCheck", 0);
+	ERRCHK = (temp != 0);
 	PRIORITY = (unsigned int) IniGetInt (INI_FILE, "Priority", 1);
 	CPU_AFFINITY = (unsigned int) IniGetInt (INI_FILE, "Affinity", 99);
 	if (CPU_AFFINITY != 99) {
@@ -364,20 +475,25 @@ void readIniFiles ()
 
 	change = FALSE;
 	if (CPU_TYPE == 0 || CPU_SPEED == 0) guessCpuType (), change = TRUE;
-	if ((CPU_TYPE == 6 || CPU_TYPE == 8 ||
-	     CPU_TYPE == 9 || CPU_TYPE == 10) && !isPentiumPro ())
+	if (CPU_TYPE == 12 && !isPentium4 ())
+		CPU_TYPE = 10, change = TRUE;
+	if ((CPU_TYPE == 6 || CPU_TYPE == 8 || CPU_TYPE == 9 ||
+	     CPU_TYPE == 10 || CPU_TYPE == 12) && !isPentiumPro ())
 		CPU_TYPE = 5, change = TRUE;
-	if (CPU_TYPE >= 5 && !isPentium ()) CPU_TYPE = 4, change = TRUE;
-	if (CPU_SPEED > 10000) CPU_SPEED = 10000, change = TRUE;
+	if (CPU_TYPE >= 5 && !isPentium ())
+		CPU_TYPE = 4, change = TRUE;
+	if (CPU_SPEED > 20000) CPU_SPEED = 20000, change = TRUE;
 	if (CPU_SPEED < 25) CPU_SPEED = 25, change = TRUE;
 	if (change) {
 		IniWriteInt (LOCALINI_FILE, "CPUType", CPU_TYPE);
 		IniWriteInt (LOCALINI_FILE, "CPUSpeed", CPU_SPEED);
 	}
+	setCpuFlags ();
 
 /* Other oddball options */
 
-	RDTSC_TIMING = IniGetInt (INI_FILE, "RdtscTiming", 2);
+	RDTSC_TIMING = IniGetInt (INI_FILE, "RdtscTiming", 1);
+	TIMESTAMPING = IniGetInt (INI_FILE, "TimeStamp", 1);
 	CUMULATIVE_TIMING = IniGetInt (INI_FILE, "CumulativeTiming", 0);
 	WELL_BEHAVED_WORK = IniGetInt (INI_FILE, "WellBehavedWork", 0);
 }
@@ -1114,7 +1230,7 @@ void hash_packet (short operation, void *pkt)
 /* Update completion dates on the server.  Set a flag in */
 /* the spool file saying this is necessary. */
 
-void UpdateEndDates ()
+void UpdateEndDates (void)
 {
 	next_comm_time = 0;
 	spoolMessage (PRIMENET_COMPLETION_DATE, NULL);
@@ -1123,7 +1239,7 @@ void UpdateEndDates ()
 /* Update completion dates on the server if it has been a */
 /* month since we last updated the server. */
 
-void ConditionallyUpdateEndDates ()
+void ConditionallyUpdateEndDates (void)
 {
 #ifndef SERVER_TESTING
 	time_t	start_time, current_time;
@@ -1544,7 +1660,7 @@ int sendMessage (
 /* It provides an extra chance that the existing results file */
 /* will get sent to us. */
 
-void spoolExistingResultsFile ()
+void spoolExistingResultsFile (void)
 {
 	int	i;
 	char	*filename;
@@ -1565,6 +1681,7 @@ void spoolExistingResultsFile ()
 			if (line[0] == '[') continue;
 			if (strstr (line, "Res64") == NULL &&
 			    strstr (line, "factor:") == NULL &&
+			    strstr (line, "completed P-1") == NULL &&
 			    strstr (line, "no factor") == NULL) continue;
 			if (line[0] == 'U' && strchr (line, ',') != NULL)
 				strcpy (line, strchr (line, ',') + 2);
@@ -1655,7 +1772,7 @@ static	time_t	last_time = 0;
 /* given double-checking assignments.  As time goes on these */
 /* values should drift upward (since LL tests become harder) */
 
-short default_work_type ()
+short default_work_type (void)
 {
 	double	speed;
 
@@ -1664,11 +1781,11 @@ short default_work_type ()
 	speed = map_fftlen_to_timing (262144, GW_MERSENNE_MOD, CPU_TYPE, CPU_SPEED) *
 			24.0 / CPU_HOURS * 1000.0 / ROLLING_AVERAGE;
 
-/* PII-300 and faster get first-time LL tests */
+/* PII-400 and faster get first-time LL tests */
 /* P-90 and faster get double-checking work */
 /* All slower machines get factoring work */
 
-	if (speed < 0.181) return (PRIMENET_ASSIGN_TEST);
+	if (speed < 0.150) return (PRIMENET_ASSIGN_TEST);
 	if (speed < 0.709) return (PRIMENET_ASSIGN_DBLCHK);
 	return (PRIMENET_ASSIGN_FACTOR);
 }
@@ -1706,7 +1823,7 @@ loop:	if (line > IniGetNumLines (WORKTODO_FILE)) return (FALSE);
 		unsigned long j;
 		char	*q;
 		w->work_type = WORK_ECM;
-		sscanf (value, "%ld,%ld,%ld,%ld,%ld",
+		sscanf (value, "%ld,%lu,%lu,%ld,%ld",
 			 &w->p, &w->B1, &w->B2_end, &w->curves_to_do,
 			 &w->curves_completed);
 		w->B2_start = w->B1;
@@ -1723,7 +1840,7 @@ loop:	if (line > IniGetNumLines (WORKTODO_FILE)) return (FALSE);
 		return (TRUE);
 	} else if (stricmp (keyword, "Pminus1") == 0) {
 		w->work_type = WORK_PMINUS1;
-		sscanf (value, "%ld,%ld,%ld,%ld,%ld",
+		sscanf (value, "%ld,%lu,%lu,%ld,%ld",
 			&w->p, &w->B1, &w->B2_end, &w->plus1, &w->B2_start);
 		if (w->B2_start < w->B1) w->B2_start = w->B1;
 		return (TRUE);
@@ -1899,7 +2016,7 @@ void checkResultsFile (
 
 /* Return the number of seconds until vacation is over */
 
-unsigned long secondsUntilVacationEnds ()
+unsigned long secondsUntilVacationEnds (void)
 {
 	time_t	current_time;
 
@@ -2052,6 +2169,7 @@ double raw_work_estimate (
 		if (CPU_TYPE <= 4) est *= REL_486_SPEED;
 		if (CPU_TYPE == 7) est *= REL_K6_SPEED;
 		if (CPU_TYPE == 11) est *= REL_K7_SPEED;
+		if (CPU_TYPE == 12) est *= REL_P4_SPEED;
 		if (w->bits >= limit) est = 0.0;
 		else if (w->bits == limit-1) est *= 0.5;
 		else if (w->bits == limit-2) est *= 0.75;
@@ -2239,10 +2357,47 @@ fail:	_close (fd);
 }
 
 
+/* Unreserve an exponent */
+
+void unreserve (
+	unsigned long p)
+{
+	struct primenetAssignmentResult pkt;
+	unsigned int i;
+
+/* Build a packet and spool message */
+
+	memset (&pkt, 0, sizeof (pkt));
+	pkt.exponent = p;
+	pkt.resultType = PRIMENET_RESULT_UNRESERVE;
+	spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
+
+/* Find exponent in worktodo.ini and delete it if present */
+
+	IniFileOpen (WORKTODO_FILE, 0);
+	for (i = 1; ; i++) {
+		struct work_unit temp;
+
+/* Read the line of the work file */
+
+		if (! parseWorkToDoLine (i, &temp)) break;
+
+/* Skip the line if exponent is not a match */
+
+		if (p != temp.p) continue;
+
+/* Delete the line */
+
+		IniDeleteLine (WORKTODO_FILE, i);
+		break;
+	}
+	IniFileClose (WORKTODO_FILE);
+}
+
 /* Send any queued up messages to the server.  See if we have enough */
 /* work queued up.  If we have too much work, give some back */
 
-int communicateWithServer ()
+int communicateWithServer (void)
 {
 static	int	msgs_to_send = 0;/* 0 = no messages, 0x1 = messages */
 				/* 0x2 = critical messages */
@@ -2291,7 +2446,7 @@ static	int	msgs_to_send = 0;/* 0 = no messages, 0x1 = messages */
 		unsigned long id, hi, lo;
 		srand ((unsigned) time (NULL));
 		id = ((unsigned long) rand () << 16) + rand ();
-		if (CPU_TYPE >= 5) { rdtsc (&hi,&lo); id += lo; }
+		if (CPU_FLAGS & CPU_RDTSC) { rdtsc (&hi,&lo); id += lo; }
 		sprintf (COMPID, "C%08X", id);
 		IniWriteString (LOCALINI_FILE, "ComputerID", COMPID);
 		spoolMessage (PRIMENET_SET_COMPUTER_INFO, NULL);
@@ -2610,9 +2765,12 @@ loop:	time (&this_time);
 /* If we just returned all work to the server, enter manual mode */
 /* and exit - the user is quitting GIMPS */
 
-	if (header_byte & 0x10) {
+	if (header_byte & 0x10 ||
+	    (IniGetInt (INI_FILE, "NoMoreWork", 0) &&
+	     IniGetNumLines (WORKTODO_FILE) == 0)) {
 		USE_PRIMENET = 0;
 		IniWriteInt (INI_FILE, "UsePrimenet", 0);
+		IniWriteInt (INI_FILE, "NoMoreWork", 0);
 		GIMPS_QUIT = 1;
 		OutputSomewhere ("Successfully quit GIMPS.\n");
 		goto exit;
@@ -2643,6 +2801,7 @@ loop:	time (&this_time);
 	retries = 0;
 	while (!have_enough_work &&
 	       est_is_accurate &&
+	       ! IniGetInt (INI_FILE, "NoMoreWork", 0) &&
 	       IniGetNumLines (WORKTODO_FILE) < (unsigned int)
 			IniGetInt (INI_FILE, "MaxExponents", 20)) {
 		struct primenetGetAssignment pkt1;
@@ -2700,7 +2859,8 @@ loop:	time (&this_time);
 						WORK_TEST : WORK_DBLCHK;
 		w.p = pkt1.exponent;
 		w.bits = (unsigned int) pkt1.how_far_factored;
-		w.pminus1ed = 0;
+		/* Kludge that uses 0.5 to indicate P-1 factoring has been done */
+		w.pminus1ed = (pkt1.how_far_factored - (double) w.bits) == 0.5;
 		new_est = est + work_estimate (&w);
 
 /* Acknowledge the exponent by sending a projected completion date */
@@ -2771,8 +2931,8 @@ exit_or_loop:
 		unsigned int retry_time;
 		retry_time = (rc == PRIMENET_ERROR_MODEM_OFF) ?
 			MODEM_RETRY_TIME : NETWORK_RETRY_TIME;
-		sprintf (buf, "Will try contacting server again in %d minutes.\n",
-			 retry_time);
+		sprintf (buf, "Will try contacting server again in %d %s.\n",
+			 retry_time, retry_time == 1 ? "minute" : "minutes");
 		OutputStr (buf);
 		next_comm_time = this_time + 60 * retry_time;
 	}
