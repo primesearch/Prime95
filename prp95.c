@@ -21,6 +21,20 @@ int isWindows95 (void)
 	return (FALSE);
 }
 
+/* Is this Windows 2000 or a later Windows NT version? */
+
+int isWindows2000 ()
+{
+	OSVERSIONINFO info;
+
+	info.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
+	if (GetVersionEx (&info)) {
+		return (info.dwPlatformId == VER_PLATFORM_WIN32_NT &&
+			info.dwMajorVersion >= 5);
+	}
+	return (FALSE);
+}
+
 /* Set the thread priority correctly */
 
 void SetPriority (void)

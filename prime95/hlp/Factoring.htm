@@ -1,291 +1,543 @@
-<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-	<head>
-		<title>Factoring</title>
-		<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
-		<meta name="ProgId" content="Word.Document">
-		<meta name="Generator" content="Microsoft Word 9">
-		<meta name="Originator" content="Microsoft Word 9">
-		<link rel="File-List" href="./Factoring_files/filelist.xml"> <!--[if gte mso 9]><xml>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+xmlns:w="urn:schemas-microsoft-com:office:word"
+xmlns:x="urn:schemas-microsoft-com:office:excel"
+xmlns="http://www.w3.org/TR/REC-html40">
+	
+
+<head>
+<meta http-equiv=Content-Type content="text/html; charset=windows-1252">
+<meta name=ProgId content=Word.Document>
+<meta name=Generator content="Microsoft Word 9">
+<meta name=Originator content="Microsoft Word 9">
+<link rel=File-List href="./Factoring_files/filelist.xml">
+<title>Factoring</title>
+<!--[if gte mso 9]><xml>
  <o:DocumentProperties>
   <o:Author>enduser</o:Author>
-  <o:LastAuthor>RavvinGe</o:LastAuthor>
-  <o:Revision>12</o:Revision>
-  <o:TotalTime>21</o:TotalTime>
+  <o:LastAuthor>George Woltman</o:LastAuthor>
+  <o:Revision>13</o:Revision>
+  <o:TotalTime>22</o:TotalTime>
   <o:Created>2001-07-06T03:53:00Z</o:Created>
-  <o:LastSaved>2002-05-21T14:28:00Z</o:LastSaved>
+  <o:LastSaved>2003-05-01T20:31:00Z</o:LastSaved>
   <o:Pages>2</o:Pages>
   <o:Words>735</o:Words>
-  <o:Characters>4195</o:Characters>
+  <o:Characters>4191</o:Characters>
   <o:Lines>34</o:Lines>
   <o:Paragraphs>8</o:Paragraphs>
-  <o:CharactersWithSpaces>5151</o:CharactersWithSpaces>
-  <o:Version>9.4402</o:Version>
+  <o:CharactersWithSpaces>5146</o:CharactersWithSpaces>
+  <o:Version>9.3821</o:Version>
  </o:DocumentProperties>
-</xml><![endif]-->  <!--[if gte mso 9]><xml>
+</xml><![endif]--><!--[if gte mso 9]><xml>
  <w:WordDocument>
   <w:Zoom>88</w:Zoom>
  </w:WordDocument>
 </xml><![endif]-->
-			<style> <!-- /* Font Definitions */ @font-face {font-family:"MS Mincho"; panose-1:2 2 6 9 4 2 5 8 3 4; mso-font-alt:"\FF2D\FF33 \660E\671D"; mso-font-charset:128; mso-generic-font-family:modern; mso-font-pitch:fixed; mso-font-signature:-1610612033 1757936891 16 0 131231 0;}
-	@font-face {font-family:"\@MS Mincho"; panose-1:2 2 6 9 4 2 5 8 3 4; mso-font-charset:128; mso-generic-font-family:modern; mso-font-pitch:fixed; mso-font-signature:-1610612033 1757936891 16 0 131231 0;}
-	@font-face {font-family:"Arial Unicode MS"; panose-1:2 11 6 4 2 2 2 2 2 4; mso-font-charset:128; mso-generic-font-family:swiss; mso-font-pitch:variable; mso-font-signature:-1 -369098753 63 0 4129023 0;}
-	@font-face {font-family:"\@Arial Unicode MS"; mso-font-charset:128; mso-generic-font-family:swiss; mso-font-pitch:variable; mso-font-signature:-1 -369098753 63 0 4129023 0;}
-	/* Style Definitions */ p.MsoNormal, li.MsoNormal, div.MsoNormal {mso-style-parent:""; margin:0in; margin-bottom:.0001pt; mso-pagination:widow-orphan; font-size:12.0pt; font-family:"Times New Roman"; mso-fareast-font-family:"Times New Roman";}
-	h4 {margin-right:0in; mso-margin-top-alt:auto; mso-margin-bottom-alt:auto; margin-left:0in; mso-pagination:widow-orphan; mso-outline-level:4; font-size:12.0pt; font-family:"Arial Unicode MS"; font-weight:bold;}
-	p.MsoBodyTextIndent, li.MsoBodyTextIndent, div.MsoBodyTextIndent {margin-top:0in; margin-right:0in; margin-bottom:0in; margin-left:45.8pt; margin-bottom:.0001pt; mso-pagination:widow-orphan; tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt; font-size:10.0pt; font-family:"Times New Roman"; mso-fareast-font-family:"MS Mincho"; color:black;}
-	a:link, span.MsoHyperlink {color:blue; text-decoration:underline; text-underline:single;}
-	a:visited, span.MsoHyperlinkFollowed {color:purple; text-decoration:underline; text-underline:single;}
-	p.MsoPlainText, li.MsoPlainText, div.MsoPlainText {margin:0in; margin-bottom:.0001pt; mso-pagination:widow-orphan; font-size:10.0pt; font-family:"Courier New"; mso-fareast-font-family:"Times New Roman";}
-	p {margin-right:0in; mso-margin-top-alt:auto; mso-margin-bottom-alt:auto; margin-left:0in; mso-pagination:widow-orphan; font-size:12.0pt; font-family:"Arial Unicode MS";}
-	pre {margin:0in; margin-bottom:.0001pt; mso-pagination:widow-orphan; tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt; font-size:10.0pt; font-family:"Arial Unicode MS";}
-	@page Section1 {size:8.5in 11.0in; margin:1.0in 1.25in 1.0in 1.25in; mso-header-margin:.5in; mso-footer-margin:.5in; mso-paper-source:0;}
-	div.Section1 {page:Section1;}
-	--></style>
-	</head>
-	<body lang="EN-US" link="blue" vlink="purple" style='tab-interval:.5in'>
-		<div class="Section1">
-			<p class="MsoPlainText"><b><span style="FONT-SIZE:16pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'"><U>FACTORING 
-							DETAILS</U></span></b><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
-				</span></p>
-			<p class="MsoPlainText"><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"></span><span style="mso-fareast-font-family:
-'MS Mincho'"><o:p></o:p>
-				</span>&nbsp;</p>
-			<h4><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">Forming a list<o:p></o:p></span></h4>
-			<p style='MARGIN:0in 0in 0pt'><span style="FONT-SIZE:10pt;
-COLOR:black;
-FONT-FAMILY:'Times New Roman';
-mso-fareast-font-family:'MS Mincho'">In
-dealing with Mersenne numbers, it is easy to <a href="http://www.utm.edu/research/primes/notes/proofs/Theorem2.html"><span style='COLOR:black;TEXT-DECORATION:none;text-underline:none'>prove</span></a>
-that if 2<sup>P</sup>-1 is prime, then P must be a prime. Thus, the first step
-in the search is to create a list of prime exponents to test.<o:p></o:p></span></p>
-			<h4><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">Trial Factoring<o:p></o:p></span></h4>
-			<p><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">The next step is to eliminate exponents by finding a
+<style>
+<!--
+ /* Font Definitions */
+@font-face
+	{font-family:"MS Mincho";
+	panose-1:2 2 6 9 4 2 5 8 3 4;
+	mso-font-alt:"\FF2D\FF33 \660E\671D";
+	mso-font-charset:128;
+	mso-generic-font-family:modern;
+	mso-font-pitch:fixed;
+	mso-font-signature:-1610612033 1757936891 16 0 131231 0;}
+@font-face
+	{font-family:"\@MS Mincho";
+	panose-1:2 2 6 9 4 2 5 8 3 4;
+	mso-font-charset:128;
+	mso-generic-font-family:modern;
+	mso-font-pitch:fixed;
+	mso-font-signature:-1610612033 1757936891 16 0 131231 0;}
+@font-face
+	{font-family:"Arial Unicode MS";
+	mso-font-charset:128;
+	mso-generic-font-family:swiss;
+	mso-font-pitch:variable;
+	mso-font-signature:-1 -369098753 63 0 4129023 0;}
+@font-face
+	{font-family:"\@Arial Unicode MS";
+	mso-font-charset:128;
+	mso-generic-font-family:swiss;
+	mso-font-pitch:variable;
+	mso-font-signature:-1 -369098753 63 0 4129023 0;}
+ /* Style Definitions */
+p.MsoNormal, li.MsoNormal, div.MsoNormal
+	{mso-style-parent:"";
+	margin:0in;
+	margin-bottom:.0001pt;
+	mso-pagination:widow-orphan;
+	font-size:12.0pt;
+	font-family:"Times New Roman";
+	mso-fareast-font-family:"Times New Roman";}
+h4
+	{margin-right:0in;
+	mso-margin-top-alt:auto;
+	mso-margin-bottom-alt:auto;
+	margin-left:0in;
+	mso-pagination:widow-orphan;
+	mso-outline-level:4;
+	font-size:12.0pt;
+	font-family:"Arial Unicode MS";
+	font-weight:bold;}
+p.MsoBodyTextIndent, li.MsoBodyTextIndent, div.MsoBodyTextIndent
+	{margin-top:0in;
+	margin-right:0in;
+	margin-bottom:0in;
+	margin-left:45.8pt;
+	margin-bottom:.0001pt;
+	mso-pagination:widow-orphan;
+	tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt;
+	font-size:10.0pt;
+	font-family:"Times New Roman";
+	mso-fareast-font-family:"MS Mincho";
+	color:black;}
+a:link, span.MsoHyperlink
+	{color:blue;
+	text-decoration:underline;
+	text-underline:single;}
+a:visited, span.MsoHyperlinkFollowed
+	{color:purple;
+	text-decoration:underline;
+	text-underline:single;}
+p.MsoPlainText, li.MsoPlainText, div.MsoPlainText
+	{margin:0in;
+	margin-bottom:.0001pt;
+	mso-pagination:widow-orphan;
+	font-size:10.0pt;
+	font-family:"Courier New";
+	mso-fareast-font-family:"Times New Roman";}
+p
+	{margin-right:0in;
+	mso-margin-top-alt:auto;
+	mso-margin-bottom-alt:auto;
+	margin-left:0in;
+	mso-pagination:widow-orphan;
+	font-size:12.0pt;
+	font-family:"Arial Unicode MS";}
+pre
+	{margin:0in;
+	margin-bottom:.0001pt;
+	mso-pagination:widow-orphan;
+	tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt;
+	font-size:10.0pt;
+	font-family:"Arial Unicode MS";}
+@page Section1
+	{size:8.5in 11.0in;
+	margin:1.0in 1.25in 1.0in 1.25in;
+	mso-header-margin:.5in;
+	mso-footer-margin:.5in;
+	mso-paper-source:0;}
+div.Section1
+	{page:Section1;}
+-->
+</style>
+</head>
+
+	
+
+<body lang=EN-US link=blue vlink=purple style='tab-interval:.5in'>
+
+<div class=Section1>
+
+<p class=MsoPlainText><b><u><span style='font-size:16.0pt;mso-bidi-font-size:
+10.0pt;font-family:"Times New Roman";mso-fareast-font-family:"MS Mincho";
+color:black'>FACTORING DETAILS</span></u></b><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'> <o:p></o:p></span></p>
+
+<p class=MsoPlainText>&nbsp;<span style='mso-fareast-font-family:"MS Mincho"'><o:p></o:p></span></p>
+
+<h4><span style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>Forming a list<o:p></o:p></span></h4>
+
+<p style='margin:0in;margin-bottom:.0001pt'><span style='font-size:10.0pt;
+font-family:"Times New Roman";mso-fareast-font-family:"MS Mincho";color:black'>In
+dealing with Mersenne numbers, it is easy to <a
+href="http://www.utm.edu/research/primes/notes/proofs/Theorem2.html"><span
+style='color:black;text-decoration:none;text-underline:none'>prove</span></a>
+that if 2<sup>P</sup>-1 is prime, then P must be a prime. Thus, the first step in
+the search is to create a list of prime exponents to test.<o:p></o:p></span></p>
+
+<h4><span style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>Trial Factoring<o:p></o:p></span></h4>
+
+<p><span style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>The next step is to eliminate exponents by finding a
 small factor. There are very efficient algorithms for determining if a number
-divides 2<sup>P</sup>-1. For example, let's see if 47 divides 2<sup>23</sup>-1.<span style="mso-spacerun: yes">&nbsp; </span>Convert the exponent 23 to binary, you get
+divides 2<sup>P</sup>-1. For example, let's see if 47 divides 2<sup>23</sup>-1.<span
+style="mso-spacerun: yes">  </span>Convert the exponent 23 to binary, you get
 10111. Starting with 1, repeatedly square, remove the top bit of the exponent
 and if 1 multiply squared value by 2, then compute the remainder upon division
 by 47. <o:p></o:p></span></p>
-			<table border="1" cellspacing="0" cellpadding="0" style='BORDER-RIGHT:medium none;
- BORDER-TOP:medium none;
- MARGIN-LEFT:17.6pt;
- BORDER-LEFT:medium none;
- BORDER-BOTTOM:medium none;
- BORDER-COLLAPSE:collapse;
- mso-border-top-alt:solid black 1.5pt;
- mso-border-bottom-alt:solid black 1.5pt;
- mso-padding-alt:0in 0in 0in 0in'>
-				<tr style='HEIGHT:24pt'>
-					<td width="81" nowrap valign="bottom" height="32">
-						<p class="MsoNormal"><![if !supportEmptyParas]><![endif]>&nbsp;<b><span style="FONT-SIZE:10pt;COLOR:white;mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
-								</span></b></p>
-					</td>
-					<td width="64" nowrap valign="bottom" height="32">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;COLOR:white;mso-fareast-font-family:'MS Mincho'">Remove<o:p></o:p></span></p>
-					</td>
-					<td width="88" nowrap valign="bottom" height="32">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;COLOR:white;mso-fareast-font-family:'MS Mincho'">Optional<o:p></o:p></span></p>
-					</td>
-					<td width="47" nowrap valign="bottom" height="32">
-						<p class="MsoNormal"><![if !supportEmptyParas]><![endif]>&nbsp;<span style="FONT-SIZE:10pt;COLOR:white;mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
-							</span></p>
-					</td>
-				</tr>
-				<tr style='HEIGHT:8.25pt'>
-					<td width="81" nowrap valign="bottom" height="11">
-						<p class="MsoNormal"><b><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">Square<o:p></o:p></span></b></p>
-					</td>
-					<td width="64" nowrap valign="bottom" height="11">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">top bit<o:p></o:p></span></p>
-					</td>
-					<td width="88" nowrap valign="bottom" height="11">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">mul by 2<o:p></o:p></span></p>
-					</td>
-					<td width="47" nowrap valign="bottom" height="11">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">mod 47<o:p></o:p></span></p>
-					</td>
-				</tr>
-				<tr style='HEIGHT:10.5pt'>
-					<td width="81" nowrap valign="bottom" height="14">
-						<p class="MsoNormal"><b><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">------------<o:p></o:p></span></b></p>
-					</td>
-					<td width="64" nowrap valign="bottom" height="14">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">-------<o:p></o:p></span></p>
-					</td>
-					<td width="88" nowrap valign="bottom" height="14">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">-------------<o:p></o:p></span></p>
-					</td>
-					<td width="47" nowrap valign="bottom" height="14">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">------<o:p></o:p></span></p>
-					</td>
-				</tr>
-				<tr style='HEIGHT:15pt'>
-					<td width="81" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><b><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">1*1 = 1<o:p></o:p></span></b></p>
-					</td>
-					<td width="64" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">1<span style="mso-spacerun: yes">&nbsp; </span>0111<o:p></o:p></span></p>
-					</td>
-					<td width="88" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">1*2 = 2<o:p></o:p></span></p>
-					</td>
-					<td width="47" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">2<o:p></o:p></span></p>
-					</td>
-				</tr>
-				<tr style='HEIGHT:15pt'>
-					<td width="81" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><b><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">2*2 = 4<o:p></o:p></span></b></p>
-					</td>
-					<td width="64" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">0<span style="mso-spacerun: yes">&nbsp;&nbsp; </span>111<o:p></o:p></span></p>
-					</td>
-					<td width="88" nowrap valign="bottom" height="20">
-						<p class="MsoNormal" style='MARGIN-LEFT:-1.15pt'><span style="FONT-SIZE:10pt;
-  mso-fareast-font-family:'MS Mincho'">no<o:p></o:p></span></p>
-					</td>
-					<td width="47" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">4<o:p></o:p></span></p>
-					</td>
-				</tr>
-				<tr style='HEIGHT:15pt'>
-					<td width="81" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><b><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">4*4 = 16<o:p></o:p></span></b></p>
-					</td>
-					<td width="64" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">1<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp; </span>11<o:p></o:p></span></p>
-					</td>
-					<td width="88" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">16*2 = 32<o:p></o:p></span></p>
-					</td>
-					<td width="47" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">32<o:p></o:p></span></p>
-					</td>
-				</tr>
-				<tr style='HEIGHT:15pt'>
-					<td width="81" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><b><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">32*32 = 1024<o:p></o:p></span></b></p>
-					</td>
-					<td width="64" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">1<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp; </span>1<o:p></o:p></span></p>
-					</td>
-					<td width="88" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">1024*2 = 2048<o:p></o:p></span></p>
-					</td>
-					<td width="47" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">27<o:p></o:p></span></p>
-					</td>
-				</tr>
-				<tr style='HEIGHT:15pt'>
-					<td width="81" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><b><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">27*27 = 729<o:p></o:p></span></b></p>
-					</td>
-					<td width="64" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">1<o:p></o:p></span></p>
-					</td>
-					<td width="88" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">729*2 = 1458<o:p></o:p></span></p>
-					</td>
-					<td width="47" nowrap valign="bottom" height="20">
-						<p class="MsoNormal"><span style="FONT-SIZE:10pt;mso-fareast-font-family:'MS Mincho'">1<o:p></o:p></span></p>
-					</td>
-				</tr>
-			</table>
-			<p class="MsoNormal" style='tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p class="MsoNormal" style='tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;mso-fareast-font-family:'MS Mincho'">Thus,
+
+<table border=1 cellspacing=0 cellpadding=0 style='margin-left:17.6pt;
+ border-collapse:collapse;border:none;mso-border-top-alt:solid black 1.5pt;
+ mso-border-bottom-alt:solid black 1.5pt;mso-padding-alt:0in 0in 0in 0in'>
+ <tr style='height:24.0pt'>
+  <td width=81 nowrap valign=bottom style='width:60.75pt;padding:0in 0in 0in 0in;
+  height:24.0pt'>
+  <p class=MsoNormal>&nbsp;<b><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho";color:white'> <o:p></o:p></span></b></p>
+  </td>
+  <td width=64 nowrap valign=bottom style='width:48.0pt;padding:0in 0in 0in 0in;
+  height:24.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho";color:white'>Remove<o:p></o:p></span></p>
+  </td>
+  <td width=88 nowrap valign=bottom style='width:66.0pt;padding:0in 0in 0in 0in;
+  height:24.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho";color:white'>Optional<o:p></o:p></span></p>
+  </td>
+  <td width=47 nowrap valign=bottom style='width:35.25pt;padding:0in 0in 0in 0in;
+  height:24.0pt'>
+  <p class=MsoNormal>&nbsp;<span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho";color:white'> <o:p></o:p></span></p>
+  </td>
+ </tr>
+ <tr style='height:8.25pt'>
+  <td width=81 nowrap valign=bottom style='width:60.75pt;padding:0in 0in 0in 0in;
+  height:8.25pt'>
+  <p class=MsoNormal><b><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>Square<o:p></o:p></span></b></p>
+  </td>
+  <td width=64 nowrap valign=bottom style='width:48.0pt;padding:0in 0in 0in 0in;
+  height:8.25pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>top bit<o:p></o:p></span></p>
+  </td>
+  <td width=88 nowrap valign=bottom style='width:66.0pt;padding:0in 0in 0in 0in;
+  height:8.25pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>mul by 2<o:p></o:p></span></p>
+  </td>
+  <td width=47 nowrap valign=bottom style='width:35.25pt;padding:0in 0in 0in 0in;
+  height:8.25pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>mod 47<o:p></o:p></span></p>
+  </td>
+ </tr>
+ <tr style='height:10.5pt'>
+  <td width=81 nowrap valign=bottom style='width:60.75pt;padding:0in 0in 0in 0in;
+  height:10.5pt'>
+  <p class=MsoNormal><b><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>------------<o:p></o:p></span></b></p>
+  </td>
+  <td width=64 nowrap valign=bottom style='width:48.0pt;padding:0in 0in 0in 0in;
+  height:10.5pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>-------<o:p></o:p></span></p>
+  </td>
+  <td width=88 nowrap valign=bottom style='width:66.0pt;padding:0in 0in 0in 0in;
+  height:10.5pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>-------------<o:p></o:p></span></p>
+  </td>
+  <td width=47 nowrap valign=bottom style='width:35.25pt;padding:0in 0in 0in 0in;
+  height:10.5pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>------<o:p></o:p></span></p>
+  </td>
+ </tr>
+ <tr style='height:15.0pt'>
+  <td width=81 nowrap valign=bottom style='width:60.75pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><b><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>1*1 = 1<o:p></o:p></span></b></p>
+  </td>
+  <td width=64 nowrap valign=bottom style='width:48.0pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>1<span style="mso-spacerun: yes">  </span>0111<o:p></o:p></span></p>
+  </td>
+  <td width=88 nowrap valign=bottom style='width:66.0pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>1*2 = 2<o:p></o:p></span></p>
+  </td>
+  <td width=47 nowrap valign=bottom style='width:35.25pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>2<o:p></o:p></span></p>
+  </td>
+ </tr>
+ <tr style='height:15.0pt'>
+  <td width=81 nowrap valign=bottom style='width:60.75pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><b><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>2*2 = 4<o:p></o:p></span></b></p>
+  </td>
+  <td width=64 nowrap valign=bottom style='width:48.0pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>0<span style="mso-spacerun: yes">   </span>111<o:p></o:p></span></p>
+  </td>
+  <td width=88 nowrap valign=bottom style='width:66.0pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal style='margin-left:-1.15pt'><span style='font-size:10.0pt;
+  mso-fareast-font-family:"MS Mincho"'>no<o:p></o:p></span></p>
+  </td>
+  <td width=47 nowrap valign=bottom style='width:35.25pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>4<o:p></o:p></span></p>
+  </td>
+ </tr>
+ <tr style='height:15.0pt'>
+  <td width=81 nowrap valign=bottom style='width:60.75pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><b><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>4*4 = 16<o:p></o:p></span></b></p>
+  </td>
+  <td width=64 nowrap valign=bottom style='width:48.0pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>1<span style="mso-spacerun: yes">    </span>11<o:p></o:p></span></p>
+  </td>
+  <td width=88 nowrap valign=bottom style='width:66.0pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>16*2 = 32<o:p></o:p></span></p>
+  </td>
+  <td width=47 nowrap valign=bottom style='width:35.25pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>32<o:p></o:p></span></p>
+  </td>
+ </tr>
+ <tr style='height:15.0pt'>
+  <td width=81 nowrap valign=bottom style='width:60.75pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><b><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>32*32 = 1024<o:p></o:p></span></b></p>
+  </td>
+  <td width=64 nowrap valign=bottom style='width:48.0pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>1<span style="mso-spacerun: yes">     </span>1<o:p></o:p></span></p>
+  </td>
+  <td width=88 nowrap valign=bottom style='width:66.0pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>1024*2 = 2048<o:p></o:p></span></p>
+  </td>
+  <td width=47 nowrap valign=bottom style='width:35.25pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>27<o:p></o:p></span></p>
+  </td>
+ </tr>
+ <tr style='height:15.0pt'>
+  <td width=81 nowrap valign=bottom style='width:60.75pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><b><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>27*27 = 729<o:p></o:p></span></b></p>
+  </td>
+  <td width=64 nowrap valign=bottom style='width:48.0pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>1<o:p></o:p></span></p>
+  </td>
+  <td width=88 nowrap valign=bottom style='width:66.0pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>729*2 = 1458<o:p></o:p></span></p>
+  </td>
+  <td width=47 nowrap valign=bottom style='width:35.25pt;padding:0in 0in 0in 0in;
+  height:15.0pt'>
+  <p class=MsoNormal><span style='font-size:10.0pt;mso-fareast-font-family:
+  "MS Mincho"'>1<o:p></o:p></span></p>
+  </td>
+ </tr>
+</table>
+
+<p class=MsoNormal style='tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;mso-fareast-font-family:"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p class=MsoNormal style='tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;mso-fareast-font-family:"MS Mincho";color:black'>Thus,
 2<sup>23</sup> = 1 mod 47. Subtract 1 from both sides. 2<sup>23</sup>-1 = 0 mod
 47. Since we've shown that 47 is a factor, 2<sup>23</sup>-1 is not prime. <o:p></o:p></span></p>
-			<p style='MARGIN:0in 0in 0pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p style='MARGIN:0in 0in 0pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">One very nice property of Mersenne numbers is that any
+
+<p style='margin:0in;margin-bottom:.0001pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p style='margin:0in;margin-bottom:.0001pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>One very nice property of Mersenne numbers is that any
 factor q of 2<sup>P</sup>-1 must be of the form 2kp+1. Furthermore, q must be 1
-or 7 mod 8. A <a href="http://www.utm.edu/research/primes/notes/proofs/MerDiv.html"><span style='COLOR:black;TEXT-DECORATION:none;text-underline:none'>proof</span></a>
+or 7 mod 8. A <a
+href="http://www.utm.edu/research/primes/notes/proofs/MerDiv.html"><span
+style='color:black;text-decoration:none;text-underline:none'>proof</span></a>
 is available. Finally, an efficient program can take advantage of the fact that
-any potential factor q must be prime.<span style="mso-spacerun: yes">&nbsp;
-</span>The GIMPS factoring code creates a modified <a href="http://www.utm.edu/research/primes/glossary/SieveOfEratosthenes.html">
-						<span style='COLOR:black;TEXT-DECORATION:none;text-underline:none'>sieve of
+any potential factor q must be prime.<span style="mso-spacerun: yes"> 
+</span>The GIMPS factoring code creates a modified <a
+href="http://www.utm.edu/research/primes/glossary/SieveOfEratosthenes.html"><span
+style='color:black;text-decoration:none;text-underline:none'>sieve of
 Eratosthenes</span></a> with each bit representing a potential 2kp+1 factor.
 The sieve then eliminates any potential factors that are divisible by prime
 numbers below 40,000 or so. Also, bits representing potential factors of 3 or 5
 mod 8 are cleared. This process eliminates roughly 95% of potential factors.
 The remaining potential factors are tested using the powering algorithm above.<o:p></o:p></span></p>
-			<p style='MARGIN:0in 0in 0pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p style='MARGIN:0in 0in 0pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">Now the only question remaining is how much trial factoring
-should be done? The answer depends on three variables: the cost of factoring,
-the chance of finding a factor, and the cost of a primality test. The formula
-used is: <o:p></o:p></span></p>
-			<pre><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]>&nbsp;<![endif]><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">factoring_cost &lt; chance_of_finding_factor * 2 * primality_test_cost<o:p></o:p></span></pre>
-			<p class="MsoNormal" style='MARGIN-LEFT:0.75in;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p class="MsoNormal" style='tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;mso-fareast-font-family:'MS Mincho'">That
+
+<p style='margin:0in;margin-bottom:.0001pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p style='margin:0in;margin-bottom:.0001pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>Now the only question remaining is how much trial
+factoring should be done? The answer depends on three variables: the cost of
+factoring, the chance of finding a factor, and the cost of a primality test.
+The formula used is: <o:p></o:p></span></p>
+
+<pre><span style='font-family:"Times New Roman";mso-fareast-font-family:"MS Mincho";
+color:black'><![if !supportEmptyParas]>&nbsp;<![endif]><o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>factoring_cost &lt; chance_of_finding_factor * 2 * primality_test_cost<o:p></o:p></span></pre>
+
+<p class=MsoNormal style='margin-left:.75in;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;mso-fareast-font-family:"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p class=MsoNormal style='tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;mso-fareast-font-family:"MS Mincho";color:black'>That
 is, the time spent factoring must be less than the expected time saved. If a
 factor is found we can avoid running both the first-time and double-check
-primality tests. <br style='mso-special-character:line-break'><![if !supportLineBreakNewLine]><br style='mso-special-character:line-break'><![endif]><o:p></o:p></span></p>
-			<p class="MsoNormal" style='tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;mso-fareast-font-family:'MS Mincho'">Looking
+primality tests. <br style='mso-special-character:line-break'>
+<![if !supportLineBreakNewLine]><br style='mso-special-character:line-break'>
+<![endif]><o:p></o:p></span></p>
+
+<p class=MsoNormal style='tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;mso-fareast-font-family:"MS Mincho";color:black'>Looking
 at past factoring data we see that the chance of finding a factor between 2<sup>X</sup>
 and 2<sup>X+1 </sup>is about 1/x. The factoring cost and primality test costs
 are computed by timing the program. At present, the program trial factors to
 these limits: <o:p></o:p></span></p>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]>&nbsp;<![endif]><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Exponents<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp; </span>Trial<o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">up to<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>factored to<o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">---------<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp; </span>-----------<o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">3960000<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>2<sup>60</sup><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">5160000<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;</span>2<sup>61</sup><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">6515000<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>2<sup>62</sup><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">8250000<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>2<sup>63</sup><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">13380000<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>2<sup>64</sup><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">17850000<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>2<sup>65</sup><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">21590000<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>2<sup>66</sup><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">28130000<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>2<sup>67</sup><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">35100000<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>2<sup>68</sup><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">44150000<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>2<sup>69</sup><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">57020000<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><sup><span style="mso-spacerun: yes">&nbsp;</span></sup>2<sup>70</sup><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">71000000<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>2<sup>71</sup><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.25in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">79300000<span style="mso-spacerun: yes">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>2<sup>72</sup><o:p></o:p></span></pre>
-			<pre style='MARGIN-LEFT:0.5in'><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]>&nbsp;<![endif]><o:p></o:p></span></pre>
-			<h4 style='tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">P-1 Factoring<o:p></o:p></span></h4>
-			<p style='MARGIN:0in 0in 0pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">There is another factoring method that GIMPS uses to
+
+<pre style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'><![if !supportEmptyParas]>&nbsp;<![endif]><o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>Exponents<span style="mso-spacerun: yes">    </span>Trial<o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>up to<span style="mso-spacerun: yes">        </span>factored to<o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>---------<span style="mso-spacerun: yes">    </span>-----------<o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>3960000<span style="mso-spacerun: yes">         </span>2<sup>60</sup><o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>5160000<span style="mso-spacerun: yes">         </span>2<sup>61</sup><o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>6515000<span style="mso-spacerun: yes">         </span>2<sup>62</sup><o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>8250000<span style="mso-spacerun: yes">         </span>2<sup>63</sup><o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>13380000<span style="mso-spacerun: yes">       </span>2<sup>64</sup><o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>17850000<span style="mso-spacerun: yes">       </span>2<sup>65</sup><o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>21590000<span style="mso-spacerun: yes">       </span>2<sup>66</sup><o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>28130000<span style="mso-spacerun: yes">       </span>2<sup>67</sup><o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>35100000<span style="mso-spacerun: yes">       </span>2<sup>68</sup><o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>44150000<span style="mso-spacerun: yes">       </span>2<sup>69</sup><o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>57020000<span style="mso-spacerun: yes">      </span><sup><span style="mso-spacerun: yes"> </span></sup>2<sup>70</sup><o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>71000000<span style="mso-spacerun: yes">       </span>2<sup>71</sup><o:p></o:p></span></pre><pre
+style='margin-left:.25in'><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'>79300000<span style="mso-spacerun: yes">       </span>2<sup>72</sup><o:p></o:p></span></pre><pre
+style='margin-left:.5in'><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'><![if !supportEmptyParas]>&nbsp;<![endif]><o:p></o:p></span></pre>
+
+<h4 style='tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>P-1 Factoring<o:p></o:p></span></h4>
+
+<p style='margin:0in;margin-bottom:.0001pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>There is another factoring method that GIMPS uses to
 find factors and thereby avoid costly primality tests. This method is called
-Pollard's (P-1) method. If q is a factor of a number, then the <a href="http://www2.netdoor.com/~acurry/mersenne/archive1/0303.html"><span style='COLOR:black;TEXT-DECORATION:none;text-underline:none'>P-1 method</span></a>
+Pollard's (P-1) method. If q is a factor of a number, then the <a
+href="http://www2.netdoor.com/~acurry/mersenne/archive1/0303.html"><span
+style='color:black;text-decoration:none;text-underline:none'>P-1 method</span></a>
 will find the factor q if q-1 is highly composite - that is it has nothing but
-small factors.<span style="mso-spacerun: yes">&nbsp; </span>This method when adapted
+small factors.<span style="mso-spacerun: yes">  </span>This method when adapted
 to Mersenne numbers is even more effective. Remember, that the factor q is of
 the form 2kp+1. It is easy to modify the P-1 method such that it will find the
 factor q whenever k is highly composite.<o:p></o:p></span></p>
-			<p style='MARGIN:0in 0in 0pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p style='MARGIN:0in 0in 0pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">The P-1 method is quite simple. First, pick a bound
+
+<p style='margin:0in;margin-bottom:.0001pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p style='margin:0in;margin-bottom:.0001pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>The P-1 method is quite simple. First, pick a bound
 B1. P-1 will find the factor q as long as all factors of k are less than B1 (k
 is called B1-smooth). Second, compute E - the product of all primes less than
 B1. Third, compute x = 3E*2*P. Finally, check the GCD (x-1, 2<sup>P</sup>-1) to
 see if a factor was found.<o:p></o:p></span></p>
-			<p style='MARGIN:0in 0in 0pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p style='MARGIN:0in 0in 0pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">There is an enhancement to Pollard's algorithm that
+
+<p style='margin:0in;margin-bottom:.0001pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p style='margin:0in;margin-bottom:.0001pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>There is an enhancement to Pollard's algorithm that
 uses a second bound B2 and will find the factor q if k has just one factor
 between B1 and B2 and all remaining factors are below B1.<o:p></o:p></span></p>
-			<p style='MARGIN:0in 0in 0pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p style='MARGIN:0in 0in 0pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">GIMPS has used this method to find some impressive
+
+<p style='margin:0in;margin-bottom:.0001pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p style='margin:0in;margin-bottom:.0001pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>GIMPS has used this method to find some impressive
 factors. For example: <o:p></o:p></span></p>
-			<pre><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><span style='mso-tab-count:1'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><o:p></o:p></span></pre>
-			<pre><span
-style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><span style='mso-tab-count:1'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>2<sup>2944999</sup>-1 is divisible by 314584703073057080643101377.<o:p></o:p></span></pre>
-			<pre><span
-style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><span style='mso-tab-count:1'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>314584703073057080643101377 is 2 * 53409984701702289312 * 2944999 + 1.<o:p></o:p></span></pre>
-			<pre><span
-style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><span style='mso-tab-count:1'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>The value k, 53409984701702289312, is very smooth:<o:p></o:p></span></pre>
-			<pre><span
-style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><span style='mso-tab-count:1'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>53409984701702289312 = 25 * 3 * 19 * 947 * 7187 * 62297 * 69061<o:p></o:p></span></pre>
-			<p style='MARGIN:0in 0in 0pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p style='MARGIN:0in 0in 0pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">So how does GIMPS intelligently choose B1 and B2? We
+
+<pre><span style='font-family:"Times New Roman";mso-fareast-font-family:"MS Mincho";
+color:black'><span style='mso-tab-count:1'>                  </span><o:p></o:p></span></pre><pre><span
+style='font-family:"Times New Roman";mso-fareast-font-family:"MS Mincho";
+color:black'><span style='mso-tab-count:1'>                  </span>2<sup>2944999</sup>-1 is divisible by 314584703073057080643101377.<o:p></o:p></span></pre><pre><span
+style='font-family:"Times New Roman";mso-fareast-font-family:"MS Mincho";
+color:black'><span style='mso-tab-count:1'>                  </span>314584703073057080643101377 is 2 * 53409984701702289312 * 2944999 + 1.<o:p></o:p></span></pre><pre><span
+style='font-family:"Times New Roman";mso-fareast-font-family:"MS Mincho";
+color:black'><span style='mso-tab-count:1'>                  </span>The value k, 53409984701702289312, is very smooth:<o:p></o:p></span></pre><pre><span
+style='font-family:"Times New Roman";mso-fareast-font-family:"MS Mincho";
+color:black'><span style='mso-tab-count:1'>                  </span>53409984701702289312 = 2^5 * 3 * 19 * 947 * 7187 * 62297 * 69061<o:p></o:p></span></pre>
+
+<p style='margin:0in;margin-bottom:.0001pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p style='margin:0in;margin-bottom:.0001pt;tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>So how does GIMPS intelligently choose B1 and B2? We
 use a variation of the formula used in trial factoring. We must maximize: <o:p></o:p></span></p>
-			<pre><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><span style='mso-tab-count:2'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><o:p></o:p></span></pre>
-			<pre><span
-style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><span style='mso-tab-count:1'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span>chance_of_finding_factor * 2 * primality_test_cost - factoring_cost<o:p></o:p></span></pre>
-			<p style='tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span style="FONT-SIZE:10pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-fareast-font-family:'MS Mincho'">The chance of finding a factor and the factoring cost
+
+<pre><span style='font-family:"Times New Roman";mso-fareast-font-family:"MS Mincho";
+color:black'><span style='mso-tab-count:2'>                                    </span><o:p></o:p></span></pre><pre><span
+style='font-family:"Times New Roman";mso-fareast-font-family:"MS Mincho";
+color:black'><span style='mso-tab-count:1'>                  </span>chance_of_finding_factor * 2 * primality_test_cost - factoring_cost<o:p></o:p></span></pre>
+
+<p style='tab-stops:45.8pt 91.6pt 137.4pt 183.2pt 229.0pt 274.8pt 320.6pt 366.4pt 412.2pt 458.0pt 503.8pt 549.6pt 595.4pt 641.2pt 687.0pt 732.8pt'><span
+style='font-size:10.0pt;font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>The chance of finding a factor and the factoring cost
 both vary with different B1 and B2 values. Dickman's function (see Knuth's Art
 of Computer Programming vol. 2) is used to determine the probability of finding
 a factor that is k is B1-smooth or B1-smooth with just one factor between B1
-and B2. The program tries many values of B1 and if there is sufficient available
-memory several values of B2, selecting the B1 and B2 values that maximize the
-formula above.<o:p></o:p></span></p>
-		</div>
-	</body>
+and B2. The program tries many values of B1 and if there is sufficient
+available memory several values of B2, selecting the B1 and B2 values that
+maximize the formula above.<o:p></o:p></span></p>
+
+</div>
+
+</body>
+
 </html>

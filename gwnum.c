@@ -39,6 +39,12 @@ EXTERNC void *DEST2ARG = NULL;	/* For assembly language arg passing */
 double	fft_count = 0;		/* Count of forward and inverse FFTs */
 void	*gwnum_memory;		/* Allocated memory */
 unsigned long GW_ALIGNMENT = 0;	/* How to align allocated gwnums */
+unsigned long GW_ALIGNMENT_MOD = 0; /* How to align allocated gwnums */
+unsigned long PASS1_CACHE_LINES = 0; /* Cache lines grouped together in */
+				/* first pass of an SSE2 FFT. */
+
+void	*GW_BIGBUF = NULL;	/* Optional buffer to allocate gwnums in */
+unsigned long GW_BIGBUF_SIZE = 0;/* Size of the optional buffer */
 
 gwnum	*gwnum_alloc = NULL;	/* Array of allocated gwnums */
 unsigned int gwnum_alloc_count = 0; /* Count of allocated gwnums */
@@ -55,6 +61,7 @@ EXTERNC unsigned long RES=0;
 EXTERNC void gwsetup2 (void);
 EXTERNC void gwinfo1 (void);
 EXTERNC void emulmod (void);
+EXTERNC void eisvaliddouble (void);
 EXTERNC void etwo_to_pow (void);
 EXTERNC void etwo_to_pow_over_fftlen (void);
 EXTERNC void esincos (void);
@@ -73,6 +80,16 @@ unsigned long mulmod (
 	DESTARG = (void*) c;
 	emulmod ();
 	return ((unsigned long) DESTARG);
+}
+
+/* Wrapper for eisvaliddouble */
+
+int is_valid_double (
+	double d)
+{
+	SRCARG = (void *) &d;
+	eisvaliddouble ();
+	return ((int) DESTARG);
 }
 
 /* Find the power of two greater than or equal to N. */
@@ -508,7 +525,7 @@ double *build_biglit_table (
 	double	*table)		/* Pointer to the table to fill in */
 {
 	unsigned char *p;
-	unsigned long h, i, j, k, m, half_filled, gap, pass1_cache_lines;
+	unsigned long h, i, j, k, m, half_filled, gap;
 	unsigned long pfa, hlimit, haddin, mmult;
 
 /* Handle one pass FFTs differently */
@@ -556,16 +573,12 @@ double *build_biglit_table (
 	if (FFTLEN <= 32768) gap = 128;
 	else gap = 1024;
 
-	if (FFTLEN <= 1048576) pass1_cache_lines = 8;
-	else if (FFTLEN <= 2097152) pass1_cache_lines = 4;
-	else pass1_cache_lines = 2;
-
 /* Loop to build table in exactly the same order that it will be */
 /* used by the assembly code.  This is especially ugly in the PFA cases */
 
 	p = (unsigned char *) table;
 	hlimit = FFTLEN / 4 / (2*gap);
-	for (i = 0; i < gap; i += pass1_cache_lines) {
+	for (i = 0; i < gap; i += PASS1_CACHE_LINES) {
 	for (h = 0; h < hlimit; h++) {
 		if (pfa == 5) {
 			if (h < hlimit / 5) {
@@ -598,7 +611,7 @@ double *build_biglit_table (
 			haddin = h * 2 * gap;
 			mmult = FFTLEN / 4;
 		}
-	for (j = 0; j < pass1_cache_lines; j++) {
+	for (j = 0; j < PASS1_CACHE_LINES; j++) {
 	for (m = 0; m < 4; m++) {
 	for (k = 0; k < 2 * gap; k += gap) {
 		unsigned long word;
@@ -654,7 +667,14 @@ void gwsetup (
 	info = (unsigned long *) INFT;
 	mem_needed = info[3];
 	gwnum_memory = malloc (mem_needed + 4096);
-		
+
+/* Do a seemingly pointless memset! */
+/* The memset will walk through the allocated memory sequentially, which */
+/* increases the liklihood that contiguous virtual memory will map to */
+/* contiguous physical memory. */
+
+	memset (gwnum_memory, 0, mem_needed + 4096);
+
 /* Setup some useful global variables */
 
 	PARG = p;
@@ -680,17 +700,49 @@ void gwsetup (
 			(((unsigned long) gwnum_memory + 4095) & ~4095);
 //double *t1=tables;
 
-/* Determine how big the pass 2 size is.  This affects how we build */
+/* See how many 64-byte cache lines are grouped in pass 1.  This will */
+/* affect how we build the normalization tables. */
+
+		PASS1_CACHE_LINES = (info[12] & 0xFFFF);
+
+/* Determine the pass 1 & pass 2 sizes.  This affects how we build */
 /* many of the sin/cos tables. */
 
 		if (FFTLEN <= 8192) pass2_size = 1;
 		else if (FFTLEN <= 32768) pass2_size = 256;
 		else pass2_size = 2048;
+		pass1_size = FFTLEN / pass2_size;
+
+/* Allocate a table for carries.  Init with XMM_BIGVAL.  For best */
+/* distribution of data in the L2 cache, make this table contiguous */
+/* with the scratch area which is also used in the first pass.  In fact, */
+/* the high carries scratch area overlaps the scratch area. */
+
+		if (pass2_size > 1) {
+			int	i, carry_table_size;
+			double	xmm_bigval;
+			((double **)GWPROCPTRS)[15] = tables;
+			carry_table_size = FFTLEN / (pass2_size / 2);
+			xmm_bigval = 3.0 * 131072.0 * 131072.0 * 131072.0;
+			for (i = 0; i < carry_table_size; i++) *tables++ = xmm_bigval;
+			if (FFTLEN <= 524288) tables += carry_table_size;
+		}
+
+/* Reserve room for the pass 1 scratch area. */
+
+		((double**)GWPROCPTRS)[16] = tables;
+		if (FFTLEN > 524288)
+			tables = (double *) ((char *) tables + info[9]);
+
+/* Build the group muliplier normalization table.  Keep this table */
+/* contiguous with other data used in pass 1. */
+
+		((double **)GWPROCPTRS)[12] = tables;
+		tables = build_norm_table (tables, 0);
 
 /* Build sin/cos tables used in pass 1.  If FFTLEN is a power of two, */
 /* many of the sin/cos tables can be shared. */
 
-		pass1_size = FFTLEN / pass2_size;
 
 		((double **)GWPROCPTRS)[2] = tables;
 		tables = build_sin_cos_table (tables, pass1_size, 1, pass2_size == 1 ? 3 : 1);
@@ -743,11 +795,8 @@ void gwsetup (
 //			}
 		}
 
-/* Build the normalization tables.  The first table is the group normalization */
-/* multipliers.  The second table is the column normalization multipliers. */
+/* Build the column normalization multiplier table. */
 
-		((double **)GWPROCPTRS)[12] = tables;
-		tables = build_norm_table (tables, 0);
 		((double **)GWPROCPTRS)[13] = tables;
 		tables = build_norm_table (tables, 1);
 
@@ -755,18 +804,6 @@ void gwsetup (
 
 		((double **)GWPROCPTRS)[14] = tables;
 		tables = build_biglit_table (tables);
-
-/* Allocate a table for carries.  Init with XMM_BIGVAL. */
-
-		if (pass2_size > 1) {
-			int	i, carry_table_size;
-			double	xmm_bigval;
-			((double **)GWPROCPTRS)[15] = tables;
-			carry_table_size = FFTLEN / (pass2_size / 2);
-			xmm_bigval = 3.0 * 131072.0 * 131072.0 * 131072.0;
-			for (i = 0; i < carry_table_size; i++) *tables++ = xmm_bigval;
-			tables += carry_table_size;
-		}
 //{
 //char buf[80];
 //sprintf (buf, "%d, mem: %d\n", FFTLEN, (int) tables - (int) t1);
@@ -840,12 +877,30 @@ OutputBoth(buf);
 	gwnum_free = NULL;
 	gwnum_free_count = 0;
 
-/* Compute alignment for allocated data */
+/* Compute alignment for allocated data.  Strangely enough assembly */
+/* prefetching works best in pass 1 on a P4 if the data is allocated */
+/* on an odd cache line.  An optimal 31 of the 32 cache lines on a 4KB */
+/* page will be prefetchable.  Page aligned data would only prefetch */
+/* 28 of the 32 cache lines. */
 
-	if (FFTLEN <= 8192)		/* One pass */
-		GW_ALIGNMENT = 128;	/* P4 cache line alignment */
-	else				/* Two passes */
-		GW_ALIGNMENT = 4096;	/* Page alignment */
+	if (CPU_FLAGS & CPU_SSE2) {
+		if (FFTLEN <= 8192) {		/* One pass */
+			GW_ALIGNMENT = 128;	/* P4 cache line alignment */
+			GW_ALIGNMENT_MOD = 0;
+		} else if (FFTLEN <= 524288) {	/* Small two passes */
+			GW_ALIGNMENT = 4096;	/* Page alignment */
+			GW_ALIGNMENT_MOD = 0;
+		} else {			/* Large two passes */
+			GW_ALIGNMENT = 512;	/* Clmblkdst + 1 cache line */
+			GW_ALIGNMENT_MOD = 128;
+		}
+	} else {
+		if (FFTLEN <= 8192)		/* One pass */
+			GW_ALIGNMENT = 128;	/* P4 cache line alignment */
+		else				/* Two passes */
+			GW_ALIGNMENT = 4096;	/* Page alignment */
+		GW_ALIGNMENT_MOD = 0;
+	}
 }
 
 /* Cleanup any memory allocated for multi-precision math */
@@ -909,13 +964,35 @@ gwnum gwalloc (void)
 /* extra bytes to assure the data is aligned on a cache line */
 
 	size = gwnum_size (FFTLEN);
-	p = (char *) malloc (size + 32 + GW_ALIGNMENT);
-	if (p == NULL) return (NULL);
-	q = (char *) (((unsigned long) p + 32 + GW_ALIGNMENT - 1) & ~(GW_ALIGNMENT - 1));
+	if (GW_BIGBUF_SIZE >= size + 32 + GW_ALIGNMENT)
+		p = (char *) GW_BIGBUF;
+	else {
+		p = (char *) malloc (size + 32 + GW_ALIGNMENT);
+		if (p == NULL) return (NULL);
+	}
+	q = (char *) (
+		(((unsigned long) p + 32 + GW_ALIGNMENT - 1 - GW_ALIGNMENT_MOD) &
+		 ~(GW_ALIGNMENT - 1)) +
+		GW_ALIGNMENT_MOD);
+	if (GW_BIGBUF_SIZE >= size + 32 + GW_ALIGNMENT) {
+		GW_BIGBUF_SIZE -= (q + size) - (char *) GW_BIGBUF;
+		GW_BIGBUF = (void *) (q + size);
+		* (char **) (q - 32) = NULL;	/* Don't free this memory */
+	} else
+		* (char **) (q - 32) = p;	/* Ptr to free */
+
+/* Do a seemingly pointless memset!  This actual is very important. */
+/* The memset will walk through the allocated memory sequentially, which */
+/* increases the likelihood that contiguous virtual memory will map to */
+/* contiguous physical memory.  The FFTs, especially the larger ones, */
+/* optimizes L2 cache line collisions on the assumption that the FFT data */
+/* is in contiguous physical memory.  Failure to do this results in as */
+/* much as a 30% performance hit in an SSE2 2M FFT. */
+
+	memset (q, 0, size);
 
 /* Initialize the header */
 
-	* (char **) (q - 32) = p;		/* Ptr to free */
 	* (unsigned long *) (q - 8) = size;	/* Size in bytes */
 	* (unsigned long *) (q - 4) = 0;	/* Unnormalized adds count */
 	* (unsigned long *) (q - 28) = 0;	/* Has-been-pre-ffted flag */
@@ -1189,11 +1266,11 @@ unsigned long addr_offset (unsigned long fftlen, unsigned long i)
 
 		else if (fftlen <= 32768) {
 			unsigned long sets, pfa, temp;
-			sets = FFTLEN >> 10;
+			sets = fftlen >> 10;
 			i1 = i & 127; i >>= 7;
 			i2 = i & 1; i >>= 1;
 			i3 = 0;
-			for (pfa = FFTLEN; pfa > 8; pfa >>= 1);
+			for (pfa = fftlen; pfa > 8; pfa >>= 1);
 			if (pfa & 1) {		/* pfa is 5 or 7 */
 				temp = sets / pfa;
 				if (i < temp * 4) {
@@ -1217,11 +1294,11 @@ unsigned long addr_offset (unsigned long fftlen, unsigned long i)
 			addr = addr * sizeof (double);
 		} else {
 			unsigned long sets, pfa, temp;
-			sets = FFTLEN >> 13;
+			sets = fftlen >> 13;
 			i1 = i & 1023; i >>= 10;
 			i2 = i & 1; i >>= 1;
 			i3 = 0;
-			for (pfa = FFTLEN; pfa > 8; pfa >>= 1);
+			for (pfa = fftlen; pfa > 8; pfa >>= 1);
 			if (pfa & 1) {		/* pfa is 5 or 7 */
 				temp = sets / pfa;
 				if (i < temp * 4) {
@@ -1241,7 +1318,11 @@ unsigned long addr_offset (unsigned long fftlen, unsigned long i)
 			if (pfa && sets) {
 				i3 += i & (sets - 1); i /= sets;
 			}
-			addr = (((((i3 * 1090) + i1) << 2) + i) << 1) + i2;
+			if (fftlen <= 524288)
+				addr = i3 * 1090;
+			else
+				addr = i3 * (1024 + PASS1_CACHE_LINES*2);
+			addr = ((((addr + i1) << 2) + i) << 1) + i2;
 			addr = addr * sizeof (double);
 		}
 	}
@@ -1373,6 +1454,17 @@ void set_fft_value (
 	* addr (g, i) = val * ttp;
 }
 
+/* This routine checks to see if the FFT data value is valid. */
+/* It always should be valid, but hardware errors sometime generate */
+/* NaNs and infinity. */
+
+int is_valid_fft_value (
+	gwnum	g,
+	unsigned long i)
+{
+	return (is_valid_double (* addr (g, i)));
+}
+
 /* Convert a double to a gwnum */
 
 void dbltogw (double d, gwnum g)
@@ -1448,6 +1540,10 @@ unsigned long map_exponent_to_fftlen (
 	int	fft_type)
 {
 	unsigned long *info;
+
+/* Handle exponents larger than SSE2 FFTs can handle */
+
+	if (p > MAX_PRIME_SSE2) return (MAX_FFTLEN);
 
 /* Get pointer to fft info and return the FFT length */
 
@@ -1609,22 +1705,39 @@ void gwsetaddin (
 /* take place */
 
 	if (CPU_FLAGS & CPU_SSE2) {
-		unsigned long row, pass1_cache_lines;
-		if (FFTLEN <= 1048576) pass1_cache_lines = 8;
-		else if (FFTLEN <= 2097152) pass1_cache_lines = 4;
-		else pass1_cache_lines = 2;
+		unsigned long row;
 		if (FFTLEN <= 8192) {
 			row = ADDIN_OFFSET & 31;
 			if (row == 8) ADDIN_OFFSET += 8;
 			if (row == 16) ADDIN_OFFSET -= 8;
 		} else if (FFTLEN <= 32768) {
-			row = (word & 127) / pass1_cache_lines;
-			ADDIN_ROW = 128 / pass1_cache_lines - row;
-			ADDIN_OFFSET -= row * pass1_cache_lines * 64;
-		} else {
-			row = (word & 1023) / pass1_cache_lines;
-			ADDIN_ROW = 1024 / pass1_cache_lines - row;
-			ADDIN_OFFSET -= row * pass1_cache_lines * 64;
+			row = (word & 127) / PASS1_CACHE_LINES;
+			ADDIN_ROW = 128 / PASS1_CACHE_LINES - row;
+			ADDIN_OFFSET -= row * PASS1_CACHE_LINES * 64;
+		}
+
+/* Factor in the blkdst value in xfft3.mac to compute the two pass */
+/* SSE2 addin_offset. */
+
+		else {
+			row = (word & 1023) / PASS1_CACHE_LINES;
+			ADDIN_ROW = (1024 / PASS1_CACHE_LINES - row) * 256;
+			ADDIN_OFFSET -= row * PASS1_CACHE_LINES * 64;
+
+/* This case is particularly nasty as we have to convert the FFT data offset */
+/* into a scratch area offset.  In assembly language terms, this means */
+/* subtracting out multiples of blkdst and adding in multiples of clmblkdst */
+/* and clmblkdst8. */
+
+			if (FFTLEN > 524288) {
+				row = ADDIN_OFFSET /
+					(65536 + PASS1_CACHE_LINES * 128);
+				ADDIN_OFFSET -= row *
+					(65536 + PASS1_CACHE_LINES * 128);
+				ADDIN_OFFSET +=
+					row * (PASS1_CACHE_LINES * 64) +
+					(row >> 3) * 128;
+			}
 		}
 	}
 
@@ -1653,7 +1766,7 @@ void gwprothsetup (
 
 	*((unsigned long *) &PROTHVALS[3]) = addr_offset (FFTLEN, FFTLEN - 1);
 	*((unsigned long *) &PROTHVALS[4]) = (PARG - n) / bits;
-	*((unsigned long *) &PROTHVALS[5]) = ((PARG - n) / bits + 9) / 8;
+	*((unsigned long *) &PROTHVALS[5]) = ((PARG - n) / bits + 7) / 8;
 
 	temp = (n + bits - 1) / bits;
 	*((unsigned long *) &PROTHVALS[6]) = addr_offset (FFTLEN, temp + 4);

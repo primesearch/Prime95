@@ -255,9 +255,10 @@ administrator privileges):<o:p></o:p></span></p>
 
 <p class=MsoPlainText><span style='font-family:"Times New Roman";mso-fareast-font-family:
 "MS Mincho";color:black'>In this case the menu text is changed to &quot;Start
-at Logon&quot;.<span style="mso-spacerun: yes">  </span>The HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
-is created.<span style="mso-spacerun: yes">  </span>Prime95 will run only when
-you are logged in.<o:p></o:p></span></p>
+at Logon&quot;.<span style="mso-spacerun: yes">  </span>The
+HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run is
+created.<span style="mso-spacerun: yes">  </span>Prime95 will run only when you
+are logged in.<o:p></o:p></span></p>
 
 <p class=MsoPlainText style='text-indent:.5in'><span style='font-family:"Times New Roman";
 mso-fareast-font-family:"MS Mincho";color:black'>In Windows NT/2000/XP (with
@@ -267,22 +268,21 @@ administrator privileges):<o:p></o:p></span></p>
 "MS Mincho";color:black'>There are a few minor quirks when running as a
 service.<span style="mso-spacerun: yes">  </span>You shouldn't run into these
 quirks in normal operation.<span style="mso-spacerun: yes">  </span>You can
-only change this option once and it will take effect when the service is
-started or stopped.<span style="mso-spacerun: yes">  </span>You will need to
-exit prime95 running as a normal process before starting the prime95
-service.<span style="mso-spacerun: yes">  </span>Finally, the prime95 window
-will only appear on one users desktop.<span style="mso-spacerun: yes"> 
-</span>Only one prime95.exe program can be run as a service.<span
-style="mso-spacerun: yes">  </span>If you have a dual processor system you'll
-want to run two instances of prime95.<span style="mso-spacerun: yes"> 
-</span>Instead of running a second prime95 from another directory, run the
-second prime95 from the same directory with the -A1 switch and add a
-NTServiceName entry in prim0001.ini.<span style="mso-spacerun: yes"> 
-</span>Finally, if you are worried about giving users access to a GUI service
-running in the Local System account, you can turn off the &quot;Allow service
-to interact with desktop&quot; option in the services control panel applet or
-run the GUI-less NT service version available at
-http://www.mersenne.org/freesoft.htm.<span style="mso-spacerun: yes"> 
+only change this option once and it will take effect when the service is started
+or stopped.<span style="mso-spacerun: yes">  </span>You will need to exit
+prime95 running as a normal process before starting the prime95 service.<span
+style="mso-spacerun: yes">  </span>Finally, the prime95 window will only appear
+on one users desktop.<span style="mso-spacerun: yes">  </span>Only one
+prime95.exe program can be run as a service.<span style="mso-spacerun: yes"> 
+</span>If you have a dual processor system you'll want to run two instances of
+prime95.<span style="mso-spacerun: yes">  </span>Instead of running a second
+prime95 from another directory, run the second prime95 from the same directory
+with the -A1 switch (go to a DOS window and type “prime95 –A1”).<span
+style="mso-spacerun: yes">  </span>Finally, if you are worried about giving
+users access to a GUI service running in the Local System account, you can turn
+off the &quot;Allow service to interact with desktop&quot; option in the
+services control panel applet or run the GUI-less NT service version available
+at http://www.mersenne.org/freesoft.htm.<span style="mso-spacerun: yes"> 
 </span>These options are more secure than using the No Icon menu choice.<o:p></o:p></span></p>
 
 </div>

@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2002 Just For Fun Software, Inc., all rights reserved
+| Copyright 1995-2004 Just For Fun Software, Inc., all rights reserved
 | Author:  George Woltman
 | Email: woltman@alum.mit.edu
 |
@@ -12,9 +12,9 @@ char	CPU_BRAND[49] = "";
 double	CPU_SPEED = 100.0;
 EXTERNC unsigned int CPU_FLAGS = 0;
 int	CPU_L1_CACHE_SIZE = -1;
-int	CPU_L2_CACHE_SIZE = -1;
+EXTERNC int CPU_L2_CACHE_SIZE = -1;
 int	CPU_L1_CACHE_LINE_SIZE = -1;
-int	CPU_L2_CACHE_LINE_SIZE = -1;
+EXTERNC int CPU_L2_CACHE_LINE_SIZE = -1;
 int	CPU_L1_DATA_TLBS = -1;
 int	CPU_L2_DATA_TLBS = -1;
 
@@ -71,15 +71,13 @@ int canExecInstruction (
 	return (!boom);
 }
 
-#elif defined (__IBMC__)
-
-int canExecInstruction (
-	unsigned long cpu_flag)
-{
-	return TRUE;
-}
-
 #else
+
+#ifdef __WATCOMC__
+#include <excpt.h>
+#define __asm	_asm
+#define __emit	db
+#endif
 
 int canExecInstruction (
 	unsigned long cpu_flag)
@@ -316,13 +314,19 @@ void guessCpuType (void)
 					case 0x03:
 						CPU_L2_DATA_TLBS = 64;
 						break;
+					case 0x06:
 					case 0x0A:
 						CPU_L1_CACHE_SIZE = 8;
 						CPU_L1_CACHE_LINE_SIZE = 32;
 						break;
+					case 0x08:
 					case 0x0C:
 						CPU_L1_CACHE_SIZE = 16;
 						CPU_L1_CACHE_LINE_SIZE = 32;
+						break;
+					case 0x2C:
+						CPU_L1_CACHE_SIZE = 32;
+						CPU_L1_CACHE_LINE_SIZE = 64;
 						break;
 					case 0x40:
 						if (family_code == 15) {
@@ -355,6 +359,7 @@ void guessCpuType (void)
 						CPU_L2_DATA_TLBS = 64;
 						break;
 					case 0x5C:
+					case 0xB3:
 						CPU_L2_DATA_TLBS = 128;
 						break;
 					case 0x5D:
@@ -364,6 +369,7 @@ void guessCpuType (void)
 						CPU_L1_CACHE_SIZE = 8;
 						CPU_L1_CACHE_LINE_SIZE = 64;
 						break;
+					case 0x60:
 					case 0x67:
 						CPU_L1_CACHE_SIZE = 16;
 						CPU_L1_CACHE_LINE_SIZE = 64;
@@ -373,22 +379,23 @@ void guessCpuType (void)
 						CPU_L1_CACHE_LINE_SIZE = 64;
 						break;
 					case 0x39:
+					case 0x3B:
 					case 0x79:
 						CPU_L2_CACHE_SIZE = 128;
-						CPU_L2_CACHE_LINE_SIZE = 64;
+						CPU_L2_CACHE_LINE_SIZE = 128;
 						break;
 					case 0x3C:
 					case 0x7A:
 						CPU_L2_CACHE_SIZE = 256;
-						CPU_L2_CACHE_LINE_SIZE = 64;
+						CPU_L2_CACHE_LINE_SIZE = 128;
 						break;
 					case 0x7B:
 						CPU_L2_CACHE_SIZE = 512;
-						CPU_L2_CACHE_LINE_SIZE = 64;
+						CPU_L2_CACHE_LINE_SIZE = 128;
 						break;
 					case 0x7C:
 						CPU_L2_CACHE_SIZE = 1024;
-						CPU_L2_CACHE_LINE_SIZE = 64;
+						CPU_L2_CACHE_LINE_SIZE = 128;
 						break;
 					case 0x82:
 						CPU_L2_CACHE_SIZE = 256;
@@ -405,6 +412,14 @@ void guessCpuType (void)
 					case 0x85:
 						CPU_L2_CACHE_SIZE = 2048;
 						CPU_L2_CACHE_LINE_SIZE = 32;
+						break;
+					case 0x86:
+						CPU_L2_CACHE_SIZE = 512;
+						CPU_L2_CACHE_LINE_SIZE = 64;
+						break;
+					case 0x87:
+						CPU_L2_CACHE_SIZE = 1024;
+						CPU_L2_CACHE_LINE_SIZE = 64;
 						break;
 					}
 				}
@@ -449,6 +464,8 @@ void guessCpuType (void)
 				strcpy (CPU_BRAND, "Intel Pentium III Xeon processor");
 			if (model_number == 7 && CPU_L2_CACHE_SIZE == 512)
 				strcpy (CPU_BRAND, "Intel Pentium III or Pentium III Xeon processor");
+			if (model_number == 8)
+				strcpy (CPU_BRAND, "Intel Celeron 2 (Mobile/XBOX) processor");
 		}
 
 /* If we've failed to figure out the brand string, create a default. */
@@ -502,6 +519,8 @@ void guessCpuType (void)
 			Cpuid (0x80000006);
 			CPU_L2_DATA_TLBS = (CPUID_EBX >> 16) & 0xFFF;
 			CPU_L2_CACHE_SIZE = (CPUID_ECX >> 16) & 0xFFFF;
+			if (CPU_L2_CACHE_SIZE == 1) /* Workaround Duron bug */
+				CPU_L2_CACHE_SIZE = 64;
 			CPU_L2_CACHE_LINE_SIZE = CPUID_ECX & 0xFF;
 		}
 

@@ -1,4 +1,4 @@
-; Copyright 2001 Just For Fun Software, Inc., all rights reserved
+; Copyright 2001-2003 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -23,6 +23,8 @@ INCLUDE	unravel.mac
 INCLUDE xmult.mac
 INCLUDE	xlucas.mac
 INCLUDE xpass2.mac
+
+PREFETCHING = 1
 
 ;; Routines to do the last 8 levels in a two-pass FFT
 

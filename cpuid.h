@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2002 Just For Fun Software, Inc., all rights reserved
+| Copyright 1995-2003 Just For Fun Software, Inc., all rights reserved
 | Author:  George Woltman
 | Email: woltman@alum.mit.edu
 |
@@ -21,9 +21,9 @@ extern double CPU_SPEED;		/* Actual CPU Speed in MHz */
 #define CPU_MMX		0x0020
 EXTERNC unsigned int CPU_FLAGS;		/* Cpu capabilities */
 extern int CPU_L1_CACHE_SIZE;
-extern int CPU_L2_CACHE_SIZE;
+EXTERNC int CPU_L2_CACHE_SIZE;
 extern int CPU_L1_CACHE_LINE_SIZE;
-extern int CPU_L2_CACHE_LINE_SIZE;
+EXTERNC int CPU_L2_CACHE_LINE_SIZE;
 extern int CPU_L1_DATA_TLBS;
 extern int CPU_L2_DATA_TLBS;
 

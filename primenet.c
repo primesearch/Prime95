@@ -9,7 +9,7 @@
 // THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
 // PARTICULAR PURPOSE.
 //
-// Copyright (c) 1997-2002 Just for Fun Software, Entropia Inc. and
+// Copyright (c) 1997-2004 Just for Fun Software, Entropia Inc. and
 //		 Peter Hunter.
 // Used by Premission Only for Great Internet Mersenne Prime Search.
 // All Rights Reserved.
@@ -34,6 +34,9 @@
 
 #define PRIMENET_NO_ERROR 0
 
+#ifdef __WATCOMC__
+#include <types.h>
+#endif
 #include <stdlib.h>
 #include <sys/types.h>
 #include <string.h>
@@ -209,15 +212,16 @@ int pnHttpServer (char *pbuf, unsigned cbuf, char* postargs)
 	struct in_addr defaddr;
 	struct hostent *hp, def;
 	struct sockaddr_in sn;
-	int	s, res, debug;
+	int	s, res, debug, url_format;
 	char	*alist[1];
 	unsigned int count;
 	char	szProxyHost[120], szUser[50], szPass[50], *con_host;
 	unsigned short nProxyPort, con_port;
 
-/* Get debug logging flag */
+/* Get debug logging and URL format flags */
 
 	debug = IniGetInt (INIFILENAME, "Debug", 0);
+	url_format = IniGetInt (INIFILENAME, "UseFullURL", 2);
  
 /* Get the host name of the optional proxy server.  If using a proxy */
 /* server strip the optional http:// prefix. */
@@ -271,6 +275,7 @@ int pnHttpServer (char *pbuf, unsigned cbuf, char* postargs)
 
 /* Output debug info */
 
+redirect:
 	if (debug) {
 		sprintf (buf, "host = %s, port = %d\n", con_host, con_port);
 		LogMsg (buf);
@@ -319,6 +324,7 @@ int pnHttpServer (char *pbuf, unsigned cbuf, char* postargs)
 
 /* Create a socket and connect to server */
 
+rel_url:
 	if ((s = socket (hp->h_addrtype, SOCK_STREAM, 0)) < 0) {
 		if (debug) {
 			sprintf (buf, "Error in socket call: %d\n",
@@ -341,7 +347,7 @@ int pnHttpServer (char *pbuf, unsigned cbuf, char* postargs)
 /* GET method, data follows ? in URL */
 
 	strcpy (szURL, "GET ");
-	if (*szProxyHost) {
+	if (*szProxyHost || url_format) {
 		strcat (szURL, "http://");
 		strcat (szURL, szSITE);
 		strcat (szURL, ":");
@@ -408,10 +414,56 @@ int pnHttpServer (char *pbuf, unsigned cbuf, char* postargs)
 
 	closesocket (s);
 
-/* pbuf + 9 is where the message following HTTP/1.0 starts */
-/* TODO: more subtle checking here */
+/* pbuf + 9 is where the message code following HTTP/1.0 starts */
 
-	if (count <= 10 || atoi (pbuf + 9) != 200) {
+	if (count <= 10) res = -1;
+	else res = atoi (pbuf + 9);
+
+/* Some proxy servers can redirect us to another host.  These are */
+/* the 300 series of error codes.  This code probably isn't right. */
+/* We can improve it as people find problems. */
+
+	if (res >= 300 && res <= 399) {
+		char	*location, *colon;
+		location = strstr (pbuf, "Location:");
+		if (location != NULL) {
+			if (debug) LogMsg ("Attempting a redirect.\n");
+			location += 9;
+			while (isspace (*location)) location++;
+			strcpy (szProxyHost, location);
+
+/* Parse the redirection address */
+
+			if ((location[0] == 'H' || location[0] == 'h') &&
+			    (location[1] == 'T' || location[1] == 't') &&
+			    (location[2] == 'T' || location[2] == 't') &&
+			    (location[3] == 'P' || location[3] == 'p') &&
+			    location[4] == ':' && location[5] == '/' &&
+			    location[6] == '/')
+				strcpy (location, location + 7);
+			con_host = location;
+
+/* Get optional port number */
+
+			if ((colon = strchr (location, ':')) != NULL) {
+				con_port = (unsigned short) atoi (colon + 1);
+				*colon = 0;
+			} else
+				con_port = 80;
+			goto redirect;
+		}
+	}
+
+/* Any return code other than 200 is an error.  We've had problems using */
+/* both full URLs and relative URLs.  Thus, our default behavior is to try */
+/* both before giving up. */
+
+	if (res != 200) {
+		if (url_format == 2 && *szProxyHost == 0) {
+			if (debug) LogMsg ("Trying relative URL\n");
+			url_format = 0;
+			goto rel_url;
+		}
 		if (debug) LogMsg ("Return code is not 200\n");
 		return (PRIMENET_ERROR_SERVER_UNSPEC);
 	}
@@ -622,6 +674,14 @@ int format_args (char* args, short operation, void* pkt)
 
 /* skip over the token name and point to the data string */
 
+char* skip_to_pnResult (char *s)
+{
+	char	*p;
+	p = strstr (s, "pnResult=");
+	if (p == NULL) return (s + strlen (s));
+	return (p + 9);
+}
+
 char* skip_token (char *s)
 {
 	while (*s && *s != '=') s++;
@@ -654,7 +714,7 @@ int parse_page (char *buf, short operation, void *pkt)
 
 /* get result code, which is always first */
 
-	s = skip_token (buf);
+	s = skip_to_pnResult (buf);
 	if (*s == 0 || *s < '0' || *s > '9')
 		return (PRIMENET_ERROR_HTTP_BAD_PAGE);
 

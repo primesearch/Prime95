@@ -1909,6 +1909,7 @@ void addshiftedg (	/* Shift x left n words then add to g */
 		normal_addg (x, g);
 		g->sign += n;
 		g->n -= n;
+		while (g->sign && g->n[g->sign-1] == 0) g->sign--;
 		return;
 	}
 
@@ -1924,6 +1925,7 @@ void addshiftedg (	/* Shift x left n words then add to g */
 		normal_subg (x, g);
 		g->sign += n;
 		g->n -= n;
+		while (g->sign && g->n[g->sign-1] == 0) g->sign--;
 		negg (g);
 	} else {
 		g->sign += n;

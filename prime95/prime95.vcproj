@@ -26,6 +26,7 @@
 				AdditionalIncludeDirectories=".."
 				PreprocessorDefinitions="WIN32,NDEBUG,_WINDOWS"
 				StringPooling="TRUE"
+				BasicRuntimeChecks="0"
 				RuntimeLibrary="0"
 				BufferSecurityCheck="FALSE"
 				EnableFunctionLevelLinking="FALSE"
@@ -37,6 +38,7 @@
 				ProgramDataBaseFileName=".\Release/"
 				WarningLevel="3"
 				SuppressStartupBanner="TRUE"
+				DebugInformationFormat="0"
 				CompileAs="0"/>
 			<Tool
 				Name="VCCustomBuildTool"/>
@@ -50,6 +52,7 @@
 				SuppressStartupBanner="TRUE"
 				IgnoreDefaultLibraryNames="nafxcw.lib libcmt.lib"
 				DelayLoadDLLs="oleacc.dll;ole32.dll;oleaut32.dll;advapi32.dll;wininet.dll"
+				GenerateDebugInformation="FALSE"
 				ProgramDatabaseFile=".\Release/prime95.pdb"
 				GenerateMapFile="TRUE"
 				MapFileName=".\Release/prime95.map"
@@ -91,7 +94,7 @@
 				AdditionalIncludeDirectories=".."
 				PreprocessorDefinitions="WIN32;_DEBUG;_WINDOWS;GDEBUG"
 				BasicRuntimeChecks="3"
-				RuntimeLibrary="3"
+				RuntimeLibrary="2"
 				BufferSecurityCheck="TRUE"
 				UsePrecompiledHeader="3"
 				PrecompiledHeaderThrough="stdafx.h"
@@ -118,6 +121,8 @@
 				DelayLoadDLLs=""
 				GenerateDebugInformation="TRUE"
 				ProgramDatabaseFile=".\Debug/prime95.pdb"
+				GenerateMapFile="FALSE"
+				MapFileName=".\debug\prime95.map"
 				SubSystem="2"
 				EntryPointSymbol="MyWinMainCRTStartup"/>
 			<Tool
@@ -220,6 +225,9 @@
 				RelativePath=".\TimeDlg.cpp">
 			</File>
 			<File
+				RelativePath="TortureDlg.cpp">
+			</File>
+			<File
 				RelativePath=".\UnreserveDlg.cpp">
 			</File>
 			<File
@@ -288,6 +296,9 @@ makehm /h /a afxhh.h IDW_,HIDW_,0x50000 &quot;$(InputFileName)&quot; &gt;&gt; &q
 "
 						Outputs="hlp\HTMLDefines.h"/>
 				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="TortureDlg.h">
 			</File>
 			<File
 				RelativePath="prime95.h">

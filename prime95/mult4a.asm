@@ -1,4 +1,4 @@
-; Copyright 1995-2001 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2003 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -48,22 +48,15 @@ PROCP	pass1_procs4
 ;; Caller must set ecx for the proper number of complex iterations
 
 LABELP	pass1_6a_levels_fft
-b7a:	pass1_six_levels_real64_fft	;; The all real sub-section
-	add	cl, 256/2		;; U - Test loop counter
-	JNC_X	b7a			;; V - Iterate if necessary
-	lea	esi, [esi-2*dist128+dist16K];; U - Next source pointer
+	pass1_six_levels_real64_fft	;; The all real sub-section
 	JMP_X	b7c			;; V - Jump to complex sections
+
 LABELP	pass1_6_levels_fft
-b7b:	pass1_six_levels_real128_fft	;; The all real sub-section
-	add	cl, 256/2		;; U - Test loop counter
-	JNC_X	b7b			;; V - Iterate if necessary
-	lea	esi, [esi-2*dist128+2*dist16K];; U - Next source pointer
+	pass1_six_levels_real128_fft	;; The all real sub-sections
+
 LABELP	pass1_6_levels_fftp
 b7c:	mov	edx, pass1_premults	;; V - Address of the group multipliers
 b8b:	pass1_six_levels_complex_fft	;; Do an all complex sub-section
-	add	cl, 256/2		;; U - Test inner loop counter
-	JNC_X	b8b			;; V - Iterate if necessary
-	lea	esi, [esi-2*dist128+2*dist16K];; U - Next source pointer
 	lea	edx, [edx+7*PMD]	;; V - Next group pre-multipliers
 	dec	cl			;; U - Test if we are done
 	jz	short b9b		;; V - Jump if done
@@ -126,16 +119,10 @@ c9b:	ret
 ;; Caller must set ecx for the proper number of complex iterations
 
 LABELP	pass1_7_levels_fft
-b1b:	pass1_seven_levels_real256_fft	;; The all real sub-section
-	add	cl, 256/2		;; U - Test loop counter
-	JNC_X	b1b			;; V - Iterate if necessary
-	lea	esi, [esi-2*dist128+4*dist16K];; U - Next source pointer
+	pass1_seven_levels_real256_fft	;; The all real sub-section
 LABELP	pass1_7_levels_fftp
 	mov	edx, pass1_premults	;; V - Address of the group multipliers
 b2b:	pass1_seven_levels_complex_fft	;; Do an all complex sub-section
-	add	cl, 256/2		;; U - Test inner loop counter
-	JNC_X	b2b			;; V - Iterate if necessary
-	lea	esi, [esi-2*dist128+4*dist16K];; U - Next source pointer
 	lea	edx, [edx+11*PMD]	;; V - Next group pre-multipliers
 	dec	cl			;; U - Test if we are done
 	jz	short b3b		;; V - Jump if done
@@ -190,10 +177,7 @@ c3b:	ret
 ;; five_reals_fft or seven_reals_fft.
 
 LABELP	pass1_7a_levels_fft
-d1b:	pass1_seven_levels_real128_fft	;; The all real sub-section
-	add	cl, 256/2		;; U - Test loop counter
-	JNC_X	d1b			;; V - Iterate if necessary
-	lea	esi, [esi-2*dist128+2*dist16K];; U - Next source pointer
+	pass1_seven_levels_real128_fft	;; The all real sub-section
 	mov	edx, pass1_premults	;; V - Address of the group multipliers
 	push	ebx			;; U - Save ebx for caller
 	mov	ebx, 2*dist16K		;; V - Put dist32K in ebx

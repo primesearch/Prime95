@@ -1,4 +1,4 @@
-; Copyright 2001-2002 Just For Fun Software, Inc., all rights reserved
+; Copyright 2001-2003 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -18,7 +18,6 @@ INCLUDE xmult.mac
 INCLUDE memory.mac
 INCLUDE xnormal.mac
 
-blkdst	EQU	(65536+4096+128)
 blkrows	EQU	1024
 
 gwx3procs PROC NEAR
@@ -66,7 +65,7 @@ gwxadd3:
 	lea	eax, [eax+edi+1]	; Set new needs-normalize counter
 	mov	DWORD PTR [esi-28], 0	; Save has-been-FFTed flag
 	cmp	eax, extra_bits		; Is normalization needed?
-	jg	short nadd		; Yes, do a normalized add
+	jg	nadd			; Yes, do a normalized add
 	mov	[esi-4], eax		; Store needs-normalize counter
 
 ; Do an unnormalized add
@@ -93,9 +92,12 @@ uaddlp:	movapd	xmm0, [edx]		; Load second number
 	lea	esi, [esi+64]		; Next dest
 	sub	edi, 1			; Test inner counter
 	jnz	short uaddlp		; Loop if necessary
-	lea	ecx, [ecx-blkrows*64+blkdst] ; Next source
-	lea	edx, [edx-blkrows*64+blkdst] ; Next source
-	lea	esi, [esi-blkrows*64+blkdst] ; Next dest
+	lea	ecx, [ecx-blkrows*64]	; Next source
+	lea	edx, [edx-blkrows*64]	; Next source
+	lea	esi, [esi-blkrows*64]	; Next dest
+	add	ecx, pass1blkdst	; Next source
+	add	edx, pass1blkdst	; Next source
+	add	esi, pass1blkdst	; Next dest
 	sub	eax, 1			; Check loop counter
 	jnz	short uadd1		; Loop if necessary
 	pop	edi			; Restore registers
@@ -122,9 +124,12 @@ radd0:	mov	loopcount3, blkrows	; Save inner loop count
 radd2:	xnorm_op_2d addpd, noexec	; Add and normalize 8 values
 	sub	loopcount3, 1		; Decrement inner loop counter
 	JNZ_X	radd2 			; Loop til done
-	lea	ecx, [ecx-blkrows*64+blkdst]
-	lea	edx, [edx-blkrows*64+blkdst]
-	lea	esi, [esi-blkrows*64+blkdst]
+	lea	ecx, [ecx-blkrows*64]	; Next source
+	lea	edx, [edx-blkrows*64]	; Next source
+	lea	esi, [esi-blkrows*64]	; Next dest
+	add	ecx, pass1blkdst	; Next source
+	add	edx, pass1blkdst	; Next source
+	add	esi, pass1blkdst	; Next dest
 	lea	ebp, [ebp+64]		; Next set of carries
 	sub	loopcount1, 1		; Decrement outer loop counter
 	JNZ_X	radd0 			; Loop til done
@@ -143,9 +148,12 @@ nadd2:	xnorm_op_2d addpd, exec		; Add and normalize 8 values
 	add	edi, normval2		; Adjust ptr to little/big flags
 	sub	loopcount2, 1		; Decrement middle loop counter
 	JNZ_X	nadd1			; Loop til done
-	lea	ecx, [ecx-blkrows*64+blkdst]
-	lea	edx, [edx-blkrows*64+blkdst]
-	lea	esi, [esi-blkrows*64+blkdst]
+	lea	ecx, [ecx-blkrows*64]	; Next source
+	lea	edx, [edx-blkrows*64]	; Next source
+	lea	esi, [esi-blkrows*64]	; Next dest
+	add	ecx, pass1blkdst	; Next source
+	add	edx, pass1blkdst	; Next source
+	add	esi, pass1blkdst	; Next dest
 	lea	eax, [eax+128]		; Next set of group multipliers
 	lea	ebp, [ebp+64]		; Next set of carries
 	add	edi, normval3		; Adjust little/big flags ptr
@@ -189,7 +197,7 @@ clp0:	mov	eax, loopcount1		; Get list of counts
 	xnorm012_2d_part2
 clp1:	xnorm_op012_2d			; Split carries for one cache line
 	lea	esi, [esi+64]		; Next carries pointer
-	lea	ebp, [ebp+blkdst]	; Next FFT data pointer
+	add	ebp, pass1blkdst	; Next FFT data pointer
 	cmp	_NUMLIT, 0		; Don't bump group mult pointer
 	je	short cskip		; for rational FFTs
 	lea	edx, [edx+128]		; Next group multiplier
@@ -244,7 +252,7 @@ gwxsub3:
 	lea	eax, [eax+edi+1]	; Set new needs-normalize counter
 	mov	DWORD PTR [esi-28], 0	; Save has-been-FFTed flag
 	cmp	eax, extra_bits		; Is normalization needed?
-	jg	short nsub		; Yes, do a normalized subtract
+	jg	nsub			; Yes, do a normalized subtract
 	mov	[esi-4], eax		; Store needs-normalize counter
 
 ; Do an unnormalized subtract
@@ -271,9 +279,12 @@ usublp:	movapd	xmm0, [edx]		; Load second number
 	lea	esi, [esi+64]		; Next dest
 	sub	edi, 1			; Test inner counter
 	jnz	short usublp		; Loop if necessary
-	lea	ecx, [ecx-blkrows*64+blkdst] ; Next source
-	lea	edx, [edx-blkrows*64+blkdst] ; Next source
-	lea	esi, [esi-blkrows*64+blkdst] ; Next dest
+	lea	ecx, [ecx-blkrows*64]	; Next source
+	lea	edx, [edx-blkrows*64]	; Next source
+	lea	esi, [esi-blkrows*64]	; Next dest
+	add	ecx, pass1blkdst	; Next source
+	add	edx, pass1blkdst	; Next source
+	add	esi, pass1blkdst	; Next dest
 	sub	eax, 1			; Check loop counter
 	jnz	short usub1		; Loop if necessary
 	pop	edi			; Restore registers
@@ -300,9 +311,12 @@ rsub0:	mov	loopcount3, blkrows	; Save inner loop count
 rsub2:	xnorm_op_2d subpd, noexec	; Add and normalize 8 values
 	sub	loopcount3, 1		; Decrement inner loop counter
 	JNZ_X	rsub2 			; Loop til done
-	lea	ecx, [ecx-blkrows*64+blkdst]
-	lea	edx, [edx-blkrows*64+blkdst]
-	lea	esi, [esi-blkrows*64+blkdst]
+	lea	ecx, [ecx-blkrows*64]	; Next source
+	lea	edx, [edx-blkrows*64]	; Next source
+	lea	esi, [esi-blkrows*64]	; Next dest
+	add	ecx, pass1blkdst	; Next source
+	add	edx, pass1blkdst	; Next source
+	add	esi, pass1blkdst	; Next dest
 	lea	ebp, [ebp+64]		; Next set of carries
 	sub	loopcount1, 1		; Decrement outer loop counter
 	JNZ_X	rsub0 			; Loop til done
@@ -321,9 +335,12 @@ nsub2:	xnorm_op_2d subpd, exec		; Add and normalize 8 values
 	add	edi, normval2		; Adjust ptr to little/big flags
 	sub	loopcount2, 1		; Decrement middle loop counter
 	JNZ_X	nsub1			; Loop til done
-	lea	ecx, [ecx-blkrows*64+blkdst]
-	lea	edx, [edx-blkrows*64+blkdst]
-	lea	esi, [esi-blkrows*64+blkdst]
+	lea	ecx, [ecx-blkrows*64]	; Next source
+	lea	edx, [edx-blkrows*64]	; Next source
+	lea	esi, [esi-blkrows*64]	; Next dest
+	add	ecx, pass1blkdst	; Next source
+	add	edx, pass1blkdst	; Next source
+	add	esi, pass1blkdst	; Next dest
 	lea	eax, [eax+128]		; Next set of group multipliers
 	lea	ebp, [ebp+64]		; Next set of carries
 	add	edi, normval3		; Adjust little/big flags ptr
@@ -429,10 +446,14 @@ uaddsublp:
 	lea	ebp, [ebp+64]		; Next dest
 	sub	edi, 1			; Test inner counter
 	jnz	uaddsublp		; Loop if necessary
-	lea	ecx, [ecx-blkrows*64+blkdst] ; Next source
-	lea	edx, [edx-blkrows*64+blkdst] ; Next source
-	lea	esi, [esi-blkrows*64+blkdst] ; Next dest
-	lea	ebp, [ebp-blkrows*64+blkdst] ; Next dest
+	lea	ecx, [ecx-blkrows*64]	; Next source
+	lea	edx, [edx-blkrows*64]	; Next source
+	lea	esi, [esi-blkrows*64]	; Next dest
+	lea	ebp, [ebp-blkrows*64]	; Next dest
+	add	ecx, pass1blkdst	; Next source
+	add	edx, pass1blkdst	; Next source
+	add	esi, pass1blkdst	; Next dest
+	add	ebp, pass1blkdst	; Next dest
 	sub	eax, 1			; Check loop counter
 	JNZ_X	uaddsub1		; Loop if necessary
 	pop	ebp			; Restore registers
@@ -471,10 +492,14 @@ ras0:	mov	loopcount3, blkrows	; Save inner loop count
 ras2:	xnorm_addsub_2d noexec		; Add and normalize 8 values
 	sub	loopcount3, 1		; Decrement inner loop counter
 	JNZ_X	ras2 			; Loop til done
-	lea	ecx, [ecx-blkrows*64+blkdst]
-	lea	edx, [edx-blkrows*64+blkdst]
-	lea	esi, [esi-blkrows*64+blkdst]
-	lea	ebp, [ebp-blkrows*64+blkdst]
+	lea	ecx, [ecx-blkrows*64]	; Next source
+	lea	edx, [edx-blkrows*64]	; Next source
+	lea	esi, [esi-blkrows*64]	; Next dest
+	lea	ebp, [ebp-blkrows*64]	; Next dest
+	add	ecx, pass1blkdst	; Next source
+	add	edx, pass1blkdst	; Next source
+	add	esi, pass1blkdst	; Next dest
+	add	ebp, pass1blkdst	; Next dest
 	lea	eax, [eax+128]		; Next set of carries
 	sub	loopcount1, 1		; Decrement outer loop counter
 	JNZ_X	ras0 			; Loop til done
@@ -502,10 +527,14 @@ nas2:	xnorm_addsub_2d exec		; Add and normalize 8 values
 	add	edi, normval2		; Adjust ptr to little/big flags
 	sub	loopcount2, 1		; Decrement middle loop counter
 	JNZ_X	nas1			; Loop til done
-	lea	ecx, [ecx-blkrows*64+blkdst]
-	lea	edx, [edx-blkrows*64+blkdst]
-	lea	esi, [esi-blkrows*64+blkdst]
-	lea	ebp, [ebp-blkrows*64+blkdst]
+	lea	ecx, [ecx-blkrows*64]	; Next source
+	lea	edx, [edx-blkrows*64]	; Next source
+	lea	esi, [esi-blkrows*64]	; Next dest
+	lea	ebp, [ebp-blkrows*64]	; Next dest
+	add	ecx, pass1blkdst	; Next source
+	add	edx, pass1blkdst	; Next source
+	add	esi, pass1blkdst	; Next dest
+	add	ebp, pass1blkdst	; Next dest
 	add	normgrpptr, 128		; Next set of group multipliers
 	lea	eax, [eax+128]		; Next set of carries
 	add	edi, normval3		; Adjust little/big flags ptr
@@ -541,8 +570,8 @@ asclp0:	mov	eax, loopcount1		; Get list of counts
 	xnorm_as012_2d_part2
 asclp1:	xnorm_as012_2d			; Split carries for one cache line
 	lea	esi, [esi+128]		; Next carries pointer
-	lea	ebp, [ebp+blkdst]	; Next FFT data pointer
-	lea	ecx, [ecx+blkdst]	; Next FFT data pointer
+	add	ebp, pass1blkdst	; Next FFT data pointer
+	add	ecx, pass1blkdst	; Next FFT data pointer
 	cmp	_NUMLIT, 0		; Don't bump group mult pointer
 	je	short acskip		; for rational FFTs
 	lea	edx, [edx+128]		; Next group multiplier
@@ -579,9 +608,12 @@ cz2:	xcopyzero 8
 	lea	ecx, [ecx+64]		; Next compare offset
 	sub	edx, 1			; Test loop counter
 	JNZ_X	cz2			; Loop if necessary
-	lea	esi, [esi-blkrows*64+blkdst]
-	lea	edi, [edi-blkrows*64+blkdst]
-	lea	ecx, [ecx-blkrows*64+blkdst]
+	lea	esi, [esi-blkrows*64]
+	lea	edi, [edi-blkrows*64]
+	lea	ecx, [ecx-blkrows*64]
+	add	esi, pass1blkdst
+	add	edi, pass1blkdst
+	add	ecx, pass1blkdst
 	sub	eax, 1			; Test loop counter
 	JNZ_X	cz1			; Loop if necessary
 	pop	edi			; Restore registers
@@ -610,7 +642,7 @@ pmu0:	sub	eax, eax		; Form count for this section
 	and	eax, eax		; Make sure we got a non-zero count
 	jz	short pmu0
 	mov	ebx, eax		; Compute size of FFT in bytes
-	imul	ebx, blkdst
+	imul	ebx, pass1blkdst
 	mov	loopcount1, eax
 pmu1:	mov	ebp, blkrows		; Cache lines in a block
 pmu2:	prothmod_upper_0d 64, 2*64, 4*64, pmudn ; Divide 8 upper values by k
@@ -621,7 +653,8 @@ pmu2:	prothmod_upper_0d 64, 2*64, 4*64, pmudn ; Divide 8 upper values by k
 	lea	esi, [esi+blkrows*64-8]	; Next source pointer
 	add	eax, 80000000h		; Test loop counter
 	JNC_X	pmu1			; Iterate if necessary
-	lea	esi, [esi+2*8-blkdst]	; Next source pointer
+	lea	esi, [esi+2*8]		; Next source pointer
+	sub	esi, pass1blkdst	; Next source pointer
 	sub	eax, 1			; Test loop counter
 	JNZ_X	pmu1			; Iterate if necessary
 	add	esi, ebx		; Restore source address
@@ -638,7 +671,7 @@ pml0:	mov	eax, ecx		; Form count for this section
 	and	eax, 03FFh
 	shr	ecx, 10			; Move counts list along
 	mov	ebx, eax		; Compute size of FFT in bytes
-	imul	ebx, blkdst
+	imul	ebx, pass1blkdst
 	mov	loopcount1, eax
 pml1:	mov	ebp, blkrows		; Cache lines in a block
 pml2:	prothmod_lower_0d 64, 2*64, 4*64; Add 8 shifted quotients to lower data
@@ -651,7 +684,8 @@ pml2:	prothmod_lower_0d 64, 2*64, 4*64; Add 8 shifted quotients to lower data
 	lea	esi, [esi-blkrows*64+8]	; Next source pointer
 	add	eax, 80000000h		; Test loop counter
 	JNC_X	pml1			; Iterate if necessary
-	lea	esi, [esi-2*8+blkdst]	; Next source pointer
+	lea	esi, [esi-2*8]		; Next source pointer
+	add	esi, pass1blkdst	; Next source pointer
 	sub	eax, 1			; Test loop counter
 	JNZ_X	pml1			; Iterate if necessary
 	sub	esi, ebx		; Restore source address
@@ -680,7 +714,7 @@ _xnorm3 PROC NEAR
 ; routine.
 
 inorm	MACRO	lab, ttp, zero, echk, const
-	LOCAL	noadd, ilp0, ilp1
+	LOCAL	noadd, ilp0, ilp1, ilexit
 	PUBLIC	lab
 lab:
 zero	cmp	zero_fft, 0		;; Is the first call to inorm?
@@ -695,35 +729,36 @@ zero	JE_X	zinit			;; Yes, do special initialization
 	_movsd	[esi][edi], xmm0	;; Save the new value
 	subsd	xmm7, _ADDIN_VALUE	;; Do not include addin in sumout
 noadd:	push	edx
-	push	esi
 	mov	edx, norm_grp_mults	;; Addr of the group multipliers
 	mov	ebp, carries		;; Addr of the carries
 	mov	edi, norm_ptr1		;; Load big/little flags array ptr
 	mov	eax, addcount1		;; Load loop counter
 	mov	loopcount2, eax		;; Save loop counter
+	mov	loopcount3, 0		;; Clear outermost loop counter
 	mov	eax, 48			;; Rational FFTs are all big words
 	mov	ecx, 48
 ilp0:	mov	ebx, count2		;; Load inner loop counter
 	mov	loopcount1, ebx		;; Save loop counter
 	mov	ebx, norm_ptr2		;; Load column multipliers ptr
-	push	esi
 ilp1:	xnorm_2d ttp, zero, echk, const	;; Normalize 8 values
 	lea	esi, [esi+64]		;; Next cache line
 ttp	lea	ebx, [ebx+32]		;; Next column multipliers
 ttp	lea	edi, [edi+4]		;; Next big/little flags
 	sub	loopcount1, 1		;; Test loop counter
 	JNZ_X	ilp1			;; Loop til done
-	pop	esi
-	lea	esi, [esi+blkdst]	;; Next source pointer
+	add	esi, normblkdst		;; Skip gap in blkdst or clmblkdst
 	lea	ebp, [ebp+64]		;; Next set of carries
 ttp	lea	edx, [edx+128]		;; Next set of 8 group multipliers
 	sub	loopcount2, 1		;; Test loop counter
-	JNZ_X	ilp0
-	movapd	XMM_SUMOUT, xmm7	;; Save SUMOUT
+	JZ_X	ilexit			;; Jump when loop complete
+	add	loopcount3, 80000000h/4 ;; 8 iterations
+	jnc	ilp0
+	add	esi, normblkdst8	;; Add 128 every 8 clmblkdsts
+	jmp	ilp0			;; Iterate
+ilexit:	movapd	XMM_SUMOUT, xmm7	;; Save SUMOUT
 	movapd	XMM_MAXERR, xmm6	;; Save maximum error
 ttp	mov	norm_ptr1, edi		;; Save big/little flags array ptr
 ttp	mov	norm_ptr2, ebx		;; Save column multipliers ptr
-	pop	esi
 	pop	edx
 	sub	ebx, ebx
 	ret

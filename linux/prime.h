@@ -11,7 +11,7 @@
 #ifdef __FreeBSD__
 #define PORT	6
 #endif
-#if defined (__EMX__) || defined (__IBMC__)
+#if defined (__EMX__) || defined (__IBMC__) || defined (__OS2__)
 #define PORT	7
 #endif
 
@@ -28,6 +28,8 @@
 
 #define ERRCHK	 _ERRCHK
 #define CPU_TYPE _CPU_TYPE
+#define CPU_L2_CACHE_SIZE _CPU_L2_CACHE_SIZE
+#define CPU_L2_CACHE_LINE_SIZE _CPU_L2_CACHE_LINE_SIZE
 #define MAXERR	 _MAXERR
 #define GWERROR	 _GWERROR
 #define PARG	 _PARG
@@ -83,6 +85,7 @@
 
 /* Handle the difference in the way the two C compilers name routines */
 
+#define timeit _timeit
 #define setupf	 _setupf
 #define factor64 _factor64
 #define gw_setup1 _gw_setup1
@@ -98,6 +101,7 @@
 #define gwsetup2 _gwsetup2
 #define esubhlp _esubhlp
 #define emulmod	_emulmod
+#define eisvaliddouble _eisvaliddouble
 #define fpu_init _fpu_init
 #define erdtsc	_erdtsc
 #define etwo_to_pow _etwo_to_pow
@@ -110,7 +114,6 @@
 
 /* Handle differences between Windows and Linux runtime libraries */
 
-#define stricmp(x,y)	strcasecmp(x,y)
 #define _commit(f)	fsync(f)
 #define _open		open
 #define _close		close
@@ -121,9 +124,12 @@
 #define _creat		creat
 #define _chdir		chdir
 #define _ftime		ftime
-#define _timeb		timeb
 #define closesocket	close
 #define IsCharAlphaNumeric(c) isalnum(c)
+
+#ifndef __WATCOMC__
+#define stricmp(x,y)	strcasecmp(x,y)
+#define _timeb		timeb
 #define _O_APPEND	O_APPEND
 #define _O_RDONLY	O_RDONLY
 #define _O_WRONLY	O_WRONLY
@@ -140,12 +146,17 @@
 #define _commit(f)    /* no commit/fsync on OS/2 */
 #define _ftime        _ftime
 #endif
+#endif
 
 /* The common include files */
 
 #include <time.h>
 /*#define SERVER_TESTING*/
+#ifdef __WATCOMC__
+#define EXTERNC extern
+#else
 #define EXTERNC
+#endif
 extern int NO_GUI;
 #include "cpuid.h"
 #include "giants.h"

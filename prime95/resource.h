@@ -32,6 +32,7 @@
 #define IDH_WELCOME                     39
 #define IDH_BENCHMARK                   40
 #define IDD_ABOUTBOX                    100
+#define IDR_HTML_TORTUREDLG             103
 #define IDR_MAINFRAME                   128
 #define IDD_TEST                        132
 #define IDD_CPU                         133
@@ -52,10 +53,10 @@
 #define IDI_YELLOW_ICON                 153
 #define IDD_WELCOME                     153
 #define IDD_UNRESERVE                   154
+#define IDD_TORTURE                     155
 #define IDR_TRAYMENU                    156
 #define ID_OPEN_EXIT                    157
 #define ID_TRAY_RESTORE                 158
-#define ID_DUMMY_SAD                    159
 #define IDC_CHECK1                      1000
 #define IDC_LL                          1000
 #define IDC_NOISE                       1000
@@ -68,33 +69,28 @@
 #define IDC_P2                          1007
 #define IDC_NETWORK                     1007
 #define IDC_WORK                        1008
+#define IDC_MINFFT                      1008
 #define IDC_R_ITER                      1008
 #define IDC_START_TIME                  1008
 #define IDC_P1                          1009
 #define IDC_END_DATES                   1009
 #define IDC_END_TIME                    1009
-#define IDC_CYRIX                       1010
 #define IDC_P3                          1010
 #define IDC_MODEM                       1010
-#define IDC_486                         1011
+#define IDC_MEMORY                      1010
 #define IDC_CURVE                       1011
-#define IDC_PENTIUM                     1012
+#define IDC_MAXFFT                      1011
 #define IDC_NUM_CURVES                  1012
-#define IDC_PRO                         1013
+#define IDC_TIMEFFT                     1012
 #define IDC_NAME                        1013
 #define IDC_EMAIL                       1014
-#define IDC_K6                          1014
 #define IDC_USERID                      1015
-#define IDC_PII                         1015
 #define IDC_PASSWORD                    1016
-#define IDC_PIII                        1016
 #define IDC_FACTOR                      1017
+#define IDC_IN_PLACE_FFT                1017
 #define IDC_COMPID                      1017
-#define IDC_CELERON                     1017
 #define IDC_DBLCHK                      1018
-#define IDC_K7                          1018
 #define IDC_BIGONES                     1019
-#define IDC_P4                          1019
 #define IDC_WORK_DFLT                   1022
 #define IDC_WORKGROUP                   1023
 #define IDC_NETWORK_TEXT                1024
@@ -102,11 +98,15 @@
 #define IDC_PRIMENET                    1026
 #define IDC_MODEM_TEXT                  1026
 #define IDC_WORK_TEXT                   1027
+#define IDC_MINFFT_TEXT                 1027
 #define IDC_PRIORITY                    1029
 #define IDC_COMPLETION                  1029
+#define IDC_MEMORY_TEXT                 1029
 #define IDC_LINE1                       1030
 #define IDC_AFFINITY                    1030
+#define IDC_MAXFFT_TEXT                 1030
 #define IDC_LINE2                       1031
+#define IDC_TIMEFFT_TEXT                1031
 #define IDC_LINE3                       1032
 #define IDC_DIALUP                      1033
 #define IDC_DAYS                        1034
@@ -116,16 +116,17 @@
 #define IDC_AFFINITY_TEXT               1038
 #define IDC_TEAM                        1038
 #define IDC_ALL_CPUS                    1039
-#define IDC_RPC                         1040
-#define IDC_HTTP                        1041
 #define IDC_PLUS1                       1042
-#define IDC_PROTOCOL                    1043
 #define IDC_NAME_TEXT                   1044
 #define IDC_DAY_MEMORY                  1044
 #define IDC_ID_TEXT                     1045
 #define IDC_PWD_TEXT                    1046
 #define IDC_NIGHT_MEMORY                1049
 #define IDC_CPU_INFO                    1056
+#define IDC_L2_CACHE                    1058
+#define IDC_BLEND                       1059
+#define IDC_IN_PLACE                    1060
+#define IDC_CUSTOM                      1061
 #define IDM_CONTINUE                    32771
 #define IDM_STOP                        32772
 #define IDM_ERRCHK                      32773
@@ -134,7 +135,6 @@
 #define IDM_PREFERENCES                 32781
 #define IDM_CPU                         32782
 #define ID_RANGE_STATUS                 32783
-#define ID_OPTIONS_SELFTEST             32784
 #define IDM_PASSWORD                    32785
 #define IDM_TRAY                        32788
 #define IDM_HIDE                        32789
@@ -159,6 +159,7 @@
 #define IDM_TRAY_OPEN                   32808
 #define USR_SERVICE_STOP                32809
 #define IDM_STOP_CONTINUE               32810
+#define USR_TORTURE                     32811
 
 // Next default values for new objects
 // 
@@ -166,8 +167,8 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        160
-#define _APS_NEXT_COMMAND_VALUE         32811
-#define _APS_NEXT_CONTROL_VALUE         1058
-#define _APS_NEXT_SYMED_VALUE           102
+#define _APS_NEXT_COMMAND_VALUE         32812
+#define _APS_NEXT_CONTROL_VALUE         1064
+#define _APS_NEXT_SYMED_VALUE           104
 #endif
 #endif

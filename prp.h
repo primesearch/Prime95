@@ -25,6 +25,8 @@ extern int HIDE_ICON;			/* Display no icon */
 extern unsigned int PRECISION;		/* Number of decimal places to output*/
 					/* in percent complete lines */
 extern int CUMULATIVE_TIMING;		/* True if outputting cumulative time*/
+extern char *PRP_CMDLINE;		/* Used by Chris Caldwell to test */
+					/* numbers via the command line */
 
 /* Common routines */
 

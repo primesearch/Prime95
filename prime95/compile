@@ -1,12 +1,14 @@
 # Standard options
 masm=ml /c /coff
 #masm=ml /c /coff /Fl /Sf /Sa
+masm64=ml64 /c
+#masm64=ml64 /c /Fl /Sf /Sa
 cl=\msdev\bin\cl /I.. /I C:\msdev\include\ /O2 /GF /W3 /MT /c
 #cl=\msdev\bin\cl /I.. /I C:\msdev\include\ /O2 /GF /W3 /MT /Zi /c
 
 # Create 32-bit executables
 
-mult.obj: mult.asm mult.mac xmult.mac
+mult.obj: mult.asm mult.mac xmult.mac timeit.inc
     $(masm) mult.asm
 
 mult1.obj: mult1.asm mult.mac

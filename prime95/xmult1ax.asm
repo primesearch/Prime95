@@ -555,6 +555,8 @@ uaddsubdn:
 naddsub:push	ebx			; Save registers
 	movapd	xmm2, XMM_BIGVAL	; Start process with no carry
 	movapd	xmm3, xmm2
+	movapd	xmm6, xmm2
+	movapd	xmm7, xmm2
 	mov	eax, normcount1		; Load loop counter
 	mov	loopcount1, eax		; Save loop counter
 	mov	ebx, norm_col_mults	; Address of the multipliers

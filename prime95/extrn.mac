@@ -1,4 +1,4 @@
-; Copyright 1995-2001 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2003 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -102,10 +102,14 @@ EXTRN	norm_grp_mults:DWORD
 EXTRN	norm_col_mults:DWORD
 EXTRN	norm_biglit_array:DWORD
 EXTRN	carries:DWORD
+EXTRN	scratch_area:DWORD
 EXTRN	zero_fft:DWORD
 EXTRN	extra_bits:DWORD
 EXTRN	ffttype:DWORD
 EXTRN	normgrpptr:DWORD
+EXTRN	pass1blkdst:DWORD
+EXTRN	normblkdst:DWORD
+EXTRN	normblkdst8:DWORD
 EXTRN	loopcount1:DWORD
 EXTRN	loopcount2:DWORD
 EXTRN	loopcount3:DWORD
@@ -133,6 +137,10 @@ EXTRN	XMM_TMP1:QWORD
 EXTRN	XMM_TMP2:QWORD
 EXTRN	XMM_TMP3:QWORD
 EXTRN	XMM_TMP4:QWORD
+EXTRN	XMM_TMP5:QWORD
+EXTRN	XMM_TMP6:QWORD
+EXTRN	XMM_TMP7:QWORD
+EXTRN	XMM_TMP8:QWORD
 EXTRN	XMM_MULCONST:QWORD
 EXTRN	XMM_SUMOUT:QWORD
 EXTRN	XMM_MAXERR:QWORD
@@ -160,7 +168,7 @@ EXTRN	XMM_P404:QWORD
 EXTRN	XMM_P975:QWORD
 EXTRN	XMM_P445:QWORD
 EXTRN	XMM_P180:QWORD
-
-
+EXTRN	XMM_P434:QWORD
+EXTRN	XMM_M223:QWORD
 
 EXTRN asm_timers:DWORD

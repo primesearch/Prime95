@@ -352,7 +352,7 @@ simple_mutex:	 	g_hMutexInst = CreateMutex (
 	// Run the torture test if asked to
 	if (torture_test) {
 		m_pMainWnd->ShowWindow (orig_cmdShow);
-		m_pMainWnd->PostMessage (WM_COMMAND, IDM_TORTURE, 0);
+		m_pMainWnd->PostMessage (WM_COMMAND, USR_TORTURE, 0);
 	}
 
 	// On first run, get user name and email address

@@ -1,88 +1,169 @@
-<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-	<head>
-		<title>How GIMPS works</title>
-		<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
-		<meta name="ProgId" content="Word.Document">
-		<meta name="Generator" content="Microsoft Word 9">
-		<meta name="Originator" content="Microsoft Word 9">
-		<link rel="File-List" href="./How%20GIMPS%20works_files/filelist.xml"> <!--[if gte mso 9]><xml>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+xmlns:w="urn:schemas-microsoft-com:office:word"
+xmlns="http://www.w3.org/TR/REC-html40">
+	
+
+<head>
+<meta http-equiv=Content-Type content="text/html; charset=windows-1252">
+<meta name=ProgId content=Word.Document>
+<meta name=Generator content="Microsoft Word 9">
+<meta name=Originator content="Microsoft Word 9">
+<link rel=File-List href="./How%20GIMPS%20works_files/filelist.xml">
+<title>How GIMPS works</title>
+<!--[if gte mso 9]><xml>
  <o:DocumentProperties>
   <o:Author>enduser</o:Author>
-  <o:LastAuthor>RavvinGe</o:LastAuthor>
-  <o:Revision>10</o:Revision>
-  <o:TotalTime>16</o:TotalTime>
+  <o:LastAuthor>George Woltman</o:LastAuthor>
+  <o:Revision>11</o:Revision>
+  <o:TotalTime>17</o:TotalTime>
   <o:Created>2001-07-06T01:49:00Z</o:Created>
-  <o:LastSaved>2002-05-28T13:43:00Z</o:LastSaved>
+  <o:LastSaved>2003-05-01T20:28:00Z</o:LastSaved>
   <o:Pages>1</o:Pages>
-  <o:Words>359</o:Words>
-  <o:Characters>2050</o:Characters>
+  <o:Words>358</o:Words>
+  <o:Characters>2045</o:Characters>
   <o:Lines>17</o:Lines>
   <o:Paragraphs>4</o:Paragraphs>
-  <o:CharactersWithSpaces>2517</o:CharactersWithSpaces>
-  <o:Version>9.4402</o:Version>
+  <o:CharactersWithSpaces>2511</o:CharactersWithSpaces>
+  <o:Version>9.3821</o:Version>
  </o:DocumentProperties>
-</xml><![endif]-->  <!--[if gte mso 9]><xml>
+</xml><![endif]--><!--[if gte mso 9]><xml>
  <w:WordDocument>
   <w:Zoom>88</w:Zoom>
  </w:WordDocument>
 </xml><![endif]-->
-			<style> <!-- /* Font Definitions */ @font-face {font-family:"MS Mincho"; panose-1:2 2 6 9 4 2 5 8 3 4; mso-font-alt:"\FF2D\FF33 \660E\671D"; mso-font-charset:128; mso-generic-font-family:modern; mso-font-pitch:fixed; mso-font-signature:-1610612033 1757936891 16 0 131231 0;}
-	@font-face {font-family:"\@MS Mincho"; panose-1:2 2 6 9 4 2 5 8 3 4; mso-font-charset:128; mso-generic-font-family:modern; mso-font-pitch:fixed; mso-font-signature:-1610612033 1757936891 16 0 131231 0;}
-	/* Style Definitions */ p.MsoNormal, li.MsoNormal, div.MsoNormal {mso-style-parent:""; margin:0in; margin-bottom:.0001pt; mso-pagination:widow-orphan; font-size:12.0pt; font-family:"Times New Roman"; mso-fareast-font-family:"Times New Roman";}
-	a:link, span.MsoHyperlink {color:blue; text-decoration:underline; text-underline:single;}
-	a:visited, span.MsoHyperlinkFollowed {color:purple; text-decoration:underline; text-underline:single;}
-	p.MsoPlainText, li.MsoPlainText, div.MsoPlainText {margin:0in; margin-bottom:.0001pt; mso-pagination:widow-orphan; font-size:10.0pt; font-family:"Courier New"; mso-fareast-font-family:"Times New Roman";}
-	@page Section1 {size:8.5in 11.0in; margin:1.0in 1.25in 1.0in 1.25in; mso-header-margin:.5in; mso-footer-margin:.5in; mso-paper-source:0;}
-	div.Section1 {page:Section1;}
-	/* List Definitions */ @list l0 {mso-list-id:2076313472; mso-list-type:hybrid; mso-list-template-ids:-941433972 67698689 67698691 67698693 67698689 67698691 67698693 67698689 67698691 67698693;}
-	@list l0:level1 {mso-level-number-format:bullet; mso-level-text:\F0B7; mso-level-tab-stop:.5in; mso-level-number-position:left; text-indent:-.25in; font-family:Symbol;}
-	ol {margin-bottom:0in;}
-	ul {margin-bottom:0in;}
-	--></style>
-	</head>
-	<body lang="EN-US" link="blue" vlink="purple" style='tab-interval:.5in'>
-		<div class="Section1">
-			<p class="MsoPlainText"><b><span style="FONT-SIZE:16pt;COLOR:black;FONT-FAMILY:'Times New Roman';mso-bidi-font-size:10.0pt;mso-fareast-font-family:'MS Mincho'"><U>HOW 
-							GIMPS WORKS</U></span></b><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><o:p></o:p>
-				</span></p>
-			<p class="MsoPlainText"><![if !supportEmptyParas]><![endif]><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo2;tab-stops:list .5in'><![if 
-				!supportLists]><span style="COLOR:black;
-FONT-FAMILY:Symbol;
-mso-fareast-font-family:'MS Mincho';
-mso-bidi-font-family:'Times New Roman'">·<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-</span></span><![endif]><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">This program is used to find Mersenne Prime
-numbers.<span style="mso-spacerun: yes">&nbsp; </span>Mersenne numbers can be proved
+<style>
+<!--
+ /* Font Definitions */
+@font-face
+	{font-family:"MS Mincho";
+	panose-1:2 2 6 9 4 2 5 8 3 4;
+	mso-font-alt:"\FF2D\FF33 \660E\671D";
+	mso-font-charset:128;
+	mso-generic-font-family:modern;
+	mso-font-pitch:fixed;
+	mso-font-signature:-1610612033 1757936891 16 0 131231 0;}
+@font-face
+	{font-family:"\@MS Mincho";
+	panose-1:2 2 6 9 4 2 5 8 3 4;
+	mso-font-charset:128;
+	mso-generic-font-family:modern;
+	mso-font-pitch:fixed;
+	mso-font-signature:-1610612033 1757936891 16 0 131231 0;}
+ /* Style Definitions */
+p.MsoNormal, li.MsoNormal, div.MsoNormal
+	{mso-style-parent:"";
+	margin:0in;
+	margin-bottom:.0001pt;
+	mso-pagination:widow-orphan;
+	font-size:12.0pt;
+	font-family:"Times New Roman";
+	mso-fareast-font-family:"Times New Roman";}
+a:link, span.MsoHyperlink
+	{color:blue;
+	text-decoration:underline;
+	text-underline:single;}
+a:visited, span.MsoHyperlinkFollowed
+	{color:purple;
+	text-decoration:underline;
+	text-underline:single;}
+p.MsoPlainText, li.MsoPlainText, div.MsoPlainText
+	{margin:0in;
+	margin-bottom:.0001pt;
+	mso-pagination:widow-orphan;
+	font-size:10.0pt;
+	font-family:"Courier New";
+	mso-fareast-font-family:"Times New Roman";}
+@page Section1
+	{size:8.5in 11.0in;
+	margin:1.0in 1.25in 1.0in 1.25in;
+	mso-header-margin:.5in;
+	mso-footer-margin:.5in;
+	mso-paper-source:0;}
+div.Section1
+	{page:Section1;}
+ /* List Definitions */
+@list l0
+	{mso-list-id:2076313472;
+	mso-list-type:hybrid;
+	mso-list-template-ids:-941433972 67698689 67698691 67698693 67698689 67698691 67698693 67698689 67698691 67698693;}
+@list l0:level1
+	{mso-level-number-format:bullet;
+	mso-level-text:\F0B7;
+	mso-level-tab-stop:.5in;
+	mso-level-number-position:left;
+	text-indent:-.25in;
+	font-family:Symbol;}
+ol
+	{margin-bottom:0in;}
+ul
+	{margin-bottom:0in;}
+-->
+</style>
+</head>
+
+	
+
+<body lang=EN-US link=blue vlink=purple style='tab-interval:.5in'>
+
+<div class=Section1>
+
+<p class=MsoPlainText><b><u><span style='font-size:16.0pt;mso-bidi-font-size:
+10.0pt;font-family:"Times New Roman";mso-fareast-font-family:"MS Mincho";
+color:black'>HOW GIMPS WORKS</span></u></b><span style='font-family:"Times New Roman";
+mso-fareast-font-family:"MS Mincho";color:black'> <o:p></o:p></span></p>
+
+<p class=MsoPlainText><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p class=MsoPlainText style='margin-left:.5in;text-indent:-.25in;mso-list:l0 level1 lfo2;
+tab-stops:list .5in'><![if !supportLists]><span style='font-family:Symbol;
+mso-fareast-font-family:"MS Mincho";mso-bidi-font-family:"Times New Roman";
+color:black'>·<span style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>This program is used to find Mersenne Prime
+numbers.<span style="mso-spacerun: yes">  </span>Mersenne numbers can be proved
 composite (not prime) by either finding a <a href="Factoring.htm">factor</a> or
 by running a <a href="Lucas-Lehmer%20Details.htm">Lucas-Lehmer</a> primality
 test.<o:p></o:p></span></p>
-			<p class="MsoPlainText"><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo2;tab-stops:list .5in'><![if 
-				!supportLists]><span style="COLOR:black;
-FONT-FAMILY:Symbol;
-mso-fareast-font-family:'MS Mincho';
-mso-bidi-font-family:'Times New Roman'">·<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-</span></span><![endif]><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">GIMPS requires a Pentium class computer that is on
-most of the time. The program runs at the <a href="AdvancedMenu.htm"><span style='COLOR:black;TEXT-DECORATION:none;text-underline:none'>lowest possible
-priority</span></a>. You <a href="http://www.mersenne.org/links.htm#studies">should not see any impact</a> on your system's performance. The program will use about
+
+<p class=MsoPlainText><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p class=MsoPlainText style='margin-left:.5in;text-indent:-.25in;mso-list:l0 level1 lfo2;
+tab-stops:list .5in'><![if !supportLists]><span style='font-family:Symbol;
+mso-fareast-font-family:"MS Mincho";mso-bidi-font-family:"Times New Roman";
+color:black'>·<span style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>GIMPS requires a Pentium class computer that is on
+most of the time. The program runs at the <a href="AdvancedMenu.htm"><span
+style='color:black;text-decoration:none;text-underline:none'>lowest possible
+priority</span></a>. You <a href="http://www.mersenne.org/links.htm#studies">should
+not see any impact</a> on your system's performance. The program will use about
 8MB of memory and about 10MB of disk space.<o:p></o:p></span></p>
-			<p class="MsoPlainText"><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo2;tab-stops:list .5in'><![if 
-				!supportLists]><span style="COLOR:black;
-FONT-FAMILY:Symbol;
-mso-fareast-font-family:'MS Mincho';
-mso-bidi-font-family:'Times New Roman'">·<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-</span></span><![endif]><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Most importantly, you will need a lot of patience.
+
+<p class=MsoPlainText><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p class=MsoPlainText style='margin-left:.5in;text-indent:-.25in;mso-list:l0 level1 lfo2;
+tab-stops:list .5in'><![if !supportLists]><span style='font-family:Symbol;
+mso-fareast-font-family:"MS Mincho";mso-bidi-font-family:"Times New Roman";
+color:black'>·<span style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>Most importantly, you will need a lot of patience.
 Roughly speaking it will take about a month to run a single primality test -
 visit <a href="http://www.mersenne.org/bench.htm">the benchmark</a> page for a
 more accurate estimate on your computer.<o:p></o:p></span></p>
-			<p class="MsoPlainText"><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo2;tab-stops:list .5in'><![if 
-				!supportLists]><span style="COLOR:black;
-FONT-FAMILY:Symbol;
-mso-fareast-font-family:'MS Mincho';
-mso-bidi-font-family:'Times New Roman'">·<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-</span></span><![endif]><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">The program talks to <a href="http://www.mersenne.org/primenet/status.shtml">PrimeNet</a>, a central
+
+<p class=MsoPlainText><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p class=MsoPlainText style='margin-left:.5in;text-indent:-.25in;mso-list:l0 level1 lfo2;
+tab-stops:list .5in'><![if !supportLists]><span style='font-family:Symbol;
+mso-fareast-font-family:"MS Mincho";mso-bidi-font-family:"Times New Roman";
+color:black'>·<span style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>The program talks to <a
+href="http://www.mersenne.org/primenet/status.shtml">PrimeNet</a>, a central
 server on the Internet, to get work to do and report results. The program
 communicates using the HTTP protocol and may require a little extra
 configuration to get through some firewalls. The program only sends a few
@@ -90,47 +171,62 @@ hundred bytes every week or two. Thus, there is no impact on your network
 performance. The program does not require a continuous Internet connection and
 if properly configured will not automatically dial out to establish an Internet
 connection.<o:p></o:p></span></p>
-			<p class="MsoPlainText"><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo2;tab-stops:list .5in'><![if 
-				!supportLists]><span style="COLOR:black;
-FONT-FAMILY:Symbol;
-mso-fareast-font-family:'MS Mincho';
-mso-bidi-font-family:'Times New Roman'">·<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-</span></span><![endif]><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">There are three types of work assigned by the server.
-PII-500 and faster computers get first-time primality tests. These tests
+
+<p class=MsoPlainText><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p class=MsoPlainText style='margin-left:.5in;text-indent:-.25in;mso-list:l0 level1 lfo2;
+tab-stops:list .5in'><![if !supportLists]><span style='font-family:Symbol;
+mso-fareast-font-family:"MS Mincho";mso-bidi-font-family:"Times New Roman";
+color:black'>·<span style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>There are three types of work assigned by the server.
+PIII-900 and faster computers get first-time primality tests. These tests
 require the most work and have the best chance of finding a new Mersenne prime.
 Pentium-233 and faster computers get double-check assignments. These
-assignments do not take as long and can find a Mersenne prime only if the
-original test had a problem. The slowest computers are assigned factoring work.
-This helps by eliminating some exponents for the faster computers.<o:p></o:p></span></p>
-			<p class="MsoPlainText"><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo2;tab-stops:list .5in'><![if 
-				!supportLists]><span style="COLOR:black;
-FONT-FAMILY:Symbol;
-mso-fareast-font-family:'MS Mincho';
-mso-bidi-font-family:'Times New Roman'">·<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-</span></span><![endif]><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Every half hour the program saves its state so that if
+assignments do not take as long and can find a Mersenne prime only if the original
+test had a problem. The slowest computers are assigned factoring work. This
+helps by eliminating some exponents for the faster computers.<o:p></o:p></span></p>
+
+<p class=MsoPlainText><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p class=MsoPlainText style='margin-left:.5in;text-indent:-.25in;mso-list:l0 level1 lfo2;
+tab-stops:list .5in'><![if !supportLists]><span style='font-family:Symbol;
+mso-fareast-font-family:"MS Mincho";mso-bidi-font-family:"Times New Roman";
+color:black'>·<span style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>Every half hour the program saves its state so that if
 there is a computer crash you will lose at most a half-hour of work. All
 temporary files and program settings are conveniently stored in the same folder
 as the program.<o:p></o:p></span></p>
-			<p class="MsoPlainText"><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo2;tab-stops:list .5in'><![if 
-				!supportLists]><span style="COLOR:black;
-FONT-FAMILY:Symbol;
-mso-fareast-font-family:'MS Mincho';
-mso-bidi-font-family:'Times New Roman'">·<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-</span></span><![endif]><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">Before you complete your assignment, the program will
+
+<p class=MsoPlainText><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p class=MsoPlainText style='margin-left:.5in;text-indent:-.25in;mso-list:l0 level1 lfo2;
+tab-stops:list .5in'><![if !supportLists]><span style='font-family:Symbol;
+mso-fareast-font-family:"MS Mincho";mso-bidi-font-family:"Times New Roman";
+color:black'>·<span style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>Before you complete your assignment, the program will
 get more work to do. This will assure that your computer has a continuous
 supply of work.<o:p></o:p></span></p>
-			<p class="MsoPlainText"><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'"><![if !supportEmptyParas]><![endif]>&nbsp;<o:p></o:p></span></p>
-			<p class="MsoPlainText" style='MARGIN-LEFT:0.5in;TEXT-INDENT:-0.25in;mso-list:l0 level1 lfo2;tab-stops:list .5in'><![if 
-				!supportLists]><span style="COLOR:black;
-FONT-FAMILY:Symbol;
-mso-fareast-font-family:'MS Mincho';
-mso-bidi-font-family:'Times New Roman'">·<span style="FONT:7pt 'Times New Roman'">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-</span></span><![endif]><span style="COLOR:black; FONT-FAMILY:'Times New Roman'; mso-fareast-font-family:'MS Mincho'">If you are lucky enough to find a new Mersenne prime,
+
+<p class=MsoPlainText><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>&nbsp;<o:p></o:p></span></p>
+
+<p class=MsoPlainText style='margin-left:.5in;text-indent:-.25in;mso-list:l0 level1 lfo2;
+tab-stops:list .5in'><![if !supportLists]><span style='font-family:Symbol;
+mso-fareast-font-family:"MS Mincho";mso-bidi-font-family:"Times New Roman";
+color:black'>·<span style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span><![endif]><span style='font-family:"Times New Roman";mso-fareast-font-family:
+"MS Mincho";color:black'>If you are lucky enough to find a new Mersenne prime,
 the program optionally notifies the server and optionally emits a continuous
 sound to notify you of the happy news!<o:p></o:p></span></p>
-		</div>
-	</body>
+
+</div>
+
+</body>
+
 </html>

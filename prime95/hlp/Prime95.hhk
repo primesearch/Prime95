@@ -261,6 +261,11 @@
 		<param name="Local" value="New features in Version 22.htm">
 		</OBJECT>
 	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Version 23.x">
+		<param name="Name" value="New features in Version 23 of Prime95">
+		<param name="Local" value="New features in Version 23.htm">
+		</OBJECT>
+	<LI> <OBJECT type="text/sitemap">
 		<param name="Name" value="Version 8.x">
 		<param name="Name" value="New features in Version 8 of Prime95">
 		<param name="Local" value="New features in Version 8.htm">

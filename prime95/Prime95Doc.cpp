@@ -21,6 +21,7 @@
 #include "ServerDlg.h"
 #include "TestDlg.h"
 #include "TimeDlg.h"
+#include "TortureDlg.h"
 #include "UnreserveDlg.h"
 #include "UserDlg.h"
 #include "VacationDlg.h"
@@ -95,6 +96,7 @@ BEGIN_MESSAGE_MAP(CPrime95Doc, CDocument)
 	ON_COMMAND(IDM_PMINUS1, OnPminus1)
 	ON_UPDATE_COMMAND_UI(IDM_PMINUS1, OnUpdatePminus1)
 	ON_COMMAND(USR_WELCOME, OnWelcome)
+	ON_COMMAND(USR_TORTURE, OnUsrTorture)
 	ON_COMMAND(USR_BROADCAST, OnBroadcast)
 	ON_COMMAND(IDM_UNRESERVE, OnUnreserve)
 	ON_UPDATE_COMMAND_UI(IDM_UNRESERVE, OnUpdateUnreserve)
@@ -752,10 +754,33 @@ void CPrime95Doc::OnUpdateTorture(CCmdUI* pCmdUI)
 
 void CPrime95Doc::OnTorture() 
 {
-	CWinThread *thread;
-	thread_pkt.op = OP_TORTURE;
-	thread_pkt.doc = this;
-	thread = AfxBeginThread (threadDispatch, NULL);
+	CTortureDlg dlg;
+	int	mem;
+
+	dlg.m_minfft = 8;
+	dlg.m_maxfft = 4096;
+	mem = physical_memory ();
+	if (mem > 104) {
+		dlg.m_memory = mem - 96;
+		dlg.m_in_place_fft = FALSE;
+	} else {
+		dlg.m_memory = 0;
+		dlg.m_in_place_fft = TRUE;
+	}
+	dlg.m_timefft = 15;
+	if (dlg.DoModal () == IDOK) {
+		CWinThread *thread;
+
+		IniWriteInt (INI_FILE, "MinTortureFFT", dlg.m_minfft);
+		IniWriteInt (INI_FILE, "MaxTortureFFT", dlg.m_maxfft);
+		IniWriteInt (INI_FILE, "TortureMem",
+			dlg.m_in_place_fft ? 8 : dlg.m_memory);
+		IniWriteInt (INI_FILE, "TortureTime", dlg.m_timefft);
+
+		thread_pkt.op = OP_TORTURE;
+		thread_pkt.doc = this;
+		thread = AfxBeginThread (threadDispatch, NULL);
+	}
 }
 
 void CPrime95Doc::OnUpdateTray(CCmdUI* pCmdUI) 
@@ -863,21 +888,19 @@ void CPrime95Doc::OnWelcome()
 		if (!WINDOWS95_SERVICE) OnService ();
 		OnRangeUserinformation();
 	} else {
-		unsigned int mem;
 		IniWriteInt (INI_FILE, "StressTester", 1);
 		IniWriteInt (INI_FILE, "UsePrimenet", USE_PRIMENET = 0);
-		mem = physical_memory ();
-		DAY_MEMORY = NIGHT_MEMORY = (mem <= 32) ? 8 :
-					    (mem <= 256) ? mem / 2 : mem - 128;
-		IniWriteInt (LOCALINI_FILE, "DayMemory", DAY_MEMORY);
-		IniWriteInt (LOCALINI_FILE, "NightMemory", NIGHT_MEMORY);
-		if (mem > 8) {
-			char	buf[160];
-			sprintf (buf, "The torture test will use up to %dMB of memory.  You can change this using Options/CPU menu choice.", DAY_MEMORY);
-			AfxMessageBox (buf, MB_ICONQUESTION);
-		}
 		STARTUP_IN_PROGRESS = 0;
 	}
+}
+
+void CPrime95Doc::OnUsrTorture() 
+{
+	CWinThread *thread;
+
+	thread_pkt.op = OP_TORTURE;
+	thread_pkt.doc = this;
+	thread = AfxBeginThread (threadDispatch, NULL);
 }
 
 void CPrime95Doc::OnBroadcast() 
@@ -1054,8 +1077,10 @@ UINT threadDispatch (
 // Output informative message
 
 	if (!GIMPS_QUIT && !STOPPED_ON_BATTERY && !RESTARTING) {
-		OutputStr ("Execution halted.\n");
-		OutputStr ("Choose Test/Continue to restart.\n");
+		if (thread_pkt.op == OP_CONTINUE || thread_pkt.op == OP_TORTURE)
+			OutputStr ("Execution halted.\n");
+		if (thread_pkt.op == OP_CONTINUE)
+			OutputStr ("Choose Test/Continue to restart.\n");
 	}
 
 // Clear thread-active flags

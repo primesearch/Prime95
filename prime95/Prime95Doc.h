@@ -84,6 +84,7 @@ protected:
 	afx_msg void OnPminus1();
 	afx_msg void OnUpdatePminus1(CCmdUI* pCmdUI);
 	afx_msg void OnWelcome();
+	afx_msg void OnUsrTorture();
 	afx_msg void OnBroadcast();
 	afx_msg void OnOutputStr();
 	afx_msg void OnTitle();

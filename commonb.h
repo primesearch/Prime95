@@ -31,7 +31,7 @@ void primeContinue (void);
 int pick_fft_size (unsigned long);
 int prime (unsigned long, unsigned long, unsigned long, unsigned long);
 int selfTest (unsigned long);
-int selfTestInternal (unsigned long, unsigned int, int);
+int selfTestInternal (unsigned long, unsigned int, int, unsigned int, void *);
 void generateRandomData (void);
 void primeTime (unsigned long, unsigned long);
 void primeBench (void);
@@ -54,6 +54,8 @@ int ecm (unsigned long, unsigned long, unsigned long, unsigned long,
 	 unsigned long, unsigned long, double, int);
 int pminus1 (unsigned long, unsigned long, unsigned long, unsigned long,
 	     int, int);
+int ecm_QA (void);
+int pminus1_QA (void);
 
 /* Messages */
 

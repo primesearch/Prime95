@@ -192,7 +192,16 @@ int main (
 	for (i = 1; i < argc; i++) {
 		p = argv[i];
 
-		if (*p++ != '-') break;
+/* For Chris Caldwell accept an input number or filename on the command line */
+
+		if (*p != '-') {
+			PRP_CMDLINE = p;
+			break;
+		}
+		p++;
+
+/* Analyze first letter of command line switch */
+
 		switch (*p++) {
 
 /* Accept a -A switch indicating an alternate set of INI files */

@@ -1,4 +1,4 @@
-/* Copyright 1995-2002 Just For Fun Software, Inc. */
+/* Copyright 1995-2003 Just For Fun Software, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -25,7 +25,7 @@
 #ifndef __IBMC__
 #include <unistd.h>
 #endif
-#if defined (__linux__) || defined (__FreeBSD__)
+#if defined (__linux__) || defined (__FreeBSD__) || defined(__WATCOMC__)
 #include <sys/time.h>
 #include <sys/timeb.h>
 #endif
@@ -35,17 +35,21 @@
 /* Required OS/2 header files */
 #ifdef __IBMC__
 #define INCL_DOS
+#define INCL_DOSPROFILE
 #include <os2.h>
 #include <direct.h>
 #include <io.h>
 #include <process.h>
 #include <sys/timeb.h>
 typedef int pid_t;
+#include "dosqss.h"
 #endif
 
 /* Globals */
 
+#ifndef __WATCOMC__
 #define OPEN_MAX 20
+#endif
 
 #ifdef MPRIME_LOADAVG
 #define LINUX_LDAV_FILE "/proc/loadavg"
@@ -323,7 +327,8 @@ int main (
 				exit (1);
 			}
 			if (fd != 0) {
-				exit (0);
+				if (i == background - 1) exit (0);
+				else continue;
 			}
 			for (fd = 0; fd < OPEN_MAX; fd++) {
 				close (fd);
@@ -334,6 +339,7 @@ int main (
 			setsid ();
 
 			if (i) named_ini_files = i;
+			break;
 		}
 	}
 #endif
@@ -601,9 +607,23 @@ void linuxContinue (
 	running_pid = IniGetInt (LOCALINI_FILE, "Pid", 0);
 	if (running_pid == 0 || my_pid == running_pid) goto ok;
 
-/* On OS/2 assume we have only one executable */
+#ifdef __OS2__
 
-#ifndef __IBMC__
+        {
+            USHORT handle1 = 0, handle2 = 0;
+            unsigned char buf[0x2000];
+            if( !DosQuerySysState(0x01, 0, 0, 0, (PCHAR)buf, 0x2000) ) {
+                PQPROCESS p = ((PQTOPLEVEL)buf)->procdata;
+                while(p && p->rectype == 1) {
+                    if( p->pid == running_pid ) handle1 = p->hndmod;
+                    if( p->pid == my_pid ) handle2 = p->hndmod;
+                    p = (PQPROCESS)(p->threads + p->threadcnt);
+                }
+                if( handle1 != handle2 ) goto ok;
+            }
+        }
+
+#else
 
 /* See if the two pids are running the same executable */
 
@@ -720,7 +740,7 @@ int LoadPrimeNet (void)
 	  fclose(fd);
 	}
 #endif
-#ifdef __FreeBSD__
+#if defined(__FreeBSD__) || defined(__WATCOMC__)
 	/* The /proc/net/route test is not really meaningful under FreeBSD */
 	/* There doesn't seem to be any meaningful test to see whether the */
 	/* computer is connected to the Internet at the time using a non- */
@@ -745,6 +765,14 @@ void UnloadPrimeNet (void)
 
 int isHighResTimerAvailable (void)
 {
+#ifdef __OS2__
+/* DosTmrQueryTime/DosTmrQueryFreq functions use the 8253/4 timer chip to obtain a timestamp. */
+/* DosTmrQueryTime returns the current count, and DosTmrQueryFreq returns the frequency at which the counter increments. */
+/* This frequency is about 1.1MHz, which gives you a timer that's accurate to the microsecond. */
+
+        return (TRUE);
+#else
+
 	struct timeval start, end;
 	struct timezone tz;
 	int	i;
@@ -764,24 +792,40 @@ int isHighResTimerAvailable (void)
 		}
 	}
 	return (FALSE);
+#endif
 }
 
 double getHighResTimer (void)
 {
+#ifdef __OS2__
+        unsigned long long qwTmrTime;
+        DosTmrQueryTime((PQWORD)&qwTmrTime);
+        return (qwTmrTime);
+#else
 	struct timeval x;
 	struct timezone tz;
 
 	gettimeofday (&x, &tz);
 	return ((double) x.tv_sec * 1000000.0 + (double) x.tv_usec);
+#endif
 }
 
 double getHighResTimerFrequency (void)
 {
+#ifdef __OS2__
+    ULONG ulTmrFreq;
+    DosTmrQueryFreq(&ulTmrFreq);
+    return (ulTmrFreq);
+#else
 	return (1000000.0);
+#endif
 }
+
+/* Check if a program is currently running - not implemented for OS/2 */
 
 int checkPauseList ()
 {
+#ifndef __OS2__
 	FILE	*fd;
 	char	buf[80];
 
@@ -797,5 +841,6 @@ int checkPauseList ()
 		}
 		fclose (fd);
 	}
+#endif
 	return (FALSE);
 }

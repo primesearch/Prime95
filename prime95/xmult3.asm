@@ -1,4 +1,4 @@
-; Copyright 2001 Just For Fun Software, Inc., all rights reserved
+; Copyright 2001-2003 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -33,11 +33,6 @@ INCLUDE xnormal.mac
 
 EXTRN	xpass2_11_levels:PROC
 
-;; Distance between two pass 2 data blocks.  Pass 2 does 11 FFT levels
-;; 2 sets of data (2 * 2^11 complex values = 2^13 doubles = 64KB).
-
-blkdst	EQU	(65536+4096+128)
-
 ;; All the FFT routines for each FFT length
 
 _xmm_gw_ffts3 PROC NEAR
@@ -58,18 +53,43 @@ _xmm_gw_ffts3 PROC NEAR
 	xfft	384K
 	xfft	448K
 	xfft	512K
-	xfft	640K
-	xfft	768K
-	xfft	896K
-	xfft	1024K
-	xfft	1280K
-	xfft	1536K
-	xfft	1792K
-	xfft	2048K
-	xfft	2560K
-	xfft	3072K
-	xfft	3584K
-	xfft	4096K
+	EXPANDING = 3
+	xfftclm	640K, 4, 1
+	xfftclm	640K, 2, 0
+	xfftclm	768K, 4, 1
+	xfftclm	768K, 2, 0
+	xfftclm	896K, 4, 1
+	xfftclm	896K, 2, 1
+	xfftclm	896K, 1, 0
+	xfftclm	1024K, 4, 1
+	xfftclm	1024K, 2, 1
+	xfftclm	1024K, 1, 0
+	xfftclm	1280K, 4, 1
+	xfftclm	1280K, 2, 1
+	xfftclm	1280K, 1, 0
+	xfftclm	1536K, 4, 1
+	xfftclm	1536K, 2, 1
+	xfftclm	1536K, 1, 0
+	xfftclm	1792K, 4, 1
+	xfftclm	1792K, 2, 1
+	xfftclm	1792K, 1, 1
+	xfftclm	1792K, 0, 0
+	xfftclm	2048K, 4, 1
+	xfftclm	2048K, 2, 1
+	xfftclm	2048K, 1, 1
+	xfftclm	2048K, 0, 0
+	xfftclm	2560K, 2, 1
+	xfftclm	2560K, 1, 1
+	xfftclm	2560K, 0, 0
+	xfftclm	3072K, 2, 1
+	xfftclm	3072K, 1, 1
+	xfftclm	3072K, 0, 0
+	xfftclm	3584K, 2, 1
+	xfftclm	3584K, 1, 1
+	xfftclm	3584K, 0, 0
+	xfftclm	4096K, 2, 1
+	xfftclm	4096K, 1, 1
+	xfftclm	4096K, 0, 0
 
 ; Common code to finish the FFT by restoring state and returning.
 
@@ -83,6 +103,7 @@ gw_finish_fft_3:
 ; low carry.  Handle both the with and without two-to-phi array cases.
 
 gw_split_carries_3:
+	sub	ecx, ecx		; Clear big/little flag
 	mov	edx, count3		; Load 3 section counts
 	mov	loopcount1, edx		; Save for later
 	mov	edx, addcount1		; Load count of carry rows
@@ -132,14 +153,14 @@ gw_finish_mult_3:
 	cmp	zero_fft, 1		; Is this a zero high words fft?
 	JE_X	idz			; Yes, do special add in of carries
 ilp2:	xnorm012_2d_addin noexec	; Add carries to FFT data
-	lea	esi, [esi+blkdst]	; Next carries pointer
+	add	esi, pass1blkdst	; Next carries pointer
 	lea	ebp, [ebp+64]		; Next carries pointer
 	lea	ebx, [ebx+64]		; Next high carries pointer
 	sub	edx, 1			; Test loop counter
 	JNZ_X	ilp2
 	JMP_X	cmnend
 idz:	xnorm012_2d_addin exec		; Add carries to FFT data
-	lea	esi, [esi+blkdst]	; Next carries pointer
+	add	esi, pass1blkdst	; Next carries pointer
 	lea	ebp, [ebp+64]		; Next carries pointer
 	lea	ebx, [ebx+64]		; Next high carries pointer
 	sub	edx, 1			; Test loop counter

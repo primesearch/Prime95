@@ -9,7 +9,7 @@
 | Commonc contains information used during setup and execution
 +---------------------------------------------------------------------*/
 
-char JUNK[]="Copyright 1996-2002 Just For Fun Software, All rights reserved";
+char JUNK[]="Copyright 1996-2004 Just For Fun Software, All rights reserved";
 
 char	INI_FILE[80] = {0};
 char	LOCALINI_FILE[80] = {0};
@@ -76,7 +76,7 @@ time_t	next_comm_time = 0;	/* Next time we should contact server */
 
 char READFILEERR[] = "Error reading intermediate file: %s\n";
 char BLACKMSG1[] = "The PrimeNet Server has temporarily requested your computer not contact the server.\n";
-char BLACKMSG2[] = "The PrimeNet Server has permanently requested your computer not contact the server.\nTry downloading a new version from http://www.mersenne.org/freesoft.htm or contact primenet@entropia.com\n";
+char BLACKMSG2[] = "The PrimeNet Server has permanently requested your computer not contact the server.\nTry downloading a new version from http://www.mersenne.org/freesoft.htm or contact woltman@alum.mit.edu\n";
 
 /* Determine the CPU speed either empirically or by user overrides. */
 /* getCpuType must be called prior to calling this routine. */
@@ -177,6 +177,13 @@ void getCpuInfo (void)
 	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsSSE2", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_SSE2;
 	if (temp == 1) CPU_FLAGS |= CPU_SSE2;
+
+/* Let the user override the L2 cache size in local.ini file */
+
+	CPU_L2_CACHE_SIZE =
+		IniGetInt (LOCALINI_FILE, "CpuL2CacheSize", CPU_L2_CACHE_SIZE);
+	CPU_L2_CACHE_LINE_SIZE =
+		IniGetInt (LOCALINI_FILE, "CpuL2CacheLineSize", CPU_L2_CACHE_LINE_SIZE);
 
 /* If CPU has changed greatly since the last time prime95 ran, then */
 /* tell the server, recalculate new completion dates, and reset the */
@@ -1576,7 +1583,7 @@ int sendMessage (
 	case PRIMENET_ERROR_OK:
 		break;
 	case 12029:
-		sprintf (buf, "ERROR %d: Cannot find server.  See http://www.entropia.com/ips/faq.html\n", return_code);
+		sprintf (buf, "ERROR %d: Cannot find server.  See http://www.mersenne.org/ips/faq.html\n", return_code);
 		if (msgType == PRIMENET_PING_SERVER_INFO)
 			OutputStr (buf);
 		else
@@ -1637,7 +1644,7 @@ int sendMessage (
 /* Print out message saying where more help may be found. */
 
 	if (return_code)
-		OutputStr ("The FAQ at http://www.entropia.com/ips/faq.html may have more information.\n");
+		OutputStr ("The FAQ at http://www.mersenne.org/ips/faq.html may have more information.\n");
 
 /* Return the return code */
 
@@ -1724,7 +1731,7 @@ static	time_t	last_time = 0;
 
 /* Output to the log file only if it hasn't grown too big */
 
-	if (filelen < 250000) {
+	if (filelen < (unsigned long) IniGetInt (INI_FILE, "MaxLogFileSize", 250000)) {
 
 /* If it has been at least 5 minutes since the last time stamp */
 /* was output, then output a new timestamp */
@@ -1757,26 +1764,25 @@ static	time_t	last_time = 0;
 
 
 /* Determine the preferred work type (based on CPU speed) */
-/* Anything slower than a 50 MHz Pentium will be relegated */
-/* to just factoring.  Less than a 120 MHz Pentium will be */
-/* given double-checking assignments.  As time goes on these */
-/* values should drift upward (since LL tests become harder) */
+/* Slower machines will be relegated to just factoring.  Medium speed */
+/* machines will be given double-checking assignments.  Faster machines */
+/* get first time LL tests. */
 
 short default_work_type (void)
 {
 	double	speed;
 
-/* Get estimated iteration time for a 256K length FFT */
+/* Get estimated iteration time for a 512K length FFT */
 
-	speed = map_fftlen_to_timing (262144, GW_MERSENNE_MOD, CPU_TYPE, CPU_SPEED) *
+	speed = map_fftlen_to_timing (524288, GW_MERSENNE_MOD, CPU_TYPE, CPU_SPEED) *
 			24.0 / CPU_HOURS * 1000.0 / ROLLING_AVERAGE;
 
-/* PIII-500 and faster get first-time LL tests */
+/* PIII-900 and faster get first-time LL tests */
 /* P-233 and faster get double-checking work */
 /* All slower machines get factoring work */
 
-	if (speed < 0.090) return (PRIMENET_ASSIGN_TEST);
-	if (speed < 0.270) return (PRIMENET_ASSIGN_DBLCHK);
+	if (speed < 0.115) return (PRIMENET_ASSIGN_TEST);
+	if (speed < 0.555) return (PRIMENET_ASSIGN_DBLCHK);
 	return (PRIMENET_ASSIGN_FACTOR);
 }
 
@@ -3123,7 +3129,7 @@ void guess_pminus1_bounds (
 	unsigned int h;
 	double	pass1_squarings, pass2_squarings;
 	double	logB1, logB2, k, logk, temp, logtemp, log2;
-	double	prob, gcd_cost, ll_tests, numprimes;
+	double	size, prob, gcd_cost, ll_tests, numprimes;
 	struct {
 		unsigned long B1;
 		unsigned long B2;
@@ -3147,14 +3153,14 @@ void guess_pminus1_bounds (
 	gcd_cost = (430.5 * log (p) - 3887.5) / 2.0;
 	if (gcd_cost < 50.0) gcd_cost = 50.0;
 
-/* Compute how many temporaries we can use given our memory constraints */
-/* Compute how many stage 2 passes are required in low memory situations */
+/* Compute how many temporaries we can use given our memory constraints. */
 
 	fftlen = map_exponent_to_fftlen (p, 0);
-	vals = (unsigned long)
-			(((double) max_mem () * 1000000.0 -
-			  (double) map_fftlen_to_memused (fftlen, 0)) /
-			 (double) gwnum_size (fftlen));
+	temp = (double) max_mem () * 1000000.0 -
+		(double) map_fftlen_to_memused (fftlen, 0);
+	size = (double) gwnum_size (fftlen);
+	if (temp <= size) vals = 1;
+	else vals = (unsigned long) (temp / size);
 
 /* Find the best B1 */
 
@@ -3173,26 +3179,31 @@ void guess_pminus1_bounds (
 
 	for (B2 = B1; ; B2 += B1 >> 2) {
 
-/* Compute how many squarings will be required in pass 2 */
+/* Compute how many squarings will be required in pass 2.  In the */
+/* low-memory cases, assume choose_pminus1_plan will pick D = 210, E = 1 */
+/* If more memory is available assume choose_pminus1_plan will pick */
+/* D = 2310, E = 2.  This will provide an accurate enough cost for our */
+/* purposes even if different D and E values are picked.  See */
+/* choose_pminus1_plan for a description of the costs of P-1 stage 2. */
 
 	logB2 = log (B2);
 	numprimes = (unsigned long) (B2 / (logB2 - 1.0) - B1 / (logB1 - 1.0));
 	if (B2 <= B1) {
 		pass2_squarings = 0.0;
-	} else if (vals < 12) {
+	} else if (vals <= 8) {		/* D = 210, E = 1, passes = 48/temps */
 		unsigned long num_passes;
 		num_passes = (unsigned long) ceil (48.0 / (vals - 3));
-		pass2_squarings = numprimes;
-		pass2_squarings += ceil ((B2 - B1) / 210.0) * num_passes;
+		pass2_squarings = ceil ((B2 - B1) / 210.0) * num_passes;
+		pass2_squarings += numprimes * 1.1;
 	} else {
+		unsigned long num_passes;
 		double	numpairings;
-		unsigned long d;
+		num_passes = (unsigned long) ceil (480.0 / (vals - 5));
 		numpairings = (unsigned long)
-			(numprimes / 2.0 * numprimes / ((B2-B1) * 8.0/30.0));
-		pass2_squarings = numprimes - numpairings;
-		d = (vals - 5) / 8 * 30;
-		if (d == 0) d = 30;
-		pass2_squarings += ceil ((B2 - B1) / (d + d)) * 2.0;
+			(numprimes / 2.0 * numprimes / ((B2-B1) * 480.0/2310.0));
+		pass2_squarings = 2400.0 + num_passes * 90.0; /* setup costs */
+		pass2_squarings += ceil ((B2-B1) / 4620.0) * 2.0 * num_passes;
+		pass2_squarings += numprimes - numpairings;
 	}
 
 /* Pass 2 FFT multiplications seem to be at least 20% slower than */

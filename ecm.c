@@ -1,4 +1,4 @@
-EXTERNC void timeit (void);
+EXTERNC int timeit (void);
 /*
    is sieve tuned properly?  could be even faster.  use assembly?
 	do sieve once and store in a file?
@@ -18,7 +18,7 @@ EXTERNC void timeit (void);
  *	Other important ideas courtesy of Peter Montgomery.
  *
  *	c. 1997 Perfectly Scientific, Inc.
- *	c. 1998-2001 Just For Fun Software, Inc.
+ *	c. 1998-2003 Just For Fun Software, Inc.
  *	All Rights Reserved.
  *
  *************************************************************/
@@ -50,6 +50,10 @@ unsigned int mQx_count;
 unsigned long modinv_count = 0;
 int	TWO_FFT_STAGE2 = 0;	/* Type of ECM stage 2 to execute */
 
+int	QA_IN_PROGRESS = FALSE;
+int	QA_TYPE = 0;
+int	QA_SAVE_FILES = 0;
+#define QA_SAVE_TEST 33
 
 /* Bit manipulation macros */
 
@@ -153,7 +157,7 @@ void fill_sieve (void)
 	}
 	si.num_primes = i;
 
-/* Fill the sieve with ones, then zero out the composites */
+/* Fill the sieve wth ones, then zero out the composites */
 
 	memset (si.array, 0xFF, sizeof (si.array));
 	for (i = 0; i < si.num_primes; i += 2) {
@@ -641,58 +645,6 @@ void lucas_mul (
 	gwfree (zt);
 }
 
-/* Try a series of Lucas chains to find the cheapest. */
-/* First try v = (1+sqrt(5))/2, then (2+v)/(1+v), then (3+2*v)/(2+v), */
-/* then (5+3*v)/(3+2*v), etc.  Finally, execute the cheapest. */
-/* This is much faster than bin_ell_mul, but uses more memory. */
-
-void ell_mul (
-	gwnum	xx,
-	gwnum	zz,
-	unsigned long n)
-{
-	unsigned long zeros;
-
-	for (zeros = 0; (n & 1) == 0; zeros++) n >>= 1;
-
-	if (n > 1) {
-		unsigned long c, min;
-		double	minv;
-
-		min = lucas_cost (n, minv = 1.61803398875);/*v=(1+sqrt(5))/2*/
-
-		c = lucas_cost (n, 1.38196601125);	/*(2+v)/(1+v)*/
-		if (c < min) min = c, minv = 1.38196601125;
-
-		c = lucas_cost (n, 1.72360679775);	/*(3+2*v)/(2+v)*/
-		if (c < min) min = c, minv = 1.72360679775;
-
-		c = lucas_cost (n, 1.580178728295);	/*(5+3*v)/(3+2*v)*/
-		if (c < min) min = c, minv = 1.580178728295;
-
-		c = lucas_cost (n, 1.632839806089);	/*(8+5*v)/(5+3*v)*/
-		if (c < min) min = c, minv = 1.632839806089;
-
-		c = lucas_cost (n, 1.612429949509);	/*(13+8*v)/(8+5*v)*/
-		if (c < min) min = c, minv = 1.612429949509;
-
-		c = lucas_cost (n, 1.620181980807);	/*(21+13*v)/(13+8*v)*/
-		if (c < min) min = c, minv = 1.620181980807;
-
-		c = lucas_cost (n, 1.617214616534);	/*(34+21*v)/(21+13*v)*/
-		if (c < min) min = c, minv = 1.617214616534;
-
-		c = lucas_cost (n, 1.618347119656);	/*(55+34*v)/(34+21*v)*/
-		if (c < min) min = c, minv = 1.618347119656;
-
-		c = lucas_cost (n, 1.617914406529);	/*(89+55*v)/(55+34*v)*/
-		if (c < min) min = c, minv = 1.617914406529;
-
-		lucas_mul (xx, zz, n, minv);
-	}
-	while (zeros--) ell_dbl (xx, zz, xx, zz);
-}
-
 /* Multiplies the point (xx,zz) by n using a combination */
 /* of ell_dbl and ell_add calls */
 
@@ -758,6 +710,58 @@ void bin_ell_mul (
 	while (zeros--) ell_dbl (xx, zz, xx, zz);
 }
 
+/* Try a series of Lucas chains to find the cheapest. */
+/* First try v = (1+sqrt(5))/2, then (2+v)/(1+v), then (3+2*v)/(2+v), */
+/* then (5+3*v)/(3+2*v), etc.  Finally, execute the cheapest. */
+/* This is much faster than bin_ell_mul, but uses more memory. */
+
+void ell_mul (
+	gwnum	xx,
+	gwnum	zz,
+	unsigned long n)
+{
+	unsigned long zeros;
+
+	for (zeros = 0; (n & 1) == 0; zeros++) n >>= 1;
+
+	if (n > 1) {
+		unsigned long c, min;
+		double	minv;
+
+		min = lucas_cost (n, minv = 1.61803398875);/*v=(1+sqrt(5))/2*/
+
+		c = lucas_cost (n, 1.38196601125);	/*(2+v)/(1+v)*/
+		if (c < min) min = c, minv = 1.38196601125;
+
+		c = lucas_cost (n, 1.72360679775);	/*(3+2*v)/(2+v)*/
+		if (c < min) min = c, minv = 1.72360679775;
+
+		c = lucas_cost (n, 1.580178728295);	/*(5+3*v)/(3+2*v)*/
+		if (c < min) min = c, minv = 1.580178728295;
+
+		c = lucas_cost (n, 1.632839806089);	/*(8+5*v)/(5+3*v)*/
+		if (c < min) min = c, minv = 1.632839806089;
+
+		c = lucas_cost (n, 1.612429949509);	/*(13+8*v)/(8+5*v)*/
+		if (c < min) min = c, minv = 1.612429949509;
+
+		c = lucas_cost (n, 1.620181980807);	/*(21+13*v)/(13+8*v)*/
+		if (c < min) min = c, minv = 1.620181980807;
+
+		c = lucas_cost (n, 1.617214616534);	/*(34+21*v)/(21+13*v)*/
+		if (c < min) min = c, minv = 1.617214616534;
+
+		c = lucas_cost (n, 1.618347119656);	/*(55+34*v)/(34+21*v)*/
+		if (c < min) min = c, minv = 1.618347119656;
+
+		c = lucas_cost (n, 1.617914406529);	/*(89+55*v)/(55+34*v)*/
+		if (c < min) min = c, minv = 1.617914406529;
+
+		lucas_mul (xx, zz, n, minv);
+	}
+	while (zeros--) ell_dbl (xx, zz, xx, zz);
+}
+
 /* Test if factor divides N, return TRUE if it does */
 
 int testFactor (
@@ -791,6 +795,10 @@ int setN (void)
 	itog (1, N);
 	gshiftleft (PARG, N);
 	iaddg (PLUS1 ? 1 : -1, N);
+
+/* Ignore file of known factors when QAing */
+
+	if (QA_IN_PROGRESS) return (TRUE);
 
 /* Open file of known factors */
 
@@ -1281,6 +1289,78 @@ exit:	pool_count = 0;
 }
 
 
+/* Test if N is a probable prime */
+/* Compute i^(N-1) mod N for i = 3,5,7 */
+
+int isProbablePrime (void)
+{
+	int	i, j, len, retval;
+	gwnum	t1, t2;
+	giant	x;
+
+	if (isone (N)) return (TRUE);
+
+	retval = TRUE;		/* Assume it is a probable prime */
+	t1 = gwalloc ();
+	len = bitlen (N);
+	for (i = 3; retval && i <= 7; i += 2) {
+		t2 = gwalloc ();
+		dbltogw ((double) 1.0, t1);
+		dbltogw ((double) i, t2);
+		gwfft (t2, t2);
+		for (j = 1; j <= len; j++) {
+			gwsquare (t1);
+			if (bitval (N, len-j)) gwfftmul (t2, t1);
+		}
+		gwfree (t2);
+		x = popg ((PARG >> 5) + 1);
+		gwtobinary (t1, x);
+		modg (N, x);
+		iaddg (-i, x);
+		if (!isZero (x)) retval = FALSE;	/* Not a prime */
+		pushg (1);
+	}
+	gwfree (t1);
+	return (retval);
+}
+
+/* Print the factor we just found */
+
+int printFactor (void)
+{
+	int	msglen;
+	char	*msg;
+
+	if (!testFactor (FAC)) {
+		OutputBoth ("ERROR: Factor doesn't divide N!\n");
+		ultog (1, FAC);
+		return (FALSE);
+	}
+
+	msglen = FAC->sign * 10 + 80;
+	msg = (char *) malloc (msglen);
+	msg[0] = PLUS1 ? 'P' : 'M';
+	sprintf (msg+1, "%ld has a factor: ", PARG);
+	gtoc (FAC, msg+strlen(msg), msglen);
+	strcat (msg, "\n");
+	OutputBoth (msg);
+	spoolMessage (PRIMENET_RESULT_MESSAGE, msg);
+	free (msg);
+
+	if (QA_IN_PROGRESS) return (TRUE);
+
+	if (PARG < 10000) {
+		divg (FAC, N);
+		if (isProbablePrime ()) {
+			OutputBoth ("Cofactor is a probable prime!\n");
+			updateWorkToDo (PARG, WORK_FACTOR, 0);
+			return (TRUE);
+		}
+		mulg (FAC, N);
+	}
+	return (FALSE);
+}
+
 /* From R. P. Brent, priv. comm. 1996:
 Let s > 5 be a pseudo-random seed (called $\sigma$ in the Tech. Report),
 
@@ -1305,7 +1385,7 @@ void choose12 (
 	t2 = gwalloc ();
 	t3 = gwalloc ();
 
-	dbltogw (curve, zs);
+again:	dbltogw (curve, zs);
 	gwcopy (zs, xs);
 	gwsquare (xs);			/* s^2 */
 	dbltogw (5.0, t1);
@@ -1338,6 +1418,15 @@ void choose12 (
 	dbltogw (4.0, Ad4);
 	gwmul (t3, Ad4);	/* An/Ad is now A + 2 */
 	normalize (Ad4, t2);	/* Normalize so that An is one */
+	if (FAC != NULL) {	/* If a factor was found, then normalize */
+				/* failed to find a modular inverse. */
+		gwfree (Ad4);
+		printFactor ();
+		divg (FAC, N);
+		free (FAC);
+		FAC = NULL;
+		goto again;
+	}
 	dbltogw (4.0, t1);	/* For extra speed, precompute Ad * 4 */
 	gwmul (t1, Ad4);
 	gwfft (Ad4, Ad4);	/* Even more speed, save FFT of Ad4 */
@@ -1445,76 +1534,6 @@ void mQ_term (void)
 	gwfree (Q2Dxminus1);
 }
 
-/* Test if N is a probable prime */
-/* Compute i^(N-1) mod N for i = 3,5,7 */
-
-int isProbablePrime (void)
-{
-	int	i, j, len, retval;
-	gwnum	t1, t2;
-	giant	x;
-
-	if (isone (N)) return (TRUE);
-
-	retval = TRUE;		/* Assume it is a probable prime */
-	t1 = gwalloc ();
-	len = bitlen (N);
-	for (i = 3; retval && i <= 7; i += 2) {
-		t2 = gwalloc ();
-		dbltogw ((double) 1.0, t1);
-		dbltogw ((double) i, t2);
-		gwfft (t2, t2);
-		for (j = 1; j <= len; j++) {
-			gwsquare (t1);
-			if (bitval (N, len-j)) gwfftmul (t2, t1);
-		}
-		gwfree (t2);
-		x = popg ((PARG >> 5) + 1);
-		gwtobinary (t1, x);
-		modg (N, x);
-		iaddg (-i, x);
-		if (!isZero (x)) retval = FALSE;	/* Not a prime */
-		pushg (1);
-	}
-	gwfree (t1);
-	return (retval);
-}
-
-/* Print the factor we just found */
-
-int printFactor (void)
-{
-	int	msglen;
-	char	*msg;
-
-	if (!testFactor (FAC)) {
-		OutputBoth ("ERROR: Factor doesn't divide N!\n");
-		ultog (1, FAC);
-		return (FALSE);
-	}
-
-	msglen = FAC->sign * 10 + 80;
-	msg = (char *) malloc (msglen);
-	msg[0] = PLUS1 ? 'P' : 'M';
-	sprintf (msg+1, "%ld has a factor: ", PARG);
-	gtoc (FAC, msg+strlen(msg), msglen);
-	strcat (msg, "\n");
-	OutputBoth (msg);
-	spoolMessage (PRIMENET_RESULT_MESSAGE, msg);
-	free (msg);
-
-	if (PARG < 10000) {
-		divg (FAC, N);
-		if (isProbablePrime ()) {
-			OutputBoth ("Cofactor is a probable prime!\n");
-			updateWorkToDo (PARG, WORK_FACTOR, 0);
-			return (TRUE);
-		}
-		mulg (FAC, N);
-	}
-	return (FALSE);
-}
-
 /* Choose 4 FFT stage 2 of the 2 FFT stage 2.  Also choose a good */
 /* value for D and a good algorithm for normalize_pool. */
 /* We try to choose the above such that the number of multiplications */
@@ -1611,7 +1630,8 @@ void choose_stage2_plan (
 /* or	13 + 2*relprime gwnums if 3N pooling			*/
 /* Note that MQ_init requires B is at least 4 times D		*/
 
-		if (B >= 4*d && 13 + relprime <= numvals) {
+		if (B >= 4*d && 13 + relprime <= numvals &&
+		    (QA_TYPE == 0 || QA_TYPE == 1)) {
 			cost = d/2 * ELL_ADD_COST +
 			       relprime * relprime * N_SQUARED_POOL_COST +
 			       numsections * ELL_ADD_COST +
@@ -1624,7 +1644,8 @@ void choose_stage2_plan (
 				bestcost = cost;
 			}
 		}
-		if (B >= 4*d && 13 + relprime*2 <= numvals) {
+		if (B >= 4*d && 13 + relprime*2 <= numvals &&
+		    (QA_TYPE == 0 || QA_TYPE == 2)) {
 			cost = d/2 * ELL_ADD_COST +
 			       relprime * MULT3_POOL_COST +
 			       numsections * ELL_ADD_COST +
@@ -1648,7 +1669,8 @@ void choose_stage2_plan (
 /*	13 + relprime gwnums if N^2 pooling			*/
 /* or	13 + 2*relprime gwnums if 3N pooling			*/
 
-		if (B >= 4*d && 13 + relprime <= numvals) {
+		if (B >= 4*d && 13 + relprime <= numvals &&
+		    (QA_TYPE == 0 || QA_TYPE == 3)) {
 			e = numvals - relprime - 13;
 			if (e == 0) e = 1;
 			if (e > beste) e = beste;
@@ -1667,7 +1689,8 @@ void choose_stage2_plan (
 				bestcost = cost;
 			}
 		}
-		if (B >= 4*d && 13 + relprime*2 <= numvals) {
+		if (B >= 4*d && 13 + relprime*2 <= numvals &&
+		    (QA_TYPE == 0 || QA_TYPE == 4)) {
 			e = (numvals - relprime - 13) / 2;
 			if (e == 0) e = 1;
 			numgcdsections = ceil (numsections / e);
@@ -1694,6 +1717,57 @@ void choose_stage2_plan (
 		else if (d > 30) d = d - 30;
 		else break;
 	}
+
+/* Print out our selection */
+
+	if (QA_IN_PROGRESS) {
+		char	buf[200];
+		if (pool_type == POOL_N_SQUARED)
+			sprintf (buf, "num temps = %d, D = %d, E = %d\n",
+				 numvals, D, E);
+		else
+			sprintf (buf, "num temps = %d, D = %d\n",
+				 numvals, D);
+		OutputBoth (buf);
+		sprintf (buf, "Stage 2 FFTs = %d, Pool type = %s\n",
+			 TWO_FFT_STAGE2 ? 2 : 4,
+			 pool_type == POOL_N_SQUARED ? "N squared" :
+						       "3 multiplies");
+		OutputBoth (buf);
+	}
+}
+
+/* Routines to read and write a byte array from and to a save file */
+
+int read_array (
+	int	fd,
+	char	*buf,
+	unsigned long len,
+	long	*sum)
+{
+	unsigned long i;
+	signed char *sbuf;
+
+	if (_read (fd, buf, len) != len) return (FALSE);
+	sbuf = (signed char *) buf;  /* Watcom default for char is unsigned! */
+	for (i = 0; i < len; i++) *sum += sbuf[i];
+	return (TRUE);
+}
+
+int write_array (
+	int	fd,
+	char	*buf,
+	unsigned long len,
+	long	*sum)
+{
+	unsigned long i;
+	signed char *sbuf;
+
+	if (len == 0) return (TRUE);
+	if (_write (fd, buf, len) != len) return (FALSE);
+	sbuf = (signed char *) buf;  /* Watcom default for char is unsigned! */
+	for (i = 0; i < len; i++) *sum += sbuf[i];
+	return (TRUE);
 }
 
 /* Routines to read and write a gwnum from and to a save file */
@@ -2084,24 +2158,30 @@ return 0;
 }
 #endif
 
-/*#define TIMING2*/
+#define TIMING2
 #ifdef TIMING2
 if (p == 600) {
-long f; int j, cnt;
+long f; int j, min_test, max_test, test, cnt, NUM_X87_TESTS, NUM_SSE2_TESTS;
 gwsetup (10000000, 0, 0);
-f = (long) malloc (20000000);
+f = (long) malloc (40000000);
 SRCARG = (void *) ((f + 4095) & ~4095);
-memset (SRCARG, 0, 20000000 - 4096);
- RDTSC_TIMING = 12;
-    //    SetThreadPriority (CURRENT_THREAD, THREAD_PRIORITY_TIME_CRITICAL);
-for (j = 0; j < 4; j++) {
+memset (SRCARG, 0, 40000000 - 4096);
+RDTSC_TIMING = 12;
+min_test = IniGetInt (INI_FILE, "MinTest", 0);
+max_test = IniGetInt (INI_FILE, "MaxTest", min_test);
+DESTARG = (void *) -1; NUM_X87_TESTS = timeit ();
+DESTARG = (void *) -2; NUM_SSE2_TESTS = timeit ();
+//SetThreadPriority (CURRENT_THREAD, THREAD_PRIORITY_TIME_CRITICAL);
+for (j = 0; j < NUM_X87_TESTS + NUM_SSE2_TESTS; j++) {
 	cnt = 0;
-for (i = 1; i <= 200; i++) {
+	test = (j < NUM_X87_TESTS ? j : 1000 + j - NUM_X87_TESTS);
+	if (min_test && (test < min_test || test > max_test)) continue;
+	if (! (CPU_FLAGS & CPU_SSE2) && test >= 1000) break;
+for (i = 1; i <= 50; i++) {
 	start_timer (0);
-	DESTARG = (void *) j;
+	DESTARG = (void *) test;
 	timeit ();
 	end_timer (0);
-/*	if (j == 0) for (int k = 0; k < 40000000; k++); */
 	if (timers[1] == 0 || timers[1] > timers[0]) timers[1] = timers[0];
 	if (i > 1 && timers[0] < 3.0 * timers[1]) {
 		if (timers[0] > 1.5 * timers[1])
@@ -2111,9 +2191,13 @@ for (i = 1; i <= 200; i++) {
 	}
 	timers[0] = 0;
 }
-OutputStr ("1000 iters: ");  print_timer (1, TIMER_CLR);
+sprintf (buf, "Test %d: ", test);
+OutputBoth (buf);
+print_timer (1, TIMER_OUT_BOTH | TIMER_CLR);
 timers[2] /= cnt;
-OutputStr (", avg: "); print_timer (2, TIMER_NL | TIMER_CLR);
+OutputBoth (", avg: ");
+print_timer (2, TIMER_OUT_BOTH | TIMER_NL | TIMER_CLR);
+if (min_test) exit (0);
 }
 
 free ((void *) f);
@@ -2429,11 +2513,17 @@ restart1:
 
 		escaped = stopCheck ();
 		time (&current_time);
-		if (escaped || current_time - start_time > write_time) {
+		if (escaped || (QA_SAVE_FILES & 0x1) ||
+		    current_time - start_time > write_time) {
 			ecm_save (filename, ECM_STAGE1, curve, sigma,
 				  B, prime, 0, x, z);
 			if (escaped) {
 				retval = FALSE;
+				goto exit;
+			}
+			if (QA_SAVE_FILES & 0x1) {
+				QA_SAVE_FILES &= ~0x1;
+				retval = QA_SAVE_TEST;
 				goto exit;
 			}
 			start_time = current_time;
@@ -2462,9 +2552,14 @@ restart1:
 
 	if (C <= B) {
 		start_timer (0);
-		if (!gcd (z)) {
+		if ((QA_SAVE_FILES & 0x2) || !gcd (z)) {
 			ecm_save (filename, ECM_STAGE1, curve, sigma,
 				  B, B, 0, x, z);
+			if (QA_SAVE_FILES & 0x2) {
+				QA_SAVE_FILES &= ~0x2;
+				retval = QA_SAVE_TEST;
+				goto exit;
+			}
 			retval = FALSE;
 			goto exit;
 		}
@@ -2538,11 +2633,30 @@ restart1:
    x, z: coordinates of Q at the beginning of stage 2
 */
 
+/* If we find a factor in stage 1 of a QA run then */
+/* print the factor, divide it from N, and continue stage 2. */
+/* On a QA continuation z is one, so do the GCD on x */
+
+restart3:
+	if (QA_IN_PROGRESS) {
+		gwnum	p;
+		p = (*(double *)z == 1.0) ? x : z;
+		if (!gcd (p)) {
+			retval = FALSE;
+			goto exit;
+		}
+		if (FAC != NULL) {
+			printFactor ();
+			divg (FAC, N);
+			free (FAC);
+			FAC = NULL;
+		}
+	}
+
 /* Initialize variables for second stage */
 /* Our goal is to fill up the nQx array with Q^1, Q^3, Q^5, ... */
 /* normalized with only one modular inverse call. */
 
-restart3:
 	start_timer (0);
 
 /* Allocate memory for computing nQx values */
@@ -2578,10 +2692,15 @@ restart3:
 
 		if (gw_test_for_error ()) goto error;
 
-		if (stopCheck ()) {
+		if (stopCheck () || (QA_SAVE_FILES & 0x4)) {
 			if (gg == NULL) {
 				ecm_save (filename, ECM_STAGE1, curve, sigma,
 					  B, B, 0, Qdiffx, Qdiffz);
+			}
+			if (QA_SAVE_FILES & 0x4) {
+				QA_SAVE_FILES &= ~0x4;
+				retval = QA_SAVE_TEST;
+				goto exit;
 			}
 			retval = FALSE;
 			goto exit;
@@ -2625,7 +2744,7 @@ restart3:
 /* MEMUSED: 4 + nQx gwnums (AD4, Q2x, Qiminus2x&z, nQx values) */
 /* MEMPEAK: 4 + nQx + 3 for UV, normalize, and pooled_modinv temporaries */
 
-	if (! normalize_pool ()) {
+	if (! normalize_pool () || (QA_SAVE_FILES & 0x8)) {
 		if (gg == NULL) {
 			dbltogw (1.0, Q2x);
 			gwfft (Q2x, Q2x);
@@ -2634,9 +2753,17 @@ restart3:
 			ecm_save (filename, ECM_STAGE1, curve, sigma,
 				  B, B, 0, Qiminus2x, Qiminus2z);
 		}
+		if (QA_SAVE_FILES & 0x8) {
+			QA_SAVE_FILES &= ~0x8;
+			retval = QA_SAVE_TEST;
+			goto exit;
+		}
 		retval = FALSE;
 		goto exit;
 	}
+
+/* If we found a factor, we're done */
+
 	if (FAC != NULL) goto bingo;
 
 /* Free rest of the memory used in computing nQx values */
@@ -2691,12 +2818,17 @@ restart3:
 /* MEMUSED: 7 + nQx + E gwnums (6 for computing mQx, gg, nQx and E values) */
 /* MEMPEAK: 7 + nQx + E + 2 for ell_add temporaries */
 
-		if (!mQ_next (&mQx, &mQz)) {
+		if (!mQ_next (&mQx, &mQz) || (QA_SAVE_FILES & 0x10)) {
 			dbltogw (1.0, Q2x);
 			gwfft (Q2x, Q2x);
 			gwfftfftmul (Q2x, nQx[0], nQx[0]);
 			ecm_save (filename, ECM_STAGE2, curve, sigma,
 				  B, B, prime, nQx[0], gg);
+			if (QA_SAVE_FILES & 0x10) {
+				QA_SAVE_FILES &= ~0x10;
+				retval = QA_SAVE_TEST;
+				goto exit;
+			}
 			retval = FALSE;
 			goto exit;
 		}
@@ -2763,7 +2895,8 @@ restart3:
 
 		escaped = stopCheck ();
 		time (&current_time);
-		if (escaped || current_time - start_time > write_time) {
+		if (escaped || (QA_SAVE_FILES & 0x20) ||
+		    current_time - start_time > write_time) {
 			t1 = gwalloc ();
 			dbltogw (1.0, t1);
 			gwfft (t1, t1);
@@ -2773,6 +2906,11 @@ restart3:
 			gwfree (t1);
 			if (escaped) {
 				retval = FALSE;
+				goto exit;
+			}
+			if (QA_SAVE_FILES & 0x20) {
+				QA_SAVE_FILES &= ~0x20;
+				retval = QA_SAVE_TEST;
 				goto exit;
 			}
 			start_time = current_time;
@@ -2801,9 +2939,14 @@ restart3:
 
 restart4:
 	start_timer (0);
-	if (!gcd (gg)) {
+	if ((QA_SAVE_FILES & 0x40) || !gcd (gg)) {
 		ecm_save (filename, ECM_STAGE2, curve, sigma,
 			  B, B, C, gg, gg);
+		if (QA_SAVE_FILES & 0x40) {
+			QA_SAVE_FILES &= ~0x40;
+			retval = QA_SAVE_TEST;
+			goto exit;
+		}
 		retval = FALSE;
 		goto exit;
 	}
@@ -2850,8 +2993,10 @@ bingo:	sprintf (buf, "ECM found a factor in curve #%ld, stage #%d\n",
 	/*spoolMessage (PRIMENET_RESULT_MESSAGE, buf);*/
 	if (printFactor ()) {
 		_unlink (filename);
-		free (FAC);
-		FAC = NULL;
+		if (!QA_IN_PROGRESS) {
+			free (FAC);
+			FAC = NULL;
+		}
 		retval = TRUE;
 		goto exit;
 	}
@@ -2885,6 +3030,106 @@ error:	OutputBoth ("SUMOUT error occurred.\n");
 	goto restart;
 }
 
+/* Read a file of ECM tests to run as part of a QA process */
+/* The format of this file is: */
+/*	exponent, plus1_flag, sigma, B1, B2_start, B2_end, factor */
+/* Use Advanced/Time 9991 to run the QA suite */
+
+int ecm_QA ()
+{
+	FILE	*fd;
+	int	savefiles;
+
+/* Set the title */
+
+	title ("QA");
+
+/* Open QA file */
+
+	fd = fopen ("qa_ecm", "r");
+	if (fd == NULL) {
+		OutputStr ("File named 'qa_ecm' could not be opened.\n");
+		return (TRUE);
+	}
+
+/* Loop until the entire file is processed */
+
+	for ( ; ; ) {
+		unsigned long p, B1, B2_start, B2_end;
+		int	plus1;
+		char	fac_str[80];
+		double	sigma;
+		giant	f;
+		int	retval, success;
+
+/* Read a line from the file */
+
+		p = 0;
+		fscanf (fd, "%lu,%d,%lf,%lu,%lu,%lu,%s\n",
+			&p, &plus1, &sigma, &B1, &B2_start, &B2_end, &fac_str);
+		if (p == 0) break;
+
+/* If p is 1, set QA_TYPE */
+
+		if (p == 1) {
+			QA_TYPE = plus1;
+			savefiles = B1;
+			continue;
+		}
+
+/* Convert the factor we expect to find into a "giant" type */
+
+		f = newgiant (strlen (fac_str));
+		ctog (fac_str, f);
+
+/*test various num_tmps
+test 4 (or more?) stage 2 code paths
+print out each test case (all relevant data)*/
+
+/* Set some global variables indicating QA is in progress. */
+
+		QA_IN_PROGRESS = TRUE;
+		QA_SAVE_FILES = savefiles;
+
+/* Do the ECM */
+
+		if (B2_start < B1) B2_start = B1;
+		do {
+			retval = ecm (p, B1, B2_start, B2_end, 1, 0, sigma, plus1);
+			if (!retval) {
+				fclose (fd);
+				QA_IN_PROGRESS = FALSE;
+				QA_TYPE = 0;
+				QA_SAVE_FILES = 0;
+				return (FALSE);
+			}
+		} while (retval == QA_SAVE_TEST);
+
+/* See if we found the factor */
+
+		if (FAC == NULL) success = FALSE;
+		else {
+			modg (f, FAC);
+			success = isZero (FAC);
+			free (FAC);
+			FAC = NULL;
+		}
+		if (!success) {
+			char	buf[200];
+			sprintf (buf, "ERROR: Factor not found. Expected %s\n", fac_str);
+			OutputBoth (buf);
+		}
+		free (f);
+	}
+
+/* Cleanup */
+
+	QA_IN_PROGRESS = FALSE;
+	QA_TYPE = 0;
+	QA_SAVE_FILES = 0;
+	fclose (fd);
+	return (TRUE);
+}
 
 /**************************************************************
  *
@@ -2910,7 +3155,6 @@ void pm1_setup1 (
 	N = NULL;
 	nQx = NULL;
 	eQx = NULL;
-	pairings = NULL;
 
 /* A kludge so that the error checking code is not as strict.  The correct */
 /* implementation would have the normalize code after each multiplication */
@@ -2931,7 +3175,6 @@ void pm1_cleanup (void)
 	free (N);
 	free (nQx);
 	free (eQx);
-	free (pairings);
 	term_giants ();
 	gwdone ();
 }
@@ -3081,10 +3324,21 @@ struct pm1_state {
 				/* from this starting point. */
 	unsigned long C;	/* We are trying to increase bound #2 */
 				/* to this end point */
-	unsigned long relprime;	/* In a multi-pass stage 2, the starting */
-				/* relative prime */
-	unsigned long numvals;	/* In a multi-pass stage 2, the number */
-				/* of relative primes being processed */
+	unsigned long numrels;	/* In a multi-pass stage 2, the number */
+				/* of values relatively prime to D */
+	unsigned long rels_done;/* In a multi-pass stage 2, the number */
+				/* of relative primes already processed */
+	unsigned long rels_this_pass;
+				/* In a multi-pass stage 2, the number */
+				/* of relative primes we are processing */
+				/* this pass. */
+	char	*bitarray;	/* Bit array for primes between C_start */
+				/* and C */
+	unsigned long bitarray_len;
+				/* Number of bytes in the bit array */
+	unsigned long pairs_set;/* Number of pairs originally set in */
+				/* bitarray */
+	unsigned long pairs_done;/* Number of pairs completed */
 };
 
 void pm1_save (
@@ -3115,7 +3369,7 @@ void pm1_save (
 	magicnum = 0x1a2b3c4d;
 	if (_write (fd, &magicnum, sizeof (long)) != sizeof (long))
 		goto writeerr;
-	version = 3;
+	version = 4;
 	if (_write (fd, &version, sizeof (long)) != sizeof (long))
 		goto writeerr;
 
@@ -3129,8 +3383,14 @@ void pm1_save (
 	if (! write_long (fd, state->C_start, &sum)) goto writeerr;
 	if (! write_long (fd, state->C, &sum)) goto writeerr;
 	if (! write_long (fd, processed, &sum)) goto writeerr;
-	if (! write_long (fd, state->relprime, &sum)) goto writeerr;
-	if (! write_long (fd, state->numvals, &sum)) goto writeerr;
+	if (! write_long (fd, D, &sum)) goto writeerr;
+	if (! write_long (fd, E, &sum)) goto writeerr;
+	if (! write_long (fd, state->rels_done, &sum)) goto writeerr;
+	if (! write_long (fd, state->bitarray_len, &sum)) goto writeerr;
+	if (! write_array (fd, state->bitarray, state->bitarray_len, &sum))
+		goto writeerr;
+	if (! write_long (fd, state->pairs_set, &sum)) goto writeerr;
+	if (! write_long (fd, state->pairs_done, &sum)) goto writeerr;
 
 /* Write the data values */
 
@@ -3184,39 +3444,54 @@ int pm1_restore (
 
 	if (_read (fd, &version, sizeof (long)) != sizeof (long))
 		goto readerr;
-	if (version < 1 || version > 3) goto readerr;
+	if (version < 3 || version > 4) goto readerr;
 
 /* Read the file data */
 
 	if (! read_long (fd, &state->stage, &sum)) goto readerr;
 
-	if (version <= 2) {
-		if (! read_long (fd, &state->B, &sum)) goto readerr;
-		if (! read_long (fd, processed, &sum)) goto readerr;
-		if (! read_long (fd, &state->C_done, &sum)) goto readerr;
-		state->B_done = (state->stage == PM1_STAGE1) ? 0 : state->B;
-		state->C_start = state->B;
-		state->C = 0;
-		state->relprime = 0;
-		state->numvals = 0;
-		if (state->stage == PM1_STAGE2) *processed = 0;
-		if (version == 2) {
-			unsigned long tmp;
-			if (! read_long (fd, &tmp, &sum)) goto readerr;
-			if (! read_long (fd, &tmp, &sum)) goto readerr;
-			if (state->stage != PM1_DONE) goto readerr;
-		}
-	}
+/* We can no longer process version 3 stage 2 save files.  We'll have to */
+/* start stage 2 from scratch. */
 
 	if (version == 3) {
+		unsigned long numvals, relprime;
 		if (! read_long (fd, &state->B_done, &sum)) goto readerr;
 		if (! read_long (fd, &state->B, &sum)) goto readerr;
 		if (! read_long (fd, &state->C_done, &sum)) goto readerr;
 		if (! read_long (fd, &state->C_start, &sum)) goto readerr;
 		if (! read_long (fd, &state->C, &sum)) goto readerr;
 		if (! read_long (fd, processed, &sum)) goto readerr;
-		if (! read_long (fd, &state->relprime, &sum)) goto readerr;
-		if (! read_long (fd, &state->numvals, &sum)) goto readerr;
+		if (! read_long (fd, &relprime, &sum)) goto readerr;
+		if (! read_long (fd, &numvals, &sum)) goto readerr;
+		state->bitarray_len = 0;
+		state->bitarray = NULL;
+		if (state->stage == PM1_STAGE2) {
+			if (numvals == 0 || (relprime == 1 && numvals >= 12))
+				state->C_done = *processed;
+			state->stage = PM1_STAGE2;
+		}
+	}
+
+	if (version == 4) {
+		if (! read_long (fd, &state->B_done, &sum)) goto readerr;
+		if (! read_long (fd, &state->B, &sum)) goto readerr;
+		if (! read_long (fd, &state->C_done, &sum)) goto readerr;
+		if (! read_long (fd, &state->C_start, &sum)) goto readerr;
+		if (! read_long (fd, &state->C, &sum)) goto readerr;
+		if (! read_long (fd, processed, &sum)) goto readerr;
+		if (! read_long (fd, &D, &sum)) goto readerr;
+		if (! read_long (fd, &E, &sum)) goto readerr;
+		if (! read_long (fd, &state->rels_done, &sum)) goto readerr;
+		if (! read_long (fd, &state->bitarray_len, &sum)) goto readerr;
+		if (state->bitarray_len) {
+			state->bitarray = (char *) malloc (state->bitarray_len);
+			if (state->bitarray == NULL) goto readerr;
+			if (! read_array (fd, state->bitarray,
+					  state->bitarray_len, &sum))
+				goto readerr;
+		}
+		if (! read_long (fd, &state->pairs_set, &sum)) goto readerr;
+		if (! read_long (fd, &state->pairs_done, &sum)) goto readerr;
 	}
 
 /* Read the values */
@@ -3248,97 +3523,366 @@ error:
 	return (FALSE);
 }
 
-/* Compute how many values we can allocate */
+/* Compute how many values we can allocate.  This function can calculate */
+/* the value using either the maximum available memory or the currently */
+/* available memory. */
 
-unsigned long choose_pminus1_numvals (void)
+unsigned long choose_pminus1_numvals (
+	int	use_max_mem)		/* True if calculation should use */
+					/* maximum available memory */
 {
 	unsigned long memory;		/* Available memory in MB */
+	double	temp, size;
+
+/* Override numvals when QAing */
+
+	if (QA_TYPE) return (QA_TYPE);
 
 /* Default is to use up to 24MB of memory */
 
-	memory = avail_mem ();
+	memory = use_max_mem ? max_mem () : avail_mem ();
 	if (memory == 0) memory = 24;
 
 /* Compute the number of gwnum temporaries available */
 
-	return ((unsigned long)
-			(((double) memory * 1000000.0 -
-			  (double) map_fftlen_to_memused (FFTLEN, PLUS1)) /
-			 (double) gwnum_size (FFTLEN)));
+	temp = (double) memory * 1000000.0 - 
+		(double) map_fftlen_to_memused (FFTLEN, PLUS1);
+	size = (double) gwnum_size (FFTLEN);
+	if (temp <= size) return (1);
+	return ((unsigned long) (temp / size));
 }
 
-/* Choose a good value for D and E.  One that reduces the number of */
-/* multiplications, yet doesn't use too much memory.  We choose a D */
-/* such that D + E + 4 <= numvals with the preferred value of D being */
-/* the SQRT (C-B).  NOTE: we could choose a smaller D when restarting in */
-/* the middle of stage 2.  However, this is a relatively rare event. */
+/* Calculate the number of values relatively prime to D.  D is a multiple */
+/* of 30, 210, or 2310. */
+
+unsigned long calc_numrels (
+	unsigned long d)
+{
+	if (d >= 2310) return (d / 2310 * 480);
+	if (d >= 210) return (d / 210 * 48);
+	return (d / 30 * 8);
+}
+
+/* Compute the cost of a particular P-1 stage 2 plan. */
+
+double cost_pminus1_plan (
+	unsigned long B,		/* Stage 2 start point */
+	unsigned long C,		/* Stage 2 end point */
+	unsigned long d,
+	unsigned long e,		/* Suyama power */
+	unsigned long numvals,		/* Temp gwnums available for stage 2 */
+	int	using_t3)		/* True if t3 avoids a gwfftadd3 */
+{
+	unsigned long numprimes, numpairings, numrels, passes, sets;
+	double	cost;
+
+/* Estimate the number of primes */
+
+	numprimes = (unsigned long) (C / (log(C) - 1.0) - B / (log(B) - 1.0));
+
+/* Calculate the number of values relatively prime to D */
+
+	numrels = calc_numrels (d);
+
+/* Estimate the number of prime pairs */
+
+	if (e >= 2)
+		numpairings = (unsigned long)
+			(numprimes / 2.0 *
+			 numprimes / ((C-B) * (double) numrels / d));
+
+/* Compute how many passes this will take to process all the numbers */
+/* relatively prime to D. */
+
+	passes = (unsigned long)
+		ceil ((double) numrels / (numvals - (e+1) - using_t3));
+
+/* Compute the nQx setup costs.  To calculate nQx values, one fd_init is */
+/* required on each pass with an average start point of D/2.  A single */
+/* fd_init does E+1 powerings of roughly E*log2(startpoint) bits each */
+/* at a cost of about 1.5 multiplies per bit.  In other words, */
+/* (E+1) * E*log2(startpoint) * 1.5. */
+
+	cost = passes * (e+1) * e*log(d/2)/log(2) * 1.5 +
+
+/* Then there are the D/2 calls to fd_next at E multiplies each. */
+
+		d/2 * e +
+
+/* Compute the eQx setup costs.  To calculate eQx values, one fd_init is */
+/* required on each pass with a start point of B. */
+
+		passes * (e+1) * e*log(B)/log(2) * 1.5;
+
+/* If E=1 add the cost of (C-B)/D fd_next calls.  If E>=2, add the cost */
+/* of (C-B)/(D+D) calls to fd_next (E multiplies). */
+
+	if (e == 1)
+		sets = (unsigned long) ceil ((double) (C-B) / d);
+	else
+		sets = (unsigned long) ceil ((double) (C-B) / (d+d));
+	cost += passes * sets * e;
+
+/* Finally, each prime pairing costs one multiply.  If E = 1, then there */
+/* is no prime pairing.  If not using_t3 then each multiply costs more as */
+/* there is an extra gwfftadd3 call. */
+
+	if (e >= 2 && using_t3)
+		cost += numprimes - numpairings;
+	else if (e >= 2)
+		cost += (numprimes - numpairings) * 1.1;
+	else if (using_t3)
+		cost += numprimes;
+	else
+		cost += numprimes * 1.1;
+
+/* Return the resulting cost */
+
+	return (cost);
+}
+
+/* Choose the best values for D and E.  One that reduces the number of */
+/* multiplications, yet doesn't use too much memory. */
 
 void choose_pminus1_plan (
-	unsigned long B,		/* Stage 1 bound */
-	unsigned long C,		/* Stage 2 bound */
-	unsigned long numvals)		/* Returns max number of temps */
+	struct pm1_state *state)	/* P-1 state structure */
 {
+	unsigned long B, C, numvals, d, e, i;
+	double	cost, best_cost;
 
 /* Handle case where there is no stage 2 */
 
+	B = state->C_start;		/* Stage 2 starting point */
+	C = state->C;			/* Stage 2 ending point */
 	if (C <= B) {
 		D = 0;
 		E = 0;
 		return;
 	}
 
-/* Handle case where we are very low on the number of temporaries available */
+/* Calculate the number of temporaries we can use for nQx and eQx and t3. */
+/* Base our decision on the maximum amount of memory available.  Also, */
+/* the main loop uses one temp for gg, so subtract one from numvals. */
 
-	if (numvals < 12) {
-		D = 210;
-		E = 1;
-		goto done;
-	}
+	numvals = choose_pminus1_numvals (1);
+	numvals--;
 
-/* Try various values of D until we find the largest D that doesn't use */
-/* too much memory */
+/* Try various values of D until we find the best one */
 
-	D = (unsigned long) sqrt (C-B) / 2310 + 1;
-	if (D > numvals / 480) D = numvals / 480 + 1;
-	D = D * 2310;
-	for ( ; ; ) {
+	best_cost = 1e99;
+	for (d = 5 * 2310; d >= 30; ) {
 
-/* We guess at the best E for a given D */
+/* Try various values of E and using_t3 until we find the best one */
 
-		if (D <= 180) E = 2;
-		else if (D <= 420) E = 4;
-		else if (D <= 2310) E = 12;
-		else if (D <= 6930) E = 30;
-		else E = 48;
+		for (i = 0; i < 10; i++) {
+			int	using_t3;
 
-/* See if this combination of D and E will fit in memory */
+/* Calculate e and the using_t3 flag.  Don't cost out e values where we */
+/* don't have enough memory. */
 
-		if (D * D < C + C) {
-			if (D >= 2310) {
-				if (D / 2310 * 480 + E + 4 <= numvals) break;
-			} else if (D >= 210) {
-				if (D / 210 * 48 + E + 4 <= numvals) break;
-			} else {
-				if (D / 30 * 8 + E + 4 <= numvals) break;
+			if (i <= 1) e = 1;
+			else if (i <= 3) e = 2;
+			else if (i <= 5) e = 4;
+			else if (i <= 7) e = 6;
+			else e = 12;
+			using_t3 = i & 1;
+			if (numvals <= e + 1 + using_t3) break;
+
+/* Calculate the cost of this stage 2 plan */
+
+			cost = cost_pminus1_plan (B, C, d, e, numvals, using_t3);
+
+/* Reward higher E values because they should find more factors */
+/* These rewards are close to a complete guess.  Little studying has */
+/* been done on how often higher e values will find a factor. */
+
+			if (e == 4) cost *= .95;
+			if (e == 6) cost *= .90;
+			if (e == 12) cost *= .85;
+
+/* Remember best cost and best d and e */
+
+			if (cost < best_cost) {
+				best_cost = cost;
+				D = d;
+				E = e;
 			}
 		}
 
-/* Try next smaller value of D */
+/* Try next smaller value of d */
 
-		if (D > 2310) D = D - 2310;
-		else if (D > 210) D = D - 210;
-		else if (D > 30) D = D - 30;
-		else break;
+		if (d > 2310) d = d - 2310;
+		else if (d > 210) d = d - 210;
+		else d = d - 30;
 	}
 
-/* Allocate more memory */
+/* Print out our selection */
 
-done:	free (nQx);
-	free (eQx);
-	free (pairings);
-	nQx = (gwnum *) malloc ((D>>1) * sizeof (gwnum));
-	eQx = (gwnum *) malloc ((E+1) * sizeof (gwnum));
-	pairings = (char *) malloc ((D + 15) >> 4);
+	if (QA_IN_PROGRESS) {
+		char	buf[200];
+		sprintf (buf, "numvals = %d, D = %d, E = %d\n", numvals, D, E);
+		OutputBoth (buf);
+	}
+}
+
+/* Choose the best implementation of the pminus1 plan given the current */
+/* memory settings.  We may decide to wait for more memory to be available. */
+/* We may choose to use the t3 temporary variable. */
+
+void choose_pminus1_implementation (
+	struct pm1_state *state,	/* P-1 state variable */
+	int	ll_testing,		/* True if we are LL testing */
+	int	*do_later,		/* Should we wait until more */
+					/* memory is available? */
+	int	*using_t3_result)	/* Should we use a temporary for t3 */
+{
+	unsigned long B, C, numvals;
+	int	using_t3;
+	double	cost, best_cost;
+
+/* Copy some state variables for easier access */
+
+	B = state->C_start;		/* Stage 2 starting point */
+	C = state->C;			/* Stage 2 ending point */
+
+/* Compute the number of values relatively prime to D */
+
+	state->numrels = calc_numrels (D);
+
+/* Assume we won't be able to do this pass now */
+
+	*do_later = TRUE;
+
+/* Calculate the number of temporaries we can use for nQx and eQx and t3. */
+/* Base our decision on the maximum amount of memory available.  Also, */
+/* the main loop uses one temp for gg, so subtract one from numvals. */
+
+	numvals = choose_pminus1_numvals (0);
+	numvals--;
+
+/* Check if we are only supposed to run stage 2 when the maximum amount */
+/* memory is available */
+
+	if (numvals != choose_pminus1_numvals (1) - 1 && ll_testing &&
+	    IniGetInt (INI_FILE, "OnlyRunStage2WithMaxMemory", 0))
+		return;
+
+/* If not much memory is available right now, try shrinking E so that */
+/* we can make some progress now.  The 10 in the formula below is arbitrary. */
+
+	if (E > 2 && numvals < E + 10) E = 2;
+
+/* Try with and without using_t3 to find the best cost. */
+
+	best_cost = 1e99;
+	for (using_t3 = 0; using_t3 < 2; using_t3++) {
+
+/* If there isn't enough memory to run this scenario, then do not */
+/* bother costing it out. */
+
+		if (numvals <= E + 1 + using_t3) break;
+
+/* Calculate the cost of this stage 2 plan */
+
+		cost = cost_pminus1_plan (B, C, D, E, numvals, using_t3);
+
+/* Remember best cost and best d and e */
+
+		if (cost < best_cost) {
+			best_cost = cost;
+			*do_later = FALSE;
+			*using_t3_result = using_t3;
+			state->rels_this_pass = numvals - (E+1) - using_t3;
+		}
+	}
+
+/* Adjust rels_this_pass down if it is too high */
+
+	if (state->rels_this_pass > state->numrels - state->rels_done)
+		state->rels_this_pass = state->numrels - state->rels_done;
+}
+
+/* Fill the bit array in such a way that it maximizes prime pairings. */
+
+int fill_pminus1_bitarray (
+	struct pm1_state *state)	/* P-1 state variable */
+{
+	unsigned long adjusted_C_start, prime, jprime, clear;
+	unsigned long m, stage2incr, first_m, pair, i;
+	unsigned long *j, *jset;
+	unsigned long relp[] = {7,11,13,17,19,23,29,31,37,41,43,47,0};
+
+/* Allocate the bitarray, pad it so that the stage 2 bit testing loop */
+/* does not examine unallocated memory */
+
+	state->bitarray_len = (state->C + D + D + 15) >> 4;
+	state->bitarray = (char *) malloc (state->bitarray_len);
+	if (state->bitarray == NULL) {
+		OutputStr ("Out of memory\n");
+errexit:	state->bitarray_len = 0;
+		free (state->bitarray);
+		state->bitarray = NULL;
+		return (FALSE);
+	}
+	memset (state->bitarray, 0, state->bitarray_len);
+
+/* Set one bit for each prime between C_start and C */
+
+	start_sieve (state->C_start);
+	for (prime = sieve (); prime <= state->C; prime = sieve ()) {
+		bitset (state->bitarray, prime >> 1);
+		if (stopCheck ()) goto errexit;
+	}
+
+/* Now "move" some of the primes around so that we both maximize pairings */
+/* and move the effective C_start higher.  We do this by testing 13*prime */
+/* or 17*prime, etc. instead of prime (as long as 13*prime < C). */
+
+	if (D >= 2310) adjusted_C_start = state->C / 13, jset = relp + 2;
+	else if (D >= 210) adjusted_C_start = state->C / 11, jset = relp + 1;
+	else adjusted_C_start = state->C / 7, jset = relp;
+	stage2incr = (E == 1) ? D : D + D;
+	first_m = (adjusted_C_start / D) * D;
+	for (prime = state->C_start | 1; prime < adjusted_C_start; prime+=2) {
+		if (!bittst (state->bitarray, prime >> 1)) continue;
+		clear = prime;
+		for (j = jset; *j; j++) {
+			jprime = *j * prime;
+			if (jprime > state->C) break;
+			bitclr (state->bitarray, clear >> 1);
+			bitset (state->bitarray, jprime >> 1);
+			clear = jprime;
+			if (jprime < adjusted_C_start) continue;
+
+/* Test if jprime pairs up */
+
+			if (E == 1) break;
+			m = (jprime - first_m) / stage2incr * stage2incr + first_m + D;
+			if (jprime < m) pair = m + (m - jprime);
+			else pair = m - (jprime - m);
+			if (bittst (state->bitarray, pair >> 1)) break;
+		}
+		if (stopCheck ()) goto errexit;
+	}
+
+/* Count the number of pairs.  This is used to calculate the stage 2 */
+/* percent complete. */
+
+	m = (adjusted_C_start < state->C_start) ? state->C_start : adjusted_C_start;
+	m = (m / D + 1) * D;
+	for (state->pairs_set = 0; state->C > m-D; m += stage2incr) {
+	    for (i = 1; i < D; i += 2) {
+		if (! bittst (state->bitarray, (m - i) >> 1) &&
+		    (E == 1 || ! bittst (state->bitarray, (m + i) >> 1)))
+			continue;
+		state->pairs_set++;
+	    }
+	}
+	state->pairs_done = 0;
+
+/* All done */
+
+	return (TRUE);
 }
 
 /* Recursively compute exponent used in initial 3^exp calculation */
@@ -3383,40 +3927,12 @@ void calc_exp (
 	}
 }
 
-/* Calculate how much of stage 2 is complete.  We are calculating from C_start */
-/* to max (C, state.C).  We have already completed from C_start to state.C_start. */
-/* We are in the process of doing state.C_start to state.C and we have yet to */
-/* start state.C to C. */
+/* Calculate how much of stage 2 is complete. */
 
 double calc_stage2_pct (
-	struct pm1_state *state,
-	unsigned long next_relprime,
-	unsigned long prime,
-	unsigned long C_start,
-	unsigned long C)
+	struct pm1_state *state)
 {
-	double	pct;
-
-/* Compute our end point */
-
-	if (state->C > C) C = state->C;
-
-/* Calculate how much of the current multi-pass part is complete */
-
-	pct = (double) (state->relprime - 1);
-	pct += (double) (next_relprime - state->relprime) *
-	       (double) (prime - state->C_start) /
-	       (double) (state->C - state->C_start);
-	pct /= (double) D;
-
-/* Now add in the already completed parts */
-
-	pct = state->C_start - C_start + pct * (state->C - state->C_start);
-
-/* And divide by the entire stage 2 range */
-
-	pct /= (C - C_start);
-	return (pct);
+	return ((double) state->pairs_done / (double) state->pairs_set);
 }
 
 /* Main P-1 entry point */
@@ -3434,7 +3950,7 @@ int pminus1 (
 	giant	exp;
 	unsigned long stage_0_limit;
 	unsigned long SQRT_B;
-	unsigned long numvals, numrels, next_relprime;
+	unsigned long numrels, first_rel, last_rel;
 	unsigned long i, j, m, stage2incr, prime, len, bit_number;
 	unsigned long error_recovery_mode = 0;
 	gwnum	x, gg, t3;
@@ -3443,6 +3959,10 @@ int pminus1 (
 	long	write_time = DISK_WRITE_TIME * 60;
 	time_t	start_time, current_time;
 	double	pct, last_output, last_contact, last_output_r;
+	int	using_t3;	/* Indicates we are using the gwnum t3 */
+				/* to avoid a gwfftadd3 in stage 2 */
+	int	do_later;	/* Set if low available memory suggests */
+				/* we'd be better off waiting for nighttime */
 
 /* Clear all timers */
 
@@ -3472,6 +3992,7 @@ restart:
 
 /* Perform setup functions */
 
+	memset (&state, 0, sizeof (state));
 	pm1_setup1 (p, plus1);
 	last_contact = last_output = last_output_r = fft_count = 0;
 	EXP_BEING_WORKED_ON = p;
@@ -3550,47 +4071,43 @@ restart:
 		if (state.stage == PM1_STAGE2) {
 
 /* If B is larger than the one in the save file, then go back and */
-/* do some more stage 1 processing. */
+/* do some more stage 1 processing.  Since this is very upsetting to */
+/* an LL tester that has already begun stage 2 only do this for the */
+/* non-LL tester. */
 
 			if (B > state.B_done) {
-				gwfree (gg);
-				goto more_B;
-			}
-
-/* Work around a bug in version 20.0 and 20.1 save files */
-
-			if (processed == 0) {
-				state.numvals = 0;
-				processed = state.C_done;
-			}
-
-/* If the save file was not doing a multi-pass stage 2, then adjust */
-/* C_done accrodingly */
-
-			if (state.numvals == 0 ||
-			    (state.relprime == 1 && state.numvals >= 12)) {
-				state.C_done = processed;
-				state.numvals = 0;
+				if (!ll_testing) {
+					gwfree (gg);
+					goto more_B;
+				}
+				B = state.B_done;
+				C_start = state.B_done;
+				sprintf (buf, "Ignoring suggested B1 value, using B1=%lu from the save file\n", B);
+				OutputStr (buf);
 			}
 
 /* If we've already done enough stage 2, go do the stage 2 GCD */
 
-			if (C <= state.C_done) goto restart4;
+			if (C <= state.C_done) {
+				stage = 2;
+				goto restart4;
+			}
 
-/* If we weren't in the middle of a stage 2 pass, then go start stage 2 */
+/* If we never really started stage 2, then do so now */
 
-			if (state.numvals == 0) goto restart3b;
+			if (state.bitarray_len == 0) goto more_C;
 
-/* Resume in the middle of stage 2 */
+/* If LL testing and bound #2 has changed then use the original bound #2 */
 
-			if (C < state.C) state.C = C;
-			numvals = choose_pminus1_numvals ();
-			if (numvals < 4) goto nomem;
-			if (numvals < state.numvals) state.numvals = numvals;
-			choose_pminus1_plan (B, state.C, 0);
-			start_sieve (processed + 1);
-			prime = sieve ();
-			goto restart3d;
+			if (ll_testing && C > state.C) {
+				C = state.C;
+				sprintf (buf, "Ignoring suggested B2 value, using B2=%lu from the save file\n", C);
+				OutputStr (buf);
+			}
+
+/* Resume stage 2 */
+
+			goto restart3b;
 		}
 
 /* Handle case where we have a completed save file (the PM1_DONE state) */
@@ -3637,7 +4154,7 @@ restart0:
 	start_sieve (2);
 	prime = sieve ();
 	stage_0_limit = (state.B > 1000000) ? 1000000 : state.B;
-	i = ((unsigned long) (stage_0_limit * 1.5) >> 5) + 1;
+	i = ((unsigned long) (stage_0_limit * 1.5) >> 5) + 4;
 	exp = newgiant (i << 1);
 	calc_exp (exp, state.B, &prime, 0, i);
 
@@ -3695,6 +4212,7 @@ restart0:
 /* Either square x or square x and multiply it by three. */
 
 			gwstartnextfft (!escaped && !saving &&
+					!(QA_SAVE_FILES & 0x1) &&
 					!error_recovery_mode &&
 					bit_number+1 != len);
 			if (bitval (exp, len - bit_number - 1)) {
@@ -3759,11 +4277,17 @@ restart0:
 
 /* Check for escape and/or if its time to write a save file */
 
-		if (escaped || saving) {
+		if (escaped || saving || (QA_SAVE_FILES & 0x1)) {
 			pm1_save (filename, &state, bit_number, x, NULL);
 			if (escaped) {
 				free (exp);
 				retval = FALSE;
+				goto exit;
+			}
+			if (QA_SAVE_FILES & 0x1) {
+				free (exp);
+				QA_SAVE_FILES &= ~0x1;
+				retval = QA_SAVE_TEST;
 				goto exit;
 			}
 			start_time = current_time;
@@ -3881,10 +4405,16 @@ restart1:
 /* Check for escape and/or if its time to write a save file */
 
 		time (&current_time);
-		if (escaped || current_time - start_time > write_time) {
+		if (escaped || (QA_SAVE_FILES & 0x2) ||
+		    current_time - start_time > write_time) {
 			pm1_save (filename, &state, prime, x, NULL);
 			if (escaped) {
 				retval = FALSE;
+				goto exit;
+			}
+			if (QA_SAVE_FILES & 0x2) {
+				QA_SAVE_FILES &= ~0x2;
+				retval = QA_SAVE_TEST;
 				goto exit;
 			}
 			start_time = current_time;
@@ -3932,7 +4462,8 @@ more_B:		state.B = B;
 /* Check to see if we found a factor - do GCD (x-1, N) */
 
 restart2:
-	if (C <= B || IniGetInt (INI_FILE, "Stage1GCD", 1)) {
+	if (C <= B ||
+	    (!QA_IN_PROGRESS && IniGetInt (INI_FILE, "Stage1GCD", 1))) {
 		if (ll_testing)
 			OutputStr ("Starting stage 1 GCD - please be patient.\n");
 		start_timer (0);
@@ -3969,77 +4500,132 @@ restart3a:
 	gwcopy (x, gg);
 	(*(double *)gg)--;
 	state.stage = PM1_STAGE2;
-	state.numvals = 0;
 
-/* Restart here for single pass stage 2 runs. */
-/* Choose a good value for D and E.  One that reduces the number of */
-/* multiplications, yet doesn't use too much memory. */
+/* Choose a good value for D and E - one that reduces the number of */
+/* multiplications, yet doesn't use too much memory.  This plan is based */
+/* on the maximum available memory.  Once the plan is selected it cannot */
+/* be changed in multi-pass stage 2 runs. */
+
+more_C:	state.C_start = (C_start > state.C_done) ? C_start : state.C_done;
+	state.C = C;
+	choose_pminus1_plan (&state);
+	if (D == 0) {		/* We'll never have enough memory for stage 2 */
+		OutputStr ("Insufficient memory to ever run stage 2.\n");
+		C = state.B_done;
+		goto restart4;
+	}
+	if (! fill_pminus1_bitarray (&state)) {
+		pm1_save (filename, &state, 0, x, gg);
+		retval = FALSE;
+		goto exit;
+	}
+	state.rels_done = 0;
+
+/* Restart here when in the middle of pass stage 2 or */
+/* Move to the next pass of a multi-pass stage 2 run */
 
 restart3b:
-	numvals = choose_pminus1_numvals ();
-	if (numvals < 4) {
-		pm1_save (filename, &state, prime, x, gg);
+
+/* Choose the best plan implementation given the currently available memory. */
+/* This implementation could be anything from "wait until we have more */
+/* memory" to deciding whether using_t3 should be set. */
+
+	choose_pminus1_implementation (&state, ll_testing, &do_later, &using_t3);
+	if (do_later || (QA_SAVE_FILES & 0x4)) {
+		pm1_save (filename, &state, 0, x, gg);
+		if (QA_SAVE_FILES & 0x4) {
+			QA_SAVE_FILES &= ~0x4;
+			retval = QA_SAVE_TEST;
+			goto exit;
+		}
 		goto nomem;
 	}
-	choose_pminus1_plan (B, C, numvals);
-	state.C_start = (C_start > state.C_done) ? C_start : state.C_done;
-	state.C = C;
-	state.relprime = 1;
 
 /* Here is where we restart the next pass of a multi-pass stage 2 */
 
-restart3c:
-	state.numvals = numvals;
-	start_sieve (state.C_start);
-	prime = sieve ();
-
-/* Here is where we restart when in the middle of a multi-pass stage 2 */
-
-restart3d:
 	start_timer (0);
 	start_timer (1);
 
+/* On first pass, allocate P-1 stage 2 memory */
+
+	if (nQx == NULL) {
+		nQx = (gwnum *) malloc ((D>>1) * sizeof (gwnum));
+		if (nQx == NULL) goto lowmem;
+		eQx = (gwnum *) malloc ((E+1) * sizeof (gwnum));
+		if (eQx == NULL) goto lowmem;
+	}
+
 /* Clear the nQx array for this pass */
 
-	for (i = 1; i < D; i += 2) {
-		j = (i - 1) >> 1;
-		nQx[j] = NULL;
-	}
+	memset (nQx, 0, (D>>1) * sizeof (gwnum));
 
 /* Compute x^(1^e), x^(3^e), ..., x^((D-1)^e) */
 
-	for (i = state.relprime; ! relatively_prime (i, D); i += 2);
+	for (i = 1, j = 0; ; i += 2) {
+		if (! relatively_prime (i, D)) continue;
+		if (++j > state.rels_done) break;
+	}
+	first_rel = i;
 	gwfft (x, x);				/* fd_init requires fft of x */
 	fd_init (i, 2, x);
 	for (numrels = 0; ; ) {			/* Compute x^(i^e) */
 		if (relatively_prime (i, D)) {
 			j = (i - 1) >> 1;
 			nQx[j] = gwalloc ();
+			if (nQx[j] == NULL) {
+				gwfftfftmul (x, x, x);	/* Unfft x for save */
+				goto lowmem;
+			}
 			gwcopy (eQx[0], nQx[j]);
 			numrels++;
+			last_rel = i;
 		}
 		i = i + 2;
 		if (i >= D) break;
-		if (numrels == state.numvals - 3) break;
+		if (numrels == state.rels_this_pass) break;
 		fd_next ();
 		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
-		if (stopCheck ()) {
+		if (stopCheck () || (QA_SAVE_FILES & 0x8)) {
 			fd_term ();
 			gwfftfftmul (x, x, x);	/* Unfft x - generates x^2 */
-			pm1_save (filename, &state, prime, x, gg);
+			pm1_save (filename, &state, 0, x, gg);
+			if (QA_SAVE_FILES & 0x8) {
+				QA_SAVE_FILES &= ~0x8;
+				retval = QA_SAVE_TEST;
+				goto exit;
+			}
 			retval = FALSE;
 			goto exit;
 		}
 	}
 	fd_term ();
-	while (i < D && ! relatively_prime (i, D)) i += 2;
-	next_relprime = i;
 
-/* Compute m = CEIL(prime/D), the first group we work on in stage 2 */
+/* Compute m = CEIL(start/D)*D, the first group we work on in stage 2 */
+
+	if (D >= 2310) m = state.C / 13;
+	else if (D >= 210) m = state.C / 11;
+	else m = state.C / 7;
+	if (m < state.C_start) m = state.C_start;
+	m = (m / D + 1) * D;
+	stage2incr = (E == 1) ? D : D + D;
+
+/* Scan the bit array until we find the first group with a bit set. */
+/* When continuing from a save file there could be many groups that */
+/* have already been completed. */
+
+	for ( ; state.C > m-D; m += stage2incr) {
+	    for (i = first_rel; i <= last_rel; i += 2) {
+		if (nQx[i>>1] == NULL) continue;
+		if (! bittst (state.bitarray, (m - i) >> 1) &&
+		    (E == 1 || ! bittst (state.bitarray, (m + i) >> 1)))
+			continue;
+		goto found_a_bit;
+	    }
+	}
+found_a_bit:;
+
 /* Initialize for computing successive x^(m^e) */
 
-	m = (prime / D + 1) * D;
-	stage2incr = (E == 1) ? D : D + D;
 	fd_init (m, stage2incr, x);
 
 /* Unfft x for use in save files.  Actually this generates x^2 which */
@@ -4053,8 +4639,8 @@ restart3d:
 /* In other words, make the gwnum x the least-recently-used. */
 
 	for (i = 0; i <= E; i++) gwtouch (eQx[i]);
-	for (i = 1; i < D; i += 2) {
-		j = (i - 1) >> 1;
+	for (i = first_rel; i < last_rel; i += 2) {
+		j = i >> 1;
 		if (nQx[j] != NULL) gwtouch (nQx[j]);
 	}
 
@@ -4066,45 +4652,70 @@ restart3d:
 /* handles the range m-D to m+D.  When E = 1, each iteration handles */
 /* the range m-D to m. */
 
-	if (numvals > 12) t3 = gwalloc ();
+	if (using_t3) {
+		t3 = gwalloc ();
+		if (t3 == NULL) goto lowmem;
+	}
 	for ( ; state.C > m-D; m += stage2incr) {
 	    int	inner_loop_done = FALSE;
-	    memset (pairings, 0, (D + 15) >> 4);
-	    for ( ; ; prime = sieve ()) {
-		if (prime < m) {	/* Do the m-D to m range */
-			i = (m - prime) >> 1;
-			bitset (pairings, i);
-		} else if (prime < m+D && E >= 2) { /* Do the D to m+D range */
-			i = (prime - m) >> 1;
-			if (bittst (pairings, i)) continue;
-		} else {		/* Compute next x^(m^e) */
-			fd_next ();
+	    int	last_pass = (m + stage2incr - D >= state.C);
+	    time (&current_time);
+	    saving = (current_time - start_time > write_time ||
+		      (QA_SAVE_FILES & 0x10));
+
+/* Test all the relprimes between m-D and m */
+
+	    for (i = first_rel; ; i += 2) {
+
+/* Move onto the next m value when we are done with all the relprimes */
+
+		if (i > last_rel) {	/* Compute next x^(m^e) */
+			if (!last_pass) fd_next ();
 			inner_loop_done = TRUE;
+			escaped = stopCheck ();
 			goto errchk;
 		}
-		if (nQx[i] == NULL) continue;
-		if (numvals > 12) {
-			gwfftsub3 (eQx[0], nQx[i], t3);
+
+/* Skip this relprime if we aren't processing it this pass */ 
+
+		j = i >> 1;
+		if (nQx[j] == NULL) continue;
+
+/* Skip this relprime if neither m - i nor its pair m + i are set */
+/* in the bitarray. */
+
+		if (! bittst (state.bitarray, (m - i) >> 1) &&
+		    (E == 1 || ! bittst (state.bitarray, (m + i) >> 1)))
+			continue;
+
+/* Mul this eQx - nQx value into gg */
+
+		escaped = stopCheck ();
+		gwstartnextfft (!escaped && !saving && !last_pass);
+		if (using_t3) {
+			gwfftsub3 (eQx[0], nQx[j], t3);
 			gwfftmul (t3, gg);
 		} else {
-			gwfftsub3 (eQx[0], nQx[i], eQx[0]);
+			gwfftsub3 (eQx[0], nQx[j], eQx[0]);
 			gwfftmul (eQx[0], gg);
-			gwfftadd3 (eQx[0], nQx[i], eQx[0]);
+			gwfftadd3 (eQx[0], nQx[j], eQx[0]);
 		}
+
+/* Clear this bit or bits in case a save file is written.  Subtract one */
+/* from the bit count so that calc_stage2_pct is accurate. */
+
+		bitclr (state.bitarray, (m - i) >> 1);
+		if (E >= 2) bitclr (state.bitarray, (m + i) >> 1);
+		state.pairs_done++;
 
 /* Test for errors */
 
 errchk:		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
 
-/* Test for user interrupt */
-
-		escaped = stopCheck ();
-
 /* Contact the server every now and then */
 
 		if (fft_count > last_contact + 200) {
-			pct = calc_stage2_pct (&state, next_relprime,
-						prime, C_start, C);
+			pct = calc_stage2_pct (&state);
 			EXP_PERCENT_COMPLETE = 0.5 + pct * 0.5;
 			if (!communicateWithServer ()) escaped = 1;
 			if (!pauseWhileRunning ()) escaped = 1;
@@ -4116,8 +4727,7 @@ errchk:		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
 		if (ITER_OUTPUT != 999999999 &&
 		    fft_count >= last_output + 2 * ITER_OUTPUT) {
 			char	mask[80];
-			pct = calc_stage2_pct (&state, next_relprime,
-						prime, C_start, C);
+			pct = calc_stage2_pct (&state);
 			pct = trunc_percent (pct * 100.0);
 			sprintf (mask, "%%.%df%%%% P-1 stage 2", PRECISION);
 			sprintf (buf, mask, pct);
@@ -4141,8 +4751,7 @@ errchk:		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
 		     fft_count >= last_output_r + 2 * ITER_OUTPUT_RES) ||
 		    (NO_GUI && escaped)) {
 			char	mask[80];
-			pct = calc_stage2_pct (&state, next_relprime,
-						prime, C_start, C);
+			pct = calc_stage2_pct (&state);
 			pct = trunc_percent (pct * 100.0);
 			buf[0] = PLUS1 ? 'P' : 'M';
 			sprintf (mask,
@@ -4159,18 +4768,23 @@ errchk:		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
 /* "Touch" gg so that in low memory situations, the reading in of x */
 /* swaps out one of the eQx or nQx values rather than gg. */
 
-		time (&current_time);
-		if (escaped || current_time-start_time > write_time) {
+		if (escaped || saving) {
 			if (escaped) fd_term ();
-			if (numvals > 12) gwfree (t3);
+			if (using_t3) gwfree (t3);
 			gwtouch (gg);
-			pm1_save (filename, &state, prime, x, gg);
+			pm1_save (filename, &state, 0, x, gg);
 			if (escaped) {
 				retval = FALSE;
 				goto exit;
 			}
+			if (QA_SAVE_FILES & 0x10) {
+				QA_SAVE_FILES &= ~0x10;
+				retval = QA_SAVE_TEST;
+				goto exit;
+			}
 			start_time = current_time;
-			if (numvals > 12) t3 = gwalloc ();
+			saving = FALSE;
+			if (using_t3) t3 = gwalloc ();
 		}
 
 /* Use this opportunity to perform other miscellaneous tasks that may */
@@ -4183,13 +4797,13 @@ errchk:		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
 		if (inner_loop_done) break;
 	    }
 	}
-	if (numvals > 12) gwfree (t3);
+	if (using_t3) gwfree (t3);
 	fd_term ();
 
 /* Free up the nQx values for the next pass */
 
-	for (i = 1; i < D; i += 2) {
-		j = (i - 1) >> 1;
+	for (i = first_rel; i <= last_rel; i += 2) {
+		j = i >> 1;
 		if (nQx[j] != NULL) gwfree (nQx[j]);
 	}
 
@@ -4197,18 +4811,18 @@ errchk:		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
 
 	end_timer (0);
 	end_timer (1);
-	if (next_relprime < D) {
-		state.relprime = next_relprime;
-		goto restart3c;
-	}
+	state.rels_done += state.rels_this_pass;
+	if (state.rels_done < state.numrels) goto restart3b;
+	free (state.bitarray);
+	state.bitarray = NULL;
+	state.bitarray_len = 0;
 
 /* Check for the rare case where we need to do even more stage 2. */
 /* This happens when a save file was created with a smaller bound #2 */
 /* than the bound #2 passed into this routine. */
 
 	state.C_done = state.C;
-	state.numvals = 0;
-	if (C > state.C_done) goto restart3b;
+	if (C > state.C_done) goto more_C;
 
 /* Stage 2 is complete */
 
@@ -4233,8 +4847,13 @@ restart4:
 	if (ll_testing)
 		OutputStr ("Starting stage 2 GCD - please be patient.\n");
 	start_timer (0);
-	if (!gcd (gg)) {
+	if ((QA_SAVE_FILES & 0x20) || !gcd (gg)) {
 		pm1_save (filename, &state, C, x, gg);
+		if (QA_SAVE_FILES & 0x20) {
+			QA_SAVE_FILES &= ~0x20;
+			retval = QA_SAVE_TEST;
+			goto exit;
+		}
 		retval = FALSE;
 		goto exit;
 	}
@@ -4255,7 +4874,7 @@ msg_and_exit:
 		else
 			sprintf (buf+strlen(buf), ", B2=%lu, E=%lu", C, E);
 	}
-	sprintf (buf+strlen(buf), ", WY%d: %08lX\n", PORT, SEC5 (PARG, B, C));
+	sprintf (buf+strlen(buf), ", WZ%d: %08lX\n", PORT, SEC5 (PARG, B, C));
 	writeResults (buf);
 	if (ll_testing) spoolMessage (PRIMENET_RESULT_MESSAGE, buf);
 
@@ -4292,6 +4911,19 @@ done:	retval = TRUE;
 exit:	pm1_cleanup ();
 	return (retval);
 
+/* Low on memory, reduce memory settings and try again */
+
+lowmem:	fd_term ();
+	pm1_save (filename, &state, 0, x, gg);
+	pm1_cleanup ();
+	i = (unsigned int) (0.80 * max_mem ());
+	if (DAY_MEMORY >= i) DAY_MEMORY = i;
+	if (NIGHT_MEMORY >= i) NIGHT_MEMORY = i;
+	sprintf (buf, "Memory allocation error.  Day and night memory settings changed to %dMB and %dMB.\n",
+		 DAY_MEMORY, NIGHT_MEMORY);
+	OutputBoth (buf);
+	goto restart;
+
 /* Return stop code indicating we don't have enough memory right now */
 
 nomem:	OutputStr ("Not enough memory available to run stage 2 now.\n");
@@ -4311,6 +4943,11 @@ bingo:	if (stage == 1)
 	writeResults (buf);
 	printFactor ();
 	if (isone (FAC)) goto msg_and_exit;
+	if (QA_IN_PROGRESS) {
+		_unlink (filename);
+		retval = TRUE;
+		goto exit;
+	}
 
 /* If LL testing, output result to the server and free all save files */
 
@@ -4362,4 +4999,104 @@ error:	pm1_cleanup ();
 	write_time >>= 1;
 	if (write_time < 300) write_time = 300;
 	goto restart;
+}
+
+/* Read a file of P-1 tests to run as part of a QA process */
+/* The format of this file is: */
+/*	exponent, plus1_flag, B1, B2_start, B2_end, factor */
+/* Use Advanced/Time 9992 to run the QA suite */
+
+int pminus1_QA ()
+{
+	FILE	*fd;
+	int	savefiles;
+
+/* Set the title */
+
+	title ("QA");
+
+/* Open QA file */
+
+	fd = fopen ("qa_pm1", "r");
+	if (fd == NULL) {
+		OutputStr ("File named 'qa_pm1' could not be opened.\n");
+		return (TRUE);
+	}
+
+/* Loop until the entire file is processed */
+
+	for ( ; ; ) {
+		unsigned long p, B1, B2_start, B2_end;
+		int	plus1;
+		char	fac_str[80];
+		giant	f;
+		int	retval, success;
+
+/* Read a line from the file */
+
+		p = 0;
+		fscanf (fd, "%lu,%d,%lu,%lu,%lu,%s\n",
+			&p, &plus1, &B1, &B2_start, &B2_end, &fac_str);
+		if (p == 0) break;
+
+/* If p is 1, set QA_TYPE */
+
+		if (p == 1) {
+			QA_TYPE = plus1;
+			savefiles = B1;
+			continue;
+		}
+
+/* Convert the factor we expect to find into a "giant" type */
+
+		f = newgiant (strlen (fac_str));
+		ctog (fac_str, f);
+
+/*test various num_tmps
+test 4 (or more?) stage 2 code paths
+print out each test case (all relevant data)*/
+
+/* Set some global variables indicating QA is in progress. */
+
+		QA_IN_PROGRESS = TRUE;
+		QA_SAVE_FILES = savefiles;
+
+/* Do the P-1 */
+
+		if (B2_start < B1) B2_start = B1;
+		do {
+			retval = pminus1 (p, B1, B2_start, B2_end, plus1, FALSE);
+			if (!retval) {
+				QA_IN_PROGRESS = FALSE;
+				QA_TYPE = 0;
+				QA_SAVE_FILES = 0;
+				fclose (fd);
+				return (FALSE);
+			}
+		} while (retval == QA_SAVE_TEST);
+
+/* See if we found the factor */
+
+		if (FAC == NULL) success = FALSE;
+		else {
+			modg (f, FAC);
+			success = isZero (FAC);
+			free (FAC);
+			FAC = NULL;
+		}
+		if (!success) {
+			char	buf[200];
+			sprintf (buf, "ERROR: Factor not found. Expected %s\n", fac_str);
+			OutputBoth (buf);
+		}
+		free (f);
+	}
+
+/* Cleanup */
+
+	QA_IN_PROGRESS = FALSE;
+	QA_TYPE = 0;
+	QA_SAVE_FILES = 0;
+	fclose (fd);
+	return (TRUE);
 }

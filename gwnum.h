@@ -26,6 +26,7 @@ typedef struct {
 
 #define MAX_PRIME	79300000L	/* Maximum number of bits */
 #define MAX_PRIME_SSE2	77910000L	/* SSE2 bit limit */
+#define MAX_FFTLEN	4194304		/* 4096K FFT */
 
 /* global variables */
 
@@ -50,6 +51,8 @@ EXTERNC void *SRCARG;		/* For assembly language arg passing */
 EXTERNC void *SRC2ARG;		/* For assembly language arg passing */
 EXTERNC void *DESTARG;		/* For assembly language arg passing */
 EXTERNC void *DEST2ARG;		/* For assembly language arg passing */
+extern void *GW_BIGBUF;		/* Optional buffer to allocate gwnums in */
+extern unsigned long GW_BIGBUF_SIZE;	/* Size of the optional buffer */
 extern gwnum *gwnum_alloc;		/* Array of allocated gwnums */
 extern unsigned int gwnum_alloc_count;	/* Count of allocated gwnums */
 extern unsigned int gwnum_alloc_array_size;/* Size of gwnum_alloc array */
@@ -74,6 +77,7 @@ double *addr (gwnum, unsigned long);
 unsigned long gwnum_size (unsigned long);
 void get_fft_value (gwnum, unsigned long, long *);
 void set_fft_value (gwnum, unsigned long, long);
+int is_valid_fft_value (gwnum, unsigned long);
 int is_big_word (unsigned long);
 void bitaddr (unsigned long, unsigned long *, unsigned long *);
 #define gw_set_max_allocs(n)	if (gwnum_alloc==NULL) gwnum_alloc_array_size=n

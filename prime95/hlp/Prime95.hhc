@@ -153,6 +153,10 @@
 		</OBJECT>
 	<UL>
 		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="New Features in Prime95 Version 23.x">
+			<param name="Local" value="New features in Version 23.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
 			<param name="Name" value="New Features in Prime95 Version 22.x">
 			<param name="Local" value="New features in Version 22.htm">
 			</OBJECT>

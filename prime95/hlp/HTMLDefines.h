@@ -2,7 +2,6 @@
 // Commands (ID_* and IDM_*) 
 #define HID_OPEN_EXIT                           0x1009D
 #define HID_TRAY_RESTORE                        0x1009E
-#define HID_DUMMY_SAD                           0x1009F
 #define HIDM_CONTINUE                           0x18003
 #define HIDM_STOP                               0x18004
 #define HIDM_ERRCHK                             0x18005
@@ -11,7 +10,6 @@
 #define HIDM_PREFERENCES                        0x1800D
 #define HIDM_CPU                                0x1800E
 #define HID_RANGE_STATUS                        0x1800F
-#define HID_OPTIONS_SELFTEST                    0x18010
 #define HIDM_PASSWORD                           0x18011
 #define HIDM_TRAY                               0x18014
 #define HIDM_HIDE                               0x18015
@@ -35,6 +33,7 @@
 // Prompts (IDP_*) 
  
 // Resources (IDR_*) 
+#define HIDR_HTML_TORTUREDLG                    0x20067
 #define HIDR_MAINFRAME                          0x20080
 #define HIDR_TRAYMENU                           0x2009C
  
@@ -56,6 +55,7 @@
 #define HIDD_PMINUS1                            0x20098
 #define HIDD_WELCOME                            0x20099
 #define HIDD_UNRESERVE                          0x2009A
+#define HIDD_TORTURE                            0x2009B
  
 // Frame Controls (IDW_*) 
 // This is a part of the Microsoft Foundation Classes C++ library.

@@ -1,4 +1,4 @@
-; Copyright 1998-2001 - Just For Fun Software, Inc., all rights reserved
+; Copyright 1998-2003 - Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -819,6 +819,8 @@ pfa_7_setup MACRO
 	fsincos				;; Compute cosine (-.901), sine (0.434)
 	fst	M901			;; Save cosine
 	fxch	st(1)			;; .434,-.901,-.223,.623,.782
+	fst	XMM_P434
+	fst	XMM_P434+8
 	fdiv	P975			;; 0.434 / 0.975
 	fst	XMM_P445
 	fst	XMM_P445+8
@@ -830,6 +832,8 @@ pfa_7_setup MACRO
 	fst	XMM_P180
 	fst	XMM_P180+8
 	fstp	P180			;; Save
+	fst	XMM_M223
+	fst	XMM_M223+8
 	fdiv	P623			;; -0.223 / 0.623
 	fst	XMM_M358
 	fst	XMM_M358+8
