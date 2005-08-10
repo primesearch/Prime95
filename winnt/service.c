@@ -36,6 +36,8 @@
 #include "prime95.h"
 #include "main.h"
 #include "service.h"
+#include "gwnum.h"
+#include "giants.h"
 
 
 
@@ -92,6 +94,13 @@ void main(int argc, char **argv)
 		strrchr (buf, '\\')[1] = 0;
 		_chdir (buf);
 	}
+
+/* Initialize gwnum call back routines.  Using callback routines lets the */
+/* gwnum library have a nice clean interface for users that do not need */
+/* additional functionality that only prime95 uses. */
+
+	StopCheckRoutine = stopCheck;
+	OutputBothRoutine = OutputBoth;
 
 /* Read INI file.  Let the service name be configurable, so that */
 /* dual CPU machines can start 2 services */

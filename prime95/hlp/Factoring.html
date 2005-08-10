@@ -1,0 +1,197 @@
+<html>
+
+<head>
+<title>Factoring Details</title>
+<link rel="stylesheet" type="text/css" href="backsdk4.css">
+</head>
+
+<body TOPMARGIN="0">
+
+<table CLASS="buttonbarshade" CELLSPACING="0">
+  <tr>
+    <td>&nbsp;</td>
+  </tr>
+</table>
+<table CLASS="buttonbartable" CELLSPACING="0">
+  <tr ID="hdr">
+    <td CLASS="runninghead" NOWRAP>Math: Factoring Details</td>
+  </tr>
+</table>
+<p>&nbsp;</p>
+<h1>FACTORING DETAILS</h1>
+<h2>Forming a list</h2>In dealing with Mersenne numbers, it 
+is easy to prove that if 2<SUP>P</SUP>
+            -1 is prime, then 
+P must be a prime. Thus, the first step in the search is to create a list of prime 
+exponents to test.
+<h2>Trial Factoring</h2>
+The next step is to eliminate exponents by finding a small factor. There are very 
+efficient algorithms for determining if a number divides 2<sup>p</sup>-1. For example, 
+let's see if 47 divides 2<sup>23</sup>-1. Convert the exponent 23 to binary, you 
+get 10111. Starting with 1, repeatedly square, remove the top bit of the exponent 
+and if 1 multiply squared value by 2, then compute the remainder upon division by 
+47.
+<p>&nbsp;</p>
+<table>
+  <tr>
+    <td><b>Square</b></td>
+    <td><b>Remove top bit</b></td>
+    <td><b>Optional mul by 2</b></td>
+    <td><b>mod 47</b></td>
+  </tr>
+  <tr>
+    <td>1*1 = 1</td>
+    <td>1 0111</td>
+    <td>1*2 = 2</td>
+    <td>2</td>
+  </tr>
+  <tr>
+    <td>2*2 = 4</td>
+    <td>0 111</td>
+    <td>no</td>
+    <td>4</td>
+  </tr>
+  <tr>
+    <td>4*4 = 16</td>
+    <td>1 11</td>
+    <td>16*2 = 32</td>
+    <td>32</td>
+  </tr>
+  <tr>
+    <td>32*32 = 1024</td>
+    <td>1 1</td>
+    <td>1024*2 = 2048</td>
+    <td>27</td>
+  </tr>
+  <tr>
+    <td>27*27 = 729</td>
+    <td>1</td>
+    <td>729*2 = 1458</td>
+    <td>1</td>
+  </tr>
+</table>
+&nbsp;<p>Thus, 2<sup>23</sup> = 1 mod 47. Subtract 1 from both sides. 2<sup>23</sup>-1 
+= 0 mod 47. Since we've shown that 47 is a factor, 2<sup>23</sup>-1 is not prime.
+</p>
+<p>One very nice property of Mersenne numbers is that any factor q of 2<sup>P</sup>-1 
+must be of the form 2kp+1. Furthermore, q must be 1 or 7 mod 8. A
+<a href="http://www.utm.edu/research/primes/notes/proofs/MerDiv.html">proof</a> 
+is available. Finally, an efficient program can take advantage of the fact that 
+any potential factor q must be prime. </p>
+<p>The GIMPS factoring code creates a modified
+<a href="http://primes.utm.edu/glossary/page.php?sort=SieveOfEratosthenes">sieve 
+of Eratosthenes</a> with each bit representing a potential 2kp+1 factor. The sieve 
+then eliminates any potential factors that are divisible by prime numbers below 
+40,000 or so. Also, bits representing potential factors of 3 or 5 mod 8 are cleared. 
+This process eliminates roughly 95% of potential factors. The remaining potential 
+factors are tested using the powering algorithm above. </p>
+<p>Now the only question remaining is how much trial factoring should be done? The 
+answer depends on three variables: the cost of factoring, the chance of finding 
+a factor, and the cost of a primality test. The formula used is: </p>
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; factoring_cost &lt; chance_of_finding_factor 
+* 2 * primality_test_cost </p>
+<p>That is, the time spent factoring must be less than the expected time saved. 
+If a factor is found we can avoid running both the first-time and double-check primality 
+tests. </p>
+<p>Looking at past factoring data we see that the chance of finding a factor between 
+2X and 2X+1 is about 1/x. The factoring cost and primality test costs are computed 
+by timing the program. At present, the program trial factors to these limits:
+</p>
+<p></p>
+<table style="WIDTH: 10%" cellspacing="1" border="1" bordercolor="#cccccc">
+  <tr>
+    <td width="11%"><b>Exponents up to</b></td>
+    <td width="745%"><b>Trial factored to</b></td>
+  </tr>
+  <tr>
+    <td width="11%">3960000</td>
+    <td width="745%">2<sup>60</sup></td>
+  </tr>
+  <tr>
+    <td width="11%">5160000 </td>
+    <td width="745%">2<sup>61</sup></td>
+  </tr>
+  <tr>
+    <td width="11%">6515000 </td>
+    <td width="745%">2<sup>62</sup></td>
+  </tr>
+  <tr>
+    <td width="11%">8250000 </td>
+    <td width="745%">2<sup>63</sup></td>
+  </tr>
+  <tr>
+    <td width="11%">13380000 </td>
+    <td width="745%">2<sup>64</sup></td>
+  </tr>
+  <tr>
+    <td width="11%">17850000 </td>
+    <td width="745%">2<sup>65</sup></td>
+  </tr>
+  <tr>
+    <td width="11%">21590000 </td>
+    <td width="745%">2<sup>66</sup></td>
+  </tr>
+  <tr>
+    <td width="11%">28130000 </td>
+    <td width="745%">2<sup>67</sup></td>
+  </tr>
+  <tr>
+    <td width="11%">35100000 </td>
+    <td width="745%">2<sup>68</sup></td>
+  </tr>
+  <tr>
+    <td width="11%">44150000 </td>
+    <td width="745%">2<sup>69</sup></td>
+  </tr>
+  <tr>
+    <td width="11%">57020000 </td>
+    <td width="745%">2<sup>70</sup></td>
+  </tr>
+  <tr>
+    <td width="11%">71000000 </td>
+    <td width="745%">2<sup>71</sup></td>
+  </tr>
+  <tr>
+    <td width="11%">79300000 </td>
+    <td width="745%">2<sup>72</sup></td>
+  </tr>
+</table>
+<p></p>
+<p></p>
+<h2>P-1 Factoring</h2>
+There is another factoring method that GIMPS uses to find factors and thereby avoid 
+costly primality tests. This method is called Pollard's (P-1) method. If q is a 
+factor of a number, then the P-1 method will find the factor q if q-1 is highly 
+composite - that is it has nothing but small factors.
+<p>This method when adapted to Mersenne numbers is even more effective. Remember, 
+that the factor q is of the form 2kp+1. It is easy to modify the P-1 method such 
+that it will find the factor q whenever k is highly composite. </p>
+<p>The P-1 method is quite simple. First, pick a bound B1. P-1 will find the factor 
+q as long as all factors of k are less than B1 (k is called B1-smooth).&nbsp; Second, 
+compute E - the product of all primes less than B1. Third, compute x = 3<sup>E*2*P</sup>. 
+Finally, check the GCD (x-1, 2<sup>P</sup>-1) to see if a factor was found.</p>
+<p>There is an enhancement to Pollard's algorithm that uses a second bound B2 and 
+will find the factor q if k has just one factor between B1 and B2 and all remaining 
+factors are below B1. GIMPS has used this method to find some impressive factors. 
+For example: </p>
+<blockquote>
+<p>2<sup>2944999</sup>-1 is divisible 
+by 314584703073057080643101377. 314584703073057080643101377 is 2 * 53409984701702289312 
+* 2944999 + 1. The&nbsp; value k, 53409984701702289312, is very smooth: 53409984701702289312 
+= 2^5 * 3 * 19 * 947 * 7187 * 62297 * 69061 </p>
+</blockquote>
+<p>So how does GIMPS intelligently choose 
+B1 and B2? We use a variation of the formula used in trial factoring. We must maximize:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </p>
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; chance_of_finding_factor * 2 * primality_test_cost - factoring_cost </p>
+<p>The chance of 
+finding a factor and the factoring cost both vary with different B1 and B2 values. 
+Dickman's function (see Knuth's Art of Computer Programming vol. 2) is used to determine 
+the probability of finding a factor that is k is B1-smooth or B1-smooth with just 
+one factor between B1 and B2. The program tries many values of B1 and if there is 
+sufficient available memory several values of B2, selecting the B1 and B2 values 
+that maximize the formula above. </p>
+<p></p>
+
+</body>
+
+</html>

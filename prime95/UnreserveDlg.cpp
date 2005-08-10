@@ -29,7 +29,7 @@ void CUnreserveDlg::DoDataExchange(CDataExchange* pDX)
 	CDialog::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CUnreserveDlg)
 	DDX_Text(pDX, IDC_P, m_p);
-	DDV_MinMaxUInt(pDX, m_p, 4000000, 79300000);
+	DDV_MinMaxUInt (pDX, m_p, 4000000, MAX_PRIME_SSE2);
 	//}}AFX_DATA_MAP
 }
 

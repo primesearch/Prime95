@@ -1,41 +1,38 @@
 # Makefile for FreeBSD mprime
 #
-# NOTE: We use Linux to convert the COFF object files to ELF.
+# NOTE: A Linux system must be used to convert the MASM object files to ELF.
+#
 
 CC = gcc
-CFLAGS = -I.. -O2 -m486 -malign-double
+CFLAGS = -I.. -I../gwnum -O2 -march=i486 -malign-double
 
-#CFLAGS for Pentium (I don't know who recommended these settings)
-#CFLAGS = -I.. -O2 -m486 -malign-double -malign-loops=2 -malign-jumps=2 -malign-functions=2
+CPP = g++
+CPPFLAGS = -I.. -I../gwnum -O2 -march=i486 -malign-double
 
-# fixup data segment offset to accomodate asm objects
 LFLAGS = -Wl,-M
-LIBS   = -lm -lcompat
-LIBS2  = -lm -lcompat -static
+LIBS   = ../gwnum/gwnum.lib ../gwnum/gwnum.ld -lm -lcompat -lstdc++
+LIBS2  = ../gwnum/gwnum.lib ../gwnum/gwnum.ld -lm -lcompat -lstdc++ -static
 
-COFFOBJS = mult.o mult1.o mult2.o mult2a.o mult3.o mult3a.o mult4.o mult4a.o mult4b.o mult1p.o mult2p.o mult2ap.o mult3p.o mult3ap.o mult3q.o mult3aq.o mult4p.o mult4ap.o mult4bp.o mult4q.o mult4aq.o mult4bq.o mult1aux.o mult2aux.o mult3aux.o mult3auq.o mult4aux.o mult4auq.o xmult1.o xmult1ax.o xmult2.o xmult2a.o xmult2ax.o xmult3.o xmult3a.o xmult3ax.o ecmhelp.o cpuid.o
-FACTOROBJ = factor64.o
-DUMMYOBJS = dummy4.o dummy8.o dummy12.o dummy16.o dummy20.o dummy24.o dummy28.o dummyt4.o dummyt8.o dummyt12.o dummyt16.o dummyt20.o dummyt24.o dummyt28.o
+FACTOROBJ = factor32.o
+DUMMYOBJS = dummy0.o dummy4.o dummy8.o dummy12.o dummy16.o dummy20.o dummy24.o dummy28.o
 LINUXOBJS = prime.o menu.o
 EXE      = mprime
 EXE2	 = sprime
 
-# insert proper dummy file to get mult.o and factor64.o's data aligned
-# on 32 byte boundaries.  Use dummyNN.o to align mult.o and dummytNN.o
-# to align factor64.o
+# Insert proper dummy file to get _GWDATA data segment aligned
+# on a 32 byte boundary.  Use proper dummyNN.o to do the alignment
+# This is no longer necessary thanks to Alex Kruppa's gwnum.ld trick!
 
 DUMMY1   =
-DUMMY2   = dummyt12.o
-DUMMY3   = 
-DUMMY4   = dummyt12.o
+DUMMY2   =
 
 #########################################################################
 
-$(EXE): security $(LINUXOBJS)
-	$(CC) $(LFLAGS) -o $(EXE) $(LINUXOBJS) $(DUMMY1) $(COFFOBJS) $(DUMMY2) $(FACTOROBJ) $(LIBS)
+$(EXE): security $(LINUXOBJS) $(FACTOROBJ) $(DUMMYOBJS)
+	$(CC) $(LFLAGS) -o $(EXE) $(LINUXOBJS) $(DUMMY1) $(FACTOROBJ) $(LIBS)
 
-$(EXE2): security $(LINUXOBJS)
-	$(CC) $(LFLAGS) -o $(EXE2) $(LINUXOBJS) $(DUMMY3) $(COFFOBJS) $(DUMMY4) $(FACTOROBJ) $(LIBS2)
+$(EXE2): security $(LINUXOBJS) $(FACTOROBJ) $(DUMMYOBJS)
+	$(CC) $(LFLAGS) -o $(EXE2) $(LINUXOBJS) $(DUMMY2) $(FACTOROBJ) $(LIBS2)
 
 security:
 	[ ! -e ../security.h ] && touch ../security.h || true
@@ -46,3 +43,6 @@ clean:
 
 .c.o:
 	$(CC) $(CFLAGS) -c $<
+
+.cpp.o:
+	$(CPP) $(CPPFLAGS) -c $<

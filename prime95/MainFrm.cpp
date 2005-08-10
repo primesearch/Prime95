@@ -79,7 +79,7 @@ void CMainFrame::Dump(CDumpContext& dc) const
 
 /////////////////////////////////////////////////////////////////////////////
 // CMainFrame message handlers
-LONG CMainFrame::OnPower(UINT uID, LONG uMouseMsg)
+LRESULT CMainFrame::OnPower(WPARAM uID, LPARAM uMouseMsg)
 {
 	if (uID == PBT_APMPOWERSTATUSCHANGE) {
 		CHECK_BATTERY = 1;
@@ -91,7 +91,7 @@ LONG CMainFrame::OnPower(UINT uID, LONG uMouseMsg)
 	return 0;
 }
 
-LONG CMainFrame::OnTrayMessage(UINT uID, LONG uMouseMsg)
+LRESULT CMainFrame::OnTrayMessage(WPARAM uID, LPARAM uMouseMsg)
 {
 	if (uID == 352 && uMouseMsg == WM_LBUTTONDBLCLK) {
 		if (IsWindowVisible())
@@ -168,7 +168,7 @@ void CMainFrame::OnStopContinue()
 		PostMessage (WM_COMMAND, IDM_CONTINUE, 0);
 }
 
-LRESULT CMainFrame::OnServiceStop (WPARAM wParam, LONG lParam)
+LRESULT CMainFrame::OnServiceStop (WPARAM wParam, LPARAM lParam)
 {
 	if (TRAY_ICON) ((CPrime95App *)AfxGetApp())->TrayMessage (NIM_DELETE, NULL, 0);
 	ShowWindow (FALSE);
@@ -206,7 +206,7 @@ BOOL CALLBACK EnumProc (HWND hWnd, LPARAM lParam)
 	//check for property and unsubclass if necessary
 	WNDPROC oldWndProc = (WNDPROC)::GetProp (hWnd, szAfxOldWndProc);
 	if (oldWndProc!=NULL) {
-		SetWindowLong (hWnd, GWL_WNDPROC, (DWORD) oldWndProc);
+		SetWindowLongPtr (hWnd, GWLP_WNDPROC, (LONG_PTR) oldWndProc);
 		RemoveProp (hWnd, szAfxOldWndProc);
 	}
 	return TRUE;

@@ -63,28 +63,3 @@ unsigned long num_cpus (void)
 	return (sys.dwNumberOfProcessors);
 }
 
-/* Routines to access the high resolution performance counter */
-
-int isHighResTimerAvailable (void)
-{
-	LARGE_INTEGER large;
-	return (QueryPerformanceCounter (&large));
-}
-
-double getHighResTimer (void)
-{
-	LARGE_INTEGER large;
-
-	QueryPerformanceCounter (&large);
-	return ((double) large.HighPart * 4294967296.0 +
-		(double) large.LowPart);
-}
-
-double getHighResTimerFrequency (void)
-{
-	LARGE_INTEGER large;
-
-	QueryPerformanceFrequency (&large);
-	return ((double) large.HighPart * 4294967296.0 +
-		(double) large.LowPart);
-}

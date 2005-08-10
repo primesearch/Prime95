@@ -24,8 +24,8 @@ public:
 	protected:
 	virtual LRESULT WindowProc(UINT message, WPARAM wParam, LPARAM lParam);
 	//}}AFX_VIRTUAL
-	afx_msg LONG OnPower( UINT, LONG );
-	afx_msg LONG OnTrayMessage( UINT, LONG );
+	afx_msg LRESULT OnPower( WPARAM, LPARAM );
+	afx_msg LRESULT OnTrayMessage( WPARAM, LPARAM );
 	LRESULT OnTaskBarCreated (WPARAM, LPARAM);
 
 // Implementation

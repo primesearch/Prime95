@@ -1,0 +1,124 @@
+# Assembler command lines, without and with listings
+
+masm64=ml64 /c /DX86_64
+#masm64=ml64 /c /DX86_64 /Fl /Sf /Sa
+
+# Use the 64-bit C compiler
+
+cl64=cl /GF /W3 /MT /DX86_64 /DADD_UNDERSCORES /D_CRT_SECURE_NO_DEPRECATE /O2 /c
+cl64d=cl /GF /W3 /MT /DX86_64 /DADD_UNDERSCORES /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Zi /c
+
+# List of all buildables in this makefile
+
+all:	gwnum64.lib gwnum64d.lib
+
+# Make libraries out of the object files
+
+gwnum64.lib: amd64\release\cpuid.obj amd64\release\gwnum.obj amd64\release\gwutil.obj amd64\release\gwdbldbl.obj amd64\release\giants.obj amd64\xmult1.obj amd64\xmult1ax.obj amd64\xmult2.obj amd64\xmult2p.obj amd64\xmult2a.obj amd64\xmult2ap.obj amd64\xmult2ax.obj amd64\xmult3.obj amd64\xmult3p.obj amd64\xmult3a.obj amd64\xmult3ap.obj amd64\xmult4.obj amd64\xmult4p.obj amd64\xmult5.obj amd64\xmult5p.obj  amd64\xmult6.obj amd64\xmult6p.obj amd64\cpuidhlp.obj amd64\mult.obj amd64\gianthlp.obj amd64\timeit.obj amd64\timeitp.obj
+    del gwnum64.lib
+    lib /OUT:gwnum64.lib amd64\release\*.obj amd64\*.obj
+
+gwnum64d.lib: amd64\debug\cpuid.obj amd64\debug\gwnum.obj amd64\debug\gwutil.obj amd64\debug\gwdbldbl.obj amd64\debug\giants.obj amd64\xmult1.obj amd64\xmult1ax.obj amd64\xmult2.obj amd64\xmult2p.obj amd64\xmult2a.obj amd64\xmult2ap.obj amd64\xmult2ax.obj amd64\xmult3.obj amd64\xmult3p.obj amd64\xmult3a.obj amd64\xmult3ap.obj  amd64\xmult4.obj amd64\xmult4p.obj amd64\xmult5.obj amd64\xmult5p.obj amd64\xmult6.obj amd64\xmult6p.obj amd64\cpuidhlp.obj amd64\mult.obj amd64\gianthlp.obj amd64\timeit.obj amd64\timeitp.obj
+    del gwnum64d.lib
+    lib /OUT:gwnum64d.lib amd64\debug\*.obj amd64\*.obj
+
+# Compile C code for 64-bit
+
+amd64\release\cpuid.obj: cpuid.c cpuid.h
+    $(cl64) /Foamd64\release\cpuid.obj cpuid.c
+
+amd64\debug\cpuid.obj: cpuid.c cpuid.h
+    $(cl64d) /Foamd64\debug\cpuid.obj cpuid.c
+
+amd64\release\gwnum.obj: gwnum.c gwnum.h
+    $(cl64) /Foamd64\release\gwnum.obj gwnum.c
+
+amd64\debug\gwnum.obj: gwnum.c gwnum.h
+    $(cl64d) /Foamd64\debug\gwnum.obj gwnum.c
+
+amd64\release\gwutil.obj: gwutil.c gwutil.h
+    $(cl64) /Foamd64\release\gwutil.obj gwutil.c
+
+amd64\debug\gwutil.obj: gwutil.c gwutil.h
+    $(cl64d) /Foamd64\debug\gwutil.obj gwutil.c
+
+amd64\release\gwdbldbl.obj: gwdbldbl.cpp gwdbldbl.h
+    $(cl64) /I..\qd /Foamd64\release\gwdbldbl.obj gwdbldbl.cpp
+
+amd64\debug\gwdbldbl.obj: gwdbldbl.cpp gwdbldbl.h
+    $(cl64d) /I..\qd /Foamd64\debug\gwdbldbl.obj gwdbldbl.cpp
+
+amd64\release\giants.obj: giants.c giants.h
+    $(cl64) /Foamd64\release\giants.obj giants.c
+
+amd64\debug\giants.obj: giants.c giants.h
+    $(cl64d) /Foamd64\debug\giants.obj giants.c
+
+# Create 64-bit object files
+
+amd64\xmult1.obj: xmult1.asm xmult.mac xlucas.mac xfft1.mac
+    $(masm64) /Foamd64\xmult1.obj xmult1.asm
+
+amd64\xmult1ax.obj: xmult1ax.asm xmult.mac xnormal.mac
+    $(masm64) /Foamd64\xmult1ax.obj xmult1ax.asm
+
+amd64\xmult2.obj: xmult2.asm xmult.mac xlucas.mac xfft2.mac xnormal.mac
+    $(masm64) /Foamd64\xmult2.obj xmult2.asm
+
+amd64\xmult2p.obj: xmult2.asm xmult.mac xlucas.mac xfft2.mac xnormal.mac
+    $(masm64) /DAMD /Foamd64\xmult2p.obj xmult2.asm
+
+amd64\xmult2a.obj: xmult2a.asm xmult.mac xpass2.mac xlucas.mac xnormal.mac
+    $(masm64) /Foamd64\xmult2a.obj xmult2a.asm
+
+amd64\xmult2ap.obj: xmult2a.asm xmult.mac xpass2.mac xlucas.mac xnormal.mac
+    $(masm64) /DAMD /Foamd64\xmult2ap.obj xmult2a.asm
+
+amd64\xmult2ax.obj: xmult2ax.asm xmult.mac xnormal.mac
+    $(masm64) /Foamd64\xmult2ax.obj xmult2ax.asm
+
+amd64\xmult3.obj: xmult3.asm xmult.mac xlucas.mac xfft3.mac
+    $(masm64) /Foamd64\xmult3.obj xmult3.asm
+
+amd64\xmult3p.obj: xmult3.asm xmult.mac xlucas.mac xfft3.mac
+    $(masm64) /DAMD /Foamd64\xmult3p.obj xmult3.asm
+
+amd64\xmult3a.obj: xmult3a.asm xmult.mac xpass2.mac xlucas.mac
+    $(masm64) /Foamd64\xmult3a.obj xmult3a.asm
+
+amd64\xmult3ap.obj: xmult3a.asm xmult.mac xpass2.mac xlucas.mac
+    $(masm64) /DAMD /Foamd64\xmult3ap.obj xmult3a.asm
+
+amd64\xmult4.obj: xmult4.asm xmult.mac xlucas.mac xfft4.mac
+    $(masm64) /Foamd64\xmult4.obj xmult4.asm
+
+amd64\xmult4p.obj: xmult4.asm xmult.mac xlucas.mac xfft4.mac
+    $(masm64) /DAMD /Foamd64\xmult4p.obj xmult4.asm
+
+amd64\xmult5.obj: xmult5.asm xmult.mac xlucas.mac xfft5.mac
+    $(masm64) /Foamd64\xmult5.obj xmult5.asm
+
+amd64\xmult5p.obj: xmult5.asm xmult.mac xlucas.mac xfft5.mac
+    $(masm64) /DAMD /Foamd64\xmult5p.obj xmult5.asm
+
+amd64\xmult6.obj: xmult6.asm xmult.mac xlucas.mac xfft6.mac
+    $(masm64) /Foamd64\xmult6.obj xmult6.asm
+
+amd64\xmult6p.obj: xmult6.asm xmult.mac xlucas.mac xfft6.mac
+    $(masm64) /DAMD /Foamd64\xmult6p.obj xmult6.asm
+
+amd64\cpuidhlp.obj: cpuidhlp.asm
+    $(masm64) /Foamd64\cpuidhlp.obj cpuidhlp.asm
+
+amd64\mult.obj: mult.asm
+    $(masm64) /Foamd64\mult.obj mult.asm
+
+amd64\gianthlp.obj: gianthlp.asm
+    $(masm64) /Foamd64\gianthlp.obj gianthlp.asm
+
+amd64\timeit.obj: timeit.asm xmult.mac xlucas.mac
+    $(masm64) /Foamd64\timeit.obj timeit.asm
+
+amd64\timeitp.obj: timeit.asm xmult.mac xlucas.mac
+    $(masm64) /DAMD /Foamd64\timeitp.obj timeit.asm
+

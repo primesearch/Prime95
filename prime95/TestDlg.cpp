@@ -43,7 +43,8 @@ void CTestDlg::DoDataExchange(CDataExchange* pDX)
 	//{{AFX_DATA_MAP(CTestDlg)
 	DDX_Text(pDX, IDC_P, m_p);
 	//}}AFX_DATA_MAP
-	DDV_MinMaxUInt(pDX, m_p, MIN_PRIME, MAX_PRIME);
+	DDV_MinMaxUInt(pDX, m_p, MIN_PRIME,
+		       CPU_FLAGS & CPU_SSE2 ? MAX_PRIME_SSE2 : MAX_PRIME);
 	DDV_prime(pDX, m_p);
 }
 

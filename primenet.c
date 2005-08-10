@@ -50,8 +50,8 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <errno.h>
-#ifndef __IBMC__
 #include <arpa/inet.h>
+#ifndef __IBMC__
 #include <unistd.h>
 #endif
 #endif
@@ -66,7 +66,7 @@ unsigned short bswap(unsigned short);
 
 /* implement the missing inet_aton call */
 
-#if defined (_WINDOWS_) || defined (__EMX__) || defined (__IBMC__)
+#if defined (_WINDOWS_) || defined (__EMX__)
 int inet_aton (char *cp, struct in_addr *inp)
 {
 	u_long temp;
@@ -213,9 +213,11 @@ int pnHttpServer (char *pbuf, unsigned cbuf, char* postargs)
 	struct hostent *hp, def;
 	struct sockaddr_in sn;
 	int	s, res, debug, url_format;
+	int	timeout;
 	char	*alist[1];
 	unsigned int count;
 	char	szProxyHost[120], szUser[50], szPass[50], *con_host;
+	char	szOtherGetInfo[256];
 	unsigned short nProxyPort, con_port;
 
 /* Get debug logging and URL format flags */
@@ -344,20 +346,44 @@ rel_url:
 		return (PRIMENET_ERROR_CONNECT_FAILED);
 	}
 
+/* Prevent SIGPIPE signals in Linux (and other) environments */
+
+#ifdef SO_NOSIGPIPE
+	{
+		int	i = 1;
+		res = setsockopt (s, SOL_SOCKET, SO_NOSIGPIPE, &i, sizeof(i));
+		if (res < 0) {
+			if (debug) {
+				sprintf (buf, "Error in NOSIGPIPE call: %d\n",
+					 getLastSocketError ());
+				LogMsg (buf);
+			}
+		}
+	}
+#endif
+
 /* GET method, data follows ? in URL */
 
 	strcpy (szURL, "GET ");
 	if (*szProxyHost || url_format) {
 		strcat (szURL, "http://");
 		strcat (szURL, szSITE);
-		strcat (szURL, ":");
-		sprintf (szBuffer, "%d", nHostPort);
-		strcat (szURL, szBuffer);
+		if (IniGetInt (INIFILENAME, "SendPortNumber", 1))
+			sprintf (szURL + strlen (szURL), ":%d", nHostPort);
 	}
 	strcat (szURL, szFILE);
 	strcat (szURL, "?");
 	strcat (szURL, postargs);
 	strcat (szURL, " HTTP/1.0\r\n");
+
+/* Append other GET info */
+
+	IniGetString (INIFILENAME, "OtherGetInfo", szOtherGetInfo,
+		sizeof (szOtherGetInfo), NULL);
+	if (*szOtherGetInfo) {
+		strcat (szURL, szOtherGetInfo);
+		strcat (szURL, "\r\n");
+	}
 
 /* Append proxy authorization here */
 
@@ -375,6 +401,16 @@ rel_url:
 
 /* Send the URL request */
 
+	timeout = 90000;		/* 90 seconds */
+	res = setsockopt (s, SOL_SOCKET, SO_SNDTIMEO, (char *) &timeout,
+			  sizeof (timeout));
+	if (res < 0) {
+		if (debug) {
+			sprintf (buf, "Error in send timeout call: %d\n",
+				 getLastSocketError ());
+			LogMsg (buf);
+		}
+	}
 	res = send (s, szURL, strlen (szURL), 0);
 	if (res < 0) {
 		if (debug) {
@@ -383,11 +419,26 @@ rel_url:
 			LogMsg (buf);
 		}
 		closesocket (s);
+		if (url_format == 2 && *szProxyHost == 0) {
+			if (debug) LogMsg ("Trying relative URL\n");
+			url_format = 0;
+			goto rel_url;
+		}
 		return (PRIMENET_ERROR_SEND_FAILED);
 	}
 
 /* Now accumulate the response */
 
+	timeout = 90000;		/* 90 seconds */
+	res = setsockopt (s, SOL_SOCKET, SO_RCVTIMEO, (char *) &timeout,
+			  sizeof (timeout));
+	if (res < 0) {
+		if (debug) {
+			sprintf (buf, "Error in receive timeout call: %d\n",
+				 getLastSocketError ());
+			LogMsg (buf);
+		}
+	}
 	*pbuf = 0; count = 1;
 	while (count < cbuf) {
 		res = recv (s, szBuffer, 999, 0);
@@ -398,6 +449,11 @@ rel_url:
 				LogMsg (buf);
 			}
 			closesocket (s);
+			if (url_format == 2 && *szProxyHost == 0) {
+				if (debug) LogMsg ("Trying relative URL\n");
+				url_format = 0;
+				goto rel_url;
+			}
 			return (PRIMENET_ERROR_RECV_FAILED);
 		}
 		if (res == 0) break;

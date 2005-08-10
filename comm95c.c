@@ -129,32 +129,6 @@ void UnloadPrimeNet (void)
 	}
 }
 
-/* Routines to access the high resolution performance counter */
-
-int isHighResTimerAvailable (void)
-{
-	LARGE_INTEGER large;
-	return (QueryPerformanceCounter (&large));
-}
-
-double getHighResTimer (void)
-{
-	LARGE_INTEGER large;
-
-	QueryPerformanceCounter (&large);
-	return ((double) large.HighPart * 4294967296.0 +
-		(double) large.LowPart);
-}
-
-double getHighResTimerFrequency (void)
-{
-	LARGE_INTEGER large;
-
-	QueryPerformanceFrequency (&large);
-	return ((double) large.HighPart * 4294967296.0 +
-		(double) large.LowPart);
-}
-
 /* Return the number of MB of physical memory */
 
 unsigned long physical_memory (void)
@@ -163,6 +137,40 @@ unsigned long physical_memory (void)
 
 	GlobalMemoryStatus (&mem);
 	return (mem.dwTotalPhys >> 20);
+}
+
+/* Return a better guess for amount of memory to use in a torture test. */
+/* Caller passes in its guess for amount of memory to use, but this routine */
+/* can reduce that guess based on OS-specific code that looks at amount */
+/* of available physical memory. */
+/* This code was written by an anonymous GIMPS user. */
+
+unsigned long GetSuggestedMemory (unsigned long nDesiredMemory)
+{
+	MEMORYSTATUS ms = {0};
+
+	// In-use Physical RAM in bytes
+	DWORD dwUsedMem			= ms.dwTotalPhys - ms.dwAvailPhys;
+	// Desired memory in bytes
+	DWORD dwDesiredMem		= nDesiredMemory << 20;
+	DWORD dwDesiredMemNew	= dwDesiredMem;
+
+	GlobalMemoryStatus (&ms);
+
+	// if very small/no page-file (pagefile <= total RAM) and
+	// in-use memory + desired memory > total RAM, then
+	// we have to set desired memory to free RAM,
+	// because the OS can't page out other apps to
+	// reclaim enough free memory since
+	// there's not enough space in the pagefile
+	// to store the paged-out apps
+	if ((ms.dwTotalPageFile <= ms.dwTotalPhys) &&
+		  ((dwUsedMem + dwDesiredMem) >= ms.dwTotalPhys))
+	{
+		dwDesiredMemNew = ms.dwAvailPhys;
+	}
+
+	return (dwDesiredMemNew >> 20);
 }
 
 /* Return the number of CPUs in the system */

@@ -5,7 +5,9 @@
 | common #defines and common routine definitions.
 +---------------------------------------------------------------------*/
 
-char JUNK[]="Copyright 1996-2003 Just For Fun Software, All rights reserved";
+#include "gwnum.h"
+
+char JUNK[]="Copyright 1996-2005 Just For Fun Software, All rights reserved";
 char	INI_FILE[80] = {0};
 char	RESFILE[80] = {0};
 char	LOGFILE[80] = {0};
@@ -24,14 +26,23 @@ int	HIDE_ICON = FALSE;
 unsigned int PRECISION = 2;
 int	CUMULATIVE_TIMING = 0;
 int	HIGH_RES_TIMER = 0;
+#ifdef _MSC_VER
+char	*PRP_CMDLINE = __argv[1];
+#else
 char	*PRP_CMDLINE = NULL;
+#endif
 
-int isPRP (char	*, unsigned long, int *);
+//#define GWQA
+#ifdef GWQA
+#include "gwtest.c"
+#endif
+
+int slowIsPRP (char *, int *);
 
 /* PRP global variables */
 
-giant	N = NULL;		/* Number being factored */
-
+giant	N = NULL;		/* Number being PRPed */
+unsigned long Nlen;		/* Bit length of number being PRPed */
 
 /* Utility output routines */
 
@@ -217,6 +228,9 @@ void getCpuInfo (void)
 	temp = IniGetInt (INI_FILE, "CpuSupportsSSE2", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_SSE2;
 	if (temp == 1) CPU_FLAGS |= CPU_SSE2;
+	temp = IniGetInt (INI_FILE, "CpuSupports3DNow", 99);
+	if (temp == 0) CPU_FLAGS &= ~CPU_3DNOW;
+	if (temp == 1) CPU_FLAGS |= CPU_3DNOW;
 
 /* Now get the CPU speed */
 
@@ -241,8 +255,9 @@ void getCpuDescription (
 	if (CPU_FLAGS) {
 		strcat (buf, "CPU features: ");
 		if (CPU_FLAGS & CPU_RDTSC) strcat (buf, "RDTSC, ");
-		if (CPU_FLAGS & CPU_CMOV) strcat (buf, "CMOV, ");
-		if (CPU_FLAGS & CPU_PREFETCH) strcat (buf, "PREFETCH, ");
+/*		if (CPU_FLAGS & CPU_CMOV) strcat (buf, "CMOV, "); */
+		if (CPU_FLAGS & CPU_PREFETCH) strcat (buf, "Prefetch, ");
+		if (CPU_FLAGS & CPU_3DNOW) strcat (buf, "3DNow!, ");
 		if (CPU_FLAGS & CPU_MMX) strcat (buf, "MMX, ");
 		if (CPU_FLAGS & CPU_SSE) strcat (buf, "SSE, ");
 		if (CPU_FLAGS & CPU_SSE2) strcat (buf, "SSE2, ");
@@ -485,7 +500,7 @@ void writeIniFile (
 
 /* Create and write out the INI file */
 
-	fd = _open (p->filename, _O_CREAT | _O_TRUNC | _O_WRONLY | _O_TEXT, 0666);
+	fd = _open (p->filename, _O_CREAT | _O_TRUNC | _O_WRONLY | _O_TEXT, CREATE_FILE_ACCESS);
 	if (fd < 0) return;
 	for (j = 0; j < p->num_lines; j++) {
 		strcpy (buf, p->lines[j]->keyword);
@@ -663,7 +678,7 @@ int IniFileWritable (
 /* Create and write out the INI file */
 
 	p = openIniFile (filename, 0);
-	fd = _open (p->filename, _O_CREAT | _O_TRUNC | _O_WRONLY | _O_TEXT, 0666);
+	fd = _open (p->filename, _O_CREAT | _O_TRUNC | _O_WRONLY | _O_TEXT, CREATE_FILE_ACCESS);
 	if (fd < 0) return (FALSE);
 	for (j = 0; j < p->num_lines; j++) {
 		strcpy (buf, p->lines[j]->keyword);
@@ -905,7 +920,7 @@ static	time_t	last_time = 0;
 
 /* Open the log file and position to the end */
 
-	fd = _open (LOGFILE, _O_TEXT | _O_RDWR | _O_CREAT, 0666);
+	fd = _open (LOGFILE, _O_TEXT | _O_RDWR | _O_CREAT, CREATE_FILE_ACCESS);
 	if (fd < 0) {
 		OutputStr ("Unable to open log file.\n");
 		return;
@@ -953,7 +968,7 @@ void tempFileName (
 {
 	giant	tmp, tmp2;
 
-	tmp = popg ((PARG >> 5) + 1);
+	tmp = popg ((Nlen >> 5) + 10);
 	tmp2 = popg (2);
 	gtog (N, tmp);
 	itog (19999981, tmp2);
@@ -985,7 +1000,7 @@ static	time_t	last_time = 0;
 
 /* Open file, position to end */
 
-	fd = _open (RESFILE, _O_TEXT | _O_RDWR | _O_CREAT | _O_APPEND, 0666);
+	fd = _open (RESFILE, _O_TEXT | _O_RDWR | _O_CREAT | _O_APPEND, CREATE_FILE_ACCESS);
 	if (fd < 0) {
 		LogMsg ("Error opening the results file.\n");
 		return (FALSE);
@@ -1017,147 +1032,6 @@ fail:	_close (fd);
 	return (FALSE);
 }
 
-
-
-
-
-/* Convert a value from FFT-ready format to giant */
-
-void gwtobinary (
-	gwnum	gg,
-	giant	v)
-{
-	long	val;
-	int	j, bits, bitsout, carry;
-	unsigned long i, *outptr;
-
-/* Collect bits until we have all of them */
-
-	carry = 0;
-	bitsout = 0;
-	outptr = v->n;
-	*outptr = 0;
-	for (i = 0; i < FFTLEN; i++) {
-		get_fft_value (gg, i, &val);
-		bits = BITS_PER_WORD;
-		if (is_big_word (i)) bits++;
-		val += carry;
-		for (j = 0; j < bits; j++) {
-			*outptr >>= 1;
-			if (val & 1) *outptr += 0x80000000;
-			val >>= 1;
-			bitsout++;
-			if (bitsout == 32) {
-				outptr++;
-				*outptr = 0;
-				bitsout = 0;
-			}
-		}
-		carry = val;
-	}
-	*outptr >>= (32 - bitsout);
-	outptr++;
-	v->sign = (outptr - v->n);
-
-/* Wrap carry from most significant word to least significant word */
-
-	if (PLUS1) carry = -carry;
-	outptr = v->n;
-	while (carry) {
-		RES = *outptr;
-		CARRYL = 0;
-		if (carry > 0) addhlp (carry);
-		else subhlp (-carry);
-		*outptr++ = RES;
-		carry = CARRYL;
-	}
-
-/* Set the length */
-
-	while (v->sign && v->n[v->sign-1] == 0) v->sign--;
-}
-
-/* Convert a giant back to the FFT format */
-
-void binarytogw (
-	giant	a,
-	gwnum	g)
-{
-	unsigned long i, mask1, mask2, e1len;
-	int	neg, bits1, bits2, bits_in_next_binval;
-	unsigned long *e1, binval, carry;
-
-	e1len = abs (a->sign);
-	e1 = a->n;
-	neg = (a->sign < 0);
-
-	if (e1len == 0) {
-		dbltogw (0.0, g);
-		return;
-	}
-
-	bits1 = BITS_PER_WORD;
-	bits2 = bits1 + 1;
-	mask1 = (1L << bits1) - 1;
-	mask2 = (1L << bits2) - 1;
-	binval = *e1++; e1len--; bits_in_next_binval = 32;
-	carry = (PLUS1 && neg) ? 2 : 0;
-	for (i = 0; i < FFTLEN; i++) {
-		int	big_word, bits;
-		long	value, mask;
-		big_word = is_big_word (i);
-		bits = big_word ? bits2 : bits1;
-		mask = big_word ? mask2 : mask1;
-		if (i == FFTLEN - 1) value = binval;
-		else value = binval & mask;
-		if (neg) value = value ^ mask;
-		value = value + carry;
-		if (value > (mask >> 1) && bits > 1 && i != FFTLEN - 1) {
-			value = value - (mask + 1);
-			carry = 1;
-		} else {
-			carry = 0;
-		}
-		set_fft_value (g, i, value);
-
-		binval >>= bits;
-		if (e1len == 0) continue;
-		if (bits_in_next_binval < bits) {
-			if (bits_in_next_binval)
-				binval |= (*e1 >> (32 - bits_in_next_binval)) << (32 - bits);
-			bits -= bits_in_next_binval;
-			e1++; e1len--; bits_in_next_binval = 32;
-			if (e1len == 0) continue;
-		}
-		if (bits) {
-			binval |= (*e1 >> (32 - bits_in_next_binval)) << (32 - bits);
-			bits_in_next_binval -= bits;
-		}
-	}
-	((long *) g)[-1] = 0;	/* Clear needs-normalize counter */
-}
-
-/* Special gwtobinary code.  The standard code does not handle negative */
-/* gwnums.  This is because it returns a result modulo a Mersenne number - */
-/* thanks to the historical roots of gwnums for use in GIMPS. */
-/* This code adds a multiple of N to the gwnum and then does a modg call */
-
-void specialgwtobinary (
-	gwnum	gw,
-	giant	g)
-{
-	gwnum	tmp;
-
-	tmp = gwalloc ();
-	gtog (N, g);
-	gshiftleft (BITS_PER_WORD + 1, g);
-	binarytogw (g, tmp);
-	gwaddquick (gw, tmp);
-	gwtobinary (tmp, g);
-	modg (N, g);
-	gwfree (tmp);
-}
-
 /* Read and write intermediate results to a file */
 
 int read_gwnum (
@@ -1168,14 +1042,14 @@ int read_gwnum (
 	giant	tmp;
 	long	i, len, bytes;
 
-	tmp = popg ((PARG >> 5) + 1);
+	tmp = popg ((Nlen >> 5) + 10);
 	if (_read (fd, &len, sizeof (long)) != sizeof (long)) return (FALSE);
 	bytes = len * sizeof (long);
 	if (_read (fd, tmp->n, bytes) != bytes) return (FALSE);
 	tmp->sign = len;
 	*sum += len;
 	for (i = 0; i < len; i++) *sum += tmp->n[i];
-	binarytogw (tmp, g);
+	gianttogw (tmp, g);
 	pushg (1);
 	return (TRUE);
 }
@@ -1188,8 +1062,8 @@ int write_gwnum (
 	giant	tmp;
 	long	i, len, bytes;
 
-	tmp = popg ((PARG >> 5) + 1);
-	specialgwtobinary (g, tmp);
+	tmp = popg ((Nlen >> 5) + 10);
+	gwtogiant (g, tmp);
 	len = tmp->sign;
 	if (_write (fd, &len, sizeof (long)) != sizeof (long)) return (FALSE);
 	bytes = len * sizeof (long);
@@ -1238,7 +1112,7 @@ int writeToFile (
 
 /* Create the intermediate file */
 
-	fd = _open (newfilename, _O_BINARY|_O_WRONLY|_O_TRUNC|_O_CREAT, 0666);
+	fd = _open (newfilename, _O_BINARY|_O_WRONLY|_O_TRUNC|_O_CREAT, CREATE_FILE_ACCESS);
 	if (fd < 0) return (FALSE);
 
 /* Write the file header. */
@@ -1329,89 +1203,43 @@ error:
 	return (FALSE);
 }
 
-/* Generate the 64-bit residue of a Lucas-Lehmer test */
 
-/*#define GTEST*/
-#ifdef GTEST
-void gen64 (char *str, gwnum x)
-{
-	giant	tmp;
-	char	buf[200];
-	tmp = popg ((PARG >> 5) + 3);
-	specialgwtobinary (x, tmp); /* Compensate for possible negative x */
-	sprintf (buf, "%s res64: %08lX%08lX\n", str, tmp->n[1], tmp->n[0]);
-	writeResults (buf);
-	pushg (1);
-}
-#endif
+/* Test for a probable prime -- gwsetup has already been called. */
 
-
-
-/* Test if N is a probable proth prime.  The number N can be of ANY form. */
-/* Used to test code for Chris Nash's PFORM program. */
-
-int isProthPRP (
+int commonPRP (
 	unsigned long a,
-	unsigned long k,
-	unsigned long n,
-	int	inc,			/* Plus or minus one */
 	int	*res)
 {
-	unsigned long bit, len, iters;
-	unsigned long p, fftlen, ptmp, pmax;
-	unsigned long bits_per_word;
+	unsigned long bit, iters;
 	gwnum	x;
 	giant	tmp;
-	char	filename[20], buf[100], str[40], res64[17];
+	char	filename[20], buf[200], fft_desc[100], res64[17], oldres64[17];
 	long	write_time = DISK_WRITE_TIME * 60;
 	int	echk, saving, stopping;
 	time_t	start_time, current_time;
 	double	reallyminerr = 1.0;
 	double	reallymaxerr = 0.0;
 
-/* Get the current time */
+/* Init, subtract 1 from N to compute a^(N-1) mod N */
 
-restart:
+	iaddg (-1, N);
+	Nlen = bitlen (N);
 	*res = TRUE;		/* Assume it is a probable prime */
-	time (&start_time);
-
-/* Compute the number we are testing */
-
-	sprintf (str, "%lu*2^%lu%c1", k, n, inc < 0 ? '-' : '+');
-	N = newgiant ((n + 64) >> 4);
-	ultog (k, N);
-	gshiftleft (n, N);
-	iaddg (inc, N);
-	len = bitlen (N);
-
-/* Assume intermediate results of twice the length of N, plus a few */
-/* spare bits.  Then round up so that we are using a rational (integral */
-/* number of bits per FFT value).  Finally, setup the assembly code. */
-
-	clear_timers ();
-	start_timer (0);
-	start_timer (1);
-	p = len + len + 64;
-	for (ptmp = p / 2; ; ptmp = pmax + 1) {
-		fftlen = map_exponent_to_fftlen (ptmp, GW_MERSENNE_MOD);
-		pmax = map_fftlen_to_max_exponent (fftlen, GW_MERSENNE_MOD);
-		if (p <= (pmax + fftlen / 2) / fftlen * fftlen) break;
-	}
-	bits_per_word = (p + fftlen - 1) / fftlen;
-	p = bits_per_word * fftlen;
-	gwsetup (p, fftlen, GW_MERSENNE_MOD);
-	x = gwalloc ();
-
-/* Setup the proth mod code.  Work around gwnum bug where if k is large and */
-/* bits_per_word is small (due to a small n), then a SUMINP != SUMOUT error */
-/* can occur.  The test case is 290499495*2^31-1. */
-
-	gwprothsetup (k, n, inc);
-	for (bit = bits_per_word; bit < 15; bit++) MAXDIFF *= 2.0;
 
 /* Init filename */
 
 	tempFileName (filename);
+
+/* Get the current time */
+
+	clear_timers ();
+	start_timer (0);
+	start_timer (1);
+	time (&start_time);
+
+/* Allocate memory */
+
+	x = gwalloc ();
 
 /* Optionally resume from save file and output a message */
 /* indicating we are resuming a test */
@@ -1419,41 +1247,56 @@ restart:
 	if (fileExists (filename) && readFromFile (filename, &bit, x)) {
 		char	fmt_mask[80];
 		double	pct;
-		pct = trunc_percent (bit * 100.0 / len);
+		pct = trunc_percent (bit * 100.0 / Nlen);
 		sprintf (fmt_mask,
 			 "Resuming probable prime test of %%s at bit %%ld [%%.%df%%%%]\n",
 			 PRECISION);
-		sprintf (buf, fmt_mask, str, bit, pct);
+		sprintf (buf, fmt_mask, gwmodulo_as_string (), bit, pct);
 		OutputStr (buf);
 	}
 
 /* Otherwise, output a message indicating we are starting test */
 
 	else {
-		sprintf (buf, "Starting probable prime test of %s\n", str);
+		sprintf (buf, "Starting probable prime test of %s\n", gwmodulo_as_string ());
 		OutputStr (buf);
 		bit = 1;
 		dbltogw ((double) a, x);
 	}
 
+/* Output a message about the FFT length */
+
+	gwfft_description (fft_desc);
+	sprintf (buf, "Using %s\n\n", fft_desc);
+	OutputStr (buf);
 	ReplaceableLine (1);	/* Remember where replaceable line is */
 
 /* Init the title */
 
-	title (str);
+	title (gwmodulo_as_string ());
 
 /* Do the PRP test */
 
+//for (int i =0;i < 20; i++) set_fft_value (x, i, 0);
+//set_fft_value (x, 16, 200000);
+//set_fft_value (x, 16, 0);
+//#define CHECK_ITER
+#ifdef CHECK_ITER
+{giant t1, t2;
+t1 = popg ((Nlen >> 4) + 3);
+t2 = popg ((Nlen >> 4) + 3);
+gwtogiant (x, t1);
+#endif
 	gwsetmulbyconst (a);
 	iters = 0;
-	while (bit < len) {
+	while (bit < Nlen) {
 
-/* Error check the last 50 iterations, before writing an */
+/* Error check the first and last 50 iterations, before writing an */
 /* intermediate file (either user-requested stop or a */
 /* 30 minute interval expired), and every 128th iteration. */
 
-		stopping = stopCheck ();
-		echk = stopping || ERRCHK || (bit >= len - 50);
+		stopping = escapeCheck ();
+		echk = stopping || ERRCHK || bit <= 50 || bit >= Nlen-50;
 		if ((bit & 127) == 0) {
 			echk = 1;
 			time (&current_time);
@@ -1461,65 +1304,38 @@ restart:
 		} else
 			saving = 0;
 
-/* Process this bit */
+/* Process this bit.  Use square carefully the first and last 30 iterations. */
+/* This should avoid any pathological non-random bit pattterns. */
 
-		if (bitval (N, len-bit-1)) {
+		gwstartnextfft (!stopping && !saving &&
+				bit >= 30 && bit < Nlen-31);
+#ifdef CHECK_ITER
+squareg (t1);
+if (bitval (N, Nlen-bit-1)) imulg (a, t1);
+specialmodg (t1);
+gwstartnextfft (0);
+echk=1;
+#endif
+		if (bitval (N, Nlen-bit-1)) {
 			gwsetnormroutine (0, echk, 1);
-			gwsquare (x);
 		} else {
-//{giant t1, t2;
-//t1 = popg ((PARG >> 4) + 3);
-//t2 = popg ((PARG >> 4) + 3);
-//specialgwtobinary (x, t1);
-//binarytogw (t1, x);
 			gwsetnormroutine (0, echk, 0);
-			gwsquare (x);
-//squareg (t1);
-//gwtobinary (x, t2);
-//if (gcompg (t1, t2) != 0)
-//bit++;
-//pushg(2);}
 		}
-//{giant t1, t2;
-//t1 = popg ((PARG >> 4) + 3);
-//t2 = popg ((PARG >> 4) + 3);
-//gwtobinary (x, t1);
-//			end_timer (0);
+		if (bit > 30 && bit < Nlen-30) gwsquare (x);
+		else gwsquare_carefully (x);
 
-/* Do the mod k*2^n+/-1 step.  Work around gwnum bug where if k is large and */
-/* n is small, then gwprothmod might not reduce the result enough.  Simply */
-/* call gwprothmod again.  Of course, PRP wasn't really designed to test */
-/* small numbers!  The test case is 290499495*2^31-1.  I'm not sure this */
-/* will cure all error cases - worst case is k large and n equal to 1 or 2. */
-
-	//	start_timer(2);
-		gwprothmod (x);
-		if (n < 50) gwprothmod (x);
-	//	end_timer(2);
-
-//			start_timer (0);
-//specialgwtobinary (x, t2);
-//modg (N, t1);
-//modg (N, t2);
-//if (gcompg (t1, t2) != 0)
-//bit++;
-//pushg(2);}
-		bit++;
-		iters++;
-#ifdef GTEST
-		if (bit == 100) {
-			gen64 (str, x);
-			term_giants ();
-			gwdone ();
-			return (isPRP (str, 3, res));
-		}
+#ifdef CHECK_ITER
+gwtogiant (x, t2);
+if (gcompg (t1, t2) != 0)
+OutputStr ("Iteration failed.\n");
+if (bit == 100) bit = Nlen;
 #endif
 
 /* If the sum of the output values is an error (such as infinity) */
 /* then raise an error. */
 
 		if (gw_test_illegal_sumout ()) {
-			sprintf (buf, ERRMSG0, bit, len, ERRMSG1A);
+			sprintf (buf, ERRMSG0, bit, Nlen, ERRMSG1A);
 			OutputBoth (buf);
 			goto error;
 		}
@@ -1543,7 +1359,7 @@ restart:
 			} else {
 				char	msg[80];
 				sprintf (msg, ERRMSG1B, suminp, sumout);
-				sprintf (buf, ERRMSG0, bit, len, msg);
+				sprintf (buf, ERRMSG0, bit, Nlen, msg);
 				OutputBoth (buf);
 				last_bit = bit;
 				last_suminp = suminp;
@@ -1564,13 +1380,15 @@ restart:
 			} else {
 				char	msg[80];
 				sprintf (msg, ERRMSG1C, MAXERR);
-				sprintf (buf, ERRMSG0, bit, len, msg);
+				sprintf (buf, ERRMSG0, bit, Nlen, msg);
 				OutputBoth (buf);
 				last_bit = bit;
 				last_maxerr = MAXERR;
 				goto error;
 			}
 		}
+
+/* Keep track of maximum and minimum round off error */
 
 		if (ERRCHK) {
 			if (MAXERR < reallyminerr && bit > 30)
@@ -1579,20 +1397,25 @@ restart:
 				reallymaxerr = MAXERR;
 		}
 
+/* That iteration succeeded, bump counters */
+
+		bit++;
+		iters++;
+
 /* Print a message every so often */
 
 		if (bit % ITER_OUTPUT == 0) {
 			char	fmt_mask[80];
 			double	pct;
-			pct = trunc_percent (bit * 100.0 / len);
+			pct = trunc_percent (bit * 100.0 / Nlen);
 			sprintf (fmt_mask, "%%.%df%%%% of %%s", PRECISION);
-			sprintf (buf, fmt_mask, pct, str);
+			sprintf (buf, fmt_mask, pct, gwmodulo_as_string ());
 			title (buf);
 			ReplaceableLine (2);	/* Replace line */
 			sprintf (fmt_mask,
 				 "%%s, bit: %%ld / %%ld [%%.%df%%%%]",
 				 PRECISION);
-			sprintf (buf, fmt_mask, str, bit, len, pct);
+			sprintf (buf, fmt_mask, gwmodulo_as_string (), bit, Nlen, pct);
 			OutputStr (buf);
 			if (ERRCHK && bit > 30) {
 				OutputStr (".  Round off: ");
@@ -1616,7 +1439,7 @@ restart:
 /* Print a results file message every so often */
 
 		if (bit % ITER_OUTPUT_RES == 0 || (NO_GUI && stopping)) {
-			sprintf (buf, "Bit %ld / %ld\n", bit, len);
+			sprintf (buf, "Bit %ld / %ld\n", bit, Nlen);
 			writeResults (buf);
 		}
 
@@ -1635,45 +1458,67 @@ restart:
 
 /* If an escape key was hit, write out the results and return */
 
-			if (stopping) return (FALSE);
+			if (stopping) {
+				gwdone ();
+				return (FALSE);
+			}
 		}
 	}
-	tmp = popg ((PARG >> 5) + 3);
-	specialgwtobinary (x, tmp); /* Compensate for possible negative x */
-	ulsubg (a, tmp);
-	if (!isZero (tmp)) {
+#ifdef CHECK_ITER
+pushg(2);}
+#endif
+
+/* See if we've found a probable prime.  If not, format a 64-bit residue. */
+/* Old versions of PRP used a non-standard 64-bit residue, computing */
+/* 3^N-3 mod N rather than the more standard 3^(N-1) mod N.  Since */
+/* some projects recorded these non-standard residues, output that */
+/* residue too.  Note that some really old versions printed out the */
+/* 32-bit chunks of the non-standard residue in reverse order. */
+
+	tmp = popg ((Nlen >> 5) + 3);
+	gwtogiant (x, tmp);
+	if (!isone (tmp)) {
 		*res = FALSE;	/* Not a prime */
 		sprintf (res64, "%08lX%08lX", tmp->n[1], tmp->n[0]);
+		imulg (3, tmp); specialmodg (tmp); ulsubg (3, tmp);
+		sprintf (oldres64, "%08lX%08lX", tmp->n[1], tmp->n[0]);
 	}
 	pushg (1);
 	gwfree (x);
 
-/* Cleanup */
+/* Print results.  Do not change the format of this line as Jim Fougeron of */
+/* PFGW fame automates his QA scripts by parsing this line. */
 
-	end_timer (1);
 	if (*res)
-		sprintf (buf, "%s is a probable prime.\n", str);
+		sprintf (buf, "%s is a probable prime.\n", gwmodulo_as_string ());
+	else if (IniGetInt (INI_FILE, "OldRes64", 1))
+		sprintf (buf, "%s is not prime.  RES64: %s.  OLD64: %s\n", gwmodulo_as_string (), res64, oldres64);
 	else
-		sprintf (buf, "%s is not prime.  Res64: %s\n", str, res64);
+		sprintf (buf, "%s is not prime.  RES64: %s\n", gwmodulo_as_string (), res64);
+
+/* Update the output file */
+
 	if ((*res && IniGetInt (INI_FILE, "OutputPrimes", 1)) ||
 	    (!*res && IniGetInt (INI_FILE, "OutputComposites", 1)))
 		writeResults (buf);
+
+/* Output the final timings */
+
+	end_timer (1);
 	sprintf (buf+strlen(buf)-1, "  Time: ");
 	ReplaceableLine (2);	/* Replace line */
 	OutputStr (buf);
 	print_timer (1, TIMER_CLR | TIMER_NL);
-//	print_timer (2, TIMER_CLR | TIMER_NL);
-	free (N);
-	term_giants ();
+
+/* Cleanup and return */
+
 	gwdone ();
 	_unlink (filename);
 	return (TRUE);
 
 /* An error occured, sleep, then try restarting at last save point. */
 
-error:	free (N);
-	term_giants ();
-	gwdone ();
+error:	gwdone ();
 
 /* Output a message saying we are restarting */
 
@@ -1686,362 +1531,69 @@ error:	free (N);
 
 /* Restart */
 
-	goto restart;
+	return (-1);
+}
+
+/* Test if K*2^N+C is a probable prime. */
+
+int fastIsPRP (
+	double	k,			/* K in k*b^n+c */
+	unsigned long b,		/* B in k*b^n+c */
+	unsigned long n,		/* N in k*b^n+c */
+	signed long c,			/* C in k*b^n+c */
+	int	*res)
+{
+	int	retval;
+	double	bits;
+
+//k=63487503855107.0;n=111125;c=1;
+
+/* Compute the number we are testing */
+
+	bits = log ((double) b) / log (2.0) * (double) n;
+	N = newgiant (((unsigned long) bits >> 4) + 8);
+	ultog (b, N);
+	power (N, n);
+	dblmulg (k, N);
+	iaddg (c, N);
+
+/* Setup the assembly code. */
+
+	do {
+		gwsetup (k, b, n, c, 0);
+
+/* Do the PRP test */
+
+		retval = commonPRP (3, res);
+	} while (retval == -1);
+
+/* Clean up and return */
+
+	free (N);
+	return (retval);
 }
 
 
 /* Test if N is a probable prime.  The number N can be of ANY form. */
 
-int isPRP (
+int slowIsPRP (
 	char	*str,		/* string representation of N */
-	unsigned long a,
 	int	*res)
 {
-#define EB	10		/* Extra bits of precision */
-	unsigned long bit, len, iters;
-	unsigned long p, fftlen, ptmp, pmax, zerowordslow, zerowordshigh;
-	unsigned long bits_per_word;
-	gwnum	x, y, recip, n;
-	giant	tmp;
-	char	filename[20], buf[100], res64[17];
-	long	write_time = DISK_WRITE_TIME * 60;
-	int	echk, saving, stopping;
-	time_t	start_time, current_time;
-	double	reallyminerr = 1.0;
-	double	reallymaxerr = 0.0;
+	int	retval;
 
-/* Get the current time */
+/* Setup the gwnum code */
 
-restart:
-	*res = TRUE;		/* Assume it is a probable prime */
-	time (&start_time);
-
-/* Assume intermediate results of twice the length of N, plus a few */
-/* spare bits.  Then round up so that we are using a rational (integral */
-/* number of bits per FFT value).  Finally, setup the assembly code. */
-
-	clear_timers ();
-	start_timer (0);
-	start_timer (1);
-	len = bitlen (N);
-	p = len + len + 2*EB + 64;
-	for (ptmp = p / 2; ; ptmp = pmax + 1) {
-		fftlen = map_exponent_to_fftlen (ptmp, GW_MERSENNE_MOD);
-		pmax = map_fftlen_to_max_exponent (fftlen, GW_MERSENNE_MOD);
-		if (PRP_CMDLINE != NULL && p <= pmax - fftlen - fftlen) break;
-		if (p <= (pmax + fftlen / 2) / fftlen * fftlen) break;
-	}
-	bits_per_word = (p + fftlen - 1) / fftlen;
-	p = bits_per_word * fftlen;
-	gwsetup (p, fftlen, GW_MERSENNE_MOD);
-
-	n = gwalloc ();
-	binarytogw (N, n);
-	gwfft (n, n);
-	x = gwalloc ();
-
-/* Precompute the reciprocal */
-
-	tmp = newgiant ((p >> 4) + 1);
-	itog (1, tmp);
-	gshiftleft (len + len + EB, tmp);
-	divg (N, tmp);			/* computes len+EB+1 bits of reciprocal */
-	gshiftleft (p - len - len - EB, tmp);/* shift so gwmul routines wrap */
-					/* quotient to lower end of fft */
-	recip = gwalloc ();
-	binarytogw (tmp, recip);
-	gwfft (recip, recip);
-	free (tmp);
-
-/* Init filename */
-
-	tempFileName (filename);
-
-/* Optionally resume from save file and output a message */
-/* indicating we are resuming a test */
-
-	if (fileExists (filename) && readFromFile (filename, &bit, x)) {
-		char	fmt_mask[80];
-		double	pct;
-		pct = trunc_percent (bit * 100.0 / len);
-		sprintf (fmt_mask,
-			 "Resuming probable prime test of %%s at bit %%ld [%%.%df%%%%]\n",
-			 PRECISION);
-		sprintf (buf, fmt_mask, str, bit, pct);
-		OutputStr (buf);
-	}
-
-/* Otherwise, output a message indicating we are starting test */
-
-	else {
-		sprintf (buf, "Starting probable prime test of %s\n", str);
-		OutputStr (buf);
-		bit = 1;
-		dbltogw ((double) a, x);
-	}
-
-	ReplaceableLine (1);	/* Remember where replaceable line is */
-
-/* Init the title */
-
-	title (str);
+	do {
+		gwsetup_general_mod_giant (N, 0);
+		strcpy (GWSTRING_REP, str);
 
 /* Do the PRP test */
 
-	zerowordslow = (len - EB) / bits_per_word;
-	zerowordshigh = fftlen - len / bits_per_word - 1;
-	gwsetmulbyconst (a);
-	y = gwalloc ();
-	iters = 0;
-	while (bit < len) {
-
-/* Error check the last 50 iterations, before writing an */
-/* intermediate file (either user-requested stop or a */
-/* 30 minute interval expired), and every 128th iteration. */
-
-		stopping = stopCheck ();
-		echk = stopping || ERRCHK || (bit >= len - 50);
-		if ((bit & 127) == 0) {
-			echk = 1;
-			time (&current_time);
-			saving = (current_time - start_time > write_time);
-		} else
-			saving = 0;
-
-/* Process this bit */
-
-		if (bitval (N, len-bit-1)) {
-			gwsetnormroutine (0, echk, 1);
-			gwsquare (x);
-		} else {
-			gwsetnormroutine (0, echk, 0);
-			gwsquare (x);
-		}
-
-		gwcopyzero (x, y, zerowordslow);
-		gwsetnormroutine (zerowordshigh, echk, 0);
-		gwfftmul (recip, y);
-
-		gwsetnormroutine (0, echk, 0);
-		gwfftmul (n, y);
-		gwsub (y, x);
-
-		bit++;
-		iters++;
-#ifdef GTEST
-		if (bit == 100) {
-			gen64 (str, x);
-			term_giants ();
-			gwdone ();
-			return (TRUE);
-		}
-#endif
-
-/* If the sum of the output values is an error (such as infinity) */
-/* then raise an error. */
-
-		if (gw_test_illegal_sumout ()) {
-			sprintf (buf, ERRMSG0, bit, len, ERRMSG1A);
-			OutputBoth (buf);
-			goto error;
-		}
-
-/* Check that the sum of the input numbers squared is approximately */
-/* equal to the sum of unfft results.  Since this check may not */
-/* be perfect, check for identical results after a restart. */
-
-		if (gw_test_mismatched_sums ()) {
-			static unsigned long last_bit = 0;
-			static double last_suminp = 0.0;
-			static double last_sumout = 0.0;
-			double suminp, sumout;
-			suminp = gwsuminp (x) + gwsuminp (y);
-			sumout = gwsumout (x) + gwsumout (y);
-			if (bit == last_bit &&
-			    suminp == last_suminp &&
-			    sumout == last_sumout) {
-				writeResults (ERROK);
-				saving = 1;
-			} else {
-				char	msg[80];
-				sprintf (msg, ERRMSG1B, suminp, sumout);
-				sprintf (buf, ERRMSG0, bit, len, msg);
-				OutputBoth (buf);
-				last_bit = bit;
-				last_suminp = suminp;
-				last_sumout = sumout;
-				goto error;
-			}
-		}
-
-/* Check for excessive roundoff error  */
-
-		if (echk && MAXERR > 0.40) {
-			static unsigned long last_bit = 0;
-			static double last_maxerr = 0.0;
-			if (MAXERR < 0.48 &&
-			    bit == last_bit &&
-			    MAXERR == last_maxerr) {
-				writeResults (ERROK);
-				saving = 1;
-			} else {
-				char	msg[80];
-				sprintf (msg, ERRMSG1C, MAXERR);
-				sprintf (buf, ERRMSG0, bit, len, msg);
-				OutputBoth (buf);
-				last_bit = bit;
-				last_maxerr = MAXERR;
-				goto error;
-			}
-		}
-
-		if (ERRCHK) {
-			if (MAXERR < reallyminerr && bit > 30)
-				reallyminerr = MAXERR;
-			if (MAXERR > reallymaxerr)
-				reallymaxerr = MAXERR;
-		}
-
-/* Print a message every so often */
-
-		if (bit % ITER_OUTPUT == 0) {
-			char	fmt_mask[80];
-			double	pct;
-			pct = trunc_percent (bit * 100.0 / len);
-			sprintf (fmt_mask, "%%.%df%%%% of %%s", PRECISION);
-			sprintf (buf, fmt_mask, pct, str);
-			title (buf);
-			ReplaceableLine (2);	/* Replace line */
-			sprintf (fmt_mask,
-				 "%%s, bit: %%ld / %%ld [%%.%df%%%%]",
-				 PRECISION);
-			sprintf (buf, fmt_mask, str, bit, len, pct);
-			OutputStr (buf);
-			if (ERRCHK && bit > 30) {
-				OutputStr (".  Round off: ");
-				sprintf (buf, "%10.10f", reallyminerr);
-				OutputStr (buf);
-				sprintf (buf, " to %10.10f", reallymaxerr);
-				OutputStr (buf);
-			}
-			end_timer (0);
-			if (CUMULATIVE_TIMING) {
-				OutputStr (".  Time thusfar: ");
-			} else {
-				OutputStr (".  Time per bit: ");
-				divide_timer (0, iters);
-				iters = 0;
-			}
-			print_timer (0, TIMER_NL | TIMER_OPT_CLR);
-			start_timer (0);
-		}
-
-/* Print a results file message every so often */
-
-		if (bit % ITER_OUTPUT_RES == 0 || (NO_GUI && stopping)) {
-			sprintf (buf, "Bit %ld / %ld\n", bit, len);
-			writeResults (buf);
-		}
-
-/* Write results to a file every DISK_WRITE_TIME minutes */
-/* On error, retry in 10 minutes (it could be a temporary */
-/* disk-full situation) */
-
-		if (saving || stopping) {
-			write_time = DISK_WRITE_TIME * 60;
-			if (! writeToFile (filename, bit, x)) {
-				sprintf (buf, WRITEFILEERR, filename);
-				OutputBoth (buf);
-				if (write_time > 600) write_time = 600;
-			}
-			time (&start_time);
-
-/* If an escape key was hit, write out the results and return */
-
-			if (stopping) return (FALSE);
-		}
-	}
-	tmp = popg ((PARG >> 5) + 1);
-	specialgwtobinary (x, tmp);
-	ulsubg (a, tmp);
-	if (!isZero (tmp)) {
-		*res = FALSE;	/* Not a prime */
-		sprintf (res64, "%08lX%08lX", tmp->n[1], tmp->n[0]);
-	}
-	pushg (1);
-	gwfree (x);
-	gwfree (y);
-
-/* Cleanup */
-
-	end_timer (1);
-	if (*res)
-		sprintf (buf, "%s is a probable prime.\n", str);
-	else
-		sprintf (buf, "%s is not prime.  Res64: %s\n", str, res64);
-	if ((*res && IniGetInt (INI_FILE, "OutputPrimes", 1)) ||
-	    (!*res && IniGetInt (INI_FILE, "OutputComposites", 1)))
-		writeResults (buf);
-	sprintf (buf+strlen(buf)-1, "  Time: ");
-	ReplaceableLine (2);	/* Replace line */
-	OutputStr (buf);
-	print_timer (1, TIMER_CLR | TIMER_NL);
-	term_giants ();
-	gwdone ();
-	_unlink (filename);
-	return (TRUE);
-
-/* An error occured, sleep, then try restarting at last save point. */
-
-error:	term_giants ();
-	gwdone ();
-
-/* Output a message saying we are restarting */
-
-	OutputBoth (ERRMSG2);
-	OutputBoth (ERRMSG3);
-
-/* Sleep five minutes before restarting */
-
-	if (! SleepFive ()) return (FALSE);
-
-/* Restart */
-
-	goto restart;
+		retval = commonPRP (3, res);
+	} while (retval == -1);
+	return (retval);
 }
-
-/* Process a number from newpgen output file */
-
-int process_num (
-	unsigned long k,
-	unsigned long base,
-	unsigned long n,
-	int	incr,
-	int	*res)
-{
-	if (base == 2 && (incr == -1 || incr == +1)) {
-		return (isProthPRP (3, k, n, incr, res));
-	} else {
-		char	buf[100];
-		int	bits, retval;
-		if (k == 1)
-			sprintf (buf, "%lu^%lu%c%lu", base, n,
-				 incr < 0 ? '-' : '+', abs(incr));
-		else
-			sprintf (buf, "%lu*%lu^%lu%c%lu", k, base, n,
-				 incr < 0 ? '-' : '+', abs(incr));
-		bits = (int) ((n * log(base) + log(k)) / log(2));
-		N = newgiant ((bits >> 4) + 8);
-		ultog (base, N);
-		power (N, n);
-		ulmulg (k, N);
-		iaddg (incr, N);
-		retval = isPRP (buf, 3, res);
-		free (N);
-		return (retval);
-	}
-}
-
 
 
 /* Test if a small N is a probable prime. */
@@ -2062,10 +1614,16 @@ int isProbablePrime (void)
 	return (retval);
 }
 
-
 void primeContinue ()
 {
 	int	work;
+
+/* Check if we are doing a QA run rather than PRPing */
+
+#ifdef GWQA
+	test_randomly ();
+	return;
+#endif
 
 /* Check for Chris Caldwell's command line PRP test */
 
@@ -2076,8 +1634,8 @@ void primeContinue ()
 			int	f;
 			f = _open (PRP_CMDLINE, _O_RDONLY);
 			if (f < 0) exit (-1);
-			PRP_CMDLINE = (char *) malloc (5000000);
-			PRP_CMDLINE[_read (f, PRP_CMDLINE, 5000000 - 1)] = 0;
+			PRP_CMDLINE = (char *) malloc (10000000);
+			PRP_CMDLINE[_read (f, PRP_CMDLINE, 10000000 - 1)] = 0;
 			_close (f);
 		}
 		memcpy (buf, PRP_CMDLINE, 16);
@@ -2089,7 +1647,7 @@ void primeContinue ()
 		if (bits < 50)
 			retval = isProbablePrime ();
 		else
-			isPRP (buf, 3, &retval);
+			slowIsPRP (buf, &retval);
 		free (N);
 		printf ("%d\n", retval);
 		exit (0);
@@ -2110,9 +1668,10 @@ void primeContinue ()
 /* Handle a newpgen output file */
 
 	if (work == 0) {
-		char	inputfile[80], outputfile[80];
+		char	inputfile[80], outputfile[80], buf[40];
 		FILE *fd;
-		unsigned long i, chainlen, k, n, base, nfudge, mask;
+		double	k;
+		unsigned long i, chainlen, n, base, nfudge, mask;
 		int	firstline, line, outfd, res;
 		char	c;
 
@@ -2135,7 +1694,7 @@ void primeContinue ()
 		if (chainlen == 0) chainlen = 1;
 
 		if (! fileExists (outputfile)) {
-			outfd = _open (outputfile, _O_TEXT | _O_RDWR | _O_CREAT, 0666);
+			outfd = _open (outputfile, _O_TEXT | _O_RDWR | _O_CREAT, CREATE_FILE_ACCESS);
 			if (outfd) {
 				char	buf[100];
 				if (mask == 0)
@@ -2192,12 +1751,13 @@ void primeContinue ()
 
 /* Read the line, break at EOF */
 
-			k = 0;
-			fscanf (fd, "%lu %lu\n", &k, &n);
-			if (k == 0) {
+			buf[0] = 0;
+			fscanf (fd, "%s %lu\n", buf, &n);
+			if (buf[0] == 0) {
 				IniWriteInt (INI_FILE, "WorkDone", 1);
 				break;
 			}
+			k = atof (buf);
 
 /* Skip this line if requested (we processed it on an earlier run) */
 
@@ -2207,41 +1767,41 @@ void primeContinue ()
 
 			for (i = 0; i < chainlen; i++) {
 				if (c == '1' || c == '3') {
-					if (! process_num (k, base, n - nfudge + i, -1, &res)) goto done;
+					if (! fastIsPRP (k, base, n - nfudge + i, -1, &res)) goto done;
 					if (!res) break;
 				}
 				if (c == '2' || c == '3') {
-					if (! process_num (k, base, n - nfudge + i, +1, &res)) goto done;
+					if (! fastIsPRP (k, base, n - nfudge + i, +1, &res)) goto done;
 					if (!res) break;
 				}
 				if (c == 'J') {
 					int	res2;
-					if (! process_num (k, base, n, -1, &res)) goto done;
+					if (! fastIsPRP (k, base, n, -1, &res)) goto done;
 					if (!res) break;
-					if (! process_num (k, base, n, +1, &res)) goto done;
-					if (! process_num (k, base, n+1, -1, &res2)) goto done;
+					if (! fastIsPRP (k, base, n, +1, &res)) goto done;
+					if (! fastIsPRP (k, base, n+1, -1, &res2)) goto done;
 					res |= res2;
 					break;
 				}
 				if (c == 'K') {
 					int	res2;
-					if (! process_num (k, base, n, +1, &res)) goto done;
+					if (! fastIsPRP (k, base, n, +1, &res)) goto done;
 					if (!res) break;
-					if (! process_num (k, base, n, -1, &res)) goto done;
-					if (! process_num (k, base, n+1, +1, &res2)) goto done;
+					if (! fastIsPRP (k, base, n, -1, &res)) goto done;
+					if (! fastIsPRP (k, base, n+1, +1, &res2)) goto done;
 					res |= res2;
 					break;
 				}
 				if (c == 'A') {
-					if (! process_num (1, base, n, k+k-1, &res)) goto done;
+					if (! fastIsPRP (1.0, base, n, (signed long) (k+k-1), &res)) goto done;
 					if (!res) break;
 				}
 				if (c == 'E') {
-					if (! process_num (2, k, k, +1, &res)) goto done;
+					if (! fastIsPRP (2.0, (unsigned long) k, (unsigned long) k, +1, &res)) goto done;
 					if (!res) break;
 				}
 				if (c == 'F') {
-					if (! process_num (2, k, k, -1, &res)) goto done;
+					if (! fastIsPRP (2.0, (unsigned long) k, (unsigned long) k, -1, &res)) goto done;
 					if (!res) break;
 				}
 			}
@@ -2249,7 +1809,7 @@ void primeContinue ()
 /* If all numbers tested were probable primes, copy the line to the output file */
 
 			if (res) {
-				outfd = _open (outputfile, _O_TEXT | _O_RDWR | _O_APPEND | _O_CREAT, 0666);
+				outfd = _open (outputfile, _O_TEXT | _O_RDWR | _O_APPEND | _O_CREAT, CREATE_FILE_ACCESS);
 				if (outfd) {
 					char	buf[100];
 					sprintf (buf, "%lu %lu\n", k, n);
@@ -2266,7 +1826,8 @@ void primeContinue ()
 /* character code to determine what to do */
 
 		} else {
-			unsigned long kk, nn;
+			double	kk;
+			unsigned long nn;
 
 /* NEWPGEN output files use the mask as defined below: */
 #define MODE_PLUS    0x01	/* k.b^n+1 */
@@ -2299,12 +1860,13 @@ void primeContinue ()
 
 /* Read the line, break at EOF */
 
-			k = 0;
-			fscanf (fd, "%lu %lu\n", &k, &n);
-			if (k == 0) {
+			buf[0] = 0;
+			fscanf (fd, "%s %lu\n", buf, &n);
+			if (buf[0] == 0) {
 				IniWriteInt (INI_FILE, "WorkDone", 1);
 				break;
 			}
+			k = atof (buf);
 
 /* Skip this line if requested (we processed it on an earlier run) */
 
@@ -2334,51 +1896,51 @@ void primeContinue ()
 			for (i = 0; i < chainlen; i++) {
 				if (c == 'J') {
 					int	res2;
-					if (! process_num (kk, base, nn, -1, &res)) goto done;
+					if (! fastIsPRP (kk, base, nn, -1, &res)) goto done;
 					if (!res) break;
-					if (! process_num (kk, base, nn, +1, &res)) goto done;
-					if (! process_num (kk, base, nn+1, -1, &res2)) goto done;
+					if (! fastIsPRP (kk, base, nn, +1, &res)) goto done;
+					if (! fastIsPRP (kk, base, nn+1, -1, &res2)) goto done;
 					res |= res2;
 					break;
 				}
 				if (c == 'K') {
 					int	res2;
-					if (! process_num (kk, base, nn, +1, &res)) goto done;
+					if (! fastIsPRP (kk, base, nn, +1, &res)) goto done;
 					if (!res) break;
-					if (! process_num (kk, base, nn, -1, &res)) goto done;
-					if (! process_num (kk, base, nn+1, +1, &res2)) goto done;
+					if (! fastIsPRP (kk, base, nn, -1, &res)) goto done;
+					if (! fastIsPRP (kk, base, nn+1, +1, &res2)) goto done;
 					res |= res2;
 					break;
 				}
 				if (mask & MODE_MINUS) {
-					if (! process_num (kk, base, nn, -1, &res)) goto done;
+					if (! fastIsPRP (kk, base, nn, -1, &res)) goto done;
 					if (!res) break;
 				}
 				if (mask & MODE_PLUS) {
-					if (! process_num (kk, base, nn, +1, &res)) goto done;
+					if (! fastIsPRP (kk, base, nn, +1, &res)) goto done;
 					if (!res) break;
 				}
 				if (mask & MODE_PLUS5) {
-					if (! process_num (kk, base, nn, +5, &res)) goto done;
+					if (! fastIsPRP (kk, base, nn, +5, &res)) goto done;
 					if (!res) break;
 				}
 				if (mask & MODE_PLUS7) {
-					if (! process_num (kk, base, nn, +7, &res)) goto done;
+					if (! fastIsPRP (kk, base, nn, +7, &res)) goto done;
 					if (!res) break;
 				}
 				if (mask & MODE_2PLUS3) {
-					if (! process_num (kk+kk, base, nn, +3, &res)) goto done;
+					if (! fastIsPRP (kk+kk, base, nn, +3, &res)) goto done;
 					if (!res) break;
 				}
 				if (mask & MODE_AP) {
-					if (! process_num (1, base, nn, kk+kk-1, &res)) goto done;
+					if (! fastIsPRP (1.0, base, nn, (signed long) (kk+kk-1), &res)) goto done;
 					if (!res) break;
 				}
 
 /* Bump k or n for the next itereation or for the MODE_2PLUS and */
 /* MODE_2MINUS flags */
 
-				if (mask & MODE_NOTGENERALISED) kk *= 2;
+				if (mask & MODE_NOTGENERALISED) kk *= 2.0;
 				else nn += 1;
 
 /* If chainlength is more than 1, then we let the for loop do the work */
@@ -2387,25 +1949,25 @@ void primeContinue ()
 				if (chainlen > 1) continue;
 
 				if (mask & MODE_2MINUS) {
-					if (! process_num (kk, base, nn, -1, &res)) goto done;
+					if (! fastIsPRP (kk, base, nn, -1, &res)) goto done;
 					if (!res) break;
 				}
 				if (mask & MODE_2PLUS) {
-					if (! process_num (kk, base, nn, +1, &res)) goto done;
+					if (! fastIsPRP (kk, base, nn, +1, &res)) goto done;
 					if (!res) break;
 				}
 
 /* Bump k or n for the MODE_4PLUS and MODE_4MINUS flags */
 
-				if (mask & MODE_NOTGENERALISED) kk *= 2;
+				if (mask & MODE_NOTGENERALISED) kk *= 2.0;
 				else nn += 1;
 
 				if (mask & MODE_4MINUS) {
-					if (! process_num (kk, base, nn, -1, &res)) goto done;
+					if (! fastIsPRP (kk, base, nn, -1, &res)) goto done;
 					if (!res) break;
 				}
 				if (mask & MODE_4PLUS) {
-					if (! process_num (kk, base, nn, +1, &res)) goto done;
+					if (! fastIsPRP (kk, base, nn, +1, &res)) goto done;
 					if (!res) break;
 				}
 			}
@@ -2413,10 +1975,10 @@ void primeContinue ()
 /* If all numbers tested were probable primes, copy the line to the output file */
 
 			if (res) {
-				outfd = _open (outputfile, _O_TEXT | _O_RDWR | _O_APPEND | _O_CREAT, 0666);
+				outfd = _open (outputfile, _O_TEXT | _O_RDWR | _O_APPEND | _O_CREAT, CREATE_FILE_ACCESS);
 				if (outfd) {
 					char	buf[100];
-					sprintf (buf, "%lu %lu\n", k, n);
+					sprintf (buf, "%.0f %lu\n", k, n);
 					_write (outfd, buf, strlen (buf));
 					_close (outfd);
 				}

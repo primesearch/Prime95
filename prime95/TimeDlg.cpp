@@ -30,7 +30,8 @@ void CTimeDlg::DoDataExchange(CDataExchange* pDX)
 	CDialog::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CTimeDlg)
 	DDX_Text(pDX, IDC_P, m_p);
-	DDV_MinMaxUInt(pDX, m_p, MIN_PRIME, MAX_PRIME);
+	DDV_MinMaxUInt(pDX, m_p, MIN_PRIME,
+		       CPU_FLAGS & CPU_SSE2 ? MAX_PRIME_SSE2 : MAX_PRIME);
 	DDX_Text(pDX, IDC_EDIT1, m_iter);
 	DDV_MinMaxUInt(pDX, m_iter, 1, 1000);
 	//}}AFX_DATA_MAP

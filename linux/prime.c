@@ -1,4 +1,4 @@
-/* Copyright 1995-2003 Just For Fun Software, Inc. */
+/* Copyright 1995-2005 Just For Fun Software, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -67,9 +67,7 @@ int MENUING = 0;
 
 /* Common code */
 
-#include "cpuid.c"
-#include "giants.c"
-#include "gwnum.c"
+#include "gwutil.h"
 #include "commona.c"
 #include "commonb.c"
 #include "commonc.c"
@@ -201,6 +199,13 @@ int main (
 		*p = 0;
 		_chdir (buf);
 	}
+
+/* Initialize gwnum call back routines.  Using callback routines lets the */
+/* gwnum library have a nice clean interface for users that do not need */
+/* additional functionality that only prime95 uses. */
+
+	StopCheckRoutine = stopCheck;
+	OutputBothRoutine = OutputBoth;
 
 /* Process command line switches */
 
@@ -423,7 +428,6 @@ int main (
 	else if (MENUING == 2)
 		rangeStatus();
 	
-
 /* Continue testing */
 
 	else
@@ -498,6 +502,17 @@ unsigned long physical_memory (void)
 	}
 	fclose (fd);
 	return (atoi (mem) >> 20);
+}
+
+/* Return a better guess for amount of memory to use in a torture test. */
+/* Caller passes in its guess for amount of memory to use, but this routine */
+/* can reduce that guess based on OS-specific code that looks at amount */
+/* of available physical memory. */
+/* This code was written by an anonymous GIMPS user. */
+
+unsigned long GetSuggestedMemory (unsigned long nDesiredMemory)
+{
+	return (nDesiredMemory);
 }
 
 int getDefaultTimeFormat (void)
@@ -647,9 +662,20 @@ void linuxContinue (
 	if (error_message != NULL) printf ("%s", error_message);
 	return;
 
-/* All is OK.  Save our pid, run, then delete our pid */
+/* All is OK, set affinity before running mprime. */
 
-ok:	IniWriteInt (LOCALINI_FILE, "Pid", my_pid);
+ok:
+#ifdef __linux__
+	{
+		int	affinity_mask;
+		affinity_mask = (CPU_AFFINITY == 99) ? -1 : (1 << CPU_AFFINITY);
+		sched_setaffinity (0, sizeof (affinity_mask), &affinity_mask);
+	}
+#endif
+
+/* Save our pid, run, then delete our pid */
+
+	IniWriteInt (LOCALINI_FILE, "Pid", my_pid);
 	primeContinue ();
 	IniWriteInt (LOCALINI_FILE, "Pid", 0);
 }
@@ -758,67 +784,6 @@ int LoadPrimeNet (void)
 
 void UnloadPrimeNet (void)
 {
-}
-
-/* Routines to access the high resolution performance counter */
-/* In Linux, I've read that gettimeofday is the most accurate counter */
-
-int isHighResTimerAvailable (void)
-{
-#ifdef __OS2__
-/* DosTmrQueryTime/DosTmrQueryFreq functions use the 8253/4 timer chip to obtain a timestamp. */
-/* DosTmrQueryTime returns the current count, and DosTmrQueryFreq returns the frequency at which the counter increments. */
-/* This frequency is about 1.1MHz, which gives you a timer that's accurate to the microsecond. */
-
-        return (TRUE);
-#else
-
-	struct timeval start, end;
-	struct timezone tz;
-	int	i;
-
-/* Return true if gettimeofday is more accurate than 1/10 millisecond. */
-/* Try 10 times to see if gettimeofday returns two values less than */
-/* 100 microseconds apart. */
-
-	for (i = 0; i < 10; i++) {
-		gettimeofday (&start, &tz);
-		for ( ; ; ) {
-			gettimeofday (&end, &tz);
-			if (start.tv_sec != end.tv_sec) break;
-			if (start.tv_usec == end.tv_usec) continue;
-			if (end.tv_usec - start.tv_usec < 100) return (TRUE);
-			continue;
-		}
-	}
-	return (FALSE);
-#endif
-}
-
-double getHighResTimer (void)
-{
-#ifdef __OS2__
-        unsigned long long qwTmrTime;
-        DosTmrQueryTime((PQWORD)&qwTmrTime);
-        return (qwTmrTime);
-#else
-	struct timeval x;
-	struct timezone tz;
-
-	gettimeofday (&x, &tz);
-	return ((double) x.tv_sec * 1000000.0 + (double) x.tv_usec);
-#endif
-}
-
-double getHighResTimerFrequency (void)
-{
-#ifdef __OS2__
-    ULONG ulTmrFreq;
-    DosTmrQueryFreq(&ulTmrFreq);
-    return (ulTmrFreq);
-#else
-	return (1000000.0);
-#endif
 }
 
 /* Check if a program is currently running - not implemented for OS/2 */

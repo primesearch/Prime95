@@ -1,0 +1,171 @@
+; Copyright 1998-2004 - Just For Fun Software, Inc., all rights reserved
+; Author:  George Woltman
+; Email: woltman@alum.mit.edu
+;
+; These macros take the basic FFT building blocks and build even
+; larger building blocks.
+;
+
+pf MACRO stmt:vararg
+	IFDEF PFETCH
+	&stmt
+	ENDIF
+	ENDM
+
+prefetch64 MACRO x
+	IFDEF PFETCH
+	prefetcht1 x
+	prefetcht1 x[32]
+	ENDIF
+	ENDM
+
+prefetch32 MACRO x
+	IFDEF PFETCH
+	prefetcht1 x
+	ENDIF
+	ENDM
+
+; *************** macros to expand 4 types of fft macros ******************
+
+;;
+;; Generate the 4 types of FFTs for the given run length.
+;; The 4 types are:
+;;	1) forward FFT,
+;;	2) square (forward FFT, multiply, inverse FFT)
+;;	3) multiply (forward FFT src1, multiply by src2, inverse FFT)
+;;	4) multiply (multiply src1 by src2, inverse FFT)
+;;
+
+fft	MACRO fft_length
+	type1	&fft_length, _1
+	type2	&fft_length, _2
+	type3	&fft_length, _3
+	type4	&fft_length, _4
+	purge	fft&fft_length
+	ENDM
+
+fftclm	MACRO fft_length, clm
+	type1	&fft_length, _1, clm
+	type2	&fft_length, _2, clm
+	type3	&fft_length, _3, clm
+	type4	&fft_length, _4, clm
+	ENDM
+
+;;
+;; Perform an FFT in preparation for a later multiply
+;; Do the forward FFT
+;;
+
+type1	MACRO fft_length, suffix, clm
+	PUBLICP	fft&fft_length&clm&suffix
+LABELP	fft&fft_length&clm&suffix
+	fninit
+	push	ebp
+	push	ebx
+	push	edi
+	push	esi
+	mov	esi, _DESTARG
+	mov	ebx, _SRCARG
+	sub	ebx, esi
+	IF EXPANDING GE 2
+	mov	ffttype, 1
+	JMPP	fft2a&fft_length&clm
+	ELSE
+	fft&fft_length 1
+	ENDIF
+	ENDM
+
+;;
+;; Square a number mod 2**p-1
+;; Do the forward FFT, squaring, and inverse FFT
+;;
+
+type2	MACRO fft_length, suffix, clm
+	PUBLICP	fft&fft_length&clm&suffix
+LABELP	fft&fft_length&clm&suffix
+	fninit
+	push	ebp
+	push	ebx
+	push	edi
+	push	esi
+	mov	esi, _DESTARG
+	sub	ebx, ebx
+	IF EXPANDING GE 2
+	mov	ffttype, 2
+LABELP	fft2a&fft_length&clm
+	IFB <clm>
+	fft&fft_length
+	ELSE
+	fft&fft_length clm
+	ENDIF
+	ELSE
+	fft&fft_length 2
+	ENDIF
+	ENDM
+
+;;
+;; Multiply two numbers mod 2**p-1.  One of the input numbers (SRCARG) must
+;; have already been passed through gw_fft.
+;; Do the forward FFT, multiply, and inverse FFT
+;;
+
+type3	MACRO fft_length, suffix, clm
+	PUBLICP	fft&fft_length&clm&suffix
+LABELP	fft&fft_length&clm&suffix
+	fninit
+	push	ebp
+	push	ebx
+	push	edi
+	push	esi
+	mov	esi, _DESTARG
+	sub	ebx, ebx
+	IF EXPANDING GE 2
+	mov	ffttype, 3
+	JMPP	fft2a&fft_length&clm
+	ELSE
+	fft&fft_length 3
+	ENDIF
+	ENDM
+
+;;
+;; Multiply two numbers mod 2**p-1.  Both of the input numbers must
+;; have already been passed through gw_fft.
+;; Do the multiply and inverse FFT
+;;
+
+type4	MACRO fft_length, suffix, clm
+	PUBLICP	fft&fft_length&clm&suffix
+LABELP	fft&fft_length&clm&suffix
+	fninit
+	push	ebp
+	push	ebx
+	push	edi
+	push	esi
+	mov	esi, _DESTARG
+	mov	ebx, _SRC2ARG
+	sub	ebx, esi
+	IF EXPANDING GE 2
+	mov	ffttype, 4
+	JMPP	fft2a&fft_length&clm
+	ELSE
+	fft&fft_length 4
+	ENDIF
+	ENDM
+
+; Return from a type 1 FFT
+
+fft_1_ret MACRO
+	pop	esi			;; Pop values and return
+	pop	edi
+	pop	ebx
+	pop	ebp
+	ret
+	ENDM
+
+; Return from a type 3 FFT - either jump to the common
+; error check or normalization code
+
+fft_3_ret MACRO
+	mov	eax, _NORMRTN
+	jmp	eax
+	ENDM

@@ -1,4 +1,3 @@
-EXTERNC int timeit (void);
 /*
    is sieve tuned properly?  could be even faster.  use assembly?
 	do sieve once and store in a file?
@@ -18,7 +17,7 @@ EXTERNC int timeit (void);
  *	Other important ideas courtesy of Peter Montgomery.
  *
  *	c. 1997 Perfectly Scientific, Inc.
- *	c. 1998-2003 Just For Fun Software, Inc.
+ *	c. 1998-2005 Just For Fun Software, Inc.
  *	All Rights Reserved.
  *
  *************************************************************/
@@ -64,23 +63,24 @@ int	QA_SAVE_FILES = 0;
 /* Perform setup functions.  This includes decding how big an FFT to */
 /* use, allocating memory, calling the FFT setup code, etc. */
 
-void ecm_setup1 (
-	unsigned long p,
-	int	type)
+int ecm_setup1 (
+	double	k,
+	unsigned long b,
+	unsigned long n,
+	signed long c)
 {
+	int	res;
 
 /* Setup the assembly code */
 
-	gwsetup (p, 0, type);
+	res = gwsetup (k, b, n, c, 0);
+	if (res) return (res);
 	pool_count = 0;
 
-/* A kludge so that the error checking code is not as strict.  The correct */
-/* implementation would have the normalize code after each multiplication */
-/* take into account any input arguments that were the result of
-/* unnormalized adds.  This is especially severe in the choose12 code. */
+/* A kludge so that the error checking code is not as strict. */
 
-	MAXDIFF *= 4.0;
 	MAXDIFF *= IniGetInt (INI_FILE, "MaxDiffMultiplier", 1);
+	return (0);
 }
 
 /* Perform setup functions, part 2. */
@@ -113,7 +113,6 @@ void ecm_cleanup (void)
 	free (poolz_values);
 	free (mQx);
 	free (pairings);
-	term_giants ();
 	gwdone ();
 }
 
@@ -765,36 +764,47 @@ void ell_mul (
 /* Test if factor divides N, return TRUE if it does */
 
 int testFactor (
+	double	k,		/* K in K*B^N+C */
+	unsigned long b,	/* B in K*B^N+C */
+	unsigned long n,	/* N in K*B^N+C */
+	signed long c,		/* C in K*B^N+C */
 	giant	f)
 {
 	giant	tmp;
 	int	divides_ok;
 
-	tmp = popg (f->sign);
-	itog (2, tmp);
-	powermod (tmp, PARG, f);
-	iaddg (PLUS1 ? 1 : -1, tmp);
-	divides_ok = (isZero (tmp) || gcompg (f, tmp) == 0);
+	tmp = popg (f->sign + 5);	/* Allow room for mul by KARG */
+	itog (b, tmp);
+	powermod (tmp, n, f);
+	dblmulg (k, tmp);
+	iaddg (c, tmp);
+	modg (f, tmp);
+	divides_ok = isZero (tmp);
 	pushg (1);
 	return (divides_ok);
 }
 
 /* Set N, the number we are trying to factor */
 
-int setN (void)
+int setN (
+	double	k,		/* K in K*B^N+C */
+	unsigned long b,	/* B in K*B^N+C */
+	unsigned long n,	/* N in K*B^N+C */
+	signed long c)		/* C in K*B^N+C */
 {
-	unsigned long p;
+	unsigned long bits, p;
 	FILE	*fd;
 	char	buf[2500];
 
 /* Create the binary representation of the number we are factoring */
-/* Allocate PARG+1 bits because of the gshiftleft call below (and we */
-/* might be doing 2^N+1 factoring.) */
+/* Allocate 10 extra words to handle any possible k value. */
 
-	N = newgiant (((PARG+1) >> 4) + 1);
-	itog (1, N);
-	gshiftleft (PARG, N);
-	iaddg (PLUS1 ? 1 : -1, N);
+	bits = (unsigned long) (n * log ((double) b) / log ((double) 2.0));
+	N = newgiant ((bits >> 4) + 10);
+	ultog (b, N);
+	power (N, n);
+	dblmulg (k, N);
+	iaddg (c, N);
 
 /* Ignore file of known factors when QAing */
 
@@ -802,7 +812,8 @@ int setN (void)
 
 /* Open file of known factors */
 
-	fd = fopen (PLUS1 ? "lowp.txt" : "lowm.txt", "r");
+	if (k != 1.0 || b != 2 || abs(c) != 1) return (TRUE);
+	fd = fopen (c == 1 ? "lowp.txt" : "lowm.txt", "r");
 	if (fd == NULL) return (TRUE);
 
 /* Loop until the entire file is processed */
@@ -813,8 +824,8 @@ int setN (void)
 
 		if (buf[0] != 'M' && buf[0] != 'P') continue;
 		fscanf (fd, "%ld", &p);
-		if (p > PARG) break;
-		if (p < PARG) continue;
+		if (p > n) break;
+		if (p < n) continue;
 		fscanf (fd, "%s", buf);
 		if (buf[1] != 'C') continue;
 
@@ -826,10 +837,10 @@ int setN (void)
 
 /* Divide N by factor - but first verify the factor */
 
-		if (!testFactor (f)) {
+		if (!testFactor (k, b, n, c, f)) {
 			free (f);
 			fclose (fd);
-			OutputBoth (PLUS1 ?
+			OutputBoth (c == 1 ?
 				"Factor in lowp.txt does not divide 2^P+1\n" :
 				"Factor in lowm.txt does not divide 2^P-1\n");
 			return (FALSE);
@@ -844,122 +855,6 @@ int setN (void)
 	return (TRUE);
 }
 
-/* Convert a value from FFT-ready format to giant */
-
-void gwtobinary (
-	gwnum	gg,
-	giant	v)
-{
-	long	val;
-	int	j, bits, bitsout, carry;
-	unsigned long i, *outptr;
-
-/* Collect bits until we have all of them */
-
-	carry = 0;
-	bitsout = 0;
-	outptr = v->n;
-	*outptr = 0;
-	for (i = 0; i < FFTLEN; i++) {
-		get_fft_value (gg, i, &val);
-		bits = BITS_PER_WORD;
-		if (is_big_word (i)) bits++;
-		val += carry;
-		for (j = 0; j < bits; j++) {
-			*outptr >>= 1;
-			if (val & 1) *outptr += 0x80000000;
-			val >>= 1;
-			bitsout++;
-			if (bitsout == 32) {
-				outptr++;
-				*outptr = 0;
-				bitsout = 0;
-			}
-		}
-		carry = val;
-	}
-	*outptr >>= (32 - bitsout);
-	outptr++;
-	v->sign = (outptr - v->n);
-
-/* Wrap carry from most significant word to least significant word */
-
-	if (PLUS1) carry = -carry;
-	outptr = v->n;
-	while (carry) {
-		RES = *outptr;
-		CARRYL = 0;
-		if (carry > 0) addhlp (carry);
-		else subhlp (-carry);
-		*outptr++ = RES;
-		carry = CARRYL;
-	}
-
-/* Set the length */
-
-	while (v->sign && v->n[v->sign-1] == 0) v->sign--;
-}
-
-/* Convert a giant back to the FFT format */
-
-void binarytogw (
-	giant	a,
-	gwnum	g)
-{
-	unsigned long i, mask1, mask2, e1len;
-	int	neg, bits1, bits2, bits_in_next_binval;
-	unsigned long *e1, binval, carry;
-
-	e1len = abs (a->sign);
-	e1 = a->n;
-	neg = (a->sign < 0);
-
-	if (e1len == 0) {
-		dbltogw (0.0, g);
-		return;
-	}
-
-	bits1 = BITS_PER_WORD;
-	bits2 = bits1 + 1;
-	mask1 = (1L << bits1) - 1;
-	mask2 = (1L << bits2) - 1;
-	binval = *e1++; e1len--; bits_in_next_binval = 32;
-	carry = (PLUS1 && neg) ? 2 : 0;
-	for (i = 0; i < FFTLEN; i++) {
-		int	big_word, bits;
-		long	value, mask;
-		big_word = is_big_word (i);
-		bits = big_word ? bits2 : bits1;
-		mask = big_word ? mask2 : mask1;
-		if (i == FFTLEN - 1) value = binval;
-		else value = binval & mask;
-		if (neg) value = value ^ mask;
-		value = value + carry;
-		if (value > (mask >> 1) && bits > 1 && i != FFTLEN - 1) {
-			value = value - (mask + 1);
-			carry = 1;
-		} else {
-			carry = 0;
-		}
-		set_fft_value (g, i, value);
-
-		binval >>= bits;
-		if (e1len == 0) continue;
-		if (bits_in_next_binval < bits) {
-			if (bits_in_next_binval)
-				binval |= (*e1 >> (32 - bits_in_next_binval)) << (32 - bits);
-			bits -= bits_in_next_binval;
-			e1++; e1len--; bits_in_next_binval = 32;
-			if (e1len == 0) continue;
-		}
-		if (bits) {
-			binval |= (*e1 >> (32 - bits_in_next_binval)) << (32 - bits);
-			bits_in_next_binval -= bits;
-		}
-	}
-	((long *) g)[-1] = 0;	/* Clear needs-normalize counter */
-}
-
 /* Do a GCD of the input value and N to see if a factor was found. */
 /* The GCD is returned in FAC iff a factor is found. */
 /* Returns TRUE if GCD completed, FALSE if it was interrupted */
@@ -972,20 +867,20 @@ int gcd (
 
 /* Convert input number to binary */
 
-	v = popg ((PARG >> 5) + 1);
-	save = popg ((PARG >> 5) + 1);
-	gwtobinary (gg, v);
+	v = popg ((PARG >> 5) + 10);
+	save = popg ((PARG >> 5) + 10);
+	gwtogiant (gg, v);
 	gtog (v, save);
 
 /* Do the GCD and let the gcdg code use gwnum gg's memory. */
 
 	gwfree_temporarily (gg);
-	retval = gcdg (N, v);
+	retval = gcdgi (N, v);
 	gwrealloc_temporarily (gg);
 
 /* Restore the input argument */
 
-	binarytogw (save, gg);
+	gianttogw (save, gg);
 
 /* If a factor was found, save it in FAC */
 
@@ -1013,14 +908,14 @@ int modinv (
 
 /* Convert input number to binary */
 
-	v = popg ((PARG >> 5) + 1);
-	gwtobinary (b, v);
+	v = popg ((PARG >> 5) + 10);
+	gwtogiant (b, v);
 
 /* Let the invg code use gwnum b's memory. */
 /* Compute 1/v mod N */
 
 	gwfree_temporarily (b);
-	retval = invg (N, v);
+	retval = invgi (N, v);
 	gwrealloc_temporarily (b);
 	if (!retval) return (FALSE);
 
@@ -1035,7 +930,7 @@ int modinv (
 /* Otherwise, convert the inverse to FFT-ready form */
 
 	else {
-		binarytogw (v, b);
+		gianttogw (v, b);
 	}
 	pushg (1);
 
@@ -1313,8 +1208,8 @@ int isProbablePrime (void)
 			if (bitval (N, len-j)) gwfftmul (t2, t1);
 		}
 		gwfree (t2);
-		x = popg ((PARG >> 5) + 1);
-		gwtobinary (t1, x);
+		x = popg ((PARG >> 5) + 10);
+		gwtogiant (t1, x);
 		modg (N, x);
 		iaddg (-i, x);
 		if (!isZero (x)) retval = FALSE;	/* Not a prime */
@@ -1326,12 +1221,16 @@ int isProbablePrime (void)
 
 /* Print the factor we just found */
 
-int printFactor (void)
+int printFactor (
+	double	k,		/* K in K*B^N+C */
+	unsigned long b,	/* B in K*B^N+C */
+	unsigned long n,	/* N in K*B^N+C */
+	signed long c)		/* C in K*B^N+C */
 {
 	int	msglen;
 	char	*msg;
 
-	if (!testFactor (FAC)) {
+	if (!testFactor (k, b, n, c, FAC)) {
 		OutputBoth ("ERROR: Factor doesn't divide N!\n");
 		ultog (1, FAC);
 		return (FALSE);
@@ -1339,8 +1238,7 @@ int printFactor (void)
 
 	msglen = FAC->sign * 10 + 80;
 	msg = (char *) malloc (msglen);
-	msg[0] = PLUS1 ? 'P' : 'M';
-	sprintf (msg+1, "%ld has a factor: ", PARG);
+	sprintf (msg, "%s has a factor: ", gwmodulo_as_string ());
 	gtoc (FAC, msg+strlen(msg), msglen);
 	strcat (msg, "\n");
 	OutputBoth (msg);
@@ -1349,11 +1247,11 @@ int printFactor (void)
 
 	if (QA_IN_PROGRESS) return (TRUE);
 
-	if (PARG < 10000) {
+	if (n < 10000) {
 		divg (FAC, N);
 		if (isProbablePrime ()) {
 			OutputBoth ("Cofactor is a probable prime!\n");
-			updateWorkToDo (PARG, WORK_FACTOR, 0);
+			updateWorkToDo (k, b, n, c, WORK_FACTOR, 0);
 			return (TRUE);
 		}
 		mulg (FAC, N);
@@ -1373,6 +1271,10 @@ and
 	a = (v-u)^3(3u+v)/(4u^3 v) - 2
 */
 void choose12 (
+	double	k,			/* K in K*B^N+C */
+	unsigned long b,		/* B in K*B^N+C */
+	unsigned long n,		/* N in K*B^N+C */
+	signed long c,			/* C in K*B^N+C */
 	gwnum 	x,
 	gwnum 	z,
 	double 	curve)
@@ -1421,7 +1323,7 @@ again:	dbltogw (curve, zs);
 	if (FAC != NULL) {	/* If a factor was found, then normalize */
 				/* failed to find a modular inverse. */
 		gwfree (Ad4);
-		printFactor ();
+		printFactor (k, b, n, c);
 		divg (FAC, N);
 		free (FAC);
 		FAC = NULL;
@@ -1452,8 +1354,8 @@ void curve_start_msg (
 	title (buf);
 
 	sprintf (buf,
-		 "ECM on %s%ld: curve #%ld with s=%.0f, B1=%lu, B2=%lu\n",
-		 PLUS1 ? "P" : "M", PARG, curve, sigma, B, C);
+		 "ECM on %s: curve #%ld with s=%.0f, B1=%lu, B2=%lu\n",
+		 gwmodulo_as_string (), curve, sigma, B, C);
 	OutputStr (buf);
 }
 
@@ -1476,9 +1378,9 @@ void mQ_init (gwnum x, unsigned long m, gwnum Q2Dx)
 	/* Precompute the FFTs of Q2Dx+1 and Q2Dx-1 */
 	Q2Dxplus1 = Q2Dx;
 	Q2Dxminus1 = gwalloc ();
-	* (double *) Q2Dx -= 1.0;
+	gwaddsmall (Q2Dx, -1);
 	gwfft (Q2Dx, Q2Dxminus1);
-	* (double *) Q2Dx += 2.0;
+	gwaddsmall (Q2Dx, 2);
 	gwfft (Q2Dx, Q2Dxplus1);
 
 	/* Init the arrays used in pooled normalizes of mQx values */
@@ -1540,6 +1442,10 @@ void mQ_term (void)
 /* are minimized, yet too much memory isn't used. */
 
 void choose_stage2_plan (
+	double	k,
+	unsigned long b,
+	unsigned long n,
+	signed long c,
 	unsigned long B,		/* Stage 1 bound */
 	unsigned long C,		/* Stage 2 bound */
 	int	memory)			/* MB of memory we can use */
@@ -1555,7 +1461,7 @@ void choose_stage2_plan (
 #define ELL_ADD_COST		12
 #define N_SQUARED_POOL_COST	2
 #define MULT3_POOL_COST		7
-	gcd_cost = 861.0 * log (PARG) - 7775.0;
+	gcd_cost = 861.0 * log ((double) n) - 7775.0;
 	if (gcd_cost < 100.0) gcd_cost = 100.0;
 
 /* Will there even be a stage 2?  If not, set D and E appropriately */
@@ -1570,7 +1476,7 @@ void choose_stage2_plan (
 
 	numvals = (unsigned long)
 			(((double) memory * 1000000.0 -
-			  (double) map_fftlen_to_memused (FFTLEN, PLUS1)) /
+			  (double) gwmap_to_memused (k, b, n, c)) /
 			 (double) gwnum_size (FFTLEN));
 
 /* If memory is really tight, then the 4 FFT - O(n^2) pooling is the */
@@ -1587,7 +1493,7 @@ void choose_stage2_plan (
 /* Numprimes below C approximately equals C / (ln(C)-1) */
 /* Compute numprimes between B and C */
 
-	numprimes = ceil ((C / (log (C) - 1)) - (B / (log (B) - 1)));
+	numprimes = ceil ((C / (log ((double) C) - 1)) - (B / (log ((double) B) - 1)));
 
 /* Figure out the best value for E when using the O(N^2) pool method */
 
@@ -1596,7 +1502,7 @@ void choose_stage2_plan (
 /* Loop through various D values choosing the most cost effective one */
 
 	bestcost = 1.0E99;
-	d = ((unsigned long) sqrt (C-B) / 2310 + 3) * 2310;
+	d = ((unsigned long) sqrt ((double) (C-B)) / 2310 + 3) * 2310;
 	for ( ; ; ) {
 		if (d >= 2310) {
 			relprime = d / 2310 * 480;
@@ -1619,7 +1525,7 @@ void choose_stage2_plan (
 
 /* There will be (C-B)/2D sections */
 
-		numsections = ceil ((C-B) / (d+d));
+		numsections = ceil ((double) (C-B) / (double) (d+d));
 
 /* Cost out the 4FFT stage 2 using this D			*/
 /* The cost will be:						*/
@@ -1782,13 +1688,13 @@ int read_gwnum (
 
 	if (_read (fd, &len, sizeof (long)) != sizeof (long)) return (FALSE);
 	if (len == 0) return (FALSE);
-	tmp = popg ((PARG >> 5) + 1);
+	tmp = popg ((PARG >> 5) + 10);
 	bytes = len * sizeof (long);
 	if (_read (fd, tmp->n, bytes) != bytes) return (FALSE);
 	tmp->sign = len;
 	*sum += len;
 	for (i = 0; i < len; i++) *sum += tmp->n[i];
-	binarytogw (tmp, g);
+	gianttogw (tmp, g);
 	pushg (1);
 	return (TRUE);
 }
@@ -1801,8 +1707,8 @@ int write_gwnum (
 	giant	tmp;
 	long	i, len, bytes;
 
-	tmp = popg ((PARG >> 5) + 1);
-	gwtobinary (g, tmp);
+	tmp = popg ((PARG >> 5) + 10);
+	gwtogiant (g, tmp);
 	len = tmp->sign;
 	if (len == 0) return (FALSE);
 	if (_write (fd, &len, sizeof (long)) != sizeof (long)) return (FALSE);
@@ -1864,7 +1770,7 @@ void ecm_save (
 
 /* Create the intermediate file */
 
-	fd = _open (newfilename, _O_BINARY|_O_WRONLY|_O_TRUNC|_O_CREAT, 0666);
+	fd = _open (newfilename, _O_BINARY|_O_WRONLY|_O_TRUNC|_O_CREAT, CREATE_FILE_ACCESS);
 	if (fd < 0) return;
 
 /* Write the file header. */
@@ -1991,22 +1897,22 @@ error:
  **************************************************************/
 
 int ecm (
-	unsigned long p,		/* Mersenne exponent */
+	double	k,			/* K in K*B^N+C */
+	unsigned long b,		/* B in K*B^N+C */
+	unsigned long n,		/* N in K*B^N+C */
+	signed long c,			/* C in K*B^N+C */
 	unsigned long B,		/* Stage 1 bound */
 	unsigned long C_start,		/* Stage 2 starting point (usually equals B) */
 	unsigned long C,		/* Stage 2 ending point */
 	unsigned long curves_to_do,	/* Number of curves to test */
-	unsigned long curves_completed,	/* Number of curves already */
-					/* done - no longer used */
-	double	specific_sigma,		/* Debug only - sigma to test */
-	int	plus1)			/* TRUE if factoring 2^p+1 */
+	double	specific_sigma)		/* Debug only - sigma to test */
 {
 	unsigned int memory;
 	unsigned long sieve_start, SQRT_B, orig_B;
 	double	sigma, last_output;
 	unsigned long i, j, m, curve, prime;
-	char	filename[16], buf[100];
-	int	retval, stage, escaped;
+	char	filename[16], buf[100], fft_desc[100];
+	int	res, retval, stage, escaped;
 	long	write_time = DISK_WRITE_TIME * 60;
 	time_t	start_time, current_time;
 	gwnum	x, z, t1, t2, gg;
@@ -2023,9 +1929,9 @@ restart:
 
 /*#define TIMING1*/
 #ifdef TIMING1
-if (p == 598) {
+if (n == 598) {
 	gwnum	x, y;
-	ecm_setup1 (p, plus1);
+	ecm_setup1 (k, b, n, c);
 	gwsetnormroutine (0, ERRCHK, 0);
 	x = gwalloc ();
 	y = gwalloc ();
@@ -2034,7 +1940,7 @@ if (p == 598) {
 	gwaddsub (x, y);
 	OutputStr ("\n");
 }
-if (p == 599) {
+if (n == 599) {
 	giant x, y;
 	x = newgiant (1050000);
 	y = newgiant (1050000);
@@ -2056,7 +1962,7 @@ if (p == 599) {
 	print_timer (0, TIMER_CLR);
 	OutputStr ("\n");
 }
-if (p == 600) {
+if (n == 600) {
 int i, j;
 giant	x, y, z, a, m;
 #define TESTSIZE	200
@@ -2120,7 +2026,7 @@ for (i = TESTSIZE; i >= 40; i--) {
 }
 return 0;
 }
-if (p == 601) {
+if (n == 601) {
 int i, j;
 giant	x, a, m;
 #define TESTSIZE	260000
@@ -2158,19 +2064,18 @@ return 0;
 }
 #endif
 
-#define TIMING2
-#ifdef TIMING2
-if (p == 600) {
-long f; int j, min_test, max_test, test, cnt, NUM_X87_TESTS, NUM_SSE2_TESTS;
-gwsetup (10000000, 0, 0);
-f = (long) malloc (40000000);
-SRCARG = (void *) ((f + 4095) & ~4095);
-memset (SRCARG, 0, 40000000 - 4096);
+/* Include timing code when building the debug version of prime95 */
+#ifdef GDEBUG
+if (n == 600) {
+int j, min_test, max_test, test, cnt, NUM_X87_TESTS, NUM_SSE2_TESTS;
+gwsetup (1.0, 2, 10000000, -1, 0);
+SRCARG = (void *) aligned_malloc (40000000, 4096);
+memset (SRCARG, 0, 40000000);
 RDTSC_TIMING = 12;
 min_test = IniGetInt (INI_FILE, "MinTest", 0);
 max_test = IniGetInt (INI_FILE, "MaxTest", min_test);
-DESTARG = (void *) -1; NUM_X87_TESTS = timeit ();
-DESTARG = (void *) -2; NUM_SSE2_TESTS = timeit ();
+NUMARG = (long) -1; NUM_X87_TESTS = timeit ();
+NUMARG = (long) -2; NUM_SSE2_TESTS = timeit ();
 //SetThreadPriority (CURRENT_THREAD, THREAD_PRIORITY_TIME_CRITICAL);
 for (j = 0; j < NUM_X87_TESTS + NUM_SSE2_TESTS; j++) {
 	cnt = 0;
@@ -2179,7 +2084,7 @@ for (j = 0; j < NUM_X87_TESTS + NUM_SSE2_TESTS; j++) {
 	if (! (CPU_FLAGS & CPU_SSE2) && test >= 1000) break;
 for (i = 1; i <= 50; i++) {
 	start_timer (0);
-	DESTARG = (void *) test;
+	NUMARG = (long) test;
 	timeit ();
 	end_timer (0);
 	if (timers[1] == 0 || timers[1] > timers[0]) timers[1] = timers[0];
@@ -2199,18 +2104,18 @@ OutputBoth (", avg: ");
 print_timer (2, TIMER_OUT_BOTH | TIMER_NL | TIMER_CLR);
 if (min_test) exit (0);
 }
-
-free ((void *) f);
+aligned_free (SRCARG);
+gwdone ();
 return 0;
 }
 #endif
 
 /* Init filename */
 
-	tempFileName (filename, p);
+	tempFileName (filename, n);
 	strcat (filename, EXTENSION);
 	filename[0] = 'e';
-	if (plus1) filename[0]--;
+	if (c == 1) filename[0]--;
 
 /* Get the current time */
 
@@ -2234,11 +2139,16 @@ return 0;
 
 /* Set other constants */
 
-	SQRT_B = (unsigned long) sqrt (B);
+	SQRT_B = (unsigned long) sqrt ((double) B);
 
 /* Perform setup functions */
 
-	ecm_setup1 (p, plus1);
+	res = ecm_setup1 (k, b, n, c);
+	if (res) {
+		sprintf (buf, "Cannot initialize FFT code, errcode=%d\n", res);
+		OutputBoth (buf);
+		return (FALSE);
+	}
 	gwsetnormroutine (0, ERRCHK, 0);
 	last_output = fft_count = modinv_count = 0;
 
@@ -2250,7 +2160,7 @@ return 0;
 /* Choose a good value for D.  One that reduces the number of */
 /* multiplications, yet doesn't use too much memory. */
 
-	choose_stage2_plan (B, C, memory);
+	choose_stage2_plan (k, b, n, c, B, C, memory);
 
 /* Perform the rest of the setup */
 
@@ -2258,7 +2168,7 @@ return 0;
 
 /* Compute the number we are factoring */
 
-	if (!setN ()) {
+	if (!setN (k, b, n, c)) {
 		ecm_cleanup ();
 		return (FALSE);
 	}
@@ -2279,7 +2189,7 @@ dbltogw (283457283657.0, n2);
 for (i = 1; i <= 50; i++) gwsquare (n2); /* gen big random number */
 gwcopy (n2, n3);
 gwcopy (n2, n1);
-if (p < 20000) limit = 100; else limit = 10;
+if (n < 20000) limit = 100; else limit = 10;
 for (i = 1; i <= limit; i++) {
 	start_timer (0); gwsquare (n2); end_timer (0);
 	start_timer (1); gwmul (n2, n3); end_timer (1);
@@ -2360,8 +2270,8 @@ gwsquare (t3);
 
 /*#define echk*/
 #ifdef echk
-for ( ; ; p++) {
-ecm_setup1 (p, plus1);
+for ( ; ; n++) {
+ecm_setup1 (k, b, n, c);
 ecm_setup2 ();
 dbltogw (1.0, t1);
 dbltogw (283457283654.0, t2);
@@ -2374,9 +2284,15 @@ gwsquare (t3);
 gwsafemul (t2, t3);
 gwsquare (t2);
 }
-p++;
+n++;
 }
 #endif
+
+/* Output a startup message */
+
+	gwfft_description (fft_desc);
+	sprintf (buf, "Using %s\n", fft_desc);
+	OutputStr (buf);
 
 /* Check for a continuation file */
 
@@ -2407,10 +2323,10 @@ p++;
 
 /* Compute Ad4 from sigma */
 
-		curve_start_msg (curves_completed + curve, sigma, B, C);
+		curve_start_msg (curve, sigma, B, C);
 		t1 = gwalloc ();
 		t2 = gwalloc ();
-		choose12 (t1, t2, sigma);
+		choose12 (k, b, n, c, t1, t2, sigma);
 		gwfree (t1);
 		gwfree (t2);
 
@@ -2462,8 +2378,8 @@ restart0:
 		sigma += lo ^ hi ^ ((unsigned long) rand () << 16);
 	} while (sigma <= 5.0);
 	if (specific_sigma > 5.0) sigma = specific_sigma;
-	curve_start_msg (curves_completed + curve, sigma, B, C);
-	choose12 (x, z, sigma);
+	curve_start_msg (curve, sigma, B, C);
+	choose12 (k, b, n, c, x, z, sigma);
 	sieve_start = 2;
 
 /* The stage 1 restart point */
@@ -2580,9 +2496,9 @@ restart1:
 
 			normalize (x, z);
 
-			gx = popg ((PARG >> 5) + 1);
-			gwtobinary (x, gx);
-			modg (N, gx); // thus gx->sign >= 0
+			gx = popg ((PARG >> 5) + 10);
+			gwtogiant (x, gx);
+			modg (N, gx);
 
 			msglen = N->sign * 8 + 5;
 			buf = (char *) malloc (msglen + msglen + 80);
@@ -2628,7 +2544,7 @@ restart1:
 /*
    Stage 2:  We support two types of stage 2's here.  One uses
    less memory and uses fewer extended GCDs, but is slower in accumulating
-   each found prime.  Thanks to Richard Crandall and Paul Zimmerman
+   each found prime.  Thanks to Richard Crandall and Paul Zimmermann
    for letting me liberally use their code and ideas here.
    x, z: coordinates of Q at the beginning of stage 2
 */
@@ -2646,7 +2562,7 @@ restart3:
 			goto exit;
 		}
 		if (FAC != NULL) {
-			printFactor ();
+			printFactor (k, b, n, c);
 			divg (FAC, N);
 			free (FAC);
 			FAC = NULL;
@@ -2959,22 +2875,20 @@ restart4:
 
 more_curves:
 	gwfreeall ();
-	if (specific_sigma < 5.0 &&
-	    curves_completed + ++curve <= curves_to_do)
+	if (specific_sigma < 5.0 && ++curve <= curves_to_do)
 		goto restart0;
 
 /* Output line to results file indicating the number of curves run */
 
-	buf[0] = PLUS1 ? 'P' : 'M';
-	sprintf (buf+1, "%ld completed %ld ECM curves, B1=%lu, B2=%lu\n",
-		 PARG, curves_to_do, B, C);
+	sprintf (buf, "%s completed %ld ECM curves, B1=%lu, B2=%lu\n",
+		 gwmodulo_as_string (), curves_to_do, B, C);
 	writeResults (buf);
 	/*spoolMessage (PRIMENET_RESULT_MESSAGE, buf);*/
 	retval = TRUE;
 
 /* Delete the exponent from the work-to-do-file */
 
-	updateWorkToDo (p, WORK_ECM, orig_B);
+	updateWorkToDo (k, b, n, c, WORK_ECM, orig_B);
 	_unlink (filename);
 
 /* Free memory and return */
@@ -2985,13 +2899,13 @@ exit:	ecm_cleanup ();
 /* Print a message if we found a factor! */
 
 bingo:	sprintf (buf, "ECM found a factor in curve #%ld, stage #%d\n",
-		 curves_completed + curve, stage);
+		 curve, stage);
 	writeResults (buf);
 	/*spoolMessage (PRIMENET_RESULT_MESSAGE, buf);*/
 	sprintf (buf, "Sigma=%.0f, B1=%lu, B2=%lu.\n", sigma, B, C);
 	writeResults (buf);
 	/*spoolMessage (PRIMENET_RESULT_MESSAGE, buf);*/
-	if (printFactor ()) {
+	if (printFactor (k, b, n, c)) {
 		_unlink (filename);
 		if (!QA_IN_PROGRESS) {
 			free (FAC);
@@ -3002,8 +2916,8 @@ bingo:	sprintf (buf, "ECM found a factor in curve #%ld, stage #%d\n",
 	}
 	clear_timer (0);
 
-	if (! IniGetInt (INI_FILE, "ContinueECM", PARG < 5825)) {
-		updateWorkToDo (PARG, WORK_FACTOR, 0);
+	if (! IniGetInt (INI_FILE, "ContinueECM", n < 5825)) {
+		updateWorkToDo (k, b, n, c, WORK_FACTOR, 0);
 		_unlink (filename);
 		free (FAC);
 		FAC = NULL;
@@ -3032,7 +2946,7 @@ error:	OutputBoth ("SUMOUT error occurred.\n");
 
 /* Read a file of ECM tests to run as part of a QA process */
 /* The format of this file is: */
-/*	exponent, plus1_flag, sigma, B1, B2_start, B2_end, factor */
+/*	k, n, c, sigma, B1, B2_start, B2_end, factor */
 /* Use Advanced/Time 9991 to run the QA suite */
 
 int ecm_QA ()
@@ -3055,8 +2969,9 @@ int ecm_QA ()
 /* Loop until the entire file is processed */
 
 	for ( ; ; ) {
-		unsigned long p, B1, B2_start, B2_end;
-		int	plus1;
+		double	k;
+		unsigned long b, n, B1, B2_start, B2_end;
+		signed long c;
 		char	fac_str[80];
 		double	sigma;
 		giant	f;
@@ -3064,15 +2979,15 @@ int ecm_QA ()
 
 /* Read a line from the file */
 
-		p = 0;
-		fscanf (fd, "%lu,%d,%lf,%lu,%lu,%lu,%s\n",
-			&p, &plus1, &sigma, &B1, &B2_start, &B2_end, &fac_str);
-		if (p == 0) break;
+		n = 0;
+		fscanf (fd, "%f,%lu,%lu,%ld,%lf,%lu,%lu,%lu,%s\n",
+			&k, &b, &n, &c, &sigma, &B1, &B2_start, &B2_end, &fac_str);
+		if (n == 0) break;
 
-/* If p is 1, set QA_TYPE */
+/* If b is 1, set QA_TYPE */
 
-		if (p == 1) {
-			QA_TYPE = plus1;
+		if (b == 1) {
+			QA_TYPE = c;
 			savefiles = B1;
 			continue;
 		}
@@ -3095,7 +3010,7 @@ print out each test case (all relevant data)*/
 
 		if (B2_start < B1) B2_start = B1;
 		do {
-			retval = ecm (p, B1, B2_start, B2_end, 1, 0, sigma, plus1);
+			retval = ecm (k, b, n, c, B1, B2_start, B2_end, 1, sigma);
 			if (!retval) {
 				fclose (fd);
 				QA_IN_PROGRESS = FALSE;
@@ -3140,29 +3055,30 @@ print out each test case (all relevant data)*/
 /* Perform setup functions.  This includes decding how big an FFT to */
 /* use, allocating memory, calling the FFT setup code, etc. */
 
-void pm1_setup1 (
-	unsigned long p,
-	int	type)
+int pm1_setup1 (
+	double	k,
+	unsigned long b,
+	unsigned long n,
+	signed long c)
 {
 	unsigned long fftlen;
+	int	res;
 
 /* Setup the assembly code */
 
-	fftlen = (type == GW_MERSENNE_MOD) ?
-		advanced_map_exponent_to_fftlen (p) : 0;
-	gwsetup (p, fftlen, type);
+	fftlen = (k == 1.0 && b == 2 && c == -1) ?
+		advanced_map_exponent_to_fftlen (n) : 0;
+	res = gwsetup (k, b, n, c, fftlen);
+	if (res) return (res);
 	modinv_count = 0;
 	N = NULL;
 	nQx = NULL;
 	eQx = NULL;
 
-/* A kludge so that the error checking code is not as strict.  The correct */
-/* implementation would have the normalize code after each multiplication */
-/* take into account any input arguments that were the result of
-/* unnormalized adds. */
+/* A kludge so that the error checking code is not as strict. */
 
-	MAXDIFF *= 4.0;
 	MAXDIFF *= IniGetInt (INI_FILE, "MaxDiffMultiplier", 1);
+	return (0);
 }
 
 /* Perform cleanup functions. */
@@ -3175,7 +3091,6 @@ void pm1_cleanup (void)
 	free (N);
 	free (nQx);
 	free (eQx);
-	term_giants ();
 	gwdone ();
 }
 
@@ -3361,7 +3276,7 @@ void pm1_save (
 
 /* Create the intermediate file */
 
-	fd = _open (newfilename, _O_BINARY|_O_WRONLY|_O_TRUNC|_O_CREAT, 0666);
+	fd = _open (newfilename, _O_BINARY|_O_WRONLY|_O_TRUNC|_O_CREAT, CREATE_FILE_ACCESS);
 	if (fd < 0) return;
 
 /* Write the file header */
@@ -3528,6 +3443,10 @@ error:
 /* available memory. */
 
 unsigned long choose_pminus1_numvals (
+	double	k,
+	unsigned long b,
+	unsigned long n,
+	signed long c,
 	int	use_max_mem)		/* True if calculation should use */
 					/* maximum available memory */
 {
@@ -3546,7 +3465,7 @@ unsigned long choose_pminus1_numvals (
 /* Compute the number of gwnum temporaries available */
 
 	temp = (double) memory * 1000000.0 - 
-		(double) map_fftlen_to_memused (FFTLEN, PLUS1);
+		(double) gwmap_to_memused (k, b, n, c);
 	size = (double) gwnum_size (FFTLEN);
 	if (temp <= size) return (1);
 	return ((unsigned long) (temp / size));
@@ -3578,7 +3497,7 @@ double cost_pminus1_plan (
 
 /* Estimate the number of primes */
 
-	numprimes = (unsigned long) (C / (log(C) - 1.0) - B / (log(B) - 1.0));
+	numprimes = (unsigned long) (C / (log((double) C) - 1.0) - B / (log((double) B) - 1.0));
 
 /* Calculate the number of values relatively prime to D */
 
@@ -3603,7 +3522,7 @@ double cost_pminus1_plan (
 /* at a cost of about 1.5 multiplies per bit.  In other words, */
 /* (E+1) * E*log2(startpoint) * 1.5. */
 
-	cost = passes * (e+1) * e*log(d/2)/log(2) * 1.5 +
+	cost = passes * (e+1) * e*log((double)(d/2))/log((double)2.0) * 1.5 +
 
 /* Then there are the D/2 calls to fd_next at E multiplies each. */
 
@@ -3612,7 +3531,7 @@ double cost_pminus1_plan (
 /* Compute the eQx setup costs.  To calculate eQx values, one fd_init is */
 /* required on each pass with a start point of B. */
 
-		passes * (e+1) * e*log(B)/log(2) * 1.5;
+		passes * (e+1) * e*log((double)B)/log((double)2.0) * 1.5;
 
 /* If E=1 add the cost of (C-B)/D fd_next calls.  If E>=2, add the cost */
 /* of (C-B)/(D+D) calls to fd_next (E multiplies). */
@@ -3645,6 +3564,10 @@ double cost_pminus1_plan (
 /* multiplications, yet doesn't use too much memory. */
 
 void choose_pminus1_plan (
+	double	k,
+	unsigned long b,
+	unsigned long n,
+	signed long c,
 	struct pm1_state *state)	/* P-1 state structure */
 {
 	unsigned long B, C, numvals, d, e, i;
@@ -3664,7 +3587,7 @@ void choose_pminus1_plan (
 /* Base our decision on the maximum amount of memory available.  Also, */
 /* the main loop uses one temp for gg, so subtract one from numvals. */
 
-	numvals = choose_pminus1_numvals (1);
+	numvals = choose_pminus1_numvals (k, b, n, c, 1);
 	numvals--;
 
 /* Try various values of D until we find the best one */
@@ -3730,6 +3653,10 @@ void choose_pminus1_plan (
 /* We may choose to use the t3 temporary variable. */
 
 void choose_pminus1_implementation (
+	double	k,
+	unsigned long b,
+	unsigned long n,
+	signed long c,
 	struct pm1_state *state,	/* P-1 state variable */
 	int	ll_testing,		/* True if we are LL testing */
 	int	*do_later,		/* Should we wait until more */
@@ -3757,13 +3684,14 @@ void choose_pminus1_implementation (
 /* Base our decision on the maximum amount of memory available.  Also, */
 /* the main loop uses one temp for gg, so subtract one from numvals. */
 
-	numvals = choose_pminus1_numvals (0);
+	numvals = choose_pminus1_numvals (k, b, n, c, 0);
 	numvals--;
 
 /* Check if we are only supposed to run stage 2 when the maximum amount */
 /* memory is available */
 
-	if (numvals != choose_pminus1_numvals (1) - 1 && ll_testing &&
+	if (numvals != choose_pminus1_numvals (k, b, n, c, 1) - 1 &&
+	    ll_testing &&
 	    IniGetInt (INI_FILE, "OnlyRunStage2WithMaxMemory", 0))
 		return;
 
@@ -3885,12 +3813,17 @@ errexit:	state->bitarray_len = 0;
 	return (TRUE);
 }
 
-/* Recursively compute exponent used in initial 3^exp calculation */
-/* Don't forget to include 2 * PARG in the exponent */
+/* Recursively compute exp used in initial 3^exp calculation of a P-1 */
+/* factoring run.  Don't forget to include 2*n in exp when factoring */
+/* Mersenne numbers since factors must be 1 mod 2n */
 
 void calc_exp (
+	double	k,		/* K in K*B^N+C */
+	unsigned long b,	/* B in K*B^N+C */
+	unsigned long n,	/* N in K*B^N+C */
+	signed long c,		/* C in K*B^N+C */
 	giant	g,
-	unsigned long B,
+	unsigned long B1,	/* P-1 stage 1 bound */
 	unsigned long *p,
 	unsigned long lower,
 	unsigned long upper)
@@ -3906,22 +3839,30 @@ void calc_exp (
 
 	if (len >= 50) {
 		giant	x;
-		calc_exp (g, B, p, lower, lower + (len >> 1));
+		calc_exp (k, b, n, c, g, B1, p, lower, lower + (len >> 1));
 		x = newgiant (len + len);
-		calc_exp (x, B, p, lower + (len >> 1), upper);
+		calc_exp (k, b, n, c, x, B1, p, lower + (len >> 1), upper);
 		mulg (x, g);
 		free (x);
 		return;
 	}
 
+/* For Mersenne numbers, 2^n-1, make sure we include 2n in the calculated */
+/* exponent (since factors are of the form 2kn+1).  For Fermat numbers, */
+/* 2^n+1 (n is a power of 2), make sure the exponent is included in the */
+/* calculated exponent as factors are of the form kn+1.  Otherwise, do */
+/* nothing special -- start  with one. */
+
+	if (lower == 0 && k == 1.0 && b == 2 && c == -1) itog (2*n, g);
+	else if (lower == 0 && k == 1.0 && b == 2 && c == 1) itog (n, g);
+	else setone (g);
+
 /* Find all the primes in the range and use as many powers as possible */
 
-	if (lower == 0) itog (2 * PARG, g);
-	else setone (g);
-	for ( ; *p <= B && (unsigned long) g->sign < len; *p = sieve ()) {
+	for ( ; *p <= B1 && (unsigned long) g->sign < len; *p = sieve ()) {
 		unsigned long val, max;
 		val = *p;
-		max = B / *p;
+		max = B1 / *p;
 		while (val <= max) val *= *p;
 		ulmulg (val, g);
 	}
@@ -3938,13 +3879,15 @@ double calc_stage2_pct (
 /* Main P-1 entry point */
 
 int pminus1 (
-	unsigned long p,	/* Mersenne exponent */
+	double	k,		/* K in K*B^N+C */
+	unsigned long b,	/* B in K*B^N+C */
+	unsigned long n,	/* N in K*B^N+C */
+	signed long c,		/* C in K*B^N+C */
 	unsigned long B,	/* Stage 1 bound */
 	unsigned long C_start,	/* Stage 2 starting point (usually equals B) */
 	unsigned long C,	/* Stage 2 ending point */
-	int	plus1,		/* TRUE if factoring 2^p+1 */
-	int	ll_testing)	/* Set to how_far_factored if we are pre-factoring */
-				/* for a future LL test */
+	int	ll_testing)	/* Set to how_far_factored if we are */
+				/* pre-factoring for a future LL test */
 {
 	struct pm1_state state;
 	giant	exp;
@@ -3955,7 +3898,7 @@ int pminus1 (
 	unsigned long error_recovery_mode = 0;
 	gwnum	x, gg, t3;
 	char	filename[16], buf[100];
-	int	retval, stage, escaped, saving, near_fft_limit, echk;
+	int	res, retval, stage, escaped, saving, near_fft_limit, echk;
 	long	write_time = DISK_WRITE_TIME * 60;
 	time_t	start_time, current_time;
 	double	pct, last_output, last_contact, last_output_r;
@@ -3972,10 +3915,10 @@ restart:
 
 /* Init filename */
 
-	tempFileName (filename, p);
+	tempFileName (filename, n);
 	strcat (filename, EXTENSION);
 	filename[0] = 'm';
-	if (plus1) filename[0]--;
+	if (c == 1) filename[0]--;
 
 /* Get the current time */
 
@@ -3993,9 +3936,14 @@ restart:
 /* Perform setup functions */
 
 	memset (&state, 0, sizeof (state));
-	pm1_setup1 (p, plus1);
+	res = pm1_setup1 (k, b, n, c);
+	if (res) {
+		sprintf (buf, "Cannot initialize FFT code, errcode=%d\n", res);
+		OutputBoth (buf);
+		return (FALSE);
+	}
 	last_contact = last_output = last_output_r = fft_count = 0;
-	EXP_BEING_WORKED_ON = p;
+	EXP_BEING_WORKED_ON = n;
 	EXP_BEING_FACTORED = 1;
 
 /* If we are near the maximum exponent this fft length can test, then we */
@@ -4006,7 +3954,7 @@ restart:
 
 /* Compute the number we are factoring */
 
-	if (!setN ()) {
+	if (!setN (k, b, n, c)) {
 		pm1_cleanup ();
 		return (FALSE);
 	}
@@ -4015,8 +3963,12 @@ restart:
 
 	title ("P-1");
 	if (!error_recovery_mode) {
-		sprintf (buf, "P-1 on %c%ld with B1=%lu, B2=%lu\n",
-			 PLUS1 ? 'P' : 'M', PARG, B, C);
+		char	fft_desc[100];
+		sprintf (buf, "P-1 on %s with B1=%lu, B2=%lu\n",
+			 gwmodulo_as_string (), B, C);
+		OutputStr (buf);
+		gwfft_description (fft_desc);
+		sprintf (buf, "Using %s\n", fft_desc);
 		OutputStr (buf);
 	}
 
@@ -4125,9 +4077,8 @@ restart:
 
 /* The save file indicates we've tested to these bounds already */
 
-		buf[0] = PLUS1 ? 'P' : 'M';
-		sprintf (buf+1, "%lu already tested to B1=%lu and B2=%lu.\n",
-			 PARG, state.B_done, state.C_done);
+		sprintf (buf, "%s already tested to B1=%lu and B2=%lu.\n",
+			 gwmodulo_as_string (), state.B_done, state.C_done);
 		OutputBoth (buf);
 		goto done;
 	}
@@ -4156,7 +4107,7 @@ restart0:
 	stage_0_limit = (state.B > 1000000) ? 1000000 : state.B;
 	i = ((unsigned long) (stage_0_limit * 1.5) >> 5) + 4;
 	exp = newgiant (i << 1);
-	calc_exp (exp, state.B, &prime, 0, i);
+	calc_exp (k, b, n, c, exp, state.B, &prime, 0, i);
 
 /* Find most significant bit and then ignore it */
 
@@ -4183,7 +4134,7 @@ restart0:
 /* get us past the offending iteration. */
 
 		if (error_recovery_mode && bit_number == error_recovery_mode) {
-			careful_iteration (x, NULL);
+			careful_iteration (x, NULL, n);
 			if (bitval (exp, len - bit_number - 1)) {
 				gwnum	three;
 				three = gwalloc ();
@@ -4223,10 +4174,6 @@ restart0:
 				gwsquare (x);
 			}
 		}
-//{unsigned long high32, low32;
-//LLDATA = x; generateResidue64 (0, &high32, &low32);
-//sprintf (buf, "interim P-1 residue %08lX%08lX at bit %ld\n", high32, low32, bit_number);
-//OutputBoth (buf);}
 
 /* Test for an error */
 
@@ -4244,11 +4191,10 @@ restart0:
 			sprintf (mask, "%%.%df%%%% P-1 stage 1", PRECISION);
 			sprintf (buf, mask, pct);
 			title (buf);
-			buf[0] = PLUS1 ? 'P' : 'M';
 			sprintf (mask,
-				 "%%lu stage 1 is %%.%df%%%% complete. Time: ",
+				 "%%s stage 1 is %%.%df%%%% complete. Time: ",
 				 PRECISION);
-			sprintf (buf+1, mask, PARG, pct);
+			sprintf (buf, mask, gwmodulo_as_string (), pct);
 			OutputTimeStamp ();
 			OutputStr (buf);
 			end_timer (0);
@@ -4266,11 +4212,10 @@ restart0:
 			pct = (double) bit_number / (double) len;
 			if (prime < B) pct *= (double) prime / (double) B;
 			pct = trunc_percent (pct * 100.0);
-			buf[0] = PLUS1 ? 'P' : 'M';
 			sprintf (mask,
-				 "%%lu stage 1 is %%.%df%%%% complete.\n",
+				 "%%s stage 1 is %%.%df%%%% complete.\n",
 				 PRECISION);
-			sprintf (buf+1, mask, PARG, pct);
+			sprintf (buf, mask, gwmodulo_as_string (), pct);
 			writeResults (buf);
 			last_output_r = fft_count;
 		}
@@ -4290,6 +4235,7 @@ restart0:
 				retval = QA_SAVE_TEST;
 				goto exit;
 			}
+			time (&current_time);
 			start_time = current_time;
 		}
 
@@ -4327,7 +4273,7 @@ restart1:
 	start_timer (0);
 	start_timer (1);
 	state.stage = PM1_STAGE1;
-	SQRT_B = (unsigned long) sqrt (state.B);
+	SQRT_B = (unsigned long) sqrt ((double) state.B);
 	for ( ; prime <= state.B; prime = sieve ()) {
 
 /* Apply as many powers of prime as long as prime^n <= B */
@@ -4372,11 +4318,10 @@ restart1:
 			sprintf (mask, "%%.%df%%%% P-1 stage 1", PRECISION);
 			sprintf (buf, mask, pct);
 			title (buf);
-			buf[0] = PLUS1 ? 'P' : 'M';
 			sprintf (mask,
-				 "%%lu stage 1 is %%.%df%%%% complete. Time: ",
+				 "%%s stage 1 is %%.%df%%%% complete. Time: ",
 				 PRECISION);
-			sprintf (buf+1, mask, PARG, pct);
+			sprintf (buf, mask, gwmodulo_as_string (), pct);
 			OutputTimeStamp ();
 			OutputStr (buf);
 			end_timer (0);
@@ -4393,11 +4338,10 @@ restart1:
 			char	mask[80];
 			pct = (double) prime / (double) B;
 			pct = trunc_percent (pct * 100.0);
-			buf[0] = PLUS1 ? 'P' : 'M';
 			sprintf (mask,
-				 "%%lu stage 1 is %%.%df%%%% complete.\n",
+				 "%%s stage 1 is %%.%df%%%% complete.\n",
 				 PRECISION);
-			sprintf (buf+1, mask, PARG, pct);
+			sprintf (buf, mask, gwmodulo_as_string (), pct);
 			writeResults (buf);
 			last_output_r = fft_count;
 		}
@@ -4443,9 +4387,8 @@ more_B:		state.B = B;
 
 /* Stage 1 complete, print a message */
 
-	buf[0] = PLUS1 ? 'P' : 'M';
-	sprintf (buf+1, "%lu stage 1 complete. %.0f transforms. Time: ",
-		 PARG, fft_count);
+	sprintf (buf, "%s stage 1 complete. %.0f transforms. Time: ",
+		 gwmodulo_as_string (), fft_count);
 	OutputStr (buf);
 	print_timer (1, TIMER_NL | TIMER_CLR);
 	clear_timers ();
@@ -4467,9 +4410,9 @@ restart2:
 		if (ll_testing)
 			OutputStr ("Starting stage 1 GCD - please be patient.\n");
 		start_timer (0);
-		(*(double *)x)--;
+		gwaddsmall (x, -1);
 		retval = gcd (x);
-		(*(double *)x)++;
+		gwaddsmall (x, 1);
 		if (! retval) {
 			pm1_save (filename, &state, B, x, NULL);
 			goto exit;
@@ -4498,7 +4441,7 @@ restart2:
 restart3a:
 	gg = gwalloc ();
 	gwcopy (x, gg);
-	(*(double *)gg)--;
+	gwaddsmall (gg, -1);
 	state.stage = PM1_STAGE2;
 
 /* Choose a good value for D and E - one that reduces the number of */
@@ -4508,8 +4451,8 @@ restart3a:
 
 more_C:	state.C_start = (C_start > state.C_done) ? C_start : state.C_done;
 	state.C = C;
-	choose_pminus1_plan (&state);
-	if (D == 0) {		/* We'll never have enough memory for stage 2 */
+	choose_pminus1_plan (k, b, n, c, &state);
+	if (D == 0) {	/* We'll never have enough memory for stage 2 */
 		OutputStr ("Insufficient memory to ever run stage 2.\n");
 		C = state.B_done;
 		goto restart4;
@@ -4530,7 +4473,7 @@ restart3b:
 /* This implementation could be anything from "wait until we have more */
 /* memory" to deciding whether using_t3 should be set. */
 
-	choose_pminus1_implementation (&state, ll_testing, &do_later, &using_t3);
+	choose_pminus1_implementation (k, b, n, c, &state, ll_testing, &do_later, &using_t3);
 	if (do_later || (QA_SAVE_FILES & 0x4)) {
 		pm1_save (filename, &state, 0, x, gg);
 		if (QA_SAVE_FILES & 0x4) {
@@ -4691,7 +4634,7 @@ found_a_bit:;
 /* Mul this eQx - nQx value into gg */
 
 		escaped = stopCheck ();
-		gwstartnextfft (!escaped && !saving && !last_pass);
+		gwstartnextfft (!escaped && !saving);
 		if (using_t3) {
 			gwfftsub3 (eQx[0], nQx[j], t3);
 			gwfftmul (t3, gg);
@@ -4732,11 +4675,10 @@ errchk:		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
 			sprintf (mask, "%%.%df%%%% P-1 stage 2", PRECISION);
 			sprintf (buf, mask, pct);
 			title (buf);
-			buf[0] = PLUS1 ? 'P' : 'M';
 			sprintf (mask,
-				"%%lu stage 2 is %%.%df%%%% complete. Time: ",
+				"%%s stage 2 is %%.%df%%%% complete. Time: ",
 				PRECISION);
-			sprintf (buf+1, mask, PARG, pct);
+			sprintf (buf, mask, gwmodulo_as_string (), pct);
 			OutputTimeStamp ();
 			OutputStr (buf);
 			end_timer (0);
@@ -4753,11 +4695,10 @@ errchk:		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
 			char	mask[80];
 			pct = calc_stage2_pct (&state);
 			pct = trunc_percent (pct * 100.0);
-			buf[0] = PLUS1 ? 'P' : 'M';
 			sprintf (mask,
-				"%%lu stage 2 is %%.%df%%%% complete.\n",
+				"%%s stage 2 is %%.%df%%%% complete.\n",
 				PRECISION);
-			sprintf (buf+1, mask, PARG, pct);
+			sprintf (buf, mask, gwmodulo_as_string (), pct);
 			writeResults (buf);
 			last_output_r = fft_count;
 		}
@@ -4807,6 +4748,13 @@ errchk:		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
 		if (nQx[j] != NULL) gwfree (nQx[j]);
 	}
 
+/* Since we set gwstartnextfft above, we must do another harmless squaring */
+/* here to make sure gg has not been partially FFTed.  We cannot convert gg */
+/* to an integer for GCD if it has been partially FFTed. */
+
+	gwstartnextfft (FALSE);
+	gwsquare (gg);
+
 /* Check to see if another pass is required */
 
 	end_timer (0);
@@ -4826,9 +4774,8 @@ errchk:		if (gw_test_for_error () || MAXERR >= 0.40625) goto error;
 
 /* Stage 2 is complete */
 
-	buf[0] = PLUS1 ? 'P' : 'M';
-	sprintf (buf+1, "%lu stage 2 complete. %.0f transforms. Time: ",
-		 PARG, fft_count);
+	sprintf (buf, "%s stage 2 complete. %.0f transforms. Time: ",
+		 gwmodulo_as_string (), fft_count);
 	OutputStr (buf);
 	print_timer (1, TIMER_NL | TIMER_CLR);
 	clear_timers ();
@@ -4866,15 +4813,14 @@ restart4:
 /* Output line to results file indicating P-1 run */
 
 msg_and_exit:
-	buf[0] = PLUS1 ? 'P' : 'M';
-	sprintf (buf+1, "%ld completed P-1, B1=%lu", PARG, B);
+	sprintf (buf, "%s completed P-1, B1=%lu", gwmodulo_as_string (), B);
 	if (C > B) {
 		if (E <= 2)
 			sprintf (buf+strlen(buf), ", B2=%lu", C);
 		else
 			sprintf (buf+strlen(buf), ", B2=%lu, E=%lu", C, E);
 	}
-	sprintf (buf+strlen(buf), ", WZ%d: %08lX\n", PORT, SEC5 (PARG, B, C));
+	sprintf (buf+strlen(buf), ", Wc%d: %08lX\n", PORT, SEC5 (n, B, C));
 	writeResults (buf);
 	if (ll_testing) spoolMessage (PRIMENET_RESULT_MESSAGE, buf);
 
@@ -4884,7 +4830,7 @@ msg_and_exit:
 	{
 		struct primenetAssignmentResult pkt;
 		memset (&pkt, 0, sizeof (pkt));
-		pkt.exponent = p;
+		pkt.exponent = n;
 		pkt.resultType = PRIMENET_RESULT_NOFACTOR;
 		pkt.resultInfo.how_far_factored = (double) ll_testing + 0.5;
 		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
@@ -4904,7 +4850,7 @@ done:	retval = TRUE;
 
 /* Update the exponent in the work-to-do-file */
 
-	updateWorkToDo (p, WORK_PMINUS1, 0);
+	updateWorkToDo (k, b, n, c, WORK_PMINUS1, 0);
 
 /* Free memory and return */
 
@@ -4941,7 +4887,7 @@ bingo:	if (stage == 1)
 			 "P-1 found a factor in stage #2, B1=%lu, B2=%lu.\n",
 			 B, C);
 	writeResults (buf);
-	printFactor ();
+	printFactor (k, b, n, c);
 	if (isone (FAC)) goto msg_and_exit;
 	if (QA_IN_PROGRESS) {
 		_unlink (filename);
@@ -4954,7 +4900,7 @@ bingo:	if (stage == 1)
 	if (ll_testing) {
 		struct primenetAssignmentResult pkt;
 		memset (&pkt, 0, sizeof (pkt));
-		pkt.exponent = p;
+		pkt.exponent = n;
 		pkt.resultType = PRIMENET_RESULT_FACTOR;
 		gtoc (FAC, pkt.resultInfo.factor,
 		      sizeof (pkt.resultInfo.factor));
@@ -4974,7 +4920,7 @@ bingo:	if (stage == 1)
 
 /* Remove the exponent from the worktodo.ini file */
 
-	updateWorkToDo (PARG, WORK_FACTOR, 0);
+	updateWorkToDo (k, b, n, c, WORK_FACTOR, 0);
 
 /* Cleanup and return */
 
@@ -5003,7 +4949,7 @@ error:	pm1_cleanup ();
 
 /* Read a file of P-1 tests to run as part of a QA process */
 /* The format of this file is: */
-/*	exponent, plus1_flag, B1, B2_start, B2_end, factor */
+/*	k, n, c, B1, B2_start, B2_end, factor */
 /* Use Advanced/Time 9992 to run the QA suite */
 
 int pminus1_QA ()
@@ -5026,23 +4972,24 @@ int pminus1_QA ()
 /* Loop until the entire file is processed */
 
 	for ( ; ; ) {
-		unsigned long p, B1, B2_start, B2_end;
-		int	plus1;
+		double	k;
+		unsigned long b, n, B1, B2_start, B2_end;
+		signed long c;
 		char	fac_str[80];
 		giant	f;
 		int	retval, success;
 
 /* Read a line from the file */
 
-		p = 0;
-		fscanf (fd, "%lu,%d,%lu,%lu,%lu,%s\n",
-			&p, &plus1, &B1, &B2_start, &B2_end, &fac_str);
-		if (p == 0) break;
+		n = 0;
+		fscanf (fd, "%f,%lu,%lu,%ld,%lu,%lu,%lu,%s\n",
+			&k, &b, &n, &c, &B1, &B2_start, &B2_end, &fac_str);
+		if (n == 0) break;
 
 /* If p is 1, set QA_TYPE */
 
-		if (p == 1) {
-			QA_TYPE = plus1;
+		if (n == 1) {
+			QA_TYPE = c;
 			savefiles = B1;
 			continue;
 		}
@@ -5065,7 +5012,7 @@ print out each test case (all relevant data)*/
 
 		if (B2_start < B1) B2_start = B1;
 		do {
-			retval = pminus1 (p, B1, B2_start, B2_end, plus1, FALSE);
+			retval = pminus1 (k, b, n, c, B1, B2_start, B2_end, FALSE);
 			if (!retval) {
 				QA_IN_PROGRESS = FALSE;
 				QA_TYPE = 0;

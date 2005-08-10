@@ -118,6 +118,13 @@ BOOL CPrime95App::InitInstance()
 		_chdir (buf);
 	}
 
+/* Initialize gwnum call back routines.  Using callback routines lets the */
+/* gwnum library have a nice clean interface for users that do not need */
+/* additional functionality that only prime95 uses. */
+
+	StopCheckRoutine = escapeCheck;
+	OutputBothRoutine = OutputBoth;
+
 /* NT services are not passed command line arguments.  In this case we */
 /* encode the -An information in the NT service name. */
 

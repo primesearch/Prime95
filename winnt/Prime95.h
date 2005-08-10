@@ -4,7 +4,7 @@
 #include <time.h>
 //#define SERVER_TESTING
 #define NO_GUI		1
-#define EXTERNC
+#include "common.h"
 #include "cpuid.h"
 #include "commonb.h"
 #include "commonc.h"

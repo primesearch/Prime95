@@ -1,0 +1,299 @@
+
+	OPTION	NOSCOPED
+
+; So that source code can assemble in both 32-bit and 64-bit mode, 
+; define the x86_64 registers as their 32-bit counterparts.  As long as
+; we use the x86_64 registers to hold pointers, the code will execute
+; successfully on both platforms.
+
+IFNDEF	X86_64
+rax	EQU	eax
+rbx	EQU	ebx
+rcx	EQU	ecx
+rdx	EQU	edx
+rsi	EQU	esi
+rdi	EQU	edi
+rbp	EQU	ebp
+rsp	EQU	esp
+ENDIF
+
+; Since pointers are different sizes in 32-bit and 64-bit mode, we
+; define shortcuts that let us declare an EXTRN pointer and allocate
+; storage.
+
+IFNDEF	X86_64
+EXTPTR	EQU	<DWORD>
+DPTR	EQU	DD
+SZPTR	EQU	4
+ELSE
+EXTPTR	EQU	<QWORD>
+DPTR	EQU	DQ
+SZPTR	EQU	8
+ENDIF
+
+; The SSE2 movsd instruction as opposed to the string mov instruction
+; Thanks to a sandpile.org discussion group contributor for this macro
+
+_movsd	MACRO ops:vararg
+	LOCAL	x, y
+x:	movss &ops
+y:	org x
+	DB	0F2h
+	org y
+	ENDM
+
+; Cool macro to execute a statement and a cool macro to not execute
+; a statement.  Some macros expect one of these as an argument to
+; optionally execute assembly statements.
+
+exec	MACRO ops:vararg
+	&ops
+	ENDM
+noexec	MACRO ops:vararg
+	ENDM
+
+no	MACRO ops:vararg
+	no&ops
+	ENDM
+nonoexec MACRO ops:vararg
+	&ops
+	ENDM
+
+; Macro to execute a statement only if we are including every possible
+; FFT implementation.  We do this when benchmarking all FFTs on a new machine
+; architecture to find the fastest FFT implementation.
+
+;;ENABLE_ALLFFT EQU  1
+allfft	MACRO ops:vararg
+	IFDEF ENABLE_ALLFFT
+	&ops
+	ENDIF
+	ENDM
+
+; Handy macro to only include statement if we are prefetching
+
+pfing MACRO stmt:vararg
+	IF PREFETCHING NE 0
+	&stmt
+	ENDIF
+	ENDM
+
+;; A handy shortcut:
+
+Q	EQU	<QWORD PTR>
+
+;; Bump a pointer by an amount - generates no code if amount is zero
+
+bump	MACRO	reg, amt
+	IF amt NE 0
+	lea	reg, [reg+amt]
+	ENDIF
+	ENDM
+
+; Macro to flush the P4 trace cache
+
+trace_cache_flush MACRO
+	LOCAL	rrr
+rrr:	mov	ds:BYTE PTR rrr, 0C6h
+	ENDM
+
+
+;
+; Macros to create different labels from the same source code.  This
+; allows us to use the same source to create AMD, P3, Pentium Pro, and Pentium
+; specific versions of the code.
+;
+
+EXTRNP	MACRO x
+IFDEF AMD
+EXTRN	&x&AMD:PROC
+ELSE
+IFDEF PFETCH
+EXTRN	&x&P3:PROC
+ELSE
+IFDEF PPRO
+EXTRN	&x&PPRO:PROC
+ELSE
+EXTRN	&x:PROC
+ENDIF
+ENDIF
+ENDIF
+	ENDM
+
+PUBLICP	MACRO x
+IFDEF AMD
+PUBLIC	&x&AMD
+ELSE
+IFDEF PFETCH
+PUBLIC	&x&P3
+ELSE
+IFDEF PPRO
+PUBLIC	&x&PPRO
+ELSE
+PUBLIC	&x
+ENDIF
+ENDIF
+ENDIF
+	ENDM
+
+PROCP	MACRO x
+IFDEF X86_64
+IFDEF AMD
+&x&AMD	PROC
+ELSE
+&x	PROC
+ENDIF
+ELSE
+IFDEF AMD
+&x&AMD	PROC NEAR
+ELSE
+IFDEF PFETCH
+&x&P3	PROC NEAR
+ELSE
+IFDEF PPRO
+&x&PPRO	PROC NEAR
+ELSE
+&x	PROC NEAR
+ENDIF
+ENDIF
+ENDIF
+ENDIF
+	ENDM
+
+ENDPP	MACRO x
+IFDEF AMD
+&x&AMD ENDP
+ELSE
+IFDEF PFETCH
+&x&P3 ENDP
+ELSE
+IFDEF PPRO
+&x&PPRO ENDP
+ELSE
+&x	ENDP
+ENDIF
+ENDIF
+ENDIF
+	ENDM
+
+LABELP	MACRO x
+IFDEF AMD
+&x&AMD:
+ELSE
+IFDEF PFETCH
+&x&P3:
+ELSE
+IFDEF PPRO
+&x&PPRO:
+ELSE
+&x:
+ENDIF
+ENDIF
+ENDIF
+	ENDM
+
+CALLP	MACRO x
+IFDEF AMD
+	CALL_Y	&x&AMD
+ELSE
+IFDEF PFETCH
+	CALL_Y	&x&P3
+ELSE
+IFDEF PPRO
+	CALL_Y	&x&PPRO
+ELSE
+	CALL_Y	&x
+ENDIF
+ENDIF
+ENDIF
+	ENDM
+
+JMPP	MACRO x
+IFDEF AMD
+	JMP_Y	&x&AMD
+ELSE
+IFDEF PFETCH
+	JMP_Y	&x&P3
+ELSE
+IFDEF PPRO
+	JMP_Y	&x&PPRO
+ELSE
+	JMP_Y	&x
+ENDIF
+ENDIF
+ENDIF
+	ENDM
+
+
+;
+; Call and Jump instructions to make Linux objcopy happy
+; Use these for calling or jumping to labels outside the object file
+;
+
+CALL_Y	MACRO	DEST
+	LOCAL	xxx
+	IFDEF	X86_64
+	call	DEST
+	ELSE
+	push	OFFSET xxx
+	JMP_Y	DEST
+xxx:
+	ENDIF
+	ENDM
+JE_Y	MACRO	DEST
+	LOCAL	xxx
+	jne	short xxx
+	JMP_Y	DEST
+xxx:
+	ENDM
+JMP_Y	MACRO	DEST
+	IFDEF	X86_64
+	jmp	DEST
+	ELSE
+	push	OFFSET DEST
+	retn
+	ENDIF
+	ENDM
+
+;
+; Macros to manage 32 timer values (only used when optimizing code)
+;
+
+;;TIMERS EQU 3
+
+clear_timers MACRO
+IFDEF TIMERS
+	push	rax
+	push	rcx
+	push	rdi
+	sub	rax, rax
+	mov	rcx, 32
+	mov	rdi, OFFSET _ASM_TIMERS
+	rep	stosd
+	pop	rdi
+	pop	rcx
+	pop	rax
+ENDIF
+	ENDM
+
+start_timer MACRO n
+IFDEF TIMERS
+	push	rax
+	push	rdx
+	rdtsc
+	sub	_ASM_TIMERS[n*4], eax
+	pop	rdx
+	pop	rax
+ENDIF
+	ENDM
+
+end_timer MACRO n
+IFDEF TIMERS
+	push	rax
+	push	rdx
+	rdtsc
+	add	_ASM_TIMERS[n*4], eax
+	pop	rdx
+	pop	rax
+ENDIF
+	ENDM

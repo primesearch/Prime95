@@ -1,4 +1,4 @@
-/* Copyright 1995-2002 Just For Fun Software, Inc. */
+/* Copyright 1995-2005 Just For Fun Software, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -267,7 +267,7 @@ void options_preferences ()
 void help_about ()
 {
 	printf ("Probable Prime Program - Version %s.2\n", VERSION);
-	printf ("Copyright 2000-2002 Just For Fun Software, Inc.\n");
+	printf ("Copyright 2000-2005 Just For Fun Software, Inc.\n");
 	printf ("Author: George Woltman\n");
 	printf ("Email:  woltman@alum.mit.edu\n");
 	askOK ();

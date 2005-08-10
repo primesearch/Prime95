@@ -2,7 +2,7 @@
 Compatibility=1.1 or later
 Compiled file=Prime95.chm
 Contents file=Prime95.hhc
-Default topic=Welcome.htm
+Default topic=Welcome.html
 Display compile progress=Yes
 Full-text search=Yes
 Index file=Prime95.hhk
@@ -11,66 +11,73 @@ Title=Prime95 Help
 
 
 [FILES]
-AdvancedMenu.htm
-AdvancedMenuECM.htm
-AdvancedMenuManual.htm
-AdvancedMenuP1.htm
-AdvancedMenuPassword.htm
-AdvancedMenuPriority.htm
-AdvancedMenuQuit.htm
-AdvancedMenuRoundoff.htm
-AdvancedMenuTest.htm
-AdvancedMenuTime.htm
-AdvancedMenuUnreserve.htm
-AvailableMemory.htm
-CommandLine.htm
-DISCLAIMER.htm
-DoubleChecking.htm
-Factoring.htm
-FileList.htm
-How GIMPS works.htm
-Instructions.htm
-InstructionsAutomatic.htm
-LUCAS-LEHMER DETAILS.htm
-ManualInstructions.htm
-New features in Version 10.htm
-New features in Version 12.htm
-New features in Version 13.htm
-New features in Version 14.htm
-New features in Version 15.htm
-New features in Version 16.htm
-New features in Version 17.htm
-New features in Version 18.htm
-New features in Version 19.htm
-New features in Version 20.htm
-New features in Version 21.htm
-New features in Version 8.htm
-Newsletters.htm
-Notes.htm
-OptionsMenu.htm
-OptionsMenuCPU.htm
-OptionsMenuPreferences.htm
-OptionsMenuBenchmark.htm
-OptionsMenuTortureTest.htm
-OptionsMenuTrayIcon.htm
-OptionsMenuWin95.htm
-PossibleHardwareFailure.htm
-ProgramOutput.htm
-Proxy.htm
-RunningonSeveralMachines.htm
-Success.htm
-StressTestingYourComputer.htm
-TestMenu.htm
-TestMenuContinue.htm
-TestMenuPrimeNet.htm
-TestMenuStatus.htm
-TestMenuStop.htm
-TestMenuUserInfo.htm
-TestMenuVacation.htm
-THANKS.htm
-Undoc.htm
-Welcome.htm
-What are Mersenne primes.htm
+AdvancedMenu.html
+AdvancedMenuECM.html
+AdvancedMenuManual.html
+AdvancedMenuP1.html
+AdvancedMenuPassword.html
+AdvancedMenuPriority.html
+AdvancedMenuQuit.html
+AdvancedMenuRoundoff.html
+AdvancedMenuTest.html
+AdvancedMenuTime.html
+AdvancedMenuUnreserve.html
+AvailableMemory.html
+CashAwards.html
+CommandLine.html
+Disclaimer.html
+DoubleChecking.html
+EndUser.html
+Factoring.html
+FileList.html
+HowGIMPSWorks.html
+Instructions.html
+InstructionsAutomatic.html
+InstructionsManual.html
+Lucas-LehmerDetails.html
+NewFeaturesInVersion_8.html
+NewFeaturesInVersion_10.html
+NewFeaturesInVersion_12.html
+NewFeaturesInVersion_13.html
+NewFeaturesInVersion_14.html
+NewFeaturesInVersion_15.html
+NewFeaturesInVersion_16.html
+NewFeaturesInVersion_17.html
+NewFeaturesInVersion_18.html
+NewFeaturesInVersion_19.html
+NewFeaturesInVersion_20.html
+NewFeaturesInVersion_21.html
+NewFeaturesInVersion_22.html
+NewFeaturesInVersion_23.html
+NewFeaturesInVersion_24.html
+Newsletters.html
+Notes.html
+OptionsMenu.html
+OptionsMenuBenchmark.html
+OptionsMenuCPU.html
+OptionsMenuPreferences.html
+OptionsMenuTortureTest.html
+OptionsMenuTrayIcon.html
+OptionsMenuWin95.html
+PossibleHardwareFailure.html
+ProgramOutput.html
+Proxy.html
+RunningonSeveralMachines.html
+StressTestingYourComputer.html
+Success.html
+TestMenu.html
+TestMenuContinue.html
+TestMenuPrimeNet.html
+TestMenuStatus.html
+TestMenuStop.html
+TestMenuUserInfo.html
+TestMenuVacation.html
+Thanks.html
+ThirdParty.html
+Undoc.html
+Welcome.html
+WhatAreMersennePrimes.html
+WhatIsThisProgram.html
 
 [ALIAS]
 #include Alias.h

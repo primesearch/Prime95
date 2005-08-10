@@ -137,9 +137,9 @@ CAPTION "About Prp"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
     ICON            IDR_MAINFRAME,IDC_STATIC,11,17,20,20
-    LTEXT           "Probable Prime Tests - Version 2.3.0",IDC_STATIC,40,12,
+    LTEXT           "Probable Prime Tests - Version 3.2.0",IDC_STATIC,40,12,
                     137,8,SS_NOPREFIX
-    LTEXT           "Copyright © 2000-2002 Just For Fun Software, Inc.",
+    LTEXT           "Copyright © 2000-2005 Just For Fun Software, Inc.",
                     IDC_STATIC,39,22,177,8
     DEFPUSHBUTTON   "OK",IDOK,199,7,32,14,WS_GROUP
     LTEXT           "Author: George Woltman",IDC_STATIC,39,32,128,8
@@ -263,8 +263,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 2,3,0,0
- PRODUCTVERSION 2,3,0,0
+ FILEVERSION 3,2,0,0
+ PRODUCTVERSION 3,2,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -280,12 +280,12 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "FileDescription", "PRP Application"
-            VALUE "FileVersion", "2, 3, 0, 0"
+            VALUE "FileVersion", "3, 2, 0, 0"
             VALUE "InternalName", "PRP"
-            VALUE "LegalCopyright", "Copyright © 2000-2002"
+            VALUE "LegalCopyright", "Copyright © 2000-2005"
             VALUE "OriginalFilename", "PRP.EXE"
             VALUE "ProductName", "PRP Application"
-            VALUE "ProductVersion", "2, 3, 0, 0"
+            VALUE "ProductVersion", "3, 2, 0, 0"
         END
     END
     BLOCK "VarFileInfo"

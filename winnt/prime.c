@@ -17,11 +17,8 @@
 #define PORT	5
 #include "giants.h"
 #include "gwnum.h"
-#include "cpuid.c"
-#ifdef DEBUG
-#include "giants.c"
-#endif
-#include "gwnum.c"
+#include "gwutil.h"
+#include "commona.c"
 #include "commonb.c"
 #include "commonc.c"
 #include "ecm.c"

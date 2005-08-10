@@ -1,4 +1,4 @@
-/* Copyright 1995-2003 Just For Fun Software, Inc. */
+/* Copyright 1995-2005 Just For Fun Software, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -10,11 +10,7 @@
 #endif
 #include <stdio.h>
 #include <string.h>
-
-/* Routine definitions */
-
-void rangeStatus (void);
-void options_cpu (void);
+#include <stdlib.h>
 
 /* Get line from the user (stdin) */
 
@@ -410,7 +406,8 @@ void advanced_test (void)
 #define NOTPRIMEERR "This number is not prime, there is no need to test it.\n"
 
 loop:	m_p = 0;
-	askNumNoDflt ("Exponent to test", &m_p, MIN_PRIME, MAX_PRIME);
+	askNumNoDflt ("Exponent to test", &m_p, MIN_PRIME,
+		      CPU_FLAGS & CPU_SSE2 ? MAX_PRIME_SSE2 : MAX_PRIME);
 
 	if (askOkCancel ()) {
 		if (! isPrime (m_p)) {
@@ -433,7 +430,8 @@ void advanced_time (void)
 	m_p = 10000000;
 	m_iter = 10;
 
-	askNum ("Exponent to time", &m_p, MIN_PRIME, MAX_PRIME);
+	askNum ("Exponent to time", &m_p, MIN_PRIME,
+	        CPU_FLAGS & CPU_SSE2 ? MAX_PRIME_SSE2 : MAX_PRIME);
 	askNum ("Number of Iterations", &m_iter, 1, 1000);
 	if (askOkCancel ()) {
 		primeTime (m_p, m_iter);
@@ -461,11 +459,13 @@ void advanced_pminus1 (void)
 	if (askOkCancel ()) {
 		struct work_unit w;
 		w.work_type = WORK_PMINUS1;
-		w.p = m_p;
+		w.k = 1.0;
+		w.b = 2;
+		w.n = m_p;
+		w.c = m_plus1 ? 1 : -1;
 		w.B1 = m_bound1;
 		w.B2_start = 0;
 		w.B2_end = m_bound2;
-		w.plus1 = m_plus1;
 		addWorkToDoLine (&w);
 		linuxContinue ("\nWork added to worktodo.ini file.  Another mprime is running.\n");
 		askOK ();
@@ -495,15 +495,16 @@ void advanced_ecm (void)
 
 	if (askOkCancel ()) {
 		struct work_unit w;
-		w.work_type = WORK_ECM; 
-		w.p = m_p;
+		w.work_type = WORK_ECM;
+		w.k = 1.0;
+		w.b = 2;
+		w.n = m_p;
+		w.c = m_plus1 ? 1 : -1;
 		w.B1 = m_bound1;
 		w.B2_start = 0;
 		w.B2_end = m_bound2;
 		w.curves_to_do = m_num_curves;
-		w.curves_completed = 0;
 		w.curve = m_curve;
-		w.plus1 = m_plus1;
 		addWorkToDoLine (&w);
 		linuxContinue ("\nWork added to worktodo.ini file.  Another mprime is running.\n");
 		askOK ();
@@ -525,6 +526,30 @@ void advanced_priority (void)
 	if (askOkCancel ()) {
 		PRIORITY = m_priority;
 		IniWriteInt (INI_FILE, "Priority", PRIORITY);
+	}
+}
+
+/* Advanced/Affinity dialog */
+
+void advanced_affinity (void)
+{
+	int	m_all_cpus;
+	unsigned long m_cpu;
+
+	m_all_cpus = (CPU_AFFINITY == 99);
+	m_cpu = (CPU_AFFINITY == 99) ? 0 : CPU_AFFINITY;
+
+	outputLongLine ("On multi-CPU systems, performance will be enhanced if you assign each instance of the program to run on a specific CPU.\n");
+	outputLongLine ("For example, if you have a dual-CPU machine, run one instance of mprime on CPU 0, run another instance on CPU 1.\n");
+
+	askYN ("Let program run on any CPU", &m_all_cpus);
+	if (!m_all_cpus)
+		askNum ("Specific CPU to run on", &m_cpu, 0, 31);
+
+	if (askOkCancel ()) {
+		if (m_all_cpus) CPU_AFFINITY = 99;
+		else CPU_AFFINITY = m_cpu;
+		IniWriteInt (LOCALINI_FILE, "Affinity", CPU_AFFINITY);
 	}
 }
 
@@ -565,7 +590,8 @@ void advanced_unreserve (void)
 	m_p = 0;
 
 	outputLongLine ("\nUse this only if you are sure you will not be finishing this exponent.  The exponent will be assigned to someone else.  It is not fair to them if you test an exponent assigned to someone else.\n");
-	askNumNoDflt ("Exponent to unreserve", &m_p, MIN_PRIME, MAX_PRIME);
+	askNumNoDflt ("Exponent to unreserve", &m_p, MIN_PRIME,
+		      MAX_PRIME_SSE2 > MAX_PRIME ? MAX_PRIME_SSE2 : MAX_PRIME);
 	if (askOkCancel ()) {
 		unreserve (m_p);
 		communicateWithServer ();
@@ -695,11 +721,11 @@ void options_preferences (void)
 	askNum ("Iterations between results file outputs",
 		&m_r_iter, 10000, 999999999);
 	askNum ("Minutes between disk writes", &m_disk_write_time, 10, 999999);
-	if (PRIMENET)
+	if (USE_PRIMENET)
 		askNum ("Minutes between modem retries", &m_modem, 1, 300);
-	if (PRIMENET)
+	if (USE_PRIMENET)
 		askNum ("Minutes between network retries", &m_retry, 1, 300);
-	if (PRIMENET)
+	if (USE_PRIMENET)
 		askNum ("Days between sending end dates", &m_end_dates, 1, 60);
 	askYN ("Create Two Backup Files", &m_backup);
 	askYN ("Make noise if new Mersenne prime is found", &m_noise);
@@ -729,7 +755,7 @@ void options_preferences (void)
 void help_about (void)
 {
 	printf ("Mersenne Prime Finder - Version %s.%d\n", VERSION, PORT);
-	printf ("Copyright 1996-2003 Just For Fun Software, Inc.\n");
+	printf ("Copyright 1996-2005 Just For Fun Software, Inc.\n");
 	printf ("Author: George Woltman\n");
 	printf ("Email:  woltman@alum.mit.edu\n");
 	askOK ();
@@ -770,8 +796,8 @@ void test_welcome (void)
 		IniWriteInt (INI_FILE, "StressTester", 1);
 		IniWriteInt (INI_FILE, "UsePrimenet", USE_PRIMENET = 0);
 		mem = physical_memory ();
-		DAY_MEMORY = NIGHT_MEMORY = (mem <= 32) ? 8 :
-					    (mem <= 256) ? mem / 2 : mem - 128;
+		DAY_MEMORY = NIGHT_MEMORY = (mem < 200) ? 8 :
+					    (mem < 500) ? mem / 2 : mem - 256;
 		IniWriteInt (LOCALINI_FILE, "DayMemory", DAY_MEMORY);
 		IniWriteInt (LOCALINI_FILE, "NightMemory", NIGHT_MEMORY);
 		if (mem > 8) {
@@ -805,18 +831,19 @@ loop:	printf ("\n");
 	printf ("\t 9.  Advanced/P-1\n");
 	printf ("\t10.  Advanced/ECM\n");
 	printf ("\t11.  Advanced/Priority\n");
-	printf ("\t12.  Advanced/Manual Communication\n");
-	printf ("\t13.  Advanced/Unreserve Exponent\n");
-	printf ("\t14.  Advanced/Quit Gimps\n");
-	printf ("\t15.  Options/CPU\n");
-	printf ("\t16.  Options/Preferences\n");
-	printf ("\t17.  Options/Torture Test\n");
-	printf ("\t18.  Options/Benchmark\n");
-	printf ("\t19.  Help/About\n");
-	printf ("\t20.  Help/About PrimeNet Server\n");
+	printf ("\t12.  Advanced/Affinity\n");
+	printf ("\t13.  Advanced/Manual Communication\n");
+	printf ("\t14.  Advanced/Unreserve Exponent\n");
+	printf ("\t15.  Advanced/Quit Gimps\n");
+	printf ("\t16.  Options/CPU\n");
+	printf ("\t17.  Options/Preferences\n");
+	printf ("\t18.  Options/Torture Test\n");
+	printf ("\t19.  Options/Benchmark\n");
+	printf ("\t20.  Help/About\n");
+	printf ("\t21.  Help/About PrimeNet Server\n");
 	printf ("Your choice: ");
 	choice = get_number (0);
-	if (choice <= 0 || choice >= 21) {
+	if (choice <= 0 || choice >= 22) {
 		printf ("\t     Invalid choice\n");
 		goto loop;
 	}
@@ -875,7 +902,7 @@ loop:	printf ("\n");
 		advanced_time ();
 		break;
 
-/* Advanced/ECM dialog */
+/* Advanced/P-1 dialog */
 
 	case 9:
 		advanced_pminus1 ();
@@ -893,59 +920,65 @@ loop:	printf ("\n");
 		advanced_priority ();
 		break;
 
-/* Advanced/Manual Communication dialog */
+/* Advanced/Affinity dialog */
 
 	case 12:
+		advanced_affinity ();
+		break;
+
+/* Advanced/Manual Communication dialog */
+
+	case 13:
 		advanced_manualcomm ();
 		break;
 
 /* Advanced/Unreserve exponent dialog */
 
-	case 13:
+	case 14:
 		advanced_unreserve ();
 		break;
 
 /* Advanced/Quit Gimps dialog */
 
-	case 14:
+	case 15:
 		advanced_quit ();
 		break;
 
 /* Options/CPU dialog */
 
-	case 15:
+	case 16:
 		options_cpu ();
 		break;
 
 /* Options/Preferences dialog */
 
-	case 16:
+	case 17:
 		options_preferences ();
 		break;
 
 /* Options/Torture Test */
 
-	case 17:
+	case 18:
 		selfTest (1);
 		askOK ();
 		break;
 
 /* Options/Benchmark Test */
 
-	case 18:
+	case 19:
 		primeBench ();
 		askOK ();
 		break;
 
 /* Help/About */
 
-	case 19:
+	case 20:
 		help_about ();
 		break;
 
 /* Help/About PrimeNet Server */
 
-	case 20:
+	case 21:
 		help_about_server ();
 		break;
 	}

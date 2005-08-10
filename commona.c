@@ -52,7 +52,7 @@ void rangeStatusMessage (
 		struct work_unit w;
 		unsigned long iteration;
 		double	pct, work;
-		char	timebuf[30];
+		char	timebuf[80];
 		char	*work_type;
 		unsigned int len;
 
@@ -72,29 +72,27 @@ void rangeStatusMessage (
 		if (w.work_type == WORK_TEST) {
 			ll_cnt++;
 			if (w.pminus1ed)
-				prob += (double) ((w.bits - 1) * 1.803) / w.p;
+				prob += (double) ((w.bits - 1) * 1.803) / w.n;
 			else
-				prob += (double) ((w.bits - 1) * 1.733) / w.p;
+				prob += (double) ((w.bits - 1) * 1.733) / w.n;
 		}
 		if (w.work_type == WORK_DBLCHK) {
 			ll_cnt++;
 			if (w.pminus1ed)
-				prob += (double) ((w.bits - 1) * 1.803 * ERROR_RATE) / w.p;
+				prob += (double) ((w.bits - 1) * 1.803 * ERROR_RATE) / w.n;
 			else
-				prob += (double) ((w.bits - 1) * 1.733 * ERROR_RATE) / w.p;
+				prob += (double) ((w.bits - 1) * 1.733 * ERROR_RATE) / w.n;
 		}
 
 /* Adjust our time estimate */
 
 		work = work_estimate (&w);
-		pct = pct_complete (w.work_type, w.p, &iteration);
+		pct = pct_complete (w.work_type, w.n, &iteration);
 		if (pct == 999.0) est_is_accurate = FALSE;
 		work *= (1.0 - pct);
 		est += work;
 
 /* Add the exponent to the output message */
-
-		buf[len] = 'M';
 
 		if (w.work_type == WORK_ECM)
 			work_type = "ECM";
@@ -120,11 +118,9 @@ void rangeStatusMessage (
 		if (w.work_type == WORK_ECM) {
 			sprintf (timebuf, "%d curves with B1=%lu\n",
 				 w.curves_to_do, w.B1);
-			if (w.plus1) buf[len] = 'P';
 			est_is_accurate = FALSE;
 		} else if (w.work_type == WORK_PMINUS1) {
 			sprintf (timebuf, "B1=%lu\n", w.B1);
-			if (w.plus1) buf[len] = 'P';
 			est_is_accurate = FALSE;
 		} else if (est_is_accurate) {
 			time_t	this_time;
@@ -138,7 +134,8 @@ void rangeStatusMessage (
 		} else
 			strcpy (timebuf, "unknown completion date\n");
 
-		sprintf (buf+len+1, "%ld, %s, %s", w.p, work_type, timebuf);
+		gw_as_string (buf+len, w.k, w.b, w.n, w.c);
+		sprintf (buf+strlen (buf), ", %s, %s", work_type, timebuf);
 	}
 	if (!WELL_BEHAVED_WORK) IniFileClose (WORKTODO_FILE);
 

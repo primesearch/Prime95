@@ -1,7 +1,6 @@
 /* Handy definitions */
 
-#define FALSE	0
-#define TRUE	1
+#include "common.h"
 
 /* Port number used in version numbers and result reporting. */
 
@@ -22,95 +21,12 @@
 #define MPRIME_LOADAVG
 #endif
 
-/* Handle the difference between the naming conventions in the two */
-/* C compilers.  We only need to to this for global variables that */
-/* referenced by the assembly routines */
+/* Handle the difference between the naming conventions in */
+/* C compilers.  We need to do this for global variables that are */
+/* referenced by the assembly routines.  Most non-Windows systems */
+/* should #define ADD_UNDERSCORES before including files. */
 
-#define ERRCHK	 _ERRCHK
-#define CPU_TYPE _CPU_TYPE
-#define CPU_L2_CACHE_SIZE _CPU_L2_CACHE_SIZE
-#define CPU_L2_CACHE_LINE_SIZE _CPU_L2_CACHE_LINE_SIZE
-#define MAXERR	 _MAXERR
-#define GWERROR	 _GWERROR
-#define PARG	 _PARG
-#define FACLSW	 _FACLSW
-#define FACMSW	 _FACMSW
-#define FACHSW	 _FACHSW
-#define FACPASS	 _FACPASS
-
-#define FFTLEN	_FFTLEN
-#define SRCARG	_SRCARG
-#define SRC2ARG	_SRC2ARG
-#define DESTARG	_DESTARG
-#define DEST2ARG _DEST2ARG
-#define MAXDIFF _MAXDIFF
-#define INFP	_INFP
-#define INFF	_INFF
-#define INFT	_INFT
-#define GWPROCPTRS _GWPROCPTRS
-#define UU	_UU
-#define VV	_VV
-#define Ulen	_Ulen
-#define Vlen	_Vlen
-#define EGCD_A	_EGCD_A
-#define EGCD_B	_EGCD_B
-#define EGCD_C	_EGCD_C
-#define EGCD_D	_EGCD_D
-#define EGCD_ODD _EGCD_ODD
-#define NORM_ARRAY1 _NORM_ARRAY1
-#define NORM_ARRAY2 _NORM_ARRAY2
-#define RES	_RES
-#define CARRYL	_CARRYL
-#define CARRYH	_CARRYH
-#define PLUS1	_PLUS1
-
-#define NORMRTN		_NORMRTN
-#define FFTZERO		_FFTZERO
-#define CPU_FLAGS	_CPU_FLAGS
-#define NUMLIT		_NUMLIT
-#define NUMBIG		_NUMBIG
-#define BITS_PER_WORD	_BITS_PER_WORD
-#define FFTLEN_INV	_FFTLEN_INV
-#define PROTHVALS 	_PROTHVALS
-#define ADDIN_ROW	_ADDIN_ROW
-#define ADDIN_OFFSET	_ADDIN_OFFSET
-#define ADDIN_VALUE	_ADDIN_VALUE
-#define COPYZERO	_COPYZERO
-#define POSTFFT		_POSTFFT
-
-#define CPUID_EAX	_CPUID_EAX
-#define CPUID_EBX	_CPUID_EBX
-#define CPUID_ECX	_CPUID_ECX
-#define CPUID_EDX	_CPUID_EDX
-
-/* Handle the difference in the way the two C compilers name routines */
-
-#define timeit _timeit
-#define setupf	 _setupf
-#define factor64 _factor64
-#define gw_setup1 _gw_setup1
-#define gw_setup2 _gw_setup2
-#define egetval _egetval
-#define egcdhlp _egcdhlp
-#define eaddhlp	_eaddhlp
-#define emuladdhlp _emuladdhlp
-#define emulsubhlp _emulsubhlp
-#define emuladd2hlp _emuladd2hlp
-#define gwinfo1	_gwinfo1
-#define gwsetup1 _gwsetup1
-#define gwsetup2 _gwsetup2
-#define esubhlp _esubhlp
-#define emulmod	_emulmod
-#define eisvaliddouble _eisvaliddouble
-#define fpu_init _fpu_init
-#define erdtsc	_erdtsc
-#define etwo_to_pow _etwo_to_pow
-#define esincos	_esincos
-#define esincos3 _esincos3
-#define etwo_to_pow_over_fftlen _etwo_to_pow_over_fftlen
-#define eset_mul_const _eset_mul_const
-#define ecpuidsupport _ecpuidsupport
-#define ecpuid _ecpuid
+#define ADD_UNDERSCORES
 
 /* Handle differences between Windows and Linux runtime libraries */
 
@@ -123,13 +39,13 @@
 #define _unlink		unlink
 #define _creat		creat
 #define _chdir		chdir
-#define _ftime		ftime
 #define closesocket	close
 #define IsCharAlphaNumeric(c) isalnum(c)
 
 #ifndef __WATCOMC__
 #define stricmp(x,y)	strcasecmp(x,y)
 #define _timeb		timeb
+#define _ftime		ftime
 #define _O_APPEND	O_APPEND
 #define _O_RDONLY	O_RDONLY
 #define _O_WRONLY	O_WRONLY
@@ -152,15 +68,11 @@
 
 #include <time.h>
 /*#define SERVER_TESTING*/
-#ifdef __WATCOMC__
-#define EXTERNC extern
-#else
-#define EXTERNC
-#endif
 extern int NO_GUI;
+#include "common.h"
 #include "cpuid.h"
-#include "giants.h"
 #include "gwnum.h"
+#include "giants.h"
 #include "commona.h"
 #include "commonc.h"
 #include "commonb.h"
@@ -185,3 +97,7 @@ void test_welcome(void);
 void setupf (void);
 int factor64 (void);
 
+/* Routine definitions */
+
+void rangeStatus (void);
+void options_cpu (void);

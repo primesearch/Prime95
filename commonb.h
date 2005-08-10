@@ -17,9 +17,9 @@ int isKnownMersennePrime (unsigned long);
 unsigned int avail_mem (void);
 void clear_memory (unsigned long, unsigned long);
 void makestr (unsigned long, unsigned long, unsigned long, char *buf);
-void updateWorkToDo (unsigned long, int, unsigned long);
+void updateWorkToDo (double, unsigned long, unsigned long, signed long, int, unsigned long);
 
-int stopCheck (void);
+EXTERNC int stopCheck (void);
 #define STOP_ESCAPE		1
 #define STOP_TIMEOUT		2
 #define STOP_MEM_CHANGED	3
@@ -28,7 +28,7 @@ extern int STOP_REASON;		/* Reason stopCheck stopped processing */
 void memSettingsChanged (void);
 
 void primeContinue (void);
-int pick_fft_size (unsigned long);
+int pick_fft_size (double, unsigned long, unsigned long, signed long);
 int prime (unsigned long, unsigned long, unsigned long, unsigned long);
 int selfTest (unsigned long);
 int selfTestInternal (unsigned long, unsigned int, int, unsigned int, void *);
@@ -50,12 +50,25 @@ void title (char *);
 void flashWindowAndBeep (void);
 void SetPriority (void);
 int checkPauseList ();
-int ecm (unsigned long, unsigned long, unsigned long, unsigned long,
-	 unsigned long, unsigned long, double, int);
-int pminus1 (unsigned long, unsigned long, unsigned long, unsigned long,
-	     int, int);
+int ecm (double k, unsigned long b, unsigned long n, signed long c,
+	 unsigned long, unsigned long, unsigned long, unsigned long, double);
+int pminus1 (double k, unsigned long b, unsigned long n, signed long c,
+	 unsigned long, unsigned long, unsigned long, int);
 int ecm_QA (void);
 int pminus1_QA (void);
+
+/* Handle the difference between the naming conventions in */
+/* C compilers.  We need to do this for global variables that are */
+/* referenced by the assembly routines. */
+
+#ifdef ADD_UNDERSCORES
+#define FACLSW	 _FACLSW
+#define FACMSW	 _FACMSW
+#define FACHSW	 _FACHSW
+#define FACPASS	 _FACPASS
+#define setupf	 _setupf
+#define factor64 _factor64
+#endif
 
 /* Messages */
 

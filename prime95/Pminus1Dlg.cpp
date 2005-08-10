@@ -32,7 +32,8 @@ void CPminus1Dlg::DoDataExchange(CDataExchange* pDX)
 	CDialog::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CPminus1Dlg)
 	DDX_Text(pDX, IDC_P1, m_p);
-	DDV_MinMaxUInt(pDX, m_p, 100, 79300000);
+	DDV_MinMaxUInt (pDX, m_p, 100,
+			CPU_FLAGS & CPU_SSE2 ? MAX_PRIME_SSE2 : MAX_PRIME);
 	DDX_Text(pDX, IDC_P2, m_bound1);
 	DDV_MinMaxUInt(pDX, m_bound1, 0, 4000000000);
 	DDX_Text(pDX, IDC_P3, m_bound2);

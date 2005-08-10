@@ -4,24 +4,26 @@
 # (c) Max Alekseyev
 
 CC = wcc386
-CFLAGS = /ox /d0 /I..;..\linux /5s /D__IBMC__ /DTCPV40HDRS
+CPP = wpp386
+CFLAGS = /ox /d0 /I..;..\linux;..\gwnum;..\qd /5s /D__IBMC__ /DTCPV40HDRS
 LINK = wlink
-LFLAGS = LIBPath ..\prime95 op m import DosQuerySysState DOSCALLS.368
+LFLAGS = LIBPath ..\prime95;..\linux;..\gwnum op m import DosQuerySysState DOSCALLS.368
 
 # debug version
 # CFLAGS = /ox /d3 /I.. /5s /D__IBMC__ /D_DEBUG
 # LFLAGS = LIBPath ..\prime95 op m debug all import DosQuerySysState DOSCALLS.368
 
-COFFOBJS = cpuid.obj,ecmhelp.obj,factor64.obj,mult.obj,mult1.obj,mult1aux.obj,mult1p.obj,mult2.obj,mult2a.obj,mult2ap.obj,mult2aux.obj,mult2p.obj,mult3.obj,mult3a.obj,mult3ap.obj,mult3aq.obj,mult3auq.obj,mult3aux.obj,mult3p.obj,mult3q.obj,mult4.obj,mult4a.obj,mult4ap.obj,mult4aq.obj,mult4auq.obj,mult4aux.obj,mult4b.obj,mult4bp.obj,mult4bq.obj,mult4p.obj,mult4q.obj,xmult1.obj,xmult1ax.obj,xmult2.obj,xmult2a.obj,xmult2ax.obj,xmult3.obj,xmult3a.obj,xmult3ax.obj
+COFFOBJS = cpuidhlp.obj,factor32.obj,gianthlp.obj,mult.obj,mult1.obj,mult1aux.obj,mult2.obj,mult2a.obj,mult2ap.obj,mult2aux.obj,mult2p.obj,mult3.obj,mult3a.obj,mult3ap.obj,mult3p.obj,mult4.obj,mult4p.obj,xmult1.obj,xmult1ax.obj,xmult2.obj,xmult2a.obj,xmult2ap.obj,xmult2ax.obj,xmult2p.obj,xmult3.obj,xmult3a.obj,xmult3ap.obj,xmult3p.obj,xmult4.obj,xmult4p.obj,xmult5.obj,xmult5p.obj,xmult6.obj,xmult6p.obj
 DUMMYOBJS = dummy4.obj,dummy8.obj,dummy12.obj,dummy16.obj,dummy20.obj,dummy24.obj,dummy28.obj
 PRIMEOBJS = prime.obj,menu.obj
+
 # PRIMESRC = prime.c,menu.c
 # LIBS = tcpip32.lib
 LIBS = so32dll.lib,tcp32dll.lib
 EXE = primeos2.exe
 
-$(EXE): prime.obj menu.obj		# $(PRIMEOBJS),$(COFFOBJS),$(DUMMYOBJS)
-	$(LINK) $(LFLAGS) file prime.obj,menu.obj name $(EXE) libfile $(COFFOBJS),dummy24.obj library $(LIBS) 
+$(EXE): prime.obj menu.obj cpuid.obj giants.obj gwdbldbl.obj gwnum.obj gwutil.obj	# $(PRIMEOBJS),$(COFFOBJS),$(DUMMYOBJS)
+	$(LINK) $(LFLAGS) file prime.obj,menu.obj,cpuid.obj,giants.obj,gwdbldbl.obj,gwnum.obj,gwutil.obj name $(EXE) libfile $(COFFOBJS) library $(LIBS) 
 
 prime.obj: ..\linux\prime.c
 	$(CC) $(CFLAGS) $<
@@ -29,5 +31,20 @@ prime.obj: ..\linux\prime.c
 menu.obj: ..\linux\menu.c
 	$(CC) $(CFLAGS) $<
 
+gwdbldbl.obj: ..\gwnum\gwdbldbl.cpp
+	$(CPP) $(CFLAGS) $<
+
+cpuid.obj: ..\gwnum\cpuid.c
+	$(CC) $(CFLAGS) /DADD_UNDERSCORES $<
+
+giants.obj: ..\gwnum\giants.c
+	$(CC) $(CFLAGS) /DADD_UNDERSCORES $<
+
+gwnum.obj: ..\gwnum\gwnum.c
+	$(CC) $(CFLAGS) /DADD_UNDERSCORES $<
+
+gwutil.obj: ..\gwnum\gwutil.c
+	$(CC) $(CFLAGS) $<
+
 clean:
-	del $(EXE) prime.obj menu.obj
+	del $(EXE) *.obj

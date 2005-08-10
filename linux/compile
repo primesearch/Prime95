@@ -1,0 +1,33 @@
+# Assembler command lines
+
+masm=ml /c /coff
+#masm=ml /c /coff /Fl /Sf /Sa
+masm64=ml64 /c /DX86_64
+#masm64=ml64 /c /Fl /Sf /Sa /DX86_64
+
+# Create 32-bit object files
+
+dummy0.obj: dummy0.asm
+    $(masm) dummy0.asm
+
+dummy4.obj: dummy4.asm
+    $(masm) dummy4.asm
+
+dummy8.obj: dummy8.asm
+    $(masm) dummy8.asm
+
+dummy12.obj: dummy12.asm
+    $(masm) dummy12.asm
+
+dummy16.obj: dummy16.asm
+    $(masm) dummy16.asm
+
+dummy20.obj: dummy20.asm
+    $(masm) dummy20.asm
+
+dummy24.obj: dummy24.asm
+    $(masm) dummy24.asm
+
+dummy28.obj: dummy28.asm
+    $(masm) dummy28.asm
+

@@ -29,9 +29,11 @@ void CTortureDlg::DoDataExchange(CDataExchange* pDX)
 	CDialog::DoDataExchange(pDX);
 	DDX_Radio(pDX, IDC_L2_CACHE, m_torture_type);
 	DDX_Text(pDX, IDC_MINFFT, m_minfft);
-	DDV_MinMaxInt(pDX, m_minfft, 8, 4096);
+	DDV_MinMaxInt(pDX, m_minfft, 8,
+		(CPU_FLAGS & CPU_SSE2 ? MAX_FFTLEN_SSE2 : MAX_FFTLEN) / 1024);
 	DDX_Text(pDX, IDC_MAXFFT, m_maxfft);
-	DDV_MinMaxInt(pDX, m_maxfft, 8, 4096);
+	DDV_MinMaxInt(pDX, m_maxfft, 8,
+		(CPU_FLAGS & CPU_SSE2 ? MAX_FFTLEN_SSE2 : MAX_FFTLEN) / 1024);
 	DDX_Check(pDX, IDC_IN_PLACE_FFT, m_in_place_fft);
 	DDX_Text(pDX, IDC_MEMORY, m_memory);
 	DDX_Text(pDX, IDC_TIMEFFT, m_timefft);
@@ -100,7 +102,8 @@ void CTortureDlg::OnBnClickedBlend()
 	m_maxfft = 4096;
 	m_in_place_fft = FALSE;
 	mem = physical_memory ();
-	if (mem > 104) m_memory = mem - 96;
+	if (mem >= 500) m_memory = GetSuggestedMemory (mem - 256);
+	else if (mem >= 200) m_memory = GetSuggestedMemory (mem / 2);
 	else m_memory = 8;
 	m_timefft = 15;
 	UpdateData (0);

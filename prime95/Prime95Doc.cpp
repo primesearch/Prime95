@@ -376,7 +376,7 @@ void CPrime95Doc::OnVacation()
 		} else
 			VACATION_END = 0;
 		ON_DURING_VACATION = dlg.m_computer_on;
-                IniWriteInt (LOCALINI_FILE, "VacationEnd", VACATION_END);
+                IniWriteInt (LOCALINI_FILE, "VacationEnd", (long) VACATION_END);
                 IniWriteInt (LOCALINI_FILE, "VacationOn", ON_DURING_VACATION);
 		if (VACATION_END && !ON_DURING_VACATION)
 			IniWriteInt (LOCALINI_FILE, "RollingStartTime", 0);
@@ -499,11 +499,13 @@ void CPrime95Doc::OnPminus1()
 	if (dlg.DoModal () == IDOK) {
 		work_unit w;
 		w.work_type = WORK_PMINUS1;
-		w.p = dlg.m_p;
+		w.k = 1.0;
+		w.b = 2;
+		w.n = dlg.m_p;
+		w.c = dlg.m_plus1 ? 1 : -1;
 		w.B1 = dlg.m_bound1;
 		w.B2_start = 0;
 		w.B2_end = dlg.m_bound2;
-		w.plus1 = dlg.m_plus1;
 		addWorkToDoLine (&w);
 		OnContinue ();
 	}
@@ -523,14 +525,15 @@ void CPrime95Doc::OnEcm()
 	if (dlg.DoModal () == IDOK) {
 		work_unit w;
 		w.work_type = WORK_ECM;
-		w.p = dlg.m_p;
+		w.k = 1.0;
+		w.b = 2;
+		w.n = dlg.m_p;
+		w.c = dlg.m_plus1 ? 1 : -1;
 		w.B1 = dlg.m_bound1;
 		w.B2_start = 0;
 		w.B2_end = dlg.m_bound2;
 		w.curves_to_do = dlg.m_num_curves;
-		w.curves_completed = 0;
 		w.curve = dlg.m_curve;
-		w.plus1 = dlg.m_plus1;
 		addWorkToDoLine (&w);
 		OnContinue ();
 	}
@@ -760,11 +763,14 @@ void CPrime95Doc::OnTorture()
 	dlg.m_minfft = 8;
 	dlg.m_maxfft = 4096;
 	mem = physical_memory ();
-	if (mem > 104) {
-		dlg.m_memory = mem - 96;
+	if (mem >= 500) {
+		dlg.m_memory = GetSuggestedMemory (mem - 256);
 		dlg.m_in_place_fft = FALSE;
+	} else if (mem >= 200) {
+		dlg.m_memory = GetSuggestedMemory (mem / 2);
+		dlg.m_in_place_fft = TRUE;
 	} else {
-		dlg.m_memory = 0;
+		dlg.m_memory = 8;
 		dlg.m_in_place_fft = TRUE;
 	}
 	dlg.m_timefft = 15;
@@ -1012,15 +1018,13 @@ void CPrime95Doc::OutputStr (
 #include <stdlib.h>
 #include <string.h>
 #include <sys/timeb.h>
+#include <gwutil.h>
 
-#include "cpuid.c"
-
+#ifdef X86_64
+#define PORT	4
+#else
 #define PORT	1
-#include "giants.h"
-#ifdef _DEBUG
-#include "giants.c"
 #endif
-#include "gwnum.c"
 #include "commona.c"
 #include "commonb.c"
 #include "commonc.c"

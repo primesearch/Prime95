@@ -8,7 +8,7 @@
 #include "resource.h"       // main symbols
 #include "EditDropFiles.h"
 #define NO_GUI		0
-#define EXTERNC		extern "C"
+#include "common.h"
 #include "cpuid.h"
 #include "gwnum.h"
 #include "prp.h"

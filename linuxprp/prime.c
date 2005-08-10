@@ -1,4 +1,4 @@
-/* Copyright 1995-2002 Just For Fun Software, Inc. */
+/* Copyright 1995-2005 Just For Fun Software, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -57,9 +57,6 @@ int MENUING = 0;
 #define PORT	7
 #endif
 
-#include "cpuid.c"
-#include "giants.c"
-#include "gwnum.c"
 #include "prp.c"
 
 /* Signal handlers */
@@ -186,6 +183,13 @@ int main (
 		*p = 0;
 		_chdir (buf);
 	}
+
+/* Initialize gwnum call back routines.  Using callback routines lets the */
+/* gwnum library have a nice clean interface for users that do not need */
+/* additional functionality that only prime95 uses. */
+
+	StopCheckRoutine = escapeCheck;
+	OutputBothRoutine = OutputBoth;
 
 /* Process command line switches */
 
@@ -468,44 +472,4 @@ void linuxContinue (
 ok:	IniWriteInt (INI_FILE, "Pid", my_pid);
 	primeContinue ();
 	IniWriteInt (INI_FILE, "Pid", 0);
-}
-
-/* Routines to access the high resolution performance counter */
-/* In Linux, I've read that gettimeofday is the most accurate counter */
-
-int isHighResTimerAvailable (void)
-{
-	struct timeval start, end;
-	struct timezone tz;
-	int	i;
-
-/* Return true if gettimeofday is more accurate than 1/10 millisecond. */
-/* Try 10 times to see if gettimeofday returns two values less than */
-/* 100 microseconds apart. */
-
-	for (i = 0; i < 10; i++) {
-		gettimeofday (&start, &tz);
-		for ( ; ; ) {
-			gettimeofday (&end, &tz);
-			if (start.tv_sec != end.tv_sec) break;
-			if (start.tv_usec == end.tv_usec) continue;
-			if (end.tv_usec - start.tv_usec < 100) return (TRUE);
-			continue;
-		}
-	}
-	return (FALSE);
-}
-
-double getHighResTimer (void)
-{
-	struct timeval x;
-	struct timezone tz;
-
-	gettimeofday (&x, &tz);
-	return ((double) x.tv_sec * 1000000.0 + (double) x.tv_usec);
-}
-
-double getHighResTimerFrequency (void)
-{
-	return (1000000.0);
 }

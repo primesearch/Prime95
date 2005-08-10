@@ -1,6 +1,6 @@
 /* Constants */
 
-#define VERSION		"2.3"
+#define VERSION		"3.0"
 
 /* Global variables */
 
@@ -9,7 +9,7 @@ extern char RESFILE[80];		/* Name of the results file */
 extern char LOGFILE[80];		/* Name of the server log file */
 extern char EXTENSION[8];		/* Extension for several filenames */
 
-extern int volatile ERRCHK;			/* 1 to turn on error checking */
+extern int volatile ERRCHK;		/* 1 to turn on error checking */
 extern unsigned int PRIORITY;		/* Desired priority level */
 extern unsigned int CPU_AFFINITY;	/* NT Processor affinity */
 extern unsigned long volatile ITER_OUTPUT;/* Iterations between outputs */
@@ -75,14 +75,10 @@ int communicateWithServer ();
 /* Routines called by common routines */
 
 void OutputStr (char *);
-int isHighResTimerAvailable (void);
-double getHighResTimer (void);
-double getHighResTimerFrequency (void);
 void guessCpuType (void);
 void getCpuDescription (char *, int);
 unsigned long num_cpus (void);
 void doMiscTasks (void);
-#define stopCheck escapeCheck
 int escapeCheck (void);
 #define	WORKING_ICON	0
 #define	IDLE_ICON	1
