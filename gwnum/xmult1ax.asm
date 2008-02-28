@@ -1,4 +1,4 @@
-; Copyright 2001-2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 2001-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -19,22 +19,17 @@ INCLUDE xnormal.mac
 
 _TEXT SEGMENT
 
-gwx1procs PROC
-
 ;;
 ;; Add two numbers without carry propogation.  Caller can use this for
 ;; consecutive add or subtract operations.  However, the last operation
 ;; before a multiply must use the routine that will normalize data.
 ;;
 
-	PUBLIC	gwxaddf1
-gwxaddf1:
-	PUBLIC	gwxaddq1
-gwxaddq1:
-	push	rsi			; Save registers
-	mov	rcx, _SRCARG		; Address of first number
-	mov	rdx, _SRC2ARG		; Address of second number
-	mov	rsi, _DESTARG		; Address of destination
+PROCF	gwxaddq1
+	ad_prolog 0,0,rsi
+	mov	rcx, SRCARG		; Address of first number
+	mov	rdx, SRC2ARG		; Address of second number
+	mov	rsi, DESTARG		; Address of destination
 	mov	eax, addcount1		; Load loop counter
 uaddlp:	movapd	xmm0, [rdx]		; Load second number
 	addpd	xmm0, [rcx]		; Add in first number
@@ -53,67 +48,55 @@ uaddlp:	movapd	xmm0, [rdx]		; Load second number
 	lea	rsi, [rsi+64]		; Next dest
 	sub	eax, 1			; Check loop counter
 	jnz	short uaddlp		; Loop if necessary
-	pop	rsi			; Restore registers
-	ret
+	ad_epilog 0,0,rsi
+gwxaddq1 ENDP
 
 ;;
 ;; Add two numbers with carry propogation
 ;;
 
-	PUBLIC	gwxadd1
-gwxadd1:
-	push	rsi			; Save registers
-	push	rdi			; Save registers
-	push	rbp			; Save registers
-	push	rbx			; Save registers
-	IFDEF X86_64
-	sub	rsp, 16
-	_movsd	[rsp+8], xmm6
-	_movsd	[rsp], xmm7
-	ENDIF
-	mov	rcx, _SRCARG		; Address of first number
-	mov	rdx, _SRC2ARG		; Address of second number
-	mov	rsi, _DESTARG		; Address of destination
+saved_dest_ptr	EQU	PPTR [rsp+first_local+0*SZPTR]
+saved_col_ptr	EQU	PPTR [rsp+first_local+1*SZPTR]
+loopcount1	EQU	DPTR [rsp+first_local+2*SZPTR+0]
+loopcount2	EQU	DPTR [rsp+first_local+2*SZPTR+4]
+
+PROCF	gwxadd1
+	ad_prolog 2*SZPTR+8,0,rbx,rbp,rsi,rdi,xmm6,xmm7
+	mov	rcx, SRCARG		; Address of first number
+	mov	rdx, SRC2ARG		; Address of second number
+	mov	rsi, DESTARG		; Address of destination
 	movapd	xmm2, XMM_BIGVAL	; Start process with no carry
 	movapd	xmm3, xmm2
 	mov	eax, normcount1		; Load loop counter
 	mov	rbp, norm_col_mults	; Address of the multipliers
 	mov	rdi, norm_biglit_array	; Addr of the big/little flags array
-nadd0:	push	rax			; Save loop counter
+nadd0:	mov	loopcount1, eax		; Save loop counter
 	and	eax, 07FFh		; Grab 11 bits of the counter
-	mov	loopcount1, eax
-	push	rsi			; remember esi for xnorm_op_1d_mid
-	push	rbp			; remember ebp for xnorm_op_1d_mid
+	mov	loopcount2, eax
+	mov	saved_dest_ptr, rsi	; remember rsi for xnorm_op_1d_mid
+	mov	saved_col_ptr, rbp	; remember rbp for xnorm_op_1d_mid
 	sub	rax, rax		; Clear big/lit flags
 	sub	rbx, rbx
-	cmp	_RATIONAL_FFT, 0	; Test for irrational FFTs
+	cmp	RATIONAL_FFT, 0		; Test for irrational FFTs
 	je	naddlp			; Yes, use two-to-phi multipliers
 raddlp:	xnorm_op_1d addpd, noexec	; Add and normalize 8 values
-	sub	loopcount1, 1		; Decrement loop counter
+	sub	loopcount2, 1		; Decrement loop counter
 	jnz	raddlp			; Loop til done
 	jmp	nadddn			; Loop til done
 naddlp:	xnorm_op_1d addpd, exec		; Add and normalize 8 values
-	sub	loopcount1, 1		; Decrement loop counter
+	sub	loopcount2, 1		; Decrement loop counter
 	jnz	naddlp			; Loop til done
-nadddn:	pop	rbx			; Restore multipliers pointer
-	pop	rax			; Restore dest pointer
+nadddn:	mov	rbx, saved_col_ptr	; Restore multipliers pointer
+	mov	rax, saved_dest_ptr	; Restore dest pointer
 	xnorm_op_1d_mid_cleanup		; Rotate carries and add in carries
-	pop	rax			; Restore loop counter
+	mov	eax, loopcount1		; Restore loop counter
 	shr	eax, 11			; Get next loop amount
 	jnz	nadd0
-	mov	rsi, _DESTARG		; Address of result
+	mov	rsi, DESTARG		; Address of result
 	mov	rbx, norm_col_mults	; Address of the multipliers
 	xnorm_op_1d_cleanup
-	IFDEF X86_64
-	_movsd	xmm7, [rsp]
-	_movsd	xmm6, [rsp+8]
-	add	rsp, 16
-	ENDIF
-	pop	rbx			; Restore registers
-	pop	rbp			; Restore registers
-	pop	rdi			; Restore registers
-	pop	rsi			; Restore registers
-	ret
+	ad_epilog 2*SZPTR+8,0,rbx,rbp,rsi,rdi,xmm6,xmm7
+gwxadd1 ENDP
 
 ;;
 ;; Subtract two numbers without carry propogation.  Caller can use this for
@@ -121,14 +104,11 @@ nadddn:	pop	rbx			; Restore multipliers pointer
 ;; before a multiply must use the routine that will normalize data.
 ;;
 
-	PUBLIC	gwxsubf1
-gwxsubf1:
-	PUBLIC	gwxsubq1
-gwxsubq1:
-	push	rsi			; Save registers
-	mov	rcx, _SRCARG		; Address of first number
-	mov	rdx, _SRC2ARG		; Address of second number
-	mov	rsi, _DESTARG		; Address of destination
+PROCF	gwxsubq1
+	ad_prolog 0,0,rsi
+	mov	rcx, SRCARG		; Address of first number
+	mov	rdx, SRC2ARG		; Address of second number
+	mov	rsi, DESTARG		; Address of destination
 	mov	eax, addcount1		; Load loop counter
 usublp:	movapd	xmm0, [rdx]		; Load second number
 	subpd	xmm0, [rcx]		; Subtract first number
@@ -147,88 +127,66 @@ usublp:	movapd	xmm0, [rdx]		; Load second number
 	lea	rsi, [rsi+64]		; Next dest
 	sub	eax, 1			; Check loop counter
 	jnz	short usublp		; Loop if necessary
-	pop	rsi			; Restore registers
-	ret
+	ad_epilog 0,0,rsi
+gwxsubq1 ENDP
 
 ;;
 ;; Subtract two numbers with carry propogation
 ;;
 
-	PUBLIC	gwxsub1
-gwxsub1:
-	push	rsi			; Save registers
-	push	rdi			; Save registers
-	push	rbp			; Save registers
-	push	rbx			; Save registers
-	IFDEF X86_64
-	sub	rsp, 16
-	_movsd	[rsp+8], xmm6
-	_movsd	[rsp], xmm7
-	ENDIF
-	mov	rcx, _SRCARG		; Address of first number
-	mov	rdx, _SRC2ARG		; Address of second number
-	mov	rsi, _DESTARG		; Address of destination
+saved_dest_ptr	EQU	PPTR [rsp+first_local+0*SZPTR]
+saved_col_ptr	EQU	PPTR [rsp+first_local+1*SZPTR]
+loopcount1	EQU	DPTR [rsp+first_local+2*SZPTR+0]
+loopcount2	EQU	DPTR [rsp+first_local+2*SZPTR+4]
+
+PROCF	gwxsub1
+	ad_prolog 2*SZPTR+8,0,rbx,rbp,rsi,rdi,xmm6,xmm7
+	mov	rcx, SRCARG		; Address of first number
+	mov	rdx, SRC2ARG		; Address of second number
+	mov	rsi, DESTARG		; Address of destination
 	movapd	xmm2, XMM_BIGVAL	; Start process with no carry
 	movapd	xmm3, xmm2
 	mov	eax, normcount1		; Load loop counter
 	mov	rbp, norm_col_mults	; Address of the multipliers
 	mov	rdi, norm_biglit_array	; Addr of the big/little flags array
-nsub0:	push	rax			; Save loop counter
+nsub0:	mov	loopcount1, eax		; Save loop counter
 	and	eax, 07FFh		; Grab 11 bits of the counter
-	mov	loopcount1, eax
-	push	rsi			; remember esi for xnorm_op_1d_mid
-	push	rbp			; remember ebp for xnorm_op_1d_mid
+	mov	loopcount2, eax
+	mov	saved_dest_ptr, rsi	; remember rsi for xnorm_op_1d_mid
+	mov	saved_col_ptr, rbp	; remember rbp for xnorm_op_1d_mid
 	sub	rax, rax		; Clear big/lit flag
 	sub	rbx, rbx
-	cmp	_RATIONAL_FFT, 0	; Test for irrational FFTs
+	cmp	RATIONAL_FFT, 0		; Test for irrational FFTs
 	je	nsublp			; Yes, use two-to-phi multipliers
 rsublp:	xnorm_op_1d subpd, noexec	; Subtract and normalize 8 values
-	sub	loopcount1, 1		; Decrement loop counter
+	sub	loopcount2, 1		; Decrement loop counter
 	jnz	rsublp			; Loop til done
 	jmp	nsubdn			; Jump if done
 nsublp:	xnorm_op_1d subpd, exec		; Subtract and normalize 8 values
-	sub	loopcount1, 1		; Decrement loop counter
+	sub	loopcount2, 1		; Decrement loop counter
 	jnz	nsublp			; Loop til done
-nsubdn:	pop	rbx			; Restore multipliers pointer
-	pop	rax			; Restore dest pointer
+nsubdn:	mov	rbx, saved_col_ptr	; Restore multipliers pointer
+	mov	rax, saved_dest_ptr	; Restore dest pointer
 	xnorm_op_1d_mid_cleanup		; Rotate carries and add in carries
-	pop	rax			; Restore loop counter
+	mov	eax, loopcount1		; Restore loop counter
 	shr	eax, 11			; Get next loop amount
 	jnz	nsub0
-	mov	rsi, _DESTARG		; Address of result
+	mov	rsi, DESTARG		; Address of result
 	mov	rbx, norm_col_mults	; Address of the multipliers
 	xnorm_op_1d_cleanup
-	IFDEF X86_64
-	_movsd	xmm7, [rsp]
-	_movsd	xmm6, [rsp+8]
-	add	rsp, 16
-	ENDIF
-	pop	rbx
-	pop	rbp
-	pop	rdi
-	pop	rsi
-	ret
-
+	ad_epilog 2*SZPTR+8,0,rbx,rbp,rsi,rdi,xmm6,xmm7
+gwxsub1 ENDP
 
 ;;
 ;; Add and subtract two numbers without carry propogation.
 ;;
 
-	PUBLIC	gwxaddsubf1
-gwxaddsubf1:
-	PUBLIC	gwxaddsubq1
-gwxaddsubq1:
-	push	rsi			; Save registers
-	push	rbp			; Save registers
-	IFDEF X86_64
-	sub	rsp, 16
-	_movsd	[rsp+8], xmm6
-	_movsd	[rsp], xmm7
-	ENDIF
-	mov	rcx, _SRCARG		; Address of first number
-	mov	rdx, _SRC2ARG		; Address of second number
-	mov	rsi, _DESTARG		; Address of destination #1
-	mov	rbp, _DEST2ARG  	; Address of destination #2
+PROCF	gwxaddsubq1
+	ad_prolog 0,0,rbp,rsi,xmm6,xmm7
+	mov	rcx, SRCARG		; Address of first number
+	mov	rdx, SRC2ARG		; Address of second number
+	mov	rsi, DESTARG		; Address of destination #1
+	mov	rbp, DEST2ARG	  	; Address of destination #2
 	mov	eax, addcount1		; Load loop counter
 uaddsublp:
 	movapd	xmm0, [rcx]		; Load first number
@@ -261,35 +219,25 @@ uaddsublp:
 	lea	rbp, [rbp+64]		; Next dest
 	sub	eax, 1			; Check loop counter
 	jnz	uaddsublp		; Loop if necessary
-	IFDEF X86_64
-	_movsd	xmm7, [rsp]
-	_movsd	xmm6, [rsp+8]
-	add	rsp, 16
-	ENDIF
-	pop	rbp			; Restore registers
-	pop	rsi			; Restore registers
-	ret
-
+	ad_epilog 0,0,rbp,rsi,xmm6,xmm7
+gwxaddsubq1 ENDP
 
 ;;
 ;; Add and subtract two numbers with carry propogation
 ;;
 
-	PUBLIC	gwxaddsub1
-gwxaddsub1:
-	push	rsi			; Save registers
-	push	rdi			; Save registers
-	push	rbp			; Save registers
-	push	rbx			; Save registers
-	IFDEF X86_64
-	sub	rsp, 16
-	_movsd	[rsp+8], xmm6
-	_movsd	[rsp], xmm7
-	ENDIF
-	mov	rcx, _SRCARG		; Address of first number
-	mov	rdx, _SRC2ARG		; Address of second number
-	mov	rsi, _DESTARG		; Address of destination
-	mov	rbp, _DEST2ARG  	; Address of destination #2
+saved_dest1_ptr	EQU	PPTR [rsp+first_local+0*SZPTR]
+saved_dest2_ptr	EQU	PPTR [rsp+first_local+1*SZPTR]
+saved_col_ptr	EQU	PPTR [rsp+first_local+2*SZPTR]
+loopcount1	EQU	DPTR [rsp+first_local+3*SZPTR+0]
+loopcount2	EQU	DPTR [rsp+first_local+3*SZPTR+4]
+
+PROCF	gwxaddsub1
+	ad_prolog 3*SZPTR+8,0,rbx,rbp,rsi,rdi,xmm6,xmm7
+	mov	rcx, SRCARG		; Address of first number
+	mov	rdx, SRC2ARG		; Address of second number
+	mov	rsi, DESTARG		; Address of destination
+	mov	rbp, DEST2ARG	  	; Address of destination #2
 	movapd	xmm2, XMM_BIGVAL	; Start process with no carry
 	movapd	xmm3, xmm2
 	movapd	xmm6, xmm2
@@ -298,57 +246,48 @@ gwxaddsub1:
 	mov	rbx, norm_col_mults	; Address of the multipliers
 	mov	rdi, norm_biglit_array	; Addr of the big/little flags array
 naddsub0:
-	push	rax			; Save loop counter
+	mov	loopcount1, eax		; Save loop counter
 	and	eax, 07FFh		; Grab 11 bits of the counter
-	mov	loopcount1, eax
-	push	rbx			; remember ebx for xnorm_op_1d_mid
-	push	rbp			; remember dest #2 for xnorm_op_1d_mid
-	push	rsi			; remember dest #1 for xnorm_op_1d_mid
+	mov	loopcount2, eax
+	mov	saved_col_ptr, rbx	; remember rbx for xnorm_op_1d_mid
+	mov	saved_dest2_ptr, rbp	; remember dest #2 for xnorm_op_1d_mid
+	mov	saved_dest1_ptr, rsi	; remember dest #1 for xnorm_op_1d_mid
 	sub	rax, rax		; Clear big/lit flag
-	cmp	_RATIONAL_FFT, 0	; Test for irrational FFTs
+	cmp	RATIONAL_FFT, 0		; Test for irrational FFTs
 	je	naddsublp		; Yes, use two-to-phi multipliers
 raddsublp:
 	xnorm_addsub_1d noexec		; Add/sub and normalize 8 values
-	sub	loopcount1, 1		; Decrement loop counter
+	sub	loopcount2, 1		; Decrement loop counter
 	jnz	raddsublp		; Loop til done
 	jmp	naddsubdn		; Jump if done
 naddsublp:
 	xnorm_addsub_1d exec		; Add/sub and normalize 8 values
-	sub	loopcount1, 1		; Decrement loop counter
+	sub	loopcount2, 1		; Decrement loop counter
 	jnz	naddsublp		; Loop til done
 naddsubdn:
-	xchg	rbx, [rsp+8]		; Save/Restore multipliers pointer
-	xnorm_addsub_1d_mid_cleanup	; Rotate carries and add in carries
-	pop	rbx			; Restore multipliers pointer
-	pop	rax			; Restore loop counter
+	xchg	rbx, saved_col_ptr	; Save/Restore multipliers pointer
+					; Rotate carries and add in carries
+	xnorm_addsub_1d_mid_cleanup saved_dest1_ptr, saved_dest2_ptr
+	mov	rbx, saved_col_ptr	; Restore multipliers pointer
+	mov	eax, loopcount1		; Restore loop counter
 	shr	eax, 11			; Get next loop amount
 	jnz	naddsub0
 
-	mov	rsi, _DESTARG		; Address of result #1
-	mov	rbp, _DEST2ARG		; Address of result #2
+	mov	rsi, DESTARG		; Address of result #1
+	mov	rbp, DEST2ARG		; Address of result #2
 	mov	rbx, norm_col_mults	; Address of the multipliers
 	xnorm_addsub_1d_cleanup
-	IFDEF X86_64
-	_movsd	xmm7, [rsp]
-	_movsd	xmm6, [rsp+8]
-	add	rsp, 16
-	ENDIF
-	pop	rbx			; Restore registers
-	pop	rbp			; Restore registers
-	pop	rdi			; Restore registers
-	pop	rsi			; Restore registers
-	ret
+	ad_epilog 3*SZPTR+8,0,rbx,rbp,rsi,rdi,xmm6,xmm7
+gwxaddsub1 ENDP
 
 ;;
 ;; Copy one number and zero some low order words.
 ;;
 
-	PUBLIC	gwxcopyzero1
-gwxcopyzero1:
-	push	rsi			; Save registers
-	push	rdi			; Save registers
-	mov	rsi, _SRCARG		; Address of first number
-	mov	rdi, _DESTARG		; Address of destination
+PROCF	gwxcopyzero1
+	ad_prolog 0,0,rsi,rdi
+	mov	rsi, SRCARG		; Address of first number
+	mov	rdi, DESTARG		; Address of destination
 	sub	ecx, ecx		; Offset to compare to COPYZERO
 	mov	eax, addcount1		; Load loop counter
 cz1:	xcopyzero			; Copy/zero 8 values
@@ -357,43 +296,43 @@ cz1:	xcopyzero			; Copy/zero 8 values
 	lea	rcx, [rcx+64]		; Next compare offset
 	sub	eax, 1			; Test loop counter
 	jnz	cz1			; Loop if necessary
-	pop	rdi			; Restore registers
-	pop	rsi			; Restore registers
-	ret
-
-gwx1procs ENDP
+	ad_epilog 0,0,rsi,rdi
+gwxcopyzero1 ENDP
 
 ;;
 ;; Routines to do the normalization after a multiply
 ;;
 
-_xsimpnorm PROC
-
 ; Macro to loop through all the FFT values and apply the proper normalization
 ; routine.
 
+saved_reg1	EQU	PPTR [rsp+first_local+0*SZPTR]
+saved_reg2	EQU	PPTR [rsp+first_local+1*SZPTR]
+saved_reg3	EQU	PPTR [rsp+first_local+2*SZPTR]
+
 inorm	MACRO	lab, ttp, zero, echk, const
 	LOCAL	ilp0, ilp1
-	PUBLIC	lab
-lab:	mov	rsi, _DESTARG		;; Addr of multiplied number
-no zero	mov	edi, _ADDIN_OFFSET	;; Get address to add value into
-no zero	_movsd	xmm0, [rsi][rdi]	;; Get the value
-no zero	addsd	xmm0, _ADDIN_VALUE	;; Add in the requested value
-no zero	_movsd	[rsi][rdi], xmm0	;; Save the new value
-no zero	subsd	xmm7, _ADDIN_VALUE	;; Do not include addin in sumout
+	PROCF	lab
+	int_prolog 3*SZPTR,0,0
+	mov	rsi, DESTARG		;; Addr of multiplied number
+no zero	mov	edi, ADDIN_OFFSET	;; Get address to add value into
+no zero	movsd	xmm0, Q [rsi][rdi]	;; Get the value
+no zero	addsd	xmm0, ADDIN_VALUE	;; Add in the requested value
+no zero	movsd	Q [rsi][rdi], xmm0	;; Save the new value
+no zero	subsd	xmm7, ADDIN_VALUE	;; Do not include addin in sumout
 	movapd	xmm2, XMM_BIGVAL	;; Start process with no carry
 	movapd	xmm3, xmm2
-	movlpd	xmm6, _MAXERR		;; Current maximum error
-	movhpd	xmm6, _MAXERR
+	movlpd	xmm6, MAXERR		;; Current maximum error
+	movhpd	xmm6, MAXERR
 	mov	rbp, norm_col_mults	;; Addr of the multipliers
 	mov	rdi, norm_biglit_array	;; Addr of the big/little flags array
 	sub	rax, rax		;; Clear big/lit flags
 	sub	rcx, rcx
 	mov	ebx, normcount1		;; Load loop counter
-ilp0:	push	rbx			;; Save loop counter
+ilp0:	mov	saved_reg1, rbx		;; Save loop counter
 	and	ebx, 07FFh		;; Grab 11 bits of the counter
-	push	rdi			;; remember edi for xnorm012_1d_mid
-	push	rsi			;; remember esi for xnorm012_1d_mid
+	mov	saved_reg2, rdi		;; remember edi for xnorm012_1d_mid
+	mov	saved_reg3, rsi		;; remember esi for xnorm012_1d_mid
 	mov	rdx, rbp		;; remember ebp for xnorm012_1d_mid
 ilp1:	xnorm_1d ttp, zero, echk, const ;; Normalize 8 values
 	lea	rsi, [rsi+64]		;; Next cache line
@@ -401,33 +340,35 @@ ttp	lea	rbp, [rbp+128]		;; Next set of 8 multipliers
 ttp	lea	rdi, [rdi+4]		;; Next big/little flags
 	sub	ebx, 1			;; Test loop counter
 	jnz	ilp1			;; Loop til done
-	pop	rbx			;; Restore FFT data addr
-	xchg	rdi, [rsp]		;; Restore big/lit pointer
+	mov	rbx, saved_reg3		;; Restore FFT data addr
+	xchg	rdi, saved_reg2		;; Restore big/lit pointer
 	xnorm012_1d_mid zero		;; Rotate carries and add in carries
-	pop	rdi			;; Restore big/lit pointer
-	pop	rbx			;; Restore loop counter
+	mov	rdi, saved_reg2		;; Restore big/lit pointer
+	mov	rbx, saved_reg1		;; Restore loop counter
 	shr	ebx, 11			;; Get next loop amount
 	jnz	ilp0
 zero	jmp	zdn			;; Go to zero upper half end code
 no zero	jmp	idn			;; Go to normal end code
+&lab	ENDP
 	ENDM
 
 zpnorm	MACRO	lab, ttp, echk, const
 	LOCAL	ilp0, ilp1
-	PUBLIC	lab
-lab:	mov	rsi, _DESTARG		;; Addr of multiplied number
+	PROCF	lab
+	int_prolog 3*SZPTR,0,0
+	mov	rsi, DESTARG		;; Addr of multiplied number
 	movapd	xmm2, XMM_BIGVAL	;; Start process with no carry
 	subpd	xmm3, xmm3
-	movlpd	xmm6, _MAXERR		;; Current maximum error
-	movhpd	xmm6, _MAXERR
+	movlpd	xmm6, MAXERR		;; Current maximum error
+	movhpd	xmm6, MAXERR
 	mov	rbp, norm_col_mults	;; Addr of the multipliers
 	mov	rdi, norm_biglit_array	;; Addr of the big/little flags array
 	sub	rax, rax		;; Clear big/lit flag
 	mov	ebx, normcount1		;; Load loop counter
-ilp0:	push	rbx			;; Save loop counter
+ilp0:	mov	saved_reg1, rbx		;; Save loop counter
 	and	ebx, 07FFh		;; Grab 11 bits of the counter
-	push	rdi			;; remember edi for xnorm012_1d_mid
-	push	rsi			;; remember esi for xnorm012_1d_mid
+	mov	saved_reg2, rdi		;; remember edi for xnorm012_1d_mid
+	mov	saved_reg3, rsi		;; remember esi for xnorm012_1d_mid
 	mov	rdx, rbp		;; remember ebp for xnorm012_1d_mid
 ilp1:	xnorm_1d_zpad ttp, echk, const	;; Normalize 8 values
 	lea	rsi, [rsi+64]		;; Next cache line
@@ -435,15 +376,16 @@ ttp	lea	rbp, [rbp+128]		;; Next set of 8 multipliers
 ttp	lea	rdi, [rdi+4]		;; Next big/little flags
 	sub	ebx, 1			;; Test loop counter
 	jnz	ilp1			;; Loop til done
-	pop	rbx			;; Restore FFT data addr
-	xchg	rdi, [rsp]		;; Restore big/lit pointer
+	mov	rbx, saved_reg3		;; Restore FFT data addr
+	xchg	rdi, saved_reg2		;; Restore big/lit pointer
 	xnorm012_1d_mid_zpad const	;; Rotate carries and add in carries
-	pop	rdi			;; Restore big/lit pointer
-	pop	rbx			;; Restore loop counter
+	mov	rdi, saved_reg2		;; Restore big/lit pointer
+	mov	rbx, saved_reg1		;; Restore loop counter
 	shr	ebx, 11			;; Get next loop amount
 	jnz	ilp0
 const	jmp	zpcdn			;; Go to zero padded FFT end code
 no const jmp	zpdn			;; Go to zero padded FFT end code
+&lab	ENDP
 	ENDM
 
 ; The 16 different normalization routines.  One for each combination of
@@ -472,31 +414,41 @@ no const jmp	zpdn			;; Go to zero padded FFT end code
 	zpnorm	xi1zpc, exec, noexec, exec
 	zpnorm	xi1zpec, exec, exec, exec
 
+; Common code to finish off the one-pass FFTs normalization.  The
+; Windows 64-bit ABI frowns on us jumping from one procedure into another.
+; However, my reading of the spec is that as long as the two procedures have
+; identical prologs then stack unwinding for exception handling will work OK.
+
+PROCF	__common_xnorm1_end_code
+
+	;; Dummy prolog to match normalization code
+	int_prolog 3*SZPTR,0,0
+
 ; Finish off the normalization process by adding any carry to first values.
 ; Handle both the with and without two-to-phi array cases.
 
-zpcdn:	mov	rsi, _DESTARG		; Address of squared number
+zpcdn:	mov	rsi, DESTARG		; Address of squared number
 	mov	rdi, norm_biglit_array	; Address of the big/little flags array
 	mov	rbp, norm_col_mults	; Restart the column multipliers
 	sub	rax, rax
 	xnorm012_1d_zpad exec		; Add in carries
 	jmp	cmnend			; All done, go cleanup
 
-zpdn:	mov	rsi, _DESTARG		; Address of squared number
+zpdn:	mov	rsi, DESTARG		; Address of squared number
 	mov	rdi, norm_biglit_array	; Address of the big/little flags array
 	mov	rbp, norm_col_mults	; Restart the column multipliers
 	sub	rax, rax
 	xnorm012_1d_zpad noexec		; Add in carries
 	jmp	cmnend			; All done, go cleanup
 
-zdn:	mov	rsi, _DESTARG		; Address of squared number
+zdn:	mov	rsi, DESTARG		; Address of squared number
 	mov	rdi, norm_biglit_array	; Address of the big/little flags array
 	mov	rbp, norm_col_mults	; Restart the column multipliers
 	sub	rax, rax
 	xnorm012_1d exec		; Add in carries
 	jmp	cmnend			; All done, go cleanup
 
-idn:	mov	rsi, _DESTARG		; Address of squared number
+idn:	mov	rsi, DESTARG		; Address of squared number
 	xnorm_top_carry_1d		; Adjust top carry when k > 1
 	mov	rdi, norm_biglit_array	; Address of the big/little flags array
 	mov	rbp, norm_col_mults	; Restart the column multipliers
@@ -508,16 +460,15 @@ idn:	mov	rsi, _DESTARG		; Address of squared number
 cmnend:	movapd	XMM_TMP1, xmm7		; Add together the two partial sumouts
 	addsd	xmm7, XMM_TMP1+8
 	mulsd	xmm7, ttmp_ff_inv
-	_movsd	[rsi-24], xmm7		; Save sum of FFT outputs
+	movsd	Q [rsi-24], xmm7	; Save sum of FFT outputs
 	movapd	XMM_TMP1, xmm6		; Compute new maximum error
 	maxsd	xmm6, XMM_TMP1+8
-	_movsd	_MAXERR, xmm6
+	movsd	MAXERR, xmm6
 
 ; Return
 
-exit:	xrestore_registers
-	ret
-_xsimpnorm ENDP
+	int_epilog 3*SZPTR,0,0
+__common_xnorm1_end_code ENDP
 
 _TEXT	ENDS
 END

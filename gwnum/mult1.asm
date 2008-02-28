@@ -1,4 +1,4 @@
-; Copyright 1995-2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -35,7 +35,6 @@ INCLUDE memory.mac
 
 ;; All the FFT routines for each FFT length
 
-PROCP	_gw_ffts1
 	EXPANDING = 1
 	fft	32
 	fft	32p
@@ -81,7 +80,6 @@ PROCP	_gw_ffts1
 	fft	3584
 	fft	4096
 	fft	4096p
-ENDPP	_gw_ffts1
 
 _TEXT	ENDS
 END

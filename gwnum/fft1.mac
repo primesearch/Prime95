@@ -1,4 +1,4 @@
-; Copyright 1998-2004 - Just For Fun Software, Inc., all rights reserved
+; Copyright 1998-2006 - Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -62,6 +62,7 @@ fft32 MACRO type
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x32_fft:
 	copy_7_words
 	sub	eax, eax
@@ -92,6 +93,7 @@ b1b:	disp eight_reals_first_fft, 4*dist1, 8*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = 0
 x32_finish_unfft:
 c1b:	disp eight_reals_last_unfft, 8, 4*dist1, 8*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -156,6 +158,7 @@ fft32p MACRO type
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x32p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -188,6 +191,7 @@ b1b:	disp four_complex_first_fft, 4*dist1, 8*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = 0
 x32p_finish_unfft:
 	mov	edi, plus1_premults	;; Address of premultiplier table
 c1b:	disp four_complex_last_unfft, 8, 4*dist1, 8*dist1
@@ -257,6 +261,7 @@ fft40 MACRO type
 ;;	Do 4 iterations each processing 10 real values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x40_fft:
 	copy_7_words
 	sub	eax, eax
@@ -324,6 +329,7 @@ b3b:	disp four_complex_fft_1, 2*dist1, 4*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = 0
 x40_finish_unfft:
 	disp eight_reals_unfft_1, dist1, 2*dist1, 8
 
@@ -424,6 +430,7 @@ fft48 MACRO type
 ;;	distance between fft data elements is 8
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x48_fft:
 	copy_7_words
 	sub	eax, eax
@@ -497,6 +504,7 @@ b3b:	disp four_complex_fft_1, 2*dist1, 4*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = 0
 x48_finish_unfft:
 c2b:	disp four_real_four_semireal_unfft_1, 2*dist1, 8, 4*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -600,6 +608,7 @@ fft48p MACRO type
 ;;	distance between fft data elements is 8
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x48p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -631,6 +640,7 @@ b1b:	three_complex_first_fft 8*dist1, 16*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = 0
 x48p_finish_unfft:
 	mov	edi, sincos2		;; Load sin/cos pointer
 	mov	al, 3			;; 3 iterations of 2
@@ -728,6 +738,7 @@ fft56 MACRO type
 ;;	Do 4 iterations each processing 14 real values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x56_fft:
 	copy_7_words
 	sub	eax, eax
@@ -795,6 +806,7 @@ b3b:	disp four_complex_fft_1, 2*dist1, 4*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = 0
 x56_finish_unfft:
 	disp eight_reals_unfft_1, dist1, 2*dist1, 8
 
@@ -897,6 +909,7 @@ fft64 MACRO type
 ;;	distance between fft data elements is 8
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x64_fft:
 	copy_7_words
 	sub	eax, eax
@@ -970,6 +983,7 @@ b3b:	disp four_complex_fft_1, 2*dist1, 4*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = 0
 x64_finish_unfft:
 c2b:	disp four_real_four_semireal_unfft_1, 2*dist1, 8, 4*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -1072,6 +1086,7 @@ fft64p MACRO type
 ;;	distance between fft data elements is 8
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x64p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -1112,7 +1127,7 @@ b3b:	disp four_complex_fft_1, 2*dist1, 4*dist1, 8
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	al			;; Test loop counter
 	jnz	b3b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; End common FFT code
 
@@ -1137,6 +1152,7 @@ b3b:	disp four_complex_fft_1, 2*dist1, 4*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = 0
 x64p_finish_unfft:
 	mov	edi, sincos2		;; Load sin/cos pointer
 	mov	al, 4			;; 4 iterations of 2
@@ -1234,6 +1250,7 @@ fft80 MACRO type
 ;;	Do 8 iterations each processing 10 real values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x80_fft:
 	copy_7_words
 	sub	eax, eax
@@ -1287,6 +1304,7 @@ b2b:	disp eight_reals_fft_2, 2*dist1, 4*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = 0
 x80_finish_unfft:
 c2b:	disp eight_reals_unfft_2, 2*dist1, 8, 4*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -1393,6 +1411,7 @@ fft96 MACRO type
 ;;	distance between fft data elements is 16
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x96_fft:
 	copy_7_words
 	sub	eax, eax
@@ -1421,6 +1440,7 @@ b1b:	disp six_reals_first_fft, 16*dist1, 32*dist1, 8
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 2
+	push_amt = 0
 x96_finish_unfft:
 c1b:	disp six_reals_last_unfft, 8, 16*dist1, 32*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -1488,6 +1508,7 @@ fft96p MACRO type
 ;;	distance between fft data elements is 16
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x96p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -1518,6 +1539,7 @@ b1b:	three_complex_first_fft 16*dist1, 32*dist1, 8
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 2
+	push_amt = 0
 x96p_finish_unfft:
 	mov	edi, plus1_premults	;; Address of premultiplier table
 c1b:	three_complex_last_unfft 8, 16*dist1, 32*dist1
@@ -1587,6 +1609,7 @@ fft112 MACRO type
 ;;	Do 8 iterations each processing 14 real values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x112_fft:
 	copy_7_words
 	sub	eax, eax
@@ -1640,6 +1663,7 @@ b2b:	disp eight_reals_fft_2, 2*dist1, 4*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = 0
 x112_finish_unfft:
 c2b:	disp eight_reals_unfft_2, 2*dist1, 8, 4*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -1746,6 +1770,7 @@ fft128 MACRO type
 ;;	distance between fft data elements is 16
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x128_fft:
 	copy_7_words
 	sub	eax, eax
@@ -1774,6 +1799,7 @@ b1b:	disp eight_reals_first_fft, 16*dist1, 32*dist1, 8
 ;;	distance between fft data elements is 16
 
 	IF	type EQ 2
+	push_amt = 0
 x128_finish_unfft:
 c1b:	disp eight_reals_last_unfft, 8, 16*dist1, 32*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -1841,6 +1867,7 @@ fft128p MACRO type
 ;;	distance between fft data elements is 16
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x128p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -1871,6 +1898,7 @@ b1b:	disp four_complex_first_fft, 16*dist1, 32*dist1, 8
 ;;	distance between fft data elements is 16
 
 	IF	type EQ 2
+	push_amt = 0
 x128p_finish_unfft:
 	mov	edi, plus1_premults	;; Address of premultiplier table
 c1b:	disp four_complex_last_unfft, 8, 16*dist1, 32*dist1
@@ -1943,6 +1971,7 @@ fft160 MACRO type
 ;;	Do 16 iterations each processing 10 real values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x160_fft:
 	copy_7_words
 	sub	eax, eax
@@ -1998,6 +2027,7 @@ b2b:	disp eight_reals_fft_1, 4*dist1, 8*dist1, 8
 ;;	distance between fft data elements is 16
 
 	IF	type EQ 2
+	push_amt = 0
 x160_finish_unfft:
 c2b:	disp eight_reals_unfft_1, 4*dist1, 8*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -2104,6 +2134,7 @@ fft192 MACRO type
 ;;	distance between fft data elements is 32
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x192_fft:
 	copy_7_words
 	sub	eax, eax
@@ -2133,6 +2164,7 @@ b1b:	disp six_reals_first_fft, 32*dist1, 64*dist1, 8
 ;;	distance between fft data elements is 16
 
 	IF	type EQ 2
+	push_amt = 0
 x192_finish_unfft:
 c2b:	disp four_real_four_semireal_unfft_1, 8*dist1, 8, 16*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -2237,6 +2269,7 @@ fft192p MACRO type
 ;;	distance between fft data elements is 32
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x192p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -2268,6 +2301,7 @@ b1b:	three_complex_first_fft 32*dist1, 64*dist1, 8
 ;;	distance between fft data elements is 16
 
 	IF	type EQ 2
+	push_amt = 0
 x192p_finish_unfft:
 	mov	edi, sincos3		;; Load sin/cos pointer
 	mov	dl, 3			;; 3 iters of 8
@@ -2368,6 +2402,7 @@ fft224 MACRO type
 ;;	Do 16 iterations each processing 14 real values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x224_fft:
 	copy_7_words
 	sub	eax, eax
@@ -2423,6 +2458,7 @@ b2b:	disp eight_reals_fft_1, 4*dist1, 8*dist1, 8
 ;;	distance between fft data elements is 16
 
 	IF	type EQ 2
+	push_amt = 0
 x224_finish_unfft:
 c2b:	disp eight_reals_unfft_1, 4*dist1, 8*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -2529,6 +2565,7 @@ fft256 MACRO type
 ;;	distance between fft data elements is 32
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x256_fft:
 	copy_7_words
 	sub	eax, eax
@@ -2579,7 +2616,7 @@ b3b:	disp four_complex_fft_1, 8*dist1, 16*dist1, 8
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	b3b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 	jmp	mid_two_fft_levels	;; Join with common FFT code
 	ENDIF
 
@@ -2600,6 +2637,7 @@ b3b:	disp four_complex_fft_1, 8*dist1, 16*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = SZPTR
 mid_two_unfft_levels:
 c8b:	disp four_real_four_semireal_unfft, 8, 4*dist1, 8*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -2620,7 +2658,7 @@ c9b:	disp four_complex_unfft, 8, 4*dist1, 8*dist1
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	c9b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -2643,6 +2681,7 @@ c9b:	disp four_complex_unfft, 8, 4*dist1, 8*dist1
 ;; Do 8 four_real_four_semireal_unfft_1 macros
 ;;	distance between fft data elements is 16
 
+	push_amt = 0
 x256_finish_unfft:
 c2b:	disp four_real_four_semireal_unfft_1, 8*dist1, 8, 16*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -2747,6 +2786,7 @@ fft256p MACRO type
 ;;	distance between fft data elements is 32
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x256p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -2787,7 +2827,7 @@ b3b:	disp four_complex_fft_1, 8*dist1, 16*dist1, 8
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	b3b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 	jmp	mid_twop_fft_levels	;; Join with common FFT code
 	ENDIF
 
@@ -2808,6 +2848,7 @@ b3b:	disp four_complex_fft_1, 8*dist1, 16*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = SZPTR
 mid_twop_unfft_levels:
 	mov	edi, sincos2		;; Load sin/cos pointer
 	mov	dl, BYTE PTR count2	;; 8 iters of 4
@@ -2819,7 +2860,7 @@ c9b:	disp four_complex_unfft, 8, 4*dist1, 8*dist1
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	c9b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -2842,6 +2883,7 @@ c9b:	disp four_complex_unfft, 8, 4*dist1, 8*dist1
 ;; Do 32 four_complex_unfft_1 macros
 ;;	distance between fft data elements is 16
 
+	push_amt = 0
 x256p_finish_unfft:
 	mov	edi, sincos3		;; Load sin/cos pointer
 	mov	dl, 4			;; 4 iters of 8
@@ -2942,6 +2984,7 @@ fft320 MACRO type
 ;;	Do 32 iterations each processing 10 real values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x320_fft:
 	copy_7_words
 	sub	eax, eax
@@ -2997,6 +3040,7 @@ b2b:	disp eight_reals_fft_2, 8*dist1, 16*dist1, 8
 ;;	distance between fft data elements is 16
 
 	IF	type EQ 2
+	push_amt = 0
 x320_finish_unfft:
 c2b:	disp eight_reals_unfft_2, 8*dist1, 8, 16*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -3103,6 +3147,7 @@ fft384 MACRO type
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x384_fft:
 	copy_7_words
 	sub	eax, eax
@@ -3131,6 +3176,7 @@ b1b:	disp six_reals_first_fft, 64*dist1, 128*dist1, 8
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 2
+	push_amt = 0
 x384_finish_unfft:
 c1b:	disp six_reals_last_unfft, 8, 64*dist1, 128*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -3198,6 +3244,7 @@ fft384p MACRO type
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x384p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -3228,6 +3275,7 @@ b1b:	three_complex_first_fft 64*dist1, 128*dist1, 8
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 2
+	push_amt = 0
 x384p_finish_unfft:
 	mov	edi, plus1_premults	;; Address of premultiplier table
 c1b:	three_complex_last_unfft 8, 64*dist1, 128*dist1
@@ -3300,6 +3348,7 @@ fft448 MACRO type
 ;;	Do 32 iterations each processing 14 real values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x448_fft:
 	copy_7_words
 	sub	eax, eax
@@ -3355,6 +3404,7 @@ b2b:	disp eight_reals_fft_2, 8*dist1, 16*dist1, 8
 ;;	distance between fft data elements is 16
 
 	IF	type EQ 2
+	push_amt = 0
 x448_finish_unfft:
 c2b:	disp eight_reals_unfft_2, 8*dist1, 8, 16*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -3461,6 +3511,7 @@ fft512 MACRO type
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x512_fft:
 	copy_7_words
 	sub	eax, eax
@@ -3489,6 +3540,7 @@ b1b:	disp eight_reals_first_fft, 64*dist1, 128*dist1, 8
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 2
+	push_amt = 0
 x512_finish_unfft:
 c1b:	disp eight_reals_last_unfft, 8, 64*dist1, 128*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -3556,6 +3608,7 @@ fft512p MACRO type
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x512p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -3586,6 +3639,7 @@ b1b:	disp four_complex_first_fft, 64*dist1, 128*dist1, 8
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 2
+	push_amt = 0
 x512p_finish_unfft:
 	mov	edi, plus1_premults	;; Address of premultiplier table
 c1b:	disp four_complex_last_unfft, 8, 64*dist1, 128*dist1
@@ -3658,6 +3712,7 @@ fft640 MACRO type
 ;;	Do 64 iterations each processing 10 real values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x640_fft:
 	copy_7_words
 	sub	eax, eax
@@ -3713,6 +3768,7 @@ b2b:	disp eight_reals_fft_1, 16*dist1, 32*dist1, 8
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 2
+	push_amt = 0
 x640_finish_unfft:
 c2b:	disp eight_reals_unfft_1, 16*dist1, 32*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -3819,6 +3875,7 @@ fft768 MACRO type
 ;;	distance between fft data elements is 128
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x768_fft:
 	copy_7_words
 	sub	eax, eax
@@ -3848,6 +3905,7 @@ b1b:	disp six_reals_first_fft, 128*dist1, 256*dist1, 8
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 2
+	push_amt = 0
 x768_finish_unfft:
 c2b:	disp four_real_four_semireal_unfft_1, 32*dist1, 8, 64*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -3952,6 +4010,7 @@ fft768p MACRO type
 ;;	distance between fft data elements is 128
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x768p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -3983,6 +4042,7 @@ b1b:	three_complex_first_fft 128*dist1, 256*dist1, 8
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 2
+	push_amt = 0
 x768p_finish_unfft:
 	mov	edi, sincos4		;; Load sin/cos pointer
 	mov	dl, 3			;; 3 iters of 32
@@ -4083,6 +4143,7 @@ fft896 MACRO type
 ;;	Do 64 iterations each processing 14 real values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x896_fft:
 	copy_7_words
 	sub	eax, eax
@@ -4138,6 +4199,7 @@ b2b:	disp eight_reals_fft_1, 16*dist1, 32*dist1, 8
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 2
+	push_amt = 0
 x896_finish_unfft:
 c2b:	disp eight_reals_unfft_1, 16*dist1, 32*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -4244,6 +4306,7 @@ fft1024 MACRO type
 ;;	distance between fft data elements is 128
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x1024_fft:
 	copy_7_words
 	sub	eax, eax
@@ -4294,7 +4357,7 @@ b3b:	disp four_complex_fft_1, 32*dist1, 64*dist1, 8
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	b3b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 	jmp	mid_four_fft_levels	;; Join with common FFT code
 	ENDIF
 
@@ -4315,6 +4378,7 @@ b3b:	disp four_complex_fft_1, 32*dist1, 64*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = SZPTR
 mid_four_unfft_levels:
 c8b:	disp four_real_four_semireal_unfft, 8, 4*dist1, 8*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -4335,7 +4399,7 @@ c9b:	disp four_complex_unfft, 8, 4*dist1, 8*dist1
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	c9b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT level 5,6
 ;; On input the 32-byte cache lines hold these data values:
@@ -4373,7 +4437,7 @@ c7b:	disp four_complex_unfft, 8, 16*dist1, 32*dist1
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	c7b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -4396,6 +4460,7 @@ c7b:	disp four_complex_unfft, 8, 16*dist1, 32*dist1
 ;; Do 32 four_real_four_semireal_unfft_1 macros
 ;;	distance between fft data elements is 64
 
+	push_amt = 0
 x1024_finish_unfft:
 c2b:	disp four_real_four_semireal_unfft_1, 32*dist1, 8, 64*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -4500,6 +4565,7 @@ fft1024p MACRO type
 ;;	distance between fft data elements is 128
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x1024p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -4540,7 +4606,7 @@ b3b:	disp four_complex_fft_1, 32*dist1, 64*dist1, 8
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	b3b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 	jmp	mid_fourp_fft_levels	;; Join with common FFT code
 	ENDIF
 
@@ -4561,6 +4627,7 @@ b3b:	disp four_complex_fft_1, 32*dist1, 64*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = SZPTR
 mid_fourp_unfft_levels:
 	mov	edi, sincos2		;; Load sin/cos pointer
 	mov	dl, BYTE PTR count2	;; 32 iters of 4
@@ -4572,7 +4639,7 @@ c9b:	disp four_complex_unfft, 8, 4*dist1, 8*dist1
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	c9b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT level 5,6
 ;; On input the 32-byte cache lines hold these data values:
@@ -4601,7 +4668,7 @@ c7b:	disp four_complex_unfft, 8, 16*dist1, 32*dist1
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	c7b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -4624,6 +4691,7 @@ c7b:	disp four_complex_unfft, 8, 16*dist1, 32*dist1
 ;; Do 128 four_complex_unfft_1 macros
 ;;	distance between fft data elements is 64
 
+	push_amt = 0
 x1024p_finish_unfft:
 	mov	edi, sincos4		;; Load sin/cos pointer
 	mov	dl, 4			;; 4 iters of 32
@@ -4724,6 +4792,7 @@ fft1280 MACRO type
 ;;	Do 128 iterations each processing 10 real values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x1280_fft:
 	copy_7_words
 	sub	eax, eax
@@ -4779,6 +4848,7 @@ b2b:	disp eight_reals_fft_2, 32*dist1, 64*dist1, 8
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 2
+	push_amt = 0
 x1280_finish_unfft:
 c2b:	disp eight_reals_unfft_2, 32*dist1, 8, 64*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -4885,6 +4955,7 @@ fft1536 MACRO type
 ;;	distance between fft data elements is 256
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x1536_fft:
 	copy_7_words
 	sub	eax, eax		;; 256 iterations
@@ -4913,6 +4984,7 @@ b1b:	disp six_reals_first_fft, 256*dist1, 512*dist1, 8
 ;;	distance between fft data elements is 256
 
 	IF	type EQ 2
+	push_amt = 0
 x1536_finish_unfft:
 c1b:	disp six_reals_last_unfft, 8, 256*dist1, 512*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -4980,6 +5052,7 @@ fft1536p MACRO type
 ;;	distance between fft data elements is 256
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x1536p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -5010,6 +5083,7 @@ b1b:	three_complex_first_fft 256*dist1, 512*dist1, 8
 ;;	distance between fft data elements is 256
 
 	IF	type EQ 2
+	push_amt = 0
 x1536p_finish_unfft:
 	mov	edi, plus1_premults	;; Address of premultiplier table
 c1b:	three_complex_last_unfft 8, 256*dist1, 512*dist1
@@ -5082,6 +5156,7 @@ fft1792 MACRO type
 ;;	Do 128 iterations each processing 14 real values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x1792_fft:
 	copy_7_words
 	sub	eax, eax
@@ -5137,6 +5212,7 @@ b2b:	disp eight_reals_fft_2, 32*dist1, 64*dist1, 8
 ;;	distance between fft data elements is 64
 
 	IF	type EQ 2
+	push_amt = 0
 x1792_finish_unfft:
 c2b:	disp eight_reals_unfft_2, 32*dist1, 8, 64*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -5243,6 +5319,7 @@ fft2048 MACRO type
 ;;	distance between fft data elements is 256
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x2048_fft:
 	copy_7_words
 	sub	eax, eax		;; 256 iterations
@@ -5271,6 +5348,7 @@ b1b:	disp eight_reals_first_fft, 256*dist1, 512*dist1, 8
 ;;	distance between fft data elements is 256
 
 	IF	type EQ 2
+	push_amt = 0
 x2048_finish_unfft:
 c1b:	disp eight_reals_last_unfft, 8, 256*dist1, 512*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -5338,6 +5416,7 @@ fft2048p MACRO type
 ;;	distance between fft data elements is 256
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x2048p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -5368,6 +5447,7 @@ b1b:	disp four_complex_first_fft, 256*dist1, 512*dist1, 8
 ;;	distance between fft data elements is 256
 
 	IF	type EQ 2
+	push_amt = 0
 x2048p_finish_unfft:
 	mov	edi, plus1_premults	;; Address of premultiplier table
 c1b:	disp four_complex_last_unfft, 8, 256*dist1, 512*dist1
@@ -5440,6 +5520,7 @@ fft2560 MACRO type
 ;;	Do 256 iterations each processing 10 real values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x2560_fft:
 	copy_7_words
 	sub	eax, eax
@@ -5495,6 +5576,7 @@ b2b:	disp eight_reals_fft_1, 64*dist1, 128*dist1, 8
 ;;	distance between fft data elements is 256
 
 	IF	type EQ 2
+	push_amt = 0
 x2560_finish_unfft:
 c2b:	disp eight_reals_unfft_1, 64*dist1, 128*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -5602,6 +5684,7 @@ fft3072 MACRO type
 ;;	distance between fft data elements is 512
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x3072_fft:
 	copy_7_words
 	mov	eax, 512		;; 512 iterations
@@ -5631,6 +5714,7 @@ b1b:	disp six_reals_first_fft, 512*dist1, 1024*dist1, 8
 ;;	distance between fft data elements is 256
 
 	IF	type EQ 2
+	push_amt = 0
 x3072_finish_unfft:
 c2b:	disp four_real_four_semireal_unfft_1, 128*dist1, 8, 256*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -5737,6 +5821,7 @@ fft3072p MACRO type
 ;;	distance between fft data elements is 512
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x3072p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -5768,6 +5853,7 @@ b1b:	three_complex_first_fft 512*dist1, 1024*dist1, 8
 ;;	distance between fft data elements is 256
 
 	IF	type EQ 2
+	push_amt = 0
 x3072p_finish_unfft:
 	mov	edi, sincos5		;; Load sin/cos pointer
 	mov	dl, 3			;; 3 iters of 128
@@ -5869,6 +5955,7 @@ fft3584 MACRO type
 ;;	Do 256 iterations each processing 14 real values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x3584_fft:
 	copy_7_words
 	sub	eax, eax
@@ -5924,6 +6011,7 @@ b2b:	disp eight_reals_fft_1, 64*dist1, 128*dist1, 8
 ;;	distance between fft data elements is 256
 
 	IF	type EQ 2
+	push_amt = 0
 x3584_finish_unfft:
 c2b:	disp eight_reals_unfft_1, 64*dist1, 128*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -6031,6 +6119,7 @@ fft4096 MACRO type
 ;;	distance between fft data elements is 512
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x4096_fft:
 	copy_7_words
 	mov	eax, 512		;; 512 iterations
@@ -6081,7 +6170,7 @@ b3b:	disp four_complex_fft_1, 128*dist1, 256*dist1, 8
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	b3b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; Do FFT level 5,6
 ;; Values 0-255 is real data, 256-511 is semi-real data, 512-4095 is
@@ -6124,7 +6213,7 @@ b5b:	disp four_complex_fft, 64*dist1, 128*dist1, 8
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	b5b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; Do FFT level 7,8
 ;; Values 0-63 is real data, 64-127 is semi-real data, 128-4095 is
@@ -6167,7 +6256,7 @@ b7b:	disp four_complex_fft, 16*dist1, 32*dist1, 8
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	b7b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; Do FFT level 9,10
 ;; Values 0-15 is real data, 16-31 is semi-real data, 32-4095 is
@@ -6209,7 +6298,7 @@ b9b:	disp four_complex_fft, 4*dist1, 8*dist1, 8
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	b9b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; End common FFT code
 
@@ -6230,23 +6319,25 @@ b9b:	disp four_complex_fft, 4*dist1, 8*dist1, 8
 ;;	distance between fft data elements is 1
 
 	IF	type EQ 1
+	push_amt = 0
 xmiddle_1:
 	disp four_real_four_semireal_fft, dist1, 2*dist1, 8
 	ENDIF
 	IF	type EQ 2
+	push_amt = SZPTR
 xmiddle_2:
 	disp four_real_four_semireal_square, dist1, 2*dist1, 8
 	ENDIF
 	IF	type EQ 3
+	push_amt = SZPTR
 xmiddle_3:
-	mov	ebp, _SRCARG
-	sub	ebp, esi
+	mov	ebp, DIST_TO_MULSRCARG
 	disp four_real_four_semireal_mult, dist1, 2*dist1, 8
 	ENDIF
 	IF	type EQ 4
+	push_amt = SZPTR
 xmiddle_4:
-	mov	ebp, _SRCARG
-	sub	ebp, esi
+	mov	ebp, DIST_TO_MULSRCARG
 	disp four_real_four_semireal_mulf, dist1, 2*dist1, 8
 	ENDIF
 
@@ -6276,7 +6367,7 @@ bab:	disp four_complex_mulf, dist1, 2*dist1, 8
 	IF	type EQ 1
 	fft_1_ret
 	ELSE
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 	ret
 	ENDIF
 
@@ -6297,6 +6388,7 @@ bab:	disp four_complex_mulf, dist1, 2*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = SZPTR
 mid_six_unfft_levels:
 c8b:	disp four_real_four_semireal_unfft, 8, 4*dist1, 8*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -6317,7 +6409,7 @@ c9b:	disp four_complex_unfft, 8, 4*dist1, 8*dist1
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	c9b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT level 7,8
 ;; On input the 32-byte cache lines hold these data values:
@@ -6355,7 +6447,7 @@ c7b:	disp four_complex_unfft, 8, 16*dist1, 32*dist1
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	c7b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT level 5,6
 ;; On input the 32-byte cache lines hold these data values:
@@ -6393,7 +6485,7 @@ c5b:	disp four_complex_unfft, 8, 64*dist1, 128*dist1
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	c5b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -6416,6 +6508,7 @@ c5b:	disp four_complex_unfft, 8, 64*dist1, 128*dist1
 ;; Do 128 four_real_four_semireal_unfft_1 macros
 ;;	distance between fft data elements is 256
 
+	push_amt = 0
 x4096_finish_unfft:
 c2b:	disp four_real_four_semireal_unfft_1, 128*dist1, 8, 256*dist1
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -6521,6 +6614,7 @@ fft4096p MACRO type
 ;;	distance between fft data elements is 512
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x4096p_fft:
 	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
@@ -6561,7 +6655,7 @@ b3b:	disp four_complex_fft_1, 128*dist1, 256*dist1, 8
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	b3b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; Do FFT level 5,6
 ;;
@@ -6592,7 +6686,7 @@ b5b:	disp four_complex_fft, 64*dist1, 128*dist1, 8
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	b5b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; Do FFT level 7,8
 ;;
@@ -6623,7 +6717,7 @@ b7b:	disp four_complex_fft, 16*dist1, 32*dist1, 8
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	b7b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; Do FFT level 9,10
 ;;
@@ -6653,7 +6747,7 @@ b9b:	disp four_complex_fft, 4*dist1, 8*dist1, 8
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	b9b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; End common FFT code
 
@@ -6673,15 +6767,19 @@ b9b:	disp four_complex_fft, 4*dist1, 8*dist1, 8
 ;;	distance between fft data elements is 1
 
 	IF	type EQ 1
+	push_amt = 0
 xmiddle_1p:
 	ENDIF
 	IF	type EQ 2
+	push_amt = SZPTR
 xmiddle_2p:
 	ENDIF
 	IF	type EQ 3
+	push_amt = SZPTR
 xmiddle_3p:
 	ENDIF
 	IF	type EQ 4
+	push_amt = SZPTR
 xmiddle_4p:
 	ENDIF
 	mov	edi, sincos1		;; Load sin/cos pointer
@@ -6693,13 +6791,11 @@ bab:	disp four_complex_fft, dist1, 2*dist1, 8
 bab:	disp four_complex_square, dist1, 2*dist1, 8
 	ENDIF
 	IF	type EQ 3
-	mov	ebp, _SRCARG
-	sub	ebp, esi
+	mov	ebp, DIST_TO_MULSRCARG
 bab:	disp four_complex_mult, dist1, 2*dist1, 8
 	ENDIF
 	IF	type EQ 4
-	mov	ebp, _SRCARG
-	sub	ebp, esi
+	mov	ebp, DIST_TO_MULSRCARG
 bab:	disp four_complex_mulf, dist1, 2*dist1, 8
 	ENDIF
 	lea	esi, [esi+4*dist1]	;; Next source pointer
@@ -6710,7 +6806,7 @@ bab:	disp four_complex_mulf, dist1, 2*dist1, 8
 	IF	type EQ 1
 	fft_1_ret
 	ELSE
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 	ret
 	ENDIF
 
@@ -6731,6 +6827,7 @@ bab:	disp four_complex_mulf, dist1, 2*dist1, 8
 ;;	distance between fft data elements is 4
 
 	IF	type EQ 2
+	push_amt = SZPTR
 mid_sixp_unfft_levels:
 	mov	edi, sincos2		;; Load sin/cos pointer
 	mov	dl, BYTE PTR count2	;; 127 iters of 4
@@ -6742,7 +6839,7 @@ c9b:	disp four_complex_unfft, 8, 4*dist1, 8*dist1
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	c9b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT level 7,8
 ;; On input the 32-byte cache lines hold these data values:
@@ -6771,7 +6868,7 @@ c7b:	disp four_complex_unfft, 8, 16*dist1, 32*dist1
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	c7b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT level 5,6
 ;; On input the 32-byte cache lines hold these data values:
@@ -6800,7 +6897,7 @@ c5b:	disp four_complex_unfft, 8, 64*dist1, 128*dist1
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
 	dec	dl			;; Test loop counter
 	jnz	c5b			;; Iterate if necessary
-	mov	esi, _DESTARG		;; Restore source pointer
+	mov	esi, DESTARG		;; Restore source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -6823,6 +6920,7 @@ c5b:	disp four_complex_unfft, 8, 64*dist1, 128*dist1
 ;; Do 512 four_complex_unfft_1 macros
 ;;	distance between fft data elements is 256
 
+	push_amt = 0
 x4096p_finish_unfft:
 	mov	edi, sincos5		;; Load sin/cos pointer
 	mov	dl, 4			;; 4 iters of 128

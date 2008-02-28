@@ -1,4 +1,4 @@
-; Copyright 1998-2004 - Just For Fun Software, Inc., all rights reserved
+; Copyright 1998-2007 - Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -44,8 +44,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 19 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -181,19 +179,15 @@ c1b:	two_five_reals_last_unfft 8, 4*clmblkdst
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -341,8 +335,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -358,10 +354,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -398,8 +393,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 23 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -539,19 +532,15 @@ c1b:	disp six_reals_last_unfft, 8, 8*clmblkdst, 16*clmblkdst
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -703,8 +692,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -720,10 +711,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -760,8 +750,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 24 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -879,19 +867,15 @@ c1b:	three_complex_last_unfft 8, 8*clmblkdst, 16*clmblkdst
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -1021,8 +1005,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -1038,10 +1024,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -1078,8 +1063,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 27 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -1215,19 +1198,15 @@ c1b:	two_seven_reals_last_unfft 8, 4*clmblkdst
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -1375,8 +1354,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -1392,10 +1373,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -1432,8 +1412,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 31 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -1573,19 +1551,15 @@ c1b:	disp eight_reals_last_unfft, 8, 8*clmblkdst, 16*clmblkdst
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -1737,8 +1711,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -1754,10 +1730,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -1794,8 +1769,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 32 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -1913,19 +1886,15 @@ c1b:	disp four_complex_last_unfft, 8, 8*clmblkdst, 16*clmblkdst
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -2055,8 +2024,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -2072,10 +2043,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -2112,8 +2082,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 39 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -2253,19 +2221,15 @@ c1b:	two_five_reals_last_unfft 8, 8*clmblkdst
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -2417,8 +2381,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -2434,10 +2400,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -2474,8 +2439,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 63 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -2615,19 +2578,15 @@ c1b:	disp six_reals_last_unfft, 8, 16*clmblkdst, 32*clmblkdst
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -2779,8 +2738,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -2796,10 +2757,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -2836,8 +2796,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 48 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -2955,19 +2913,15 @@ c1b:	three_complex_last_unfft 8, 16*clmblkdst, 32*clmblkdst
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -3097,8 +3051,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -3114,10 +3070,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -3154,8 +3109,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 55 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -3295,19 +3248,15 @@ c1b:	two_seven_reals_last_unfft 8, 8*clmblkdst
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -3459,8 +3408,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -3476,10 +3427,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -3516,8 +3466,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 63 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -3657,19 +3605,15 @@ c1b:	disp eight_reals_last_unfft, 8, 16*clmblkdst, 32*clmblkdst
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -3821,8 +3765,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -3838,10 +3784,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -3878,8 +3823,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 64 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -3997,19 +3940,15 @@ c1b:	disp four_complex_last_unfft, 8, 16*clmblkdst, 32*clmblkdst
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -4139,8 +4078,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -4156,10 +4097,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -4197,8 +4137,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 79 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -4373,19 +4311,15 @@ pfing	lea	ecx, [ecx-35*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -4573,8 +4507,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -4590,10 +4526,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -4631,8 +4566,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 95 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -4810,19 +4743,15 @@ pfing	lea	ecx, [ecx-48*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -5013,8 +4942,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -5030,10 +4961,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -5071,8 +5001,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 96 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -5218,19 +5146,15 @@ pfing	lea	ecx, [ecx-46*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -5389,8 +5313,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -5406,10 +5332,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -5447,8 +5372,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 111 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -5623,19 +5546,15 @@ pfing	lea	ecx, [ecx-55*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -5823,8 +5742,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -5840,10 +5761,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -5881,8 +5801,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 127 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -6066,19 +5984,15 @@ pfing	lea	ecx, [ecx-64*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -6275,8 +6189,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -6292,10 +6208,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -6333,8 +6248,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 128 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -6486,19 +6399,15 @@ pfing	lea	ecx, [ecx-64*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -6663,8 +6572,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -6680,10 +6591,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -6721,8 +6631,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 159 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -6903,19 +6811,15 @@ pfing	lea	ecx, [ecx-71*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -7109,8 +7013,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -7126,10 +7032,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -7167,8 +7072,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 191 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -7351,19 +7254,15 @@ pfing	lea	ecx, [ecx-79*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -7560,8 +7459,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -7577,10 +7478,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -7618,8 +7518,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 192 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -7773,19 +7671,15 @@ pfing	lea	ecx, [ecx-80*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -7953,8 +7847,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -7970,10 +7866,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -8011,8 +7906,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 223 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -8193,19 +8086,15 @@ pfing	lea	ecx, [ecx-87*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -8399,8 +8288,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -8416,10 +8307,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -8457,8 +8347,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 255 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -8644,19 +8532,15 @@ pfing	lea	ecx, [ecx-96*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -8856,8 +8740,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -8873,10 +8759,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -8914,8 +8799,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 256 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -9069,19 +8952,15 @@ pfing	lea	ecx, [ecx-128*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -9249,8 +9128,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -9266,10 +9147,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -9309,8 +9189,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 319 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -9539,19 +9417,15 @@ pfing	lea	ecx, [ecx-160*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -9795,8 +9669,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -9812,10 +9688,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -9855,8 +9730,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 383 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -10085,19 +9958,15 @@ pfing	lea	ecx, [ecx-184*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -10341,8 +10210,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -10358,10 +10229,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -10399,8 +10269,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 384 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -10586,19 +10454,15 @@ pfing	lea	ecx, [ecx-184*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -10799,8 +10663,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -10816,10 +10682,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -10859,8 +10724,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 447 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -11089,19 +10952,15 @@ pfing	lea	ecx, [ecx-224*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -11345,8 +11204,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -11362,10 +11223,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -11405,8 +11265,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 1 pass2_8_levels_real and 511 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -11635,19 +11493,15 @@ pfing	lea	ecx, [ecx-256*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -11891,8 +11745,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -11908,10 +11764,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -11949,8 +11804,6 @@ pfing	mov	ebp, clm*32		;; Set prefetch distance
 ;;	do 512 pass2_8_levels_complex
 
 pass2:	start_timer 0
-	mov	ebp, _SRCARG		;; Calc distance for type3 and type4
-	sub	ebp, esi		;; input arguments
 	CALLP	pass2_macro
 	end_timer 0
 	cmp	ffttype, 1		;; We're done if FFTing only
@@ -12136,19 +11989,15 @@ pfing	lea	ecx, [ecx-256*blkdst]	;; Restore dest ptr
 ;; Normalize these values
 
 	start_timer 20
-	push	ecx			;; Save prefetching pointers
-pfing	push	ebp
-	mov	eax, _NORMRTN		;; Addr of normalization routine
+	mov	eax, NORMRTN		;; Addr of normalization routine
 	call	eax
 	sub	eax, eax
-pfing	pop	ebp			;; Restore prefetching pointers
-	pop	ecx
 	end_timer 20
 
 ;; Have we been given permission to start the FFT on the result?
 ;; If so, do so now while the data is in the L2 cache.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short copyback		;; Copy data, skip FFT if flag not set
 	copy_3_words clm, 1
 	cmp	edx, p2cl/128*65536+(128/clm-4/clm)*256;; Delay fft on 8 sets
@@ -12349,8 +12198,10 @@ more:	set_prefetch_gap
 	jne	c0b			;; Do inverse-FFT/norm/FFT iteration
 	jmp	b0b			;; Do another FFT-only iteration
 fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
-	cmp	esi, _DESTARG		;; If esi was not restored, then we 
+	cmp	esi, DESTARG		;; If esi was not restored, then we 
 	jne	short fftdn1		;; just finished skipped postfft data
+	sub	ebx, ebx
+	mov	DIST_TO_FFTSRCARG, ebx
 	cmp	norm_ptr1, 0		;; What was the loop start point?
 	je	pass2			;; FFT-only, go do pass 2
 
@@ -12366,10 +12217,9 @@ fftdn:	lea	esi, [esi-p2cl*2*dist1-p2cl/128*64];; Restore source pointer
 ;; If so, set loop to FFT the first few cache lines now that the carries
 ;; have been added in.
 
-	cmp	_POSTFFT, 0		;; Test flag
+	cmp	POSTFFT, 0		;; Test flag
 	je	short fftdn1		;; Skip FFT code if flag not set
-	mov	esi, _DESTARG		;; Load FFT data address
-	sub	ebx, ebx
+	mov	esi, DESTARG		;; Load FFT data address
 	mov	edx, 65536+4/clm*256	;; Do 8 previously skipped cache lines
 	mov	norm_ptr1, 0		;; Set flag so only forward FFT is done
 	copy_4_words
@@ -12411,7 +12261,7 @@ set_FFT_constants MACRO clmarg
 
 copy_scratch_data_to_fft MACRO numsets, numlines, incr
 	LOCAL	a0b
-	push	ecx			;; Save FFT data ptr
+	pusher	ecx			;; Save FFT data ptr
 	mov	esi, scratch_area	;; Get address of scratch area
 	mov	eax, numsets		;; Load counter
 a0b:	fld	QWORD PTR [esi]		;; Copy a cache line
@@ -12436,7 +12286,7 @@ a0b:	fld	QWORD PTR [esi]		;; Copy a cache line
 	dec	al			;; Test loop counter
 	jnz	short a0b		;; Iterate if necessary
 	ENDIF
-	pop	esi			;; Restore FFT data ptr
+	popper	esi			;; Restore FFT data ptr
 	ENDM
 
 ;; Copy data from FFT data area to scratch area
@@ -12446,16 +12296,17 @@ a0b:	fld	QWORD PTR [esi]		;; Copy a cache line
 
 copy_fft_data_to_scratch MACRO numsets, numlines, incr
 	LOCAL	a0b
-	push	esi			;; Save FFT data ptr
+	pusher	esi			;; Save FFT data ptr
+	add	esi, DIST_TO_FFTSRCARG
 	mov	ecx, scratch_area	;; Get address of scratch area
 	mov	eax, numsets		;; Load counter
-a0b:	fld	QWORD PTR [esi][ebx]	;; Copy a cache line
+a0b:	fld	QWORD PTR [esi]		;; Copy a cache line
 	fstp	QWORD PTR [ecx]
-	fld	QWORD PTR [esi+8][ebx]
+	fld	QWORD PTR [esi+8]
 	fstp	QWORD PTR [ecx+8]
-	fld	QWORD PTR [esi+16][ebx]
+	fld	QWORD PTR [esi+16]
 	fstp	QWORD PTR [ecx+16]
-	fld	QWORD PTR [esi+24][ebx]
+	fld	QWORD PTR [esi+24]
 	fstp	QWORD PTR [ecx+24]
 	lea	esi, [esi+32]		;; Next source pointer
 	lea	ecx, [ecx+32]		;; Next dest pointer
@@ -12471,7 +12322,7 @@ a0b:	fld	QWORD PTR [esi][ebx]	;; Copy a cache line
 	dec	al			;; Test loop counter
 	jnz	short a0b		;; Iterate if necessary
 	ENDIF
-	pop	ecx			;; Restore FFT data ptr as prefetch ptr
+	popper	ecx			;; Restore FFT data ptr as prefetch ptr
 	mov	esi, scratch_area	;; Set source ptr to scratch area
 	ENDM
 

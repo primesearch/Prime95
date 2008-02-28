@@ -4,14 +4,14 @@
 | This file contains various utility routines that may be used by gwnum
 | routines, prime95, or PRP.
 | 
-|  Copyright 2004-2005 Just For Fun Software, Inc.
+|  Copyright 2004-2007 Just For Fun Software, Inc.
 |  All Rights Reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
 
 #include <stdlib.h>
-#ifdef _WIN64
+#ifndef __APPLE__
 #include <malloc.h>
 #endif
 #include "gwutil.h"

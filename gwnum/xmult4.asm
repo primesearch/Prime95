@@ -1,4 +1,4 @@
-; Copyright 2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 2005-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -30,14 +30,13 @@ INCLUDE xmult.mac
 INCLUDE xpass1.mac
 INCLUDE xpass1sc.mac
 
+EXTRN	pass1_aux_entry_point_return:PROC
 EXTRN	xgw_finish_fft:PROC
 EXTRN	xgw_carries:PROC
 EXTRN	xgw_finish_mult:PROC
 
 EXTRNP	xpass2_12_levels
-EXTRNP	xpass2_12_levels_p
 EXTRNP	xpass2_12_levels_np
-EXTRNP	xpass2_12_levels_p_np
 
 _TEXT SEGMENT
 
@@ -50,7 +49,6 @@ xpass2_levels = 12
 
 ;; All the FFT routines for each FFT length
 
-PROCP	_xmm_gw_ffts4
 	EXPANDING = 2
 ;	xfft	256K
 ;	xfft	256Kp
@@ -273,8 +271,6 @@ allfft	xfftclm	16Mp, 2
 allfft	xfftclm	16Mp, 1
 allfft	xfftclm	16Mp, 0
 ENDIF
-
-ENDPP	_xmm_gw_ffts4
 
 _TEXT	ENDS
 END

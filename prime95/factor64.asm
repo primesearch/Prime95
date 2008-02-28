@@ -1,4 +1,4 @@
-; Copyright 1995-2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -10,62 +10,120 @@
 ; IDEAS:
 ; test where primearray loses effectiveness 
 
-TITLE   setup
+TITLE   factor64
 
 INCLUDE	unravel.mac
 
-EXTRN	_SRCARG:EXTPTR
-EXTRN	_FACHSW:DWORD
-EXTRN	_FACMSW:DWORD
-EXTRN	_FACLSW:DWORD
-EXTRN	_FACPASS:DWORD
+; In 32-bit mode we are so starved for registers that we are forced to
+; use the stack pointer to access the asm_data.  In 64-bit mode we
+; use one of the extra 8 registers.  We can't use the rsp trick because
+; that violates the Window's exception handling stack unwind mechanism.
+
+AD_BASE		EQU	<r11>
+
+;
+; Define the offsets into the C / assembly communication structure
+;
+
+EXPONENT		EQU	DWORD PTR [AD_BASE+0*SZPTR+0*4]
+FACPASS			EQU	DWORD PTR [AD_BASE+0*SZPTR+1*4]
+FACHSW			EQU	DWORD PTR [AD_BASE+0*SZPTR+2*4]
+FACMSW			EQU	DWORD PTR [AD_BASE+0*SZPTR+3*4]
+FACLSW			EQU	DWORD PTR [AD_BASE+0*SZPTR+4*4]
+CPU_FLAGS		EQU	DWORD PTR [AD_BASE+0*SZPTR+5*4]
+firstcall		EQU	DWORD PTR [AD_BASE+0*SZPTR+6*4]
+
+;p		DQ	0	; Mersenne prime being tested
+p			EQU	QWORD PTR [AD_BASE+0*SZPTR+10*4]
+;twop		DQ	0	; Multiples of p + p
+twop			EQU	QWORD PTR [AD_BASE+0*SZPTR+12*4]
+;savefac1	DQ	0	; The LSW of the 96-bit factor being tested
+savefac1		EQU	QWORD PTR [AD_BASE+0*SZPTR+14*4]
+;savefac0	DQ	0	; The MSW of the 96-bit factor being tested
+savefac0		EQU	QWORD PTR [AD_BASE+0*SZPTR+16*4]
+;facdists	DQ	64 DUP(0) ; 64 distances between sieve factors
+facdists		EQU	QWORD PTR [AD_BASE+0*SZPTR+18*4]
+;facdist64	DQ	0	; 64 * facdist
+facdist64		EQU	QWORD PTR [AD_BASE+0*SZPTR+146*4]
+;primearray	DPTR	0	; Array of primes and offsets
+primearray		EQU	[AD_BASE+0*SZPTR+148*4]
+;primearray12	DPTR	0
+primearray12		EQU	[AD_BASE+1*SZPTR+148*4]
+;initsieve	DPTR	0	; Array used to init sieve
+initsieve		EQU	[AD_BASE+2*SZPTR+148*4]
+;initlookup	DPTR	0	; Lookup table into initsieve
+initlookup		EQU	[AD_BASE+3*SZPTR+148*4]
+;sieve		DPTR	0	; Array of sieve bits
+sieve			EQU	[AD_BASE+4*SZPTR+148*4]
+;shifter	DQ	0
+shifter			EQU	QWORD PTR [AD_BASE+8*SZPTR+148*4]
+;shift66	DQ	0	; Two shift counts used in 66-bit factoring
+shift66			EQU	QWORD PTR [AD_BASE+8*SZPTR+150*4]
+;initval1	DQ	0	; Lower 64 bits of initial value for squarer
+initval1		EQU	QWORD PTR [AD_BASE+8*SZPTR+152*4]
+;initval0	DQ	0	; Upper 64 bits of initial value for squarer
+initval0		EQU	QWORD PTR [AD_BASE+8*SZPTR+154*4]
+;initshift	DQ	0	; Initial shift count to make first quotient
+initshift		EQU	QWORD PTR [AD_BASE+8*SZPTR+156*4]
+;initshift2	DQ	0	; Initial shift count to make first quotient
+initshift2		EQU	QWORD PTR [AD_BASE+8*SZPTR+158*4]
+;initdiv0	DQ	0	; Value to compute 1 / factor
+initdiv0		EQU	QWORD PTR [AD_BASE+8*SZPTR+160*4]
+;shift_count	DQ	0	; Shift count used in squaring loop
+shift_count		EQU	QWORD PTR [AD_BASE+8*SZPTR+162*4]
+;doubleflags	DB	64 DUP (0) ; Should-we-double flags
+doubleflags		EQU	BYTE PTR [AD_BASE+8*SZPTR+164*4]
+;sqloop_counter	DQ	0	; Number of times to loop squaring
+sqloop_counter		EQU	QWORD PTR [AD_BASE+8*SZPTR+180*4]
+
+;temp		DQ	0
+temp			EQU	QWORD PTR [AD_BASE+8*SZPTR+182*4]
+;memshifter	DQ	0	; tlp66 case doesn't have a free register
+				; to store shifter - use memory
+memshifter		EQU	QWORD PTR [AD_BASE+8*SZPTR+184*4]
+
+;fac1		DQ	0	; Queued factors to test
+fac1			EQU	QWORD PTR [AD_BASE+8*SZPTR+186*4]
+;fac2		DQ	0
+fac2			EQU	QWORD PTR [AD_BASE+8*SZPTR+188*4]
+;fac3		DQ	0
+fac3			EQU	QWORD PTR [AD_BASE+8*SZPTR+190*4]
+;fac4		DQ	0
+fac4			EQU	QWORD PTR [AD_BASE+8*SZPTR+192*4]
+;fac1hi		DQ	0	; High word of queued factors to test
+fac1hi			EQU	QWORD PTR [AD_BASE+8*SZPTR+194*4]
+;fac2hi		DQ	0
+fac2hi			EQU	QWORD PTR [AD_BASE+8*SZPTR+196*4]
+;fac3hi		DQ	0
+fac3hi			EQU	QWORD PTR [AD_BASE+8*SZPTR+198*4]
+;fac4hi		DQ	0
+fac4hi			EQU	QWORD PTR [AD_BASE+8*SZPTR+200*4]
+;queuedcnt	DD	0	; Saved count of queued factors
+queuedcnt		EQU	DWORD PTR [AD_BASE+8*SZPTR+202*4]
+;reps		DD	0
+reps			EQU	DWORD PTR [AD_BASE+8*SZPTR+203*4]
+
+;initstart	DD	0	; First dword in initsieve to copy
+initstart		EQU	DWORD PTR [AD_BASE+8*SZPTR+204*4]
+
+SAVED_REG1		EQU	[AD_BASE+8*SZPTR+208*4]
+SAVED_REG2		EQU	[AD_BASE+9*SZPTR+208*4]
+SAVED_REG3		EQU	[AD_BASE+10*SZPTR+208*4]
+SAVED_REG4		EQU	[AD_BASE+11*SZPTR+208*4]
+SAVED_REG5		EQU	[AD_BASE+12*SZPTR+208*4]
+SAVED_REG6		EQU	[AD_BASE+13*SZPTR+208*4]
+
+facinv2_in_memory	EQU	QWORD PTR [AD_BASE+14*SZPTR+208*4]
+
+last_global		EQU	[AD_BASE+14*SZPTR+210*4]
 
 ;
 ; Global variables
 ;
 
 _GWDATA SEGMENT PAGE
-p		DQ	0	; Mersenne prime being tested
-twop		DQ	0	; Multiples of p + p
-savefac1	DQ	0	; The LSW of the 96-bit factor being tested
-savefac0	DQ	0	; The MSW of the 96-bit factor being tested
-facdists	DQ	64 DUP(0) ; 64 distances between sieve factors
-facdist64	DQ	0	; 64 * facdist
-primearray	DPTR	0	; Array of primes and offsets
-primearray12	DPTR	0
-initsieve	DPTR	0	; Array used to init sieve
-initlookup	DPTR	0	; Lookup table into initsieve
-sieve		DPTR	0	; Array of sieve bits
-shifter		DQ	0
-shift66		DQ	0	; Two shift counts used in 66-bit factoring
-initval1	DQ	0	; Lower 64 bits of initial value for squarer
-initval0	DQ	0	; Upper 64 bits of initial value for squarer
-initshift	DQ	0	; Initial shift count to make first quotient
-initshift2	DQ	0	; Initial shift count to make first quotient
-initdiv0	DQ	0	; Value to compute 1 / factor
-shift_count	DQ	0	; Shift count used in squaring loop
-doubleflags	DB	64 DUP (0) ; Should-we-double flags
-sqloop_counter	DQ	0	; Number of times to loop squaring
-
-temp		DQ	0
-memshifter	DQ	0	; tlp66 case doesn't have a free register
-				; to store shifter - use memory
-fac32endpt	DQ	100000000000h; Limit for fac32 code
-
-fac1		DQ	0	; Queued factors to test
-fac2		DQ	0
-fac3		DQ	0
-fac4		DQ	0
-fac1hi		DQ	0	; High word of queued factors to test
-fac2hi		DQ	0
-fac3hi		DQ	0
-fac4hi		DQ	0
-queuedcnt	DD	0	; Saved count of queued factors
-reps		DD	0
-
-initstart	DD	0	; First dword in initsieve to copy
-firstcall	DD	0
 rems		DD	1,7,17,23,31,41,47,49,71,73,79,89,97,103,113,119
+fac32endpt	DQ	100000000000h; Limit for brute force factoring code
 
 ;
 ; Prime data
@@ -914,7 +972,7 @@ debug	MACRO ops:vararg
 assert	MACRO jcond
 	LOCAL	ok
 	IFDEF GDEBUG
-	jcond	ok
+	jcond	short ok
 	sub	rsp, rsp
 	pop	rax
 ok:
@@ -924,22 +982,27 @@ ok:
 
 _TEXT	SEGMENT
 
-; Initialize - FACLSW contains p
+; setupf (struct facasm_data *)
+;	Initialize 64-bit factoring code
+; Windows 64-bit (setupf)
+;	Parameter ptr = rcx
+; Linux 64-bit (setupf)
+;	Parameter ptr = rdi
 
-	PUBLIC	_setupf
-_setupf	PROC
-	push	rdi
-	push	rsi
-	push	rbp
-	push	rbx
+PROCF	setupf
+	ad_prolog 0,0,rbx,rbp,rsi,rdi
 
 ; Save p (passed in FACLSW), compute various constants and addresses
 
-	mov	eax, _FACLSW		; Load and save p
+	mov	eax, EXPONENT		; Load and save p
 	mov	p, rax
 	add	rax, rax		; Two times p
 	mov	twop, rax
-	mov	rax, _SRCARG		; Addr of allocated memory
+	lea	rax, last_global	; Addr of allocated memory
+	mov	edx, 0FFFFh		; Align area on a 64K boundary
+	add	rax, rdx
+	not	rdx
+	and	rax, rdx
 	mov	primearray, rax		; Array of primes and offsets
 	add	rax, 30000h
 	mov	initsieve, rax		; Array used to init sieve
@@ -956,7 +1019,7 @@ _setupf	PROC
 	mov	rax, 120		; Compute 120 (8 * 3 * 5) * p
 	mul	p
 	sub	rbx, rbx		; LSW of multiple of facdist
-	mov	rdi, OFFSET facdists
+	lea	rdi, facdists
 	mov	rcx, 64			; Loop 64 times
 fdlp:	mov	[rdi], rbx
 	lea	rdi, [rdi+8]		; Bump pointers
@@ -1055,23 +1118,38 @@ ilp6:	sub	rdx, rcx		; Compute bit# mod smallp
 
 ; Return
 
-	pop	rbx
-	pop	rbp
-	pop	rsi
-	pop	rdi
-	ret
-_setupf	ENDP
+	ad_epilog 0,0,rbx,rbp,rsi,rdi
+setupf	ENDP
+
+; factor64 (struct facasm_data *)
+;	Do a few sieving runs and test potential factors
+; Windows 64-bit (factor64)
+;	Parameter ptr = rcx
+; Linux 64-bit (factor64)
+;	Parameter ptr = rdi
+
+PROCF	factor64
+	ad_prolog 0,0,rbx,rbp,rsi,rdi,r12,r13,r14,r15
+
+; Is this a request to test 48-bit factors?  If so, go to special code.
+
+	cmp	FACHSW, 0
+	jne	big
+	mov	eax, FACMSW
+	shl	rax, 32
+	cmp	rax, fac32endpt
+	jae	big
 
 ;
 ; Brute force code to find small factors of 2**p - 1.  It works
 ; for trial factors of 63-bits or less.  However, the sieving algorithm
 ; is better if you are planning on testing a lot of trial factors.  So we
-; only use this for 32-bit factors.
+; only use this for 44-bit factors.
 ;
 
-fac32:	mov	rcx, p
+	mov	rcx, p
 	mov	rdi, fac32endpt
-	cmp	_FACPASS, 0		; Only do this on pass 0
+	cmp	FACPASS, 0		; Only do this on pass 0
 	jne	lv32
 s32lp:	add	rcx, rcx		; Shift until top bit on
 	jns	short s32lp
@@ -1129,41 +1207,19 @@ nextf:	add	rcx, twop
 
 lv32:	mov	rax, 2			; Return for ESC check
 	shr	rdi, 32
-	mov	_FACMSW, edi		; Restart after endpt
+	mov	FACMSW, edi		; Restart after endpt
 	jmp	done
 
 ; Divisor found, return TRUE
 
 win32:	mov	rax, 1
-	mov	_FACLSW, ecx
+	mov	FACLSW, ecx
 	shr	rcx, 32
-	mov	_FACMSW, ecx
+	mov	FACMSW, ecx
 	jmp	done
 
-;
-; Try to find a 64-bit factor of 2**p - 1
-; rcx = Starting point (times 2**32)
-;
+; We are looking for bigger factors (above 2^44).  Use a sieve.
 
-	PUBLIC	_factor64
-_factor64 PROC
-	push	rdi
-	push	rsi
-	push	rbp
-	push	rbx
-	push	r12
-	push	r13
-	push	r14
-	push	r15
-
-; Is this a request to test 48-bit factors?  If so, go to special code.
-
-	cmp	_FACHSW, 0
-	jne	short big
-	mov	eax, _FACMSW
-	shl	rax, 32
-	cmp	rax, fac32endpt
-	jb	fac32
 big:
 
 ; Set number of repetitions
@@ -1183,8 +1239,8 @@ big:
 ; First trial factor is first number of the form 2kp + 1
 ; greater than FACMSW * 2^32
 
-	mov	edi, _FACHSW		; Start point * 2^64
-	mov	ebx, _FACMSW		; Start point * 2^32
+	mov	edi, FACHSW		; Start point * 2^64
+	mov	ebx, FACMSW		; Start point * 2^32
 	shl	rbx, 32
 
 	mov	rcx, twop		; Load twop for dividing
@@ -1200,7 +1256,7 @@ big:
 
 ; Make sure we have a factor with the right modulo for this pass
 
-	mov	esi, _FACPASS		; Get the pass number (0 to 15)
+	mov	esi, FACPASS		; Get the pass number (0 to 15)
 	mov	rbp, 120
 flp1:	mov	rax, rdi		; Do a mod 120 in two parts
 	xor	rdx, rdx
@@ -1467,13 +1523,13 @@ sievedn:mov	rbx, savefac0		; Load trial factor corresponding
 ;
 
 facinv1	EQU	r13
-facinv2	EQU	r14
+facinv2	EQU	facinv2_in_memory	;; Formerly r11
 facinv3	EQU	r15
 temp3	EQU	rdi
 rem3	EQU	r8
 fac3reg	EQU	r9
 temp2	EQU	r10
-rem2	EQU	r11
+rem2	EQU	r14
 fac2reg	EQU	r12
 temp1	EQU	rbp
 rem1	EQU	rbx
@@ -1515,7 +1571,7 @@ bsf58:	bsf	rdx, rax		; Look for a set bit
 ; Return so caller can check for ESC
 
 	shr	rcx, 32
-	mov	_FACMSW, ecx
+	mov	FACMSW, ecx
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 
@@ -1536,10 +1592,10 @@ test58:	btr	rax, rdx		; Clear the sieve bit
 ; Now test the accumulated trial factors
 ;
 
-	push	rsi			; Save sieve testing registers
-	push	rax
-	push	rcx
-	push	rbp
+	mov	SAVED_REG1, rsi		; Save sieve testing registers
+	mov	SAVED_REG2, rax
+	mov	SAVED_REG3, rcx
+	mov	SAVED_REG4, rbp
 
 ; Precompute shifted 1 / factor
 
@@ -1697,10 +1753,11 @@ assert	jb
 	jz	short win58b
 
 	sub	rdi, rdi		; Clear queued factors count
-	pop	rbp			; Restore sieve testing register
-	pop	rcx
-	pop	rax
-	pop	rsi
+
+	mov	rbp, SAVED_REG4		; Restore sieve testing register
+	mov	rcx, SAVED_REG3
+	mov	rax, SAVED_REG2
+	mov	rsi, SAVED_REG1
 	jmp	bsf58			; Test next factor from sieve
 
 win58:	mov	rax, fac1reg
@@ -1708,11 +1765,10 @@ win58:	mov	rax, fac1reg
 win58a:	mov	rax, fac2reg
 	jmp	short win58c
 win58b:	mov	rax, fac3reg
-win58c:	mov	_FACLSW, eax		; Factor found!!! Return TRUE
+win58c:	mov	FACLSW, eax		; Factor found!!! Return TRUE
 	shr	rax, 32
-	mov	_FACMSW, eax
+	mov	FACMSW, eax
 	mov	rax, 1
-	add	rsp, 4*8		; pop sieve testing registers
 	jmp	done
 
 ;***********************************************************************
@@ -1744,7 +1800,7 @@ bsf60:	bsf	rdx, rax		; Look for a set bit
 ; Return so caller can check for ESC
 
 	shr	rcx, 32
-	mov	_FACMSW, ecx
+	mov	FACMSW, ecx
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 
@@ -1752,7 +1808,7 @@ bsf60:	bsf	rdx, rax		; Look for a set bit
 
 oflow60:and	rdi, rdi		; Are there untested factors?
 	jnz	short rem60		; Yes, go do remaining trial factors
-	mov	_FACMSW, 10000000h	; Return end point
+	mov	FACMSW, 10000000h	; Return end point
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 rem60:	mov	r8, fac1		; Copy first trial factor
@@ -1781,11 +1837,11 @@ test60:	btr	rax, rdx		; Clear the sieve bit
 ; Now test the accumulated trial factors
 ;
 
-do60:	push	rsi			; Save sieve testing registers
-	push	rax
-	push	rbx
-	push	rcx
-	push	rbp
+do60:	mov	SAVED_REG1, rsi		; Save sieve testing registers
+	mov	SAVED_REG2, rax
+	mov	SAVED_REG3, rbx
+	mov	SAVED_REG4, rcx
+	mov	SAVED_REG5, rbp
 
 ; Precompute shifted 1 / factor
 
@@ -1948,11 +2004,11 @@ assert	jb
 	jz	short win60b
 
 	sub	rdi, rdi		; Clear queued factors count
-	pop	rbp			; Restore sieve testing register
-	pop	rcx
-	pop	rbx
-	pop	rax
-	pop	rsi
+	mov	rbp, SAVED_REG5		; Restore sieve testing register
+	mov	rcx, SAVED_REG4
+	mov	rbx, SAVED_REG3
+	mov	rax, SAVED_REG2
+	mov	rsi, SAVED_REG1
 	jmp	bsf60			; Test next factor from sieve
 
 win60:	mov	rax, fac1reg
@@ -1960,11 +2016,10 @@ win60:	mov	rax, fac1reg
 win60a:	mov	rax, fac2reg
 	jmp	short win60c
 win60b:	mov	rax, fac3reg
-win60c:	mov	_FACLSW, eax		; Factor found!!! Return TRUE
+win60c:	mov	FACLSW, eax		; Factor found!!! Return TRUE
 	shr	rax, 32
-	mov	_FACMSW, eax
+	mov	FACMSW, eax
 	mov	rax, 1
-	add	rsp, 5*8		; pop sieve testing registers
 	jmp	done
 
 ;***********************************************************************
@@ -1996,7 +2051,7 @@ bsf61:	bsf	rdx, rax		; Look for a set bit
 ; Return so caller can check for ESC
 
 	shr	rcx, 32
-	mov	_FACMSW, ecx
+	mov	FACMSW, ecx
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 
@@ -2004,7 +2059,7 @@ bsf61:	bsf	rdx, rax		; Look for a set bit
 
 oflow61:and	rdi, rdi		; Are there untested factors?
 	jnz	short rem61		; Yes, go do remaining trial factors
-	mov	_FACMSW, 20000000h	; Return end point
+	mov	FACMSW, 20000000h	; Return end point
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 rem61:	mov	r8, fac1		; Copy first trial factor
@@ -2033,11 +2088,11 @@ test61:	btr	rax, rdx		; Clear the sieve bit
 ; Now test the accumulated trial factors
 ;
 
-do61:	push	rsi			; Save sieve testing registers
-	push	rax
-	push	rbx
-	push	rcx
-	push	rbp
+do61:	mov	SAVED_REG1, rsi		; Save sieve testing registers
+	mov	SAVED_REG2, rax
+	mov	SAVED_REG3, rbx
+	mov	SAVED_REG4, rcx
+	mov	SAVED_REG5, rbp
 
 ; Precompute shifted 1 / factor
 
@@ -2203,11 +2258,11 @@ assert	jb
 	jz	short win61b
 
 	sub	rdi, rdi		; Clear queued factors count
-	pop	rbp			; Restore sieve testing register
-	pop	rcx
-	pop	rbx
-	pop	rax
-	pop	rsi
+	mov	rbp, SAVED_REG5		; Restore sieve testing register
+	mov	rcx, SAVED_REG4
+	mov	rbx, SAVED_REG3
+	mov	rax, SAVED_REG2
+	mov	rsi, SAVED_REG1
 	jmp	bsf61			; Test next factor from sieve
 
 win61:	mov	rax, fac1reg
@@ -2215,11 +2270,10 @@ win61:	mov	rax, fac1reg
 win61a:	mov	rax, fac2reg
 	jmp	short win61c
 win61b:	mov	rax, fac3reg
-win61c:	mov	_FACLSW, eax		; Factor found!!! Return TRUE
+win61c:	mov	FACLSW, eax		; Factor found!!! Return TRUE
 	shr	rax, 32
-	mov	_FACMSW, eax
+	mov	FACMSW, eax
 	mov	rax, 1
-	add	rsp, 5*8		; pop sieve testing registers
 	jmp	done
 
 ;***********************************************************************
@@ -2251,7 +2305,7 @@ bsf62:	bsf	rdx, rax		; Look for a set bit
 ; Return so caller can check for ESC
 
 	shr	rcx, 32
-	mov	_FACMSW, ecx
+	mov	FACMSW, ecx
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 
@@ -2259,7 +2313,7 @@ bsf62:	bsf	rdx, rax		; Look for a set bit
 
 oflow62:and	rdi, rdi		; Are there untested factors?
 	jnz	short rem62		; Yes, go do remaining trial factors
-	mov	_FACMSW, 40000000h	; Return end point
+	mov	FACMSW, 40000000h	; Return end point
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 rem62:	mov	r8, fac1		; Copy first trial factor
@@ -2288,11 +2342,11 @@ test62:	btr	rax, rdx		; Clear the sieve bit
 ; Now test the accumulated trial factors
 ;
 
-do62:	push	rsi			; Save sieve testing registers
-	push	rax
-	push	rbx
-	push	rcx
-	push	rbp
+do62:	mov	SAVED_REG1, rsi		; Save sieve testing registers
+	mov	SAVED_REG2, rax
+	mov	SAVED_REG3, rbx
+	mov	SAVED_REG4, rcx
+	mov	SAVED_REG5, rbp
 
 ; Precompute shifted 1 / factor
 
@@ -2453,11 +2507,11 @@ assert	jb
 	jz	short win62b
 
 	sub	rdi, rdi		; Clear queued factors count
-	pop	rbp			; Restore sieve testing register
-	pop	rcx
-	pop	rbx
-	pop	rax
-	pop	rsi
+	mov	rbp, SAVED_REG5		; Restore sieve testing register
+	mov	rcx, SAVED_REG4
+	mov	rbx, SAVED_REG3
+	mov	rax, SAVED_REG2
+	mov	rsi, SAVED_REG1
 	jmp	bsf62			; Test next factor from sieve
 
 win62:	mov	rax, fac1reg
@@ -2465,11 +2519,10 @@ win62:	mov	rax, fac1reg
 win62a:	mov	rax, fac2reg
 	jmp	short win62c
 win62b:	mov	rax, fac3reg
-win62c:	mov	_FACLSW, eax		; Factor found!!! Return TRUE
+win62c:	mov	FACLSW, eax		; Factor found!!! Return TRUE
 	shr	rax, 32
-	mov	_FACMSW, eax
+	mov	FACMSW, eax
 	mov	rax, 1
-	add	rsp, 5*8		; pop sieve testing registers
 	jmp	done
 
 ;***********************************************************************
@@ -2498,7 +2551,7 @@ bsf63:	bsf	rdx, rax		; Look for a set bit
 ; Return so caller can check for ESC
 
 	shr	rcx, 32
-	mov	_FACMSW, ecx
+	mov	FACMSW, ecx
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 
@@ -2506,7 +2559,7 @@ bsf63:	bsf	rdx, rax		; Look for a set bit
 
 oflow63:and	rdi, rdi		; Are there untested factors?
 	jnz	short rem63		; Yes, go do remaining trial factors
-	mov	_FACMSW, 80000000h	; Return end point
+	mov	FACMSW, 80000000h	; Return end point
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 rem63:	mov	r8, fac1		; Copy first trial factor
@@ -2534,10 +2587,10 @@ test63:	btr	rax, rdx		; Clear the sieve bit
 ; Now test the accumulated trial factors
 ;
 
-do63:	push	rsi			; Save sieve testing registers
-	push	rax
-	push	rcx
-	push	rbp
+do63:	mov	SAVED_REG1, rsi		; Save sieve testing registers
+	mov	SAVED_REG2, rax
+	mov	SAVED_REG3, rcx
+	mov	SAVED_REG4, rbp
 
 ; Precompute shifted 1 / factor
 
@@ -2713,10 +2766,10 @@ assert	jb
 	jz	short win63b
 
 	sub	rdi, rdi		; Clear queued factors count
-	pop	rbp			; Restore sieve testing register
-	pop	rcx
-	pop	rax
-	pop	rsi
+	mov	rbp, SAVED_REG4		; Restore sieve testing register
+	mov	rcx, SAVED_REG3
+	mov	rax, SAVED_REG2
+	mov	rsi, SAVED_REG1
 	jmp	bsf63			; Test next factor from sieve
 
 win63:	mov	rax, fac1reg
@@ -2724,11 +2777,10 @@ win63:	mov	rax, fac1reg
 win63a:	mov	rax, fac2reg
 	jmp	short win63c
 win63b:	mov	rax, fac3reg
-win63c:	mov	_FACLSW, eax		; Factor found!!! Return TRUE
+win63c:	mov	FACLSW, eax		; Factor found!!! Return TRUE
 	shr	rax, 32
-	mov	_FACMSW, eax
+	mov	FACMSW, eax
 	mov	rax, 1
-	add	rsp, 4*8		; pop sieve testing registers
 	jmp	done
 
 ;***********************************************************************
@@ -2766,7 +2818,7 @@ bsf64:	bsf	rdx, rax		; Look for a set bit
 ; Return so caller can check for ESC
 
 	shr	rcx, 32
-	mov	_FACMSW, ecx
+	mov	FACMSW, ecx
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 
@@ -2774,8 +2826,8 @@ bsf64:	bsf	rdx, rax		; Look for a set bit
 
 oflow64:and	rdi, rdi		; Are there untested factors?
 	jnz	short rem64		; Yes, go do remaining trial factors
-	mov	_FACMSW, 0		; Return end point
-	mov	_FACHSW, 1
+	mov	FACMSW, 0		; Return end point
+	mov	FACHSW, 1
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 rem64:	mov	r8, fac1		; Copy first trial factor
@@ -2804,10 +2856,10 @@ test64:	btr	rax, rdx		; Clear the sieve bit
 ; Now test the accumulated trial factors
 ;
 
-do64:	push	rsi			; Save sieve testing registers
-	push	rax
-	push	rcx
-	push	rbp
+do64:	mov	SAVED_REG1, rsi		; Save sieve testing registers
+	mov	SAVED_REG2, rax
+	mov	SAVED_REG3, rcx
+	mov	SAVED_REG4, rbp
 
 ; Precompute 1 / factor using Newton's method and the last 1 / factor
 ; as our initial estimate.  I think this gives us about 50-ish digits
@@ -2838,7 +2890,7 @@ do64:	push	rsi			; Save sieve testing registers
 	sub	facinv3, rdx		; est - f * est^2
 
 	add	facinv1, facinv1	; 1/f = 2 (est - f * est^2)
-	add	facinv2, facinv2	; 1/f = 2 (est - f * est^2)
+	shl	facinv2, 1		; 1/f = 2 (est - f * est^2)
 	add	facinv3, facinv3	; 1/f = 2 (est - f * est^2)
 
 ;
@@ -3080,17 +3132,16 @@ assert	jb
 	jz	short win64
 
 	sub	rdi, rdi		; Clear queued factors count
-	pop	rbp			; Restore sieve testing register
-	pop	rcx
-	pop	rax
-	pop	rsi
+	mov	rbp, SAVED_REG4		; Restore sieve testing register
+	mov	rcx, SAVED_REG3
+	mov	rax, SAVED_REG2
+	mov	rsi, SAVED_REG1
 	jmp	bsf64			; Test next factor from sieve
 
-win64:	mov	_FACLSW, eax		; Factor found!
+win64:	mov	FACLSW, eax		; Factor found!
 	shr	rax, 32
-	mov	_FACMSW, eax
+	mov	FACMSW, eax
 	mov	rax, 1			; Return TRUE
-	add	rsp, 4*8		; Pop saved sieve testing registers
 	jmp	done
 
 ;***********************************************************************
@@ -3133,7 +3184,7 @@ bsf65:	bsf	rdx, rax		; Look for a set bit
 ; Return so caller can check for ESC
 
 	shr	rcx, 32
-	mov	_FACMSW, ecx
+	mov	FACMSW, ecx
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 
@@ -3141,8 +3192,8 @@ bsf65:	bsf	rdx, rax		; Look for a set bit
 
 oflow65:and	rdi, rdi		; Are there untested factors?
 	jnz	short rem65		; Yes, go do remaining trial factors
-	mov	_FACMSW, 0		; Return end point
-	mov	_FACHSW, 2
+	mov	FACMSW, 0		; Return end point
+	mov	FACHSW, 2
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 rem65:	mov	r8, fac1		; Copy first trial factor
@@ -3171,10 +3222,10 @@ test65:	btr	rax, rdx		; Clear the sieve bit
 ; Now test the accumulated trial factors
 ;
 
-do65:	push	rsi			; Save sieve testing registers
-	push	rax
-	push	rcx
-	push	rbp
+do65:	mov	SAVED_REG1, rsi		; Save sieve testing registers
+	mov	SAVED_REG2, rax
+	mov	SAVED_REG3, rcx
+	mov	SAVED_REG4, rbp
 
 ; Precompute 1 / factor using Newton's method and the last 1 / factor
 ; as our initial estimate.  I think this gives us about 50-ish digits
@@ -3211,7 +3262,7 @@ do65:	push	rsi			; Save sieve testing registers
 	sub	facinv3, rdx		; est - f * est^2
 
 	add	facinv1, facinv1	; 1/f = 2 (est - f * est^2)
-	add	facinv2, facinv2	; 1/f = 2 (est - f * est^2)
+	shl	facinv2, 1		; 1/f = 2 (est - f * est^2)
 	add	facinv3, facinv3	; 1/f = 2 (est - f * est^2)
 
 ;
@@ -3443,18 +3494,17 @@ sub65b:	sub	rem3lo, rax		; Subtract factor
 	jz	short win65
 
 next65:	sub	rdi, rdi		; Clear queued factors count
-	pop	rbp			; Restore sieve testing register
-	pop	rcx
-	pop	rax
-	pop	rsi
+	mov	rbp, SAVED_REG4		; Restore sieve testing register
+	mov	rcx, SAVED_REG3
+	mov	rax, SAVED_REG2
+	mov	rsi, SAVED_REG1
 	jmp	bsf65			; Test next factor from sieve
 
-win65:	mov	_FACLSW, eax		; Factor found!
+win65:	mov	FACLSW, eax		; Factor found!
 	shr	rax, 32
-	mov	_FACMSW, eax
-	mov	_FACHSW, 1
+	mov	FACMSW, eax
+	mov	FACHSW, 1
 	mov	rax, 1			; Return TRUE
-	add	rsp, 4*8		; Pop saved sieve testing registers
 	jmp	done
 
 
@@ -3506,8 +3556,8 @@ bsf66:	bsf	rdx, rax		; Look for a set bit
 ; Return so caller can check for ESC
 
 	shr	rcx, 32
-	mov	_FACMSW, ecx
-	mov	_FACHSW, ebx
+	mov	FACMSW, ecx
+	mov	FACHSW, ebx
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 
@@ -3515,8 +3565,8 @@ bsf66:	bsf	rdx, rax		; Look for a set bit
 
 oflow66:and	rdi, rdi		; Are there untested factors?
 	jnz	short rem66		; Yes, go do remaining trial factors
-	mov	_FACHSW, r14d		; Return end point
-	mov	_FACMSW, 0
+	mov	FACHSW, r14d		; Return end point
+	mov	FACMSW, 0
 	mov	rax, 2			; Return for ESC check
 	jmp	done
 rem66:	mov	r8, fac1		; Copy first trial factor
@@ -3550,12 +3600,12 @@ test66:	btr	rax, rdx		; Clear the sieve bit
 ; Now test the accumulated trial factors
 ;
 
-do66:	push	rsi			; Save sieve testing registers
-	push	rax
-	push	rbx
-	push	rcx
-	push	rbp
-	push	r14
+do66:	mov	SAVED_REG1, rsi		; Save sieve testing registers
+	mov	SAVED_REG2, rax
+	mov	SAVED_REG3, rbx
+	mov	SAVED_REG4, rcx
+	mov	SAVED_REG5, rbp
+	mov	SAVED_REG6, r14
 
 ; Precompute 1 / factor using Newton's method and the last 1 / factor
 ; as our initial estimate.  I think this gives us about 50-ish digits
@@ -3598,7 +3648,7 @@ dec	rcx
 	sub	facinv3, rdx		; est - f * est^2
 
 	add	facinv1, facinv1	; 1/f = 2 (est - f * est^2)
-	add	facinv2, facinv2	; 1/f = 2 (est - f * est^2)
+	shl	facinv2, 1		; 1/f = 2 (est - f * est^2)
 	add	facinv3, facinv3	; 1/f = 2 (est - f * est^2)
 
 ;
@@ -3858,35 +3908,26 @@ sub66b:	sub	rem3lo, rax		; Subtract factor
 	jz	short win66
 
 next66:	sub	rdi, rdi		; Clear queued factors count
-	pop	r14			; Restore sieve testing register
-	pop	rbp
-	pop	rcx
-	pop	rbx
-	pop	rax
-	pop	rsi
+	mov	r14, SAVED_REG6		; Restore sieve testing register
+	mov	rbp, SAVED_REG5
+	mov	rcx, SAVED_REG4
+	mov	rbx, SAVED_REG3
+	mov	rax, SAVED_REG2
+	mov	rsi, SAVED_REG1
 	jmp	bsf66			; Test next factor from sieve
 
-win66:	mov	_FACLSW, eax		; Factor found!
+win66:	mov	FACLSW, eax		; Factor found!
 	shr	rax, 32
-	mov	_FACMSW, eax
-	mov	_FACHSW, edx
+	mov	FACMSW, eax
+	mov	FACHSW, edx
 	mov	rax, 1			; Return TRUE
-	add	rsp, 6*8		; Pop saved sieve testing registers
 	jmp	done
 
 ; Pop registers and return
 
-done:	pop	r15
-	pop	r14
-	pop	r13
-	pop	r12
-	pop	rbx
-	pop	rbp
-	pop	rsi
-	pop	rdi
-	ret
+done:	ad_epilog 0,0,rbx,rbp,rsi,rdi,r12,r13,r14,r15
 
-_factor64 ENDP
+factor64 ENDP
 
 _TEXT	ENDS
 END

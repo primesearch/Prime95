@@ -12,11 +12,13 @@ IMPLEMENT_DYNAMIC(CTortureDlg, CDialog)
 CTortureDlg::CTortureDlg(CWnd* pParent /*=NULL*/)
 	: CDialog(CTortureDlg::IDD, pParent)
 	, m_torture_type(2)
+	, m_thread (1)
 	, m_minfft(0)
 	, m_maxfft(0)
 	, m_in_place_fft(FALSE)
 	, m_memory(0)
 	, m_timefft(0)
+	, m_blendmemory(0)
 {
 }
 
@@ -27,6 +29,10 @@ CTortureDlg::~CTortureDlg()
 void CTortureDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialog::DoDataExchange(pDX);
+	DDX_Control(pDX, IDC_THREAD_TEXT, c_thread_text);
+	DDX_Control(pDX, IDC_THREAD, c_thread);
+	DDX_Text(pDX, IDC_THREAD, m_thread);
+	DDV_MinMaxUInt(pDX, m_thread, 1, NUM_CPUS * CPU_HYPERTHREADS);
 	DDX_Radio(pDX, IDC_L2_CACHE, m_torture_type);
 	DDX_Text(pDX, IDC_MINFFT, m_minfft);
 	DDV_MinMaxInt(pDX, m_minfft, 8,
@@ -46,6 +52,8 @@ void CTortureDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_MEMORY, c_memory);
 	DDX_Control(pDX, IDC_TIMEFFT_TEXT, c_timefft_text);
 	DDX_Control(pDX, IDC_TIMEFFT, c_timefft);
+	c_thread_text.EnableWindow (NUM_CPUS * CPU_HYPERTHREADS > 1);
+	c_thread.EnableWindow (NUM_CPUS * CPU_HYPERTHREADS > 1);
 	c_minfft_text.EnableWindow (m_torture_type == 3);
 	c_minfft.EnableWindow (m_torture_type == 3);
 	c_maxfft_text.EnableWindow (m_torture_type == 3);
@@ -96,15 +104,11 @@ void CTortureDlg::OnBnClickedInPlace()
 
 void CTortureDlg::OnBnClickedBlend()
 {
-	int	mem;
 	UpdateData ();
 	m_minfft = 8;
 	m_maxfft = 4096;
 	m_in_place_fft = FALSE;
-	mem = physical_memory ();
-	if (mem >= 500) m_memory = GetSuggestedMemory (mem - 256);
-	else if (mem >= 200) m_memory = GetSuggestedMemory (mem / 2);
-	else m_memory = 8;
+	m_memory = m_blendmemory;
 	m_timefft = 15;
 	UpdateData (0);
 }
@@ -119,3 +123,4 @@ void CTortureDlg::OnBnClickedInPlaceFft()
 {
 	UpdateData ();
 }
+

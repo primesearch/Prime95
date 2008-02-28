@@ -1,4 +1,4 @@
-; Copyright 2001-2005 - Just For Fun Software, Inc., all rights reserved
+; Copyright 2001-2007 - Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -14,28 +14,28 @@
 
 xcopy_7_words MACRO
 	LOCAL	nozpad
-	cmp	_ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
+	cmp	ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
 	je	short nozpad		;; No, skip 7 word copy
-	_movsd	xmm0, [rsi+rbx+32]	;; Copy 1st word above half-way point
-	_movsd	[rsi-40], xmm0
-	_movsd	xmm1, [rsi+rbx+48]	;; Copy 2nd word
-	_movsd	[rsi-48], xmm1
-	_movsd	xmm2, [rsi+rbx+96]	;; Copy 3rd word
-	_movsd	[rsi-56], xmm2
-	_movsd	xmm3, [rsi+rbx+112]	;; Copy 4th word
-	_movsd	[rsi-64], xmm3
-	mov	eax, _HIGH_WORD1_OFFSET	;; Copy 1st word below half-way
+	movsd	xmm0, Q [rsi+rbx+32]	;; Copy 1st word above half-way point
+	movsd	Q [rsi-40], xmm0
+	movsd	xmm1, Q [rsi+rbx+48]	;; Copy 2nd word
+	movsd	Q [rsi-48], xmm1
+	movsd	xmm2, Q [rsi+rbx+96]	;; Copy 3rd word
+	movsd	Q [rsi-56], xmm2
+	movsd	xmm3, Q [rsi+rbx+112]	;; Copy 4th word
+	movsd	Q [rsi-64], xmm3
+	mov	eax, HIGH_WORD1_OFFSET	;; Copy 1st word below half-way
 	add	rax, rsi
-	_movsd	xmm0, [rax+rbx]
-	_movsd	[rsi-72], xmm0
-	mov	eax, _HIGH_WORD2_OFFSET	;; Copy 2nd word below
+	movsd	xmm0, Q [rax+rbx]
+	movsd	Q [rsi-72], xmm0
+	mov	eax, HIGH_WORD2_OFFSET	;; Copy 2nd word below
 	add	rax, rsi
-	_movsd	xmm1, [rax+rbx]
-	_movsd	[rsi-80], xmm1
-	mov	eax, _HIGH_WORD3_OFFSET	;; Copy 3rd word below
+	movsd	xmm1, Q [rax+rbx]
+	movsd	Q [rsi-80], xmm1
+	mov	eax, HIGH_WORD3_OFFSET	;; Copy 3rd word below
 	add	rax, rsi
-	_movsd	xmm2, [rax+rbx]
-	_movsd	[rsi-88], xmm2
+	movsd	xmm2, Q [rax+rbx]
+	movsd	Q [rsi-88], xmm2
 nozpad:
 	ENDM
 
@@ -47,33 +47,33 @@ nozpad:
 xsub_7_words MACRO dist4
 	LOCAL	nozpad
 	subpd	xmm7, xmm7		;; Clear sumout
-	cmp	_ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
+	cmp	ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
 	je	nozpad			;; No, skip 7 word subtract
-	mov	rsi, _DESTARG
+	mov	rsi, DESTARG
 	movapd	xmm0, [rsi]		;; Subtract 1st, 2nd word
-	movapd	xmm1, XMM_ZPAD0		;; Load ZPAD data
+	movapd	xmm1, ZPAD0		;; Load ZPAD data
 	mulpd	xmm1, XMM_NORM012_FF	;; Scale by FFTLEN/2
 	subpd	xmm0, xmm1
 	addpd	xmm7, xmm1		;; Adjust sumout
 	movapd	[rsi], xmm0
 	movapd	xmm0, [rsi+64]		;; Subtract 3rd, 4th word
-	movapd	xmm1, XMM_ZPAD2		;; Load ZPAD data
+	movapd	xmm1, ZPAD2		;; Load ZPAD data
 	mulpd	xmm1, XMM_NORM012_FF	;; Scale by FFTLEN/2
 	subpd	xmm0, xmm1
 	addpd	xmm7, xmm1		;; Adjust sumout
 	movapd	[rsi+64], xmm0
 	movapd	xmm0, [rsi+dist4]	;; Subtract 5th, 6th word
-	movapd	xmm1, XMM_ZPAD4		;; Load ZPAD data
+	movapd	xmm1, ZPAD4		;; Load ZPAD data
 	mulpd	xmm1, XMM_NORM012_FF	;; Scale by FFTLEN/2
 	subpd	xmm0, xmm1
 	addpd	xmm7, xmm1		;; Adjust sumout
 	movapd	[rsi+dist4], xmm0
-	_movsd	xmm0, [rsi+dist4+64]	;; Subtract 7th word
-	_movsd	xmm1, XMM_ZPAD6		;; Load ZPAD data
+	movsd	xmm0, Q [rsi+dist4+64]	;; Subtract 7th word
+	movsd	xmm1, ZPAD6		;; Load ZPAD data
 	mulsd	xmm1, XMM_NORM012_FF	;; Scale by FFTLEN/2
 	subsd	xmm0, xmm1
 	addsd	xmm7, xmm1		;; Adjust sumout
-	_movsd	[rsi+dist4+64], xmm0
+	movsd	Q [rsi+dist4+64], xmm0
 nozpad:
 	ENDM
 
@@ -143,7 +143,8 @@ xfft32 MACRO type
 ;;	distance between fft data elements is 4
 ;;	do 2 macros each processing 16 data values
 
-	IF	type EQ 1
+	IF	type EQ 1	
+	push_amt = SZPTR
 x32_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -177,6 +178,7 @@ b1b:	s2cl_eight_reals_first_fft rsi, 64, 2*64
 ;;	do 1 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x32_finish_unfft:
 	x4cl_eight_reals_last_unfft rsi, 0, 64, 2*64
 
@@ -238,6 +240,7 @@ xfft32p MACRO type
 ;;	do 2 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x32p_fft:
 	sub	rax, rax
 	mov	rdi, plus1_premults	;; Address of premultiplier table
@@ -272,6 +275,7 @@ b1b:	s2cl_four_complex_first_fft rsi, 64, 2*64
 ;;	do 1 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x32p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 	x4cl_four_complex_last_unfft rsi, 0, 64, 2*64, 128
@@ -336,6 +340,7 @@ xfft48 MACRO type
 ;;	do 2 macros each processing 24 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x48_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -399,6 +404,7 @@ b3b:	x2cl_two_complex_fft rsi, 64, 2*64
 ;;	do 1 macro processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x48_finish_unfft:
 	x2cl_eight_reals_unfft_1 rsi, 2*64, 64
 
@@ -494,7 +500,9 @@ xfft48p MACRO type
 ;;	do 2 macros each processing 24 data values
 
 	IF	type EQ 1
-x48p_fft:sub	rax, rax
+	push_amt = SZPTR
+x48p_fft:
+	sub	rax, rax
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 b1b:	s3cl_three_complex_first_fft rsi, 64, 2*64
 	lea	rdi, [rdi+192]		;; Next premultiplier pointer
@@ -550,6 +558,7 @@ b3b:	x2cl_two_complex_fft rsi, 64, 2*64
 ;;	do 3 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x48p_finish_unfft:
 	mov	rdi, sincos2		;; Load sin/cos pointer
 	mov	al, 3
@@ -641,6 +650,7 @@ xfft64 MACRO type
 ;;	do 4 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x64_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -712,6 +722,7 @@ b3b:	x2cl_two_complex_fft rsi, 64, 2*64
 ;;	do 1 macro processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x64_finish_unfft:
 	x2cl_eight_reals_unfft_1 rsi, 2*64, 64
 
@@ -807,6 +818,7 @@ xfft64p MACRO type
 ;;	do 4 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x64p_fft:
 	sub	rax, rax
 	mov	rdi, plus1_premults	;; Address of premultiplier table
@@ -871,6 +883,7 @@ b3b:	x2cl_two_complex_fft rsi, 64, 2*64
 ;;	do 4 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x64p_finish_unfft:
 	mov	rdi, sincos2		;; Load sin/cos pointer
 c3b:	x2cl_two_complex_unfft rsi, 2*64, 64
@@ -969,6 +982,7 @@ xfft80 MACRO type
 ;;	do 2 macros each processing 40 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x80_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -1014,6 +1028,7 @@ b2b:	x1cl_half_eight_reals_fft_2 rsi, 64
 ;;	do 1 macro each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x80_finish_unfft:
 	x2cl_half_eight_reals_unfft_2 rsi, 0, 64
 
@@ -1104,6 +1119,7 @@ xfft96 MACRO type
 ;;	do 4 macros each processing 24 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x96_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -1151,7 +1167,7 @@ cmn96_1:mov	rdi, sincos2
 b3b:	x4cl_four_complex_fft rsi, 64, 2*64, 4*64
 	add	al, 256/2		;; Test inner loop counter
 	jnc	b3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; End common FFT code
 
@@ -1166,6 +1182,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 2*64, 4*64
 ;;	do 1 macro each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x96_finish_unfft:
 	x4cl_eight_reals_unfft_2 rsi, 0, 64, 2*64
 
@@ -1257,7 +1274,9 @@ xfft96p MACRO type
 ;;	do 4 macros each processing 24 data values
 
 	IF	type EQ 1
-x96p_fft:sub	rax, rax
+	push_amt = SZPTR
+x96p_fft:
+	sub	rax, rax
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 b1b:	s3cl_three_complex_first_fft rsi, 64, 4*64
 	lea	rdi, [rdi+192]		;; Next premultiplier pointer
@@ -1322,6 +1341,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 2*64, 4*64
 ;;	do 4 macros each processing 24 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x96p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 c1b:	x3cl_three_complex_last_unfft rsi, 64, 4*64
@@ -1405,6 +1425,7 @@ xfft112 MACRO type
 ;;	do 2 macros each processing 56 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x112_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -1447,6 +1468,7 @@ b3b:	x2cl_four_complex_fft rsi, 64, 2*64
 ;;	do 1 macro each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x112_finish_unfft:
 	x2cl_half_eight_reals_unfft_2 rsi, 0, 64
 
@@ -1545,6 +1567,7 @@ xfft128 MACRO type
 ;;	do 8 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x128_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -1591,7 +1614,7 @@ cmn128_1:
 b3b:	x4cl_four_complex_fft rsi, 64, 2*64, 4*64
 	add	al, 256/2		;; Test inner loop counter
 	jnc	b3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; End common FFT code
 
@@ -1620,6 +1643,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 2*64, 4*64
 ;;	do 2/3 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = SZPTR
 cmn128:	add	rsi, rcx		;; Next source pointer
 	mov	rdi, sincos2		;; Load sin/cos pointer
 	mov	al, BYTE PTR count2	;; 2/3 iterations
@@ -1627,7 +1651,7 @@ c3b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Next source pointer
+	mov	rsi, DESTARG		;; Next source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -1640,6 +1664,7 @@ c3b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 ;;	distance between fft data elements is 4
 ;;	do 1 macros each processing 32 data values
 
+	push_amt = 0
 x128_finish_unfft:
 	x4cl_eight_reals_unfft_2 rsi, 0, 64, 2*64
 
@@ -1729,6 +1754,7 @@ xfft128p MACRO type
 ;;	do 8 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x128p_fft:
 	sub	rax, rax
 	mov	rdi, plus1_premults	;; Address of premultiplier table
@@ -1784,13 +1810,14 @@ b1b:	s2cl_four_complex_first_fft rsi, 64, 8*64
 ;;	do 3/4 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = SZPTR
 cmn128p:mov	rdi, sincos2		;; Load sin/cos pointer
 	mov	al, BYTE PTR count2	;; 3/4 iterations
 c3b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test loop counter
 	jnz	c3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Next source pointer
+	mov	rsi, DESTARG		;; Next source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -1814,6 +1841,7 @@ c3b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 ;;	distance between fft data elements is 16
 ;;	do 4 macros each processing 32 data values
 
+	push_amt = 0
 x128p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 c1b:	x4cl_four_complex_last_unfft rsi, 64, 4*64, 8*64, 4*128
@@ -1893,6 +1921,7 @@ xfft160 MACRO type
 ;;	do 4 macros each processing 40 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x160_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -1925,6 +1954,7 @@ b2b:	x1cl_half_eight_reals_fft_2 rsi, 64
 ;;	do 2 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x160_finish_unfft:
 c2b:	x2cl_half_eight_reals_unfft_2 rsi, 64, 2*64
 	add	al, 256/2		;; Test inner loop counter
@@ -2020,6 +2050,7 @@ xfft192 MACRO type
 ;;	do 8 macros each processing 24 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x192_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -2084,6 +2115,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 4*64, 8*64
 ;;	do 2 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x192_finish_unfft:
 c2b:	x4cl_eight_reals_unfft_2 rsi, 64, 2*64, 4*64
 	add	al, 256/2		;; Test inner loop counter
@@ -2178,6 +2210,7 @@ xfft192p MACRO type
 ;;	do 8 macros each processing 24 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x192p_fft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 	sub	rax, rax
@@ -2247,6 +2280,7 @@ b3b:	x2cl_two_complex_fft rsi, 64, 8*64
 ;;	do 8 macros each processing 24 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x192p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 c1b:	x3cl_three_complex_last_unfft rsi, 64, 8*64
@@ -2334,6 +2368,7 @@ xfft224 MACRO type
 ;;	do 4 macros each processing 56 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x224_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -2376,6 +2411,7 @@ b3b:	x2cl_four_complex_fft rsi, 64, 4*64
 ;;	do 2 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x224_finish_unfft:
 c2b:	x2cl_half_eight_reals_unfft_2 rsi, 64, 2*64
 	add	al, 256/2		;; Test inner loop counter
@@ -2481,6 +2517,7 @@ xfft256 MACRO type
 ;;	do 16 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x256_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -2559,7 +2596,7 @@ cmn256_2:
 ;;	distance between fft data elements is 4
 ;;	do 2 macros each processing 16 data values
 
-	mov	rsi, _DESTARG		;; Next source pointer
+	mov	rsi, DESTARG		;; Next source pointer
 	mov	rdi, sincos2		;; Load sin/cos pointer
 b6b:	x2cl_eight_reals_fft_1 rsi, 64, 2*64
 	add	al, 256/2		;; Test inner loop counter
@@ -2579,7 +2616,7 @@ b7b:	x2cl_two_complex_fft rsi, 64, 2*64
 	lea	rdi, [rdi+2*XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	b7b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 	ret
 	ENDIF
 
@@ -2603,6 +2640,7 @@ b7b:	x2cl_two_complex_fft rsi, 64, 2*64
 ;;	do 1 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = SZPTR
 cmn256:	x2cl_eight_reals_unfft_1 rsi, 2*64, 64
 
 ;; Do 18/22/26/30 four_complex_unfft macros
@@ -2615,7 +2653,7 @@ c5b:	x2cl_two_complex_unfft rsi, 2*64, 64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c5b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 4,5
 ;; On input the 64-byte cache lines hold these data values:
@@ -2645,7 +2683,7 @@ c3b:	x4cl_four_complex_unfft rsi, 64, 2*64, 4*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Next source pointer
+	mov	rsi, DESTARG		;; Next source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -2658,6 +2696,7 @@ c3b:	x4cl_four_complex_unfft rsi, 64, 2*64, 4*64
 ;;	distance between fft data elements is 8
 ;;	do 2 macros each processing 32 data values
 
+	push_amt = 0
 x256_finish_unfft:
 c2b:	x4cl_eight_reals_unfft_2 rsi, 64, 2*64, 4*64
 	add	al, 256/2		;; Test inner loop counter
@@ -2750,6 +2789,7 @@ xfft256p MACRO type
 ;;	do 16 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x256p_fft:
 	sub	rax, rax
 	mov	rdi, plus1_premults	;; Address of premultiplier table
@@ -2820,13 +2860,14 @@ b3b:	x2cl_two_complex_fft rsi, 64, 8*64
 ;;	do 8 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = SZPTR
 cmn256p:mov	rdi, sincos2		;; Load sin/cos pointer
 	mov	al, BYTE PTR count2	;; 6/8 iterations
 c8b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test loop counter
 	jnz	c8b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT level 4
 ;; On input the 64-byte cache lines hold these data values:
@@ -2857,7 +2898,7 @@ c5b:	x2cl_two_complex_unfft rsi, 64, 4*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c5b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -2881,6 +2922,7 @@ c5b:	x2cl_two_complex_unfft rsi, 64, 4*64
 ;;	distance between fft data elements is 32
 ;;	do 8 macros each processing 32 data values
 
+	push_amt = 0
 x256p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 c1b:	x4cl_four_complex_last_unfft rsi, 64, 8*64, 16*64, 8*128
@@ -2960,6 +3002,7 @@ xfft320 MACRO type
 ;;	do 8 macros each processing 40 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x320_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -2992,6 +3035,7 @@ b2b:	x1cl_half_eight_reals_fft_2 rsi, 64
 ;;	do 4 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x320_finish_unfft:
 c2b:	x2cl_half_eight_reals_unfft_2 rsi, 64, 4*64
 	add	al, 256/4		;; Test inner loop counter
@@ -3087,6 +3131,7 @@ xfft384 MACRO type
 ;;	do 16 macros each processing 24 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x384_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -3151,6 +3196,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 8*64, 16*64
 ;;	do 4 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x384_finish_unfft:
 c2b:	x4cl_eight_reals_unfft_2 rsi, 64, 4*64, 8*64
 	add	al, 256/4		;; Test inner loop counter
@@ -3245,6 +3291,7 @@ xfft384p MACRO type
 ;;	do 16 macros each processing 24 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x384p_fft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 	sub	rax, rax
@@ -3313,6 +3360,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 8*64, 16*64
 ;;	do 16 macros each processing 24 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x384p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 c1b:	x3cl_three_complex_last_unfft rsi, 64, 16*64
@@ -3400,6 +3448,7 @@ xfft448 MACRO type
 ;;	do 8 macros each processing 56 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x448_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -3442,6 +3491,7 @@ b3b:	x2cl_four_complex_fft rsi, 64, 8*64
 ;;	do 4 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x448_finish_unfft:
 c2b:	x2cl_half_eight_reals_unfft_2 rsi, 64, 4*64
 	add	al, 256/4		;; Test inner loop counter
@@ -3548,6 +3598,7 @@ xfft512 MACRO type
 ;;	do 32 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x512_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -3630,6 +3681,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 8*64, 16*64
 ;;	do 1 macro processing 32 data values
 
 	IF	type EQ 2
+	push_amt = SZPTR
 cmn512:	x4cl_eight_reals_unfft_2 rsi, 4*64, 64, 2*64
 
 ;; Do 36/44/52/60 four_complex_unfft macros
@@ -3642,7 +3694,7 @@ c7b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test loop counter
 	jnz	c7b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 4,5
 ;; On input the 64-byte cache lines hold these data values:
@@ -3674,7 +3726,7 @@ c5b:	x4cl_four_complex_unfft rsi, 64, 4*64, 8*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c5b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -3687,6 +3739,7 @@ c5b:	x4cl_four_complex_unfft rsi, 64, 4*64, 8*64
 ;;	distance between fft data elements is 16
 ;;	do 4 macros each processing 32 data values
 
+	push_amt = 0
 x512_finish_unfft:
 c2b:	x4cl_eight_reals_unfft_2 rsi, 64, 4*64, 8*64
 	add	al, 256/4		;; Test inner loop counter
@@ -3779,6 +3832,7 @@ xfft512p MACRO type
 ;;	do 32 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x512p_fft:
 	sub	rax, rax
 	mov	rdi, plus1_premults	;; Address of premultiplier table
@@ -3838,13 +3892,14 @@ b1b:	s2cl_four_complex_first_fft rsi, 64, 32*64
 ;;	do 12/16 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = SZPTR
 cmn512p:mov	rdi, sincos2		;; Load sin/cos pointer
 	mov	al, BYTE PTR count2	;; 12/16 iterations
 c7b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test loop counter
 	jnz	c7b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 4,5
 ;; On input the 64-byte cache lines hold these data values:
@@ -3875,7 +3930,7 @@ c5b:	x4cl_four_complex_unfft rsi, 64, 4*64, 8*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c5b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -3899,6 +3954,7 @@ c5b:	x4cl_four_complex_unfft rsi, 64, 4*64, 8*64
 ;;	distance between fft data elements is 64
 ;;	do 16 macros each processing 32 data values
 
+	push_amt = 0
 x512p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 c1b:	x4cl_four_complex_last_unfft rsi, 64, 16*64, 32*64, 16*128
@@ -3978,6 +4034,7 @@ xfft640 MACRO type
 ;;	do 16 macros each processing 40 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x640_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -4010,6 +4067,7 @@ b2b:	x1cl_half_eight_reals_fft_2 rsi, 64
 ;;	do 8 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x640_finish_unfft:
 c2b:	x2cl_half_eight_reals_unfft_2 rsi, 64, 8*64
 	add	al, 256/8		;; Test inner loop counter
@@ -4105,6 +4163,7 @@ xfft768 MACRO type
 ;;	do 32 macros each processing 24 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x768_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -4169,6 +4228,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 16*64, 32*64
 ;;	do 8 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x768_finish_unfft:
 c2b:	x4cl_eight_reals_unfft_2 rsi, 64, 8*64, 16*64
 	add	al, 256/8		;; Test inner loop counter
@@ -4263,6 +4323,7 @@ xfft768p MACRO type
 ;;	do 32 macros each processing 24 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x768p_fft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 	sub	rax, rax
@@ -4330,6 +4391,7 @@ b3b:	x2cl_two_complex_fft rsi, 64, 32*64
 ;;	do 32 macros each processing 24 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x768p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 c1b:	x3cl_three_complex_last_unfft rsi, 64, 32*64
@@ -4417,6 +4479,7 @@ xfft896 MACRO type
 ;;	do 16 macros each processing 56 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x896_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -4459,6 +4522,7 @@ b3b:	x2cl_four_complex_fft rsi, 64, 16*64
 ;;	do 8 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x896_finish_unfft:
 c2b:	x2cl_half_eight_reals_unfft_2 rsi, 64, 8*64
 	add	al, 256/8		;; Test inner loop counter
@@ -4565,6 +4629,7 @@ xfft1024 MACRO type
 ;;	do 64 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x1024_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -4645,7 +4710,7 @@ cmn1024_2:
 ;;	distance between fft data elements is 16
 ;;	do 8 macros each processing 16 data values
 
-	mov	rsi, _DESTARG		;; Next source pointer
+	mov	rsi, DESTARG		;; Next source pointer
 	mov	rdi, sincos3		;; Load sin/cos pointer
 b6b:	x2cl_eight_reals_fft_1 rsi, 64, 8*64
 	add	al, 256/8		;; Test inner loop counter
@@ -4696,6 +4761,7 @@ b7b:	x2cl_two_complex_fft rsi, 64, 8*64
 ;;	do 1 macro processing 32 data values
 
 	IF	type EQ 2
+	push_amt = SZPTR
 cmn1024:x4cl_eight_reals_unfft_2 rsi, 4*64, 64, 2*64
 
 ;; Do 76/92/108/124 four_complex_unfft macros
@@ -4708,7 +4774,7 @@ c8b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test loop counter
 	jnz	c8b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT level 6
 ;; On input the 64-byte cache lines hold these data values:
@@ -4748,7 +4814,7 @@ c5b:	x2cl_two_complex_unfft rsi, 64, 4*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c5b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 4,5
 ;; On input the 64-byte cache lines hold these data values:
@@ -4780,7 +4846,7 @@ c3b:	x4cl_four_complex_unfft rsi, 64, 8*64, 16*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Next source pointer
+	mov	rsi, DESTARG		;; Next source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -4793,6 +4859,7 @@ c3b:	x4cl_four_complex_unfft rsi, 64, 8*64, 16*64
 ;;	distance between fft data elements is 32
 ;;	do 8 macros each processing 32 data values
 
+	push_amt = 0
 x1024_finish_unfft:
 c2b:	x4cl_eight_reals_unfft_2 rsi, 64, 8*64, 16*64
 	add	al, 256/8		;; Test inner loop counter
@@ -4885,6 +4952,7 @@ xfft1024p MACRO type
 ;;	do 64 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x1024p_fft:
 	sub	rax, rax
 	mov	rdi, plus1_premults	;; Address of premultiplier table
@@ -4956,6 +5024,7 @@ b3b:	x2cl_two_complex_fft rsi, 64, 32*64
 ;;	do 24/32 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = SZPTR
 cmn1024p:
 	mov	rdi, sincos2		;; Load sin/cos pointer
 	mov	al, BYTE PTR count2	;; 24/32 iterations
@@ -4963,7 +5032,7 @@ c8b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test loop counter
 	jnz	c8b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 5,6
 ;; On input the 64-byte cache lines hold these data values:
@@ -4994,7 +5063,7 @@ c7b:	x4cl_four_complex_unfft rsi, 64, 4*64, 8*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c7b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT level 4
 ;; On input the 64-byte cache lines hold these data values:
@@ -5025,7 +5094,7 @@ c5b:	x2cl_two_complex_unfft rsi, 64, 16*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c5b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -5049,6 +5118,7 @@ c5b:	x2cl_two_complex_unfft rsi, 64, 16*64
 ;;	distance between fft data elements is 128
 ;;	do 32 macros each processing 32 data values
 
+	push_amt = 0
 x1024p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 c1b:	x4cl_four_complex_last_unfft rsi, 64, 32*64, 64*64, 32*128
@@ -5128,6 +5198,7 @@ xfft1280 MACRO type
 ;;	do 32 macros each processing 40 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x1280_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -5160,6 +5231,7 @@ b2b:	x1cl_half_eight_reals_fft_2 rsi, 64
 ;;	do 16 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x1280_finish_unfft:
 c2b:	x2cl_half_eight_reals_unfft_2 rsi, 64, 16*64
 	add	al, 256/16		;; Test inner loop counter
@@ -5255,6 +5327,7 @@ xfft1536 MACRO type
 ;;	do 64 macros each processing 24 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x1536_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -5319,6 +5392,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 32*64, 64*64
 ;;	do 16 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x1536_finish_unfft:
 c2b:	x4cl_eight_reals_unfft_2 rsi, 64, 16*64, 32*64
 	add	al, 256/16		;; Test inner loop counter
@@ -5413,6 +5487,7 @@ xfft1536p MACRO type
 ;;	do 64 macros each processing 24 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x1536p_fft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 	sub	rax, rax
@@ -5481,6 +5556,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 32*64, 64*64
 ;;	do 64 macros each processing 24 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x1536p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 c1b:	x3cl_three_complex_last_unfft rsi, 64, 64*64
@@ -5568,6 +5644,7 @@ xfft1792 MACRO type
 ;;	do 32 macros each processing 56 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x1792_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -5610,6 +5687,7 @@ b3b:	x2cl_four_complex_fft rsi, 64, 32*64
 ;;	do 16 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x1792_finish_unfft:
 c2b:	x2cl_half_eight_reals_unfft_2 rsi, 64, 16*64
 	add	al, 256/16		;; Test inner loop counter
@@ -5716,6 +5794,7 @@ xfft2048 MACRO type
 ;;	do 128 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x2048_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -5802,6 +5881,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 32*64, 64*64
 ;;	do 1 macro processing 32 data values
 
 	IF	type EQ 2
+	push_amt = SZPTR
 cmn2048:x4cl_eight_reals_unfft_2 rsi, 4*64, 64, 2*64
 
 ;; Do 156/188/220/252 four_complex_unfft macros
@@ -5814,7 +5894,7 @@ c8b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test loop counter
 	jnz	c8b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 6,7
 ;; On input the 64-byte cache lines hold these data values:
@@ -5855,7 +5935,7 @@ c5b:	x4cl_four_complex_unfft rsi, 64, 4*64, 8*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c5b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 4,5
 ;; On input the 64-byte cache lines hold these data values:
@@ -5887,7 +5967,7 @@ c3b:	x4cl_four_complex_unfft rsi, 64, 16*64, 32*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Next source pointer
+	mov	rsi, DESTARG		;; Next source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -5900,6 +5980,7 @@ c3b:	x4cl_four_complex_unfft rsi, 64, 16*64, 32*64
 ;;	distance between fft data elements is 64
 ;;	do 16 macros each processing 32 data values
 
+	push_amt = 0
 x2048_finish_unfft:
 c2b:	x4cl_eight_reals_unfft_2 rsi, 64, 16*64, 32*64
 	add	al, 256/16		;; Test inner loop counter
@@ -5992,6 +6073,7 @@ xfft2048p MACRO type
 ;;	do 128 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x2048p_fft:
 	sub	rax, rax
 	mov	rdi, plus1_premults	;; Address of premultiplier table
@@ -6055,6 +6137,7 @@ b1b:	s2cl_four_complex_first_fft rsi, 64, 128*64
 ;;	do 48/64 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = SZPTR
 cmn2048p:
 	mov	rdi, sincos2		;; Load sin/cos pointer
 	mov	al, BYTE PTR count2	;; 48/64 iterations
@@ -6062,7 +6145,7 @@ c8b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test loop counter
 	jnz	c8b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 6,7
 ;; On input the 64-byte cache lines hold these data values:
@@ -6093,7 +6176,7 @@ c5b:	x4cl_four_complex_unfft rsi, 64, 4*64, 8*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c5b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 4,5
 ;; On input the 64-byte cache lines hold these data values:
@@ -6124,7 +6207,7 @@ c3b:	x4cl_four_complex_unfft rsi, 64, 16*64, 32*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Next source pointer
+	mov	rsi, DESTARG		;; Next source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -6148,6 +6231,7 @@ c3b:	x4cl_four_complex_unfft rsi, 64, 16*64, 32*64
 ;;	distance between fft data elements is 256
 ;;	do 64 macros each processing 32 data values
 
+	push_amt = 0
 x2048p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 c1b:	x4cl_four_complex_last_unfft rsi, 64, 64*64, 128*64, 64*128
@@ -6227,6 +6311,7 @@ xfft2560 MACRO type
 ;;	do 64 macros each processing 40 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x2560_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -6259,6 +6344,7 @@ b2b:	x1cl_half_eight_reals_fft_2 rsi, 64
 ;;	do 32 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x2560_finish_unfft:
 c2b:	x2cl_half_eight_reals_unfft_2 rsi, 64, 32*64
 	add	al, 256/32		;; Test inner loop counter
@@ -6354,6 +6440,7 @@ xfft3072 MACRO type
 ;;	do 128 macros each processing 24 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x3072_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -6404,7 +6491,7 @@ cmn3072_1:
 b3b:	x4cl_four_complex_fft rsi, 64, 64*64, 128*64
 	add	al, 256/64		;; Test inner loop counter
 	jnc	b3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Join common code to perform rest of the FFT
 
@@ -6419,6 +6506,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 64*64, 128*64
 ;;	do 32 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x3072_finish_unfft:
 c2b:	x4cl_eight_reals_unfft_2 rsi, 64, 32*64, 64*64
 	add	al, 256/32		;; Test inner loop counter
@@ -6513,6 +6601,7 @@ xfft3072p MACRO type
 ;;	do 128 macros each processing 24 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x3072p_fft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 	sub	rax, rax
@@ -6580,6 +6669,7 @@ b3b:	x2cl_two_complex_fft rsi, 64, 128*64
 ;;	do 128 macros each processing 24 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x3072p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 c1b:	x3cl_three_complex_last_unfft rsi, 64, 128*64
@@ -6667,6 +6757,7 @@ xfft3584 MACRO type
 ;;	do 64 macros each processing 56 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x3584_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -6709,6 +6800,7 @@ b3b:	x2cl_four_complex_fft rsi, 64, 64*64
 ;;	do 32 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x3584_finish_unfft:
 c2b:	x2cl_half_eight_reals_unfft_2 rsi, 64, 32*64
 	add	al, 256/32		;; Test inner loop counter
@@ -6815,6 +6907,7 @@ xfft4096 MACRO type
 ;;	do 256 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x4096_fft:
 	xcopy_7_words
 	mov	eax, 256
@@ -6866,7 +6959,7 @@ cmn4096_1:
 b3b:	x4cl_four_complex_fft rsi, 64, 64*64, 128*64
 	add	al, 256/64		;; Test inner loop counter
 	jnc	b3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Common code for length 2560, 3072, 3584, and 4096 FFTs
 
@@ -6949,6 +7042,7 @@ b5b:	x2cl_two_complex_fft rsi, 64, 32*64
 ;;	do 1 macro processing 32 data values
 
 	IF	type EQ 2
+	push_amt = SZPTR
 cmn4096:x4cl_eight_reals_unfft_2 rsi, 4*64, 64, 2*64
 
 ;; Do 316/380/444/508 four_complex_unfft macros
@@ -6961,7 +7055,7 @@ c8b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test loop counter
 	jnz	c8b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 7,8
 ;; On input the 64-byte cache lines hold these data values:
@@ -7002,7 +7096,7 @@ c7b:	x4cl_four_complex_unfft rsi, 64, 4*64, 8*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c7b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 6
 ;; On input the 64-byte cache lines hold these data values:
@@ -7042,7 +7136,7 @@ c5b:	x2cl_two_complex_unfft rsi, 64, 16*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c5b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 4,5
 ;; On input the 64-byte cache lines hold these data values:
@@ -7074,7 +7168,7 @@ c3b:	x4cl_four_complex_unfft rsi, 64, 32*64, 64*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Next source pointer
+	mov	rsi, DESTARG		;; Next source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -7087,6 +7181,7 @@ c3b:	x4cl_four_complex_unfft rsi, 64, 32*64, 64*64
 ;;	distance between fft data elements is 128
 ;;	do 32 macros each processing 32 data values
 
+	push_amt = 0
 x4096_finish_unfft:
 c2b:	x4cl_eight_reals_unfft_2 rsi, 64, 32*64, 64*64
 	add	al, 256/32		;; Test inner loop counter
@@ -7179,6 +7274,7 @@ xfft4096p MACRO type
 ;;	do 256 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x4096p_fft:
 	sub	rax, rax
 	mov	rdi, plus1_premults	;; Address of premultiplier table
@@ -7255,6 +7351,7 @@ b3b:	x2cl_two_complex_fft rsi, 64, 128*64
 ;;	do 96/128 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = SZPTR
 cmn4096p:
 	mov	rdi, sincos2		;; Load sin/cos pointer
 	mov	al, BYTE PTR count2	;; 96/128 iterations
@@ -7262,7 +7359,7 @@ c8b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test loop counter
 	jnz	c8b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 7,8
 ;; On input the 64-byte cache lines hold these data values:
@@ -7293,7 +7390,7 @@ c7b:	x4cl_four_complex_unfft rsi, 64, 4*64, 8*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	cl, 1			;; Test outer loop counter
 	jnz	c7b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 5,6
 ;; On input the 64-byte cache lines hold these data values:
@@ -7324,7 +7421,7 @@ c5b:	x4cl_four_complex_unfft rsi, 64, 16*64, 32*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	cl, 1			;; Test outer loop counter
 	jnz	c5b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT level 4
 ;; On input the 64-byte cache lines hold these data values:
@@ -7355,7 +7452,7 @@ c3b:	x2cl_two_complex_unfft rsi, 64, 64*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	cl, 1			;; Test outer loop counter
 	jnz	c3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -7379,6 +7476,7 @@ c3b:	x2cl_two_complex_unfft rsi, 64, 64*64
 ;;	distance between fft data elements is 512
 ;;	do 128 macros each processing 32 data values
 
+	push_amt = 0
 x4096p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 c1b:	x4cl_four_complex_last_unfft rsi, 64, 128*64, 256*64, 128*128
@@ -7458,6 +7556,7 @@ xfft5120 MACRO type
 ;;	do 128 macros each processing 40 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x5120_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -7490,6 +7589,7 @@ b2b:	x1cl_half_eight_reals_fft_2 rsi, 64
 ;;	do 64 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x5120_finish_unfft:
 c2b:	x2cl_half_eight_reals_unfft_2 rsi, 64, 64*64
 	add	al, 256/64		;; Test inner loop counter
@@ -7584,6 +7684,7 @@ xfft6144 MACRO type
 ;;	do 256 macros each processing 24 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x6144_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -7633,7 +7734,7 @@ cmn6144_1:
 b3b:	x4cl_four_complex_fft rsi, 64, 128*64, 256*64
 	add	al, 256/128		;; Test inner loop counter
 	jnc	b3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Join common code to perform rest of the FFT
 
@@ -7648,6 +7749,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 128*64, 256*64
 ;;	do 64 macros each processing 32 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x6144_finish_unfft:
 c2b:	x4cl_eight_reals_unfft_2 rsi, 64, 64*64, 128*64
 	add	al, 256/64		;; Test inner loop counter
@@ -7741,6 +7843,7 @@ xfft6144p MACRO type
 ;;	do 256 macros each processing 24 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x6144p_fft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 	sub	rax, rax
@@ -7807,6 +7910,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 128*64, 256*64
 ;;	do 256 macros each processing 24 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x6144p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 c1b:	x3cl_three_complex_last_unfft rsi, 64, 256*64
@@ -7894,6 +7998,7 @@ xfft7168 MACRO type
 ;;	do 128 macros each processing 56 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x7168_fft:
 	xcopy_7_words
 	sub	rax, rax
@@ -7936,6 +8041,7 @@ b3b:	x2cl_four_complex_fft rsi, 64, 128*64
 ;;	do 64 macros each processing 16 data values
 
 	IF	type EQ 2
+	push_amt = 0
 x7168_finish_unfft:
 c2b:	x2cl_half_eight_reals_unfft_2 rsi, 64, 64*64
 	add	al, 256/64		;; Test inner loop counter
@@ -8042,6 +8148,7 @@ xfft8192 MACRO type
 ;;	do 512 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x8192_fft:
 	xcopy_7_words
 	mov	eax, 512
@@ -8093,7 +8200,7 @@ cmn8192_1:
 b3b:	x4cl_four_complex_fft rsi, 64, 128*64, 256*64
 	add	al, 256/128		;; Test inner loop counter
 	jnc	b3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Common code for length 5120, 6144, 7168, and 8192 FFTs
 
@@ -8170,7 +8277,7 @@ b5b:	x4cl_four_complex_fft rsi, 64, 32*64, 64*64
 ;;	do 8 macros each processing 32 data values
 
 xlast_four_fft_levels:
-	mov	rsi, _DESTARG		;; Next source pointer
+	mov	rsi, DESTARG		;; Next source pointer
 	mov	rdi, sincos3		;; Load sin/cos pointer
 b6b:	x4cl_eight_reals_fft_2 rsi, 64, 8*64, 16*64
 	add	al, 256/8		;; Test inner loop counter
@@ -8217,7 +8324,7 @@ b7b:	x4cl_four_complex_fft rsi, 64, 8*64, 16*64
 ;;	do 2 macros each processing 32 data values
 
 xlast_two_fft_levels:
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 	mov	rdi, sincos2		;; Load sin/cos pointer
 b8b:	x4cl_eight_reals_fft_2 rsi, 64, 2*64, 4*64
 	add	al, 256/2		;; Test inner loop counter
@@ -8237,7 +8344,7 @@ b9b:	x4cl_four_complex_fft rsi, 64, 2*64, 4*64
 	lea	rdi, [rdi+2*XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	b9b			;; Loop if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 	ret
 	ENDIF
 
@@ -8263,27 +8370,29 @@ b9b:	x4cl_four_complex_fft rsi, 64, 2*64, 4*64
 ;;	distance between fft data elements is 1
 
 	IF	type EQ 1
+	push_amt = 0
 xmiddle_1:
 	mov	rdi, sincos1		;; Load sin/cos pointer
 	s2cl_eight_reals_fft_2_final rsi, 2*64, 64
 	ENDIF
 	IF	type EQ 2
+	push_amt = SZPTR
 xmiddle_2:
 	mov	rdi, sincos1		;; Load sin/cos pointer
 	s2cl_eight_reals_with_square_2 rsi, 2*64, 64
 	ENDIF
 	IF	type EQ 3
+	push_amt = SZPTR
 xmiddle_3:
 	mov	rdi, sincos1		;; Load sin/cos pointer
-	mov	rbp, _SRCARG
-	sub	rbp, rsi
+	mov	rbp, DIST_TO_MULSRCARG
 	s2cl_eight_reals_with_mult_2 rsi, 2*64, 64
 	ENDIF
 	IF	type EQ 4
+	push_amt = SZPTR
 xmiddle_4:
 	mov	rdi, sincos1		;; Load sin/cos pointer
-	mov	rbp, _SRCARG
-	sub	rbp, rsi
+	mov	rbp, DIST_TO_MULSRCARG
 	s2cl_eight_reals_with_mulf_2 rsi, 2*64, 64
 	ENDIF
 
@@ -8312,7 +8421,7 @@ bab:	s2cl_four_complex_with_mulf rsi, 2*64, 64
 	IF	type EQ 1
 	xfft_1_ret
 	ELSE
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 	ret
 	ENDIF
 
@@ -8347,7 +8456,7 @@ c8b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test loop counter
 	jnz	c8b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 8,9
 ;; On input the 64-byte cache lines hold these data values:
@@ -8388,7 +8497,7 @@ c7b:	x4cl_four_complex_unfft rsi, 64, 4*64, 8*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c7b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 6,7
 ;; On input the 64-byte cache lines hold these data values:
@@ -8429,7 +8538,7 @@ c5b:	x4cl_four_complex_unfft rsi, 64, 16*64, 32*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c5b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 4,5
 ;; On input the 64-byte cache lines hold these data values:
@@ -8461,7 +8570,7 @@ c3b:	x4cl_four_complex_unfft rsi, 64, 64*64, 128*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	al, 1			;; Test outer loop counter
 	jnz	c3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Next source pointer
+	mov	rsi, DESTARG		;; Next source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -8474,6 +8583,7 @@ c3b:	x4cl_four_complex_unfft rsi, 64, 64*64, 128*64
 ;;	distance between fft data elements is 256
 ;;	do 64 macros each processing 32 data values
 
+	push_amt = 0
 x8192_finish_unfft:
 c2b:	x4cl_eight_reals_unfft_2 rsi, 64, 64*64, 128*64
 	add	al, 256/64		;; Test inner loop counter
@@ -8566,6 +8676,7 @@ xfft8192p MACRO type
 ;;	do 512 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = SZPTR
 x8192p_fft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 	mov	eax, 512
@@ -8605,7 +8716,7 @@ b3b:	x4cl_four_complex_fft rsi, 64, 128*64, 256*64
 	lea	rdi, [rdi+2*XMM_SCD]	;; Next sine/cosine pointer
 	sub	eax, 256		;; Test outer loop counter
 	jnz	b3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do FFT levels 6,7
 ;;
@@ -8638,7 +8749,7 @@ b5b:	x4cl_four_complex_fft rsi, 64, 32*64, 64*64
 	lea	rdi, [rdi+2*XMM_SCD]	;; Next sine/cosine pointer
 	sub	cl, 1			;; Test outer loop counter
 	jnz	b5b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Next source pointer
+	mov	rsi, DESTARG		;; Next source pointer
 
 ;; Do FFT levels 8,9
 ;;
@@ -8671,7 +8782,7 @@ b7b:	x4cl_four_complex_fft rsi, 64, 8*64, 16*64
 	lea	rdi, [rdi+2*XMM_SCD]	;; Next sine/cosine pointer
 	sub	cl, 1			;; Test outer loop counter
 	jnz	b7b			;; Loop if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do FFT levels 10,11
 ;;
@@ -8704,7 +8815,7 @@ b9b:	x4cl_four_complex_fft rsi, 64, 2*64, 4*64
 	lea	rdi, [rdi+2*XMM_SCD]	;; Next sine/cosine pointer
 	sub	cl, 1			;; Test outer loop counter
 	jnz	b9b			;; Loop if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 	ret
 	ENDIF
 
@@ -8727,15 +8838,19 @@ b9b:	x4cl_four_complex_fft rsi, 64, 2*64, 4*64
 ;;	do 512 macros each processing 16 data values
 
 	IF	type EQ 1
+	push_amt = 0
 xmiddle_1p:
 	ENDIF
 	IF	type EQ 2
+	push_amt = SZPTR
 xmiddle_2p:
 	ENDIF
 	IF	type EQ 3
+	push_amt = SZPTR
 xmiddle_3p:
 	ENDIF
 	IF	type EQ 4
+	push_amt = SZPTR
 xmiddle_4p:
 	ENDIF
 	mov	rdi, sincos1		;; Load sin/cos pointer
@@ -8747,13 +8862,11 @@ bab:	s2cl_four_complex_fft_final rsi, 2*64, 64
 bab:	s2cl_four_complex_with_square rsi, 2*64, 64
 	ENDIF
 	IF	type EQ 3
-	mov	rbp, _SRCARG
-	sub	rbp, rsi
+	mov	rbp, DIST_TO_MULSRCARG
 bab:	s2cl_four_complex_with_mult rsi, 2*64, 64
 	ENDIF
 	IF	type EQ 4
-	mov	rbp, _SRCARG
-	sub	rbp, rsi
+	mov	rbp, DIST_TO_MULSRCARG
 bab:	s2cl_four_complex_with_mulf rsi, 2*64, 64
 	ENDIF
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
@@ -8763,7 +8876,7 @@ bab:	s2cl_four_complex_with_mulf rsi, 2*64, 64
 	IF	type EQ 1
 	xfft_1_ret
 	ELSE
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 	ret
 	ENDIF
 
@@ -8792,7 +8905,7 @@ c8b:	x4cl_four_complex_unfft rsi, 4*64, 64, 2*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	eax, 1			;; Test loop counter
 	jnz	c8b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 8,9
 ;; On input the 64-byte cache lines hold these data values:
@@ -8823,7 +8936,7 @@ c7b:	x4cl_four_complex_unfft rsi, 64, 4*64, 8*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	cl, 1			;; Test outer loop counter
 	jnz	c7b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 6,7
 ;; On input the 64-byte cache lines hold these data values:
@@ -8854,7 +8967,7 @@ c5b:	x4cl_four_complex_unfft rsi, 64, 16*64, 32*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	cl, 1			;; Test outer loop counter
 	jnz	c5b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Restore source pointer
+	mov	rsi, DESTARG		;; Restore source pointer
 
 ;; Do inverse FFT levels 4,5
 ;; On input the 64-byte cache lines hold these data values:
@@ -8885,7 +8998,7 @@ c3b:	x4cl_four_complex_unfft rsi, 64, 64*64, 128*64
 	lea	rdi, [rdi+XMM_SCD]	;; Next sine/cosine pointer
 	sub	cl, 1			;; Test outer loop counter
 	jnz	c3b			;; Iterate if necessary
-	mov	rsi, _DESTARG		;; Next source pointer
+	mov	rsi, DESTARG		;; Next source pointer
 
 ;; This ends the common inverse FFT code
 
@@ -8909,6 +9022,7 @@ c3b:	x4cl_four_complex_unfft rsi, 64, 64*64, 128*64
 ;;	distance between fft data elements is 1024
 ;;	do 256 macros each processing 32 data values
 
+	push_amt = 0
 x8192p_finish_unfft:
 	mov	rdi, plus1_premults	;; Address of premultiplier table
 c1b:	x4cl_four_complex_last_unfft rsi, 64, 256*64, 512*64, 256*128

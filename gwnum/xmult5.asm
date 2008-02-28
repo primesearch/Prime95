@@ -1,4 +1,4 @@
-; Copyright 2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 2005-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -6,7 +6,7 @@
 ; two numbers.
 ;
 ; This code uses Pentium 4's SSE2 instructions for very fast FFTs.
-; This code does two passes, 12 levels on the second pass.
+; This code does two passes, 13 levels on the second pass.
 ;
 ; You will not stand a chance of understanding any of this code without
 ; thoroughly familiarizing yourself with fast fourier transforms.  This
@@ -30,14 +30,13 @@ INCLUDE xmult.mac
 INCLUDE xpass1.mac
 INCLUDE xpass1sc.mac
 
+EXTRN	pass1_aux_entry_point_return:PROC
 EXTRN	xgw_finish_fft:PROC
 EXTRN	xgw_carries:PROC
 EXTRN	xgw_finish_mult:PROC
 
 EXTRNP	xpass2_13_levels
-EXTRNP	xpass2_13_levels_p
 EXTRNP	xpass2_13_levels_np
-EXTRNP	xpass2_13_levels_p_np
 
 _TEXT SEGMENT
 
@@ -50,7 +49,6 @@ xpass2_levels = 13
 
 ;; All the FFT routines for each FFT length
 
-PROCP	_xmm_gw_ffts5
 	EXPANDING = 2
 ;	xfft	512K
 ;	xfft	512Kp
@@ -219,8 +217,6 @@ allfft	xfftclm	20M, 0
 	xfftclm	32Mp, 1
 	xfftclm	32Mp, 0
 ENDIF
-
-ENDPP	_xmm_gw_ffts5
 
 _TEXT	ENDS
 END

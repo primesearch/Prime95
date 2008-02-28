@@ -1,4 +1,4 @@
-; Copyright 1998-2004 - Just For Fun Software, Inc., all rights reserved
+; Copyright 1998-2007 - Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -30,7 +30,7 @@ fft96K MACRO
 ;; does 5 levels, pass 2 uses common code to perform the last 12 levels.
 
 fft96Kp MACRO
-	pass1levels5complex3 pass2_12_levels_p, 2048, 2
+	pass1levels5complex3 pass2_12_levels, 2048, 2
 	ENDM
 
 ;; Perform a 112K-element FFT.  This is done in two passes.  Pass 1
@@ -51,7 +51,7 @@ fft128K MACRO
 ;; does 5 levels, pass 2 uses common code to perform the last 12 levels.
 
 fft128Kp MACRO
-	pass1levels5complex4 pass2_12_levels_p, 2048, 2
+	pass1levels5complex4 pass2_12_levels, 2048, 2
 	ENDM
 
 ;; Perform a 160K-element FFT.  This is done in two passes.  Pass 1
@@ -72,7 +72,7 @@ fft192K MACRO
 ;; does 6 levels, pass 2 uses common code to perform the last 12 levels.
 
 fft192Kp MACRO
-	pass1levels6complex3 pass2_12_levels_p, 2048, 2
+	pass1levels6complex3 pass2_12_levels, 2048, 2
 	ENDM
 
 ;; Perform a 224K-element FFT.  This is done in two passes.  Pass 1
@@ -93,7 +93,7 @@ fft256K MACRO
 ;; does 6 levels, pass 2 uses common code to perform the last 12 levels.
 
 fft256Kp MACRO
-	pass1levels6complex4 pass2_12_levels_p, 2048, 2
+	pass1levels6complex4 pass2_12_levels, 2048, 2
 	ENDM
 
 ;; Perform a 320K-element FFT.  This is done in two passes.  Pass 1
@@ -114,7 +114,7 @@ fft384K MACRO
 ;; does 7 levels, pass 2 uses common code to perform the last 12 levels.
 
 fft384Kp MACRO
-	pass1levels7complex3 pass2_12_levels_p, 2048, 2
+	pass1levels7complex3 pass2_12_levels, 2048, 2
 	ENDM
 
 ;; Perform a 448K-element FFT.  This is done in two passes.  Pass 1
@@ -135,7 +135,7 @@ fft512K MACRO
 ;; does 7 levels, pass 2 uses common code to perform the last 12 levels.
 
 fft512Kp MACRO
-	pass1levels7complex4 pass2_12_levels_p, 2048, 2
+	pass1levels7complex4 pass2_12_levels, 2048, 2
 	ENDM
 
 ;; Perform a 640K-element FFT.  This is done in two passes.  Pass 1
@@ -156,7 +156,7 @@ fft768K MACRO
 ;; does 8 levels, pass 2 uses common code to perform the last 12 levels.
 
 fft768Kp MACRO
-	pass1levels8complex3 pass2_12_levels_p, 2048, 2
+	pass1levels8complex3 pass2_12_levels, 2048, 2
 	ENDM
 
 ;; Perform a 896K-element FFT.  This is done in two passes.  Pass 1
@@ -177,7 +177,7 @@ fft1024K MACRO clm
 ;; 1 does 8 levels, pass 2 uses common code to perform the last 12 levels.
 
 fft1024Kp MACRO
-	pass1levels8complex4 pass2_12_levels_p, 2048, 2
+	pass1levels8complex4 pass2_12_levels, 2048, 2
 	ENDM
 
 ;; Perform a 1280K-element FFT.  This is done in two passes.  Pass 1
@@ -198,7 +198,7 @@ fft1536K MACRO
 ;; 1 does 9 levels, pass 2 uses common code to perform the last 12 levels.
 
 fft1536Kp MACRO
-	pass1levels9complex3 pass2_12_levels_p, 2048, 2
+	pass1levels9complex3 pass2_12_levels, 2048, 2
 	ENDM
 
 ;; Perform a 1792K-element FFT.  This is done in two passes.  Pass 1
@@ -219,7 +219,7 @@ fft2048K MACRO clm
 ;; 1 does 9 levels, pass 2 uses common code to perform the last 12 levels.
 
 fft2048Kp MACRO
-	pass1levels9complex4 pass2_12_levels_p, 2048, 2
+	pass1levels9complex4 pass2_12_levels, 2048, 2
 	ENDM
 
 ;; Perform a 2560K-element FFT.  This is done in two passes.  Pass 1
@@ -240,7 +240,7 @@ fft3072K MACRO clm
 ;; 1 does 10 levels, pass 2 uses common code to perform the last 12 levels.
 
 fft3072Kp MACRO clm
-	pass1levels10complex3 pass2_12_levels_p, 2048, clm
+	pass1levels10complex3 pass2_12_levels, 2048, clm
 	ENDM
 
 ;; Perform a 3584K-element FFT.  This is done in two passes.  Pass 1
@@ -261,5 +261,5 @@ fft4096K MACRO clm
 ;; 1 does 10 levels, pass 2 uses common code to perform the last 12 levels.
 
 fft4096Kp MACRO clm
-	pass1levels10complex4 pass2_12_levels_p, 2048, clm
+	pass1levels10complex4 pass2_12_levels, 2048, clm
 	ENDM

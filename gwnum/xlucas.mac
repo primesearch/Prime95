@@ -1,4 +1,4 @@
-; Copyright 2001-2005 - Just For Fun Software, Inc., all rights reserved
+; Copyright 2001-2006 - Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -72,8 +72,8 @@ shuffle_load MACRO reglo, reghi, mem1, mem2
 	ENDM
 
 shuffle_store MACRO mem1, mem2, reglo, reghi
-	_movsd	mem1, reglo
-	_movsd	mem1[8], reghi
+	movsd	Q mem1, reglo
+	movsd	Q mem1[8], reghi
 	unpckhi reglo, reghi
 	movapd	mem2, reglo
 	ENDM
@@ -81,7 +81,7 @@ shuffle_store MACRO mem1, mem2, reglo, reghi
 ;; Macros that do a complex squaring or multiplication
 
 xs_complex_square MACRO real, imag, tmp
-	_movsd	tmp, imag
+	movsd	tmp, imag
 	mulsd	tmp, tmp		;; imag * imag
 	mulsd	imag, real		;; imag * real
 	mulsd	real, real		;; real * real
@@ -90,8 +90,8 @@ xs_complex_square MACRO real, imag, tmp
 	ENDM
 
 xs_complex_mult MACRO real1, imag1, real2, imag2, tmp1, tmp2
-	_movsd	tmp1, real1
-	_movsd	tmp2, imag1
+	movsd	tmp1, real1
+	movsd	tmp2, imag1
 	mulsd	real1, real2		;; real1 * real2
 	mulsd	tmp2, imag2		;; imag1 * imag2
 	mulsd	tmp1, imag2		;; real1 * imag2
@@ -2493,39 +2493,39 @@ ENDIF
 
 ; Do an eight_reals_fft_2 on 8 doubles and a four_complex_fft_2 on 8 doubles
 s2cl_eight_reals_fft_2_final MACRO srcreg,srcinc,d1
-	_movsd	xmm0, [srcreg]		;; R1
-	_movsd	xmm1, [srcreg+8]	;; R2
-	_movsd	xmm2, [srcreg+d1]	;; R3
-	_movsd	xmm3, [srcreg+d1+8]	;; R4
-	_movsd	xmm4, [srcreg+16]	;; R5
-	_movsd	xmm5, [srcreg+24]	;; R6
-	_movsd	xmm6, [srcreg+d1+16]	;; R7
-	_movsd	xmm7, [srcreg+d1+24]	;; R8
+	movsd	xmm0, Q [srcreg]	;; R1
+	movsd	xmm1, Q [srcreg+8]	;; R2
+	movsd	xmm2, Q [srcreg+d1]	;; R3
+	movsd	xmm3, Q [srcreg+d1+8]	;; R4
+	movsd	xmm4, Q [srcreg+16]	;; R5
+	movsd	xmm5, Q [srcreg+24]	;; R6
+	movsd	xmm6, Q [srcreg+d1+16]	;; R7
+	movsd	xmm7, Q [srcreg+d1+24]	;; R8
 	xs8r_fft xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7
-	_movsd	[srcreg], xmm3		;; Save R1
-	_movsd	[srcreg+8], xmm2	;; Save R2
-	_movsd	[srcreg+16], xmm0	;; Save R3
-	_movsd	[srcreg+24], xmm1	;; Save R4
-	_movsd	xmm0, [srcreg+32]	;; R1
-	_movsd	xmm1, [srcreg+40]	;; R2
-	_movsd	xmm2, [srcreg+48]	;; R5
-	_movsd	xmm3, [srcreg+56]	;; R6
-	_movsd	[srcreg+32], xmm5	;; Save R5
-	_movsd	[srcreg+40], xmm7	;; Save R6
-	_movsd	[srcreg+48], xmm4	;; Save R7
-	_movsd	[srcreg+56], xmm6	;; Save R8
-	_movsd	xmm4, [srcreg+d1+32]	;; R3
-	_movsd	xmm5, [srcreg+d1+40]	;; R4
-	_movsd	xmm6, [srcreg+d1+48]	;; R7
+	movsd	Q [srcreg], xmm3	;; Save R1
+	movsd	Q [srcreg+8], xmm2	;; Save R2
+	movsd	Q [srcreg+16], xmm0	;; Save R3
+	movsd	Q [srcreg+24], xmm1	;; Save R4
+	movsd	xmm0, Q [srcreg+32]	;; R1
+	movsd	xmm1, Q [srcreg+40]	;; R2
+	movsd	xmm2, Q [srcreg+48]	;; R5
+	movsd	xmm3, Q [srcreg+56]	;; R6
+	movsd	Q [srcreg+32], xmm5	;; Save R5
+	movsd	Q [srcreg+40], xmm7	;; Save R6
+	movsd	Q [srcreg+48], xmm4	;; Save R7
+	movsd	Q [srcreg+56], xmm6	;; Save R8
+	movsd	xmm4, Q [srcreg+d1+32]	;; R3
+	movsd	xmm5, Q [srcreg+d1+40]	;; R4
+	movsd	xmm6, Q [srcreg+d1+48]	;; R7
 	xs4c_fft xmm0, xmm1, xmm4, xmm5, xmm2, xmm3, xmm6, xmm7, [srcreg+d1+56]
-	_movsd	[srcreg+d1], xmm5	;; Save R1
-	_movsd	[srcreg+d1+8], xmm1	;; Save R2
-	_movsd	[srcreg+d1+16], xmm7	;; Save R3
-	_movsd	[srcreg+d1+24], xmm6	;; Save R4
-	_movsd	[srcreg+d1+32], xmm0	;; Save R5
-	_movsd	[srcreg+d1+40], xmm4	;; Save R6
-	_movsd	[srcreg+d1+48], xmm3	;; Save R7
-	_movsd	[srcreg+d1+56], xmm2	;; Save R8
+	movsd	Q [srcreg+d1], xmm5	;; Save R1
+	movsd	Q [srcreg+d1+8], xmm1	;; Save R2
+	movsd	Q [srcreg+d1+16], xmm7	;; Save R3
+	movsd	Q [srcreg+d1+24], xmm6	;; Save R4
+	movsd	Q [srcreg+d1+32], xmm0	;; Save R5
+	movsd	Q [srcreg+d1+40], xmm4	;; Save R6
+	movsd	Q [srcreg+d1+48], xmm3	;; Save R7
+	movsd	Q [srcreg+d1+56], xmm2	;; Save R8
 	lea	srcreg, [srcreg+srcinc]
 	ENDM
 
@@ -2534,63 +2534,63 @@ s2cl_eight_reals_fft_2_final MACRO srcreg,srcinc,d1
 s2cl_eight_reals_with_square_2 MACRO srcreg,srcinc,d1
 	xmult7	srcreg, srcreg
 
-	_movsd	xmm0, [srcreg]		;; R1
-	_movsd	xmm1, [srcreg+8]	;; R2
-	_movsd	xmm2, [srcreg+d1]	;; R3
-	_movsd	xmm3, [srcreg+d1+8]	;; R4
-	_movsd	xmm4, [srcreg+16]	;; R5
-	_movsd	xmm5, [srcreg+24]	;; R6
-	_movsd	xmm6, [srcreg+d1+16]	;; R7
-	_movsd	xmm7, [srcreg+d1+24]	;; R8
+	movsd	xmm0, Q [srcreg]	;; R1
+	movsd	xmm1, Q [srcreg+8]	;; R2
+	movsd	xmm2, Q [srcreg+d1]	;; R3
+	movsd	xmm3, Q [srcreg+d1+8]	;; R4
+	movsd	xmm4, Q [srcreg+16]	;; R5
+	movsd	xmm5, Q [srcreg+24]	;; R6
+	movsd	xmm6, Q [srcreg+d1+16]	;; R7
+	movsd	xmm7, Q [srcreg+d1+24]	;; R8
 	xs8r_fft xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7
 
 	mulsd	xmm3, xmm3		;; R1 = R1 * R1
 	mulsd	xmm2, xmm2		;; R2 = R2 * R2
-	_movsd	[rsi-16], xmm3		;; Save product of sum of FFT values
+	movsd	Q [rsi-16], xmm3	;; Save product of sum of FFT values
 	xs_complex_square xmm0, xmm1, xmm3	;; Square R3, R4
 	xs_complex_square xmm5, xmm7, xmm3	;; Square R5, R6
 	xs_complex_square xmm4, xmm6, xmm3	;; Square R7, R8
-	_movsd	xmm3, [rsi-16]		;; Restore xmm3
+	movsd	xmm3, Q [rsi-16]	;; Restore xmm3
 
 	xs8r_unfft xmm3, xmm2, xmm0, xmm1, xmm5, xmm7, xmm4, xmm6
 
-	_movsd	[srcreg], xmm0		;; Save R1
-	_movsd	[srcreg+8], xmm1	;; Save R2
-	_movsd	[srcreg+16], xmm2	;; Save R3
-	_movsd	[srcreg+24], xmm3	;; Save R4
-	_movsd	xmm0, [srcreg+32]	;; R1
-	_movsd	xmm1, [srcreg+40]	;; R2
-	_movsd	xmm2, [srcreg+48]	;; R5
-	_movsd	xmm3, [srcreg+56]	;; R6
-	_movsd	[srcreg+32], xmm4	;; Save R5
-	_movsd	[srcreg+40], xmm5	;; Save R6
-	_movsd	[srcreg+48], xmm6	;; Save R7
-	_movsd	[srcreg+56], xmm7	;; Save R8
-	_movsd	xmm4, [srcreg+d1+32]	;; R3
-	_movsd	xmm5, [srcreg+d1+40]	;; R4
-	_movsd	xmm6, [srcreg+d1+48]	;; R7
+	movsd	Q [srcreg], xmm0	;; Save R1
+	movsd	Q [srcreg+8], xmm1	;; Save R2
+	movsd	Q [srcreg+16], xmm2	;; Save R3
+	movsd	Q [srcreg+24], xmm3	;; Save R4
+	movsd	xmm0, Q [srcreg+32]	;; R1
+	movsd	xmm1, Q [srcreg+40]	;; R2
+	movsd	xmm2, Q [srcreg+48]	;; R5
+	movsd	xmm3, Q [srcreg+56]	;; R6
+	movsd	Q [srcreg+32], xmm4	;; Save R5
+	movsd	Q [srcreg+40], xmm5	;; Save R6
+	movsd	Q [srcreg+48], xmm6	;; Save R7
+	movsd	Q [srcreg+56], xmm7	;; Save R8
+	movsd	xmm4, Q [srcreg+d1+32]	;; R3
+	movsd	xmm5, Q [srcreg+d1+40]	;; R4
+	movsd	xmm6, Q [srcreg+d1+48]	;; R7
 
 	xs4c_fft xmm0, xmm1, xmm4, xmm5, xmm2, xmm3, xmm6, xmm7, [srcreg+d1+56]
 
-	_movsd	XMM_TMP1, xmm0
+	movsd	XMM_TMP1, xmm0
 	xs_complex_square xmm5, xmm1, xmm0	;; Square R1, R2
 	xs_complex_square xmm7, xmm6, xmm0	;; Square R3, R4
-	_movsd	xmm0, XMM_TMP1
-	_movsd	XMM_TMP1, xmm5
+	movsd	xmm0, XMM_TMP1
+	movsd	XMM_TMP1, xmm5
 	xs_complex_square xmm0, xmm4, xmm5	;; Square R5, R6
 	xs_complex_square xmm3, xmm2, xmm5	;; Square R7, R8
-	_movsd	xmm5, XMM_TMP1
+	movsd	xmm5, XMM_TMP1
 
 	xs4c_unfft xmm5, xmm1, xmm7, xmm6, xmm0, xmm4, xmm3, xmm2
 
-	_movsd	[srcreg+d1], xmm0	;; Save R1
-	_movsd	[srcreg+d1+8], xmm4	;; Save R2
-	_movsd	[srcreg+d1+16], xmm7	;; Save R3
-	_movsd	[srcreg+d1+24], xmm5	;; Save R4
-	_movsd	[srcreg+d1+32], xmm2	;; Save R5
-	_movsd	[srcreg+d1+40], xmm3	;; Save R6
-	_movsd	[srcreg+d1+48], xmm6	;; Save R7
-	_movsd	[srcreg+d1+56], xmm1	;; Save R8
+	movsd	Q [srcreg+d1], xmm0	;; Save R1
+	movsd	Q [srcreg+d1+8], xmm4	;; Save R2
+	movsd	Q [srcreg+d1+16], xmm7	;; Save R3
+	movsd	Q [srcreg+d1+24], xmm5	;; Save R4
+	movsd	Q [srcreg+d1+32], xmm2	;; Save R5
+	movsd	Q [srcreg+d1+40], xmm3	;; Save R6
+	movsd	Q [srcreg+d1+48], xmm6	;; Save R7
+	movsd	Q [srcreg+d1+56], xmm1	;; Save R8
 	lea	srcreg, [srcreg+srcinc]
 	ENDM
 
@@ -2599,35 +2599,35 @@ s2cl_eight_reals_with_square_2 MACRO srcreg,srcinc,d1
 s2cl_eight_reals_with_mult_2 MACRO srcreg,srcinc,d1
 	xmult7	srcreg, srcreg+rbp
 
-	_movsd	xmm0, [srcreg]		;; R1
-	_movsd	xmm1, [srcreg+8]	;; R2
-	_movsd	xmm2, [srcreg+d1]	;; R3
-	_movsd	xmm3, [srcreg+d1+8]	;; R4
-	_movsd	xmm4, [srcreg+16]	;; R5
-	_movsd	xmm5, [srcreg+24]	;; R6
-	_movsd	xmm6, [srcreg+d1+16]	;; R7
-	_movsd	xmm7, [srcreg+d1+24]	;; R8
+	movsd	xmm0, Q [srcreg]	;; R1
+	movsd	xmm1, Q [srcreg+8]	;; R2
+	movsd	xmm2, Q [srcreg+d1]	;; R3
+	movsd	xmm3, Q [srcreg+d1+8]	;; R4
+	movsd	xmm4, Q [srcreg+16]	;; R5
+	movsd	xmm5, Q [srcreg+24]	;; R6
+	movsd	xmm6, Q [srcreg+d1+16]	;; R7
+	movsd	xmm7, Q [srcreg+d1+24]	;; R8
 	xs8r_fft xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7
 
 	xs8r_mulf xmm3, xmm2, xmm0, xmm1, xmm5, xmm7, xmm4, xmm6, [srcreg], [srcreg+8], [srcreg+16], [srcreg+24], [srcreg+32], [srcreg+40], [srcreg+48], [srcreg+56]
 
 	xs8r_unfft xmm3, xmm2, xmm0, xmm1, xmm5, xmm7, xmm4, xmm6
 
-	_movsd	[srcreg], xmm0		;; Save R1
-	_movsd	[srcreg+8], xmm1	;; Save R2
-	_movsd	[srcreg+16], xmm2	;; Save R3
-	_movsd	[srcreg+24], xmm3	;; Save R4
-	_movsd	xmm0, [srcreg+32]	;; R1
-	_movsd	xmm1, [srcreg+40]	;; R2
-	_movsd	xmm2, [srcreg+48]	;; R5
-	_movsd	xmm3, [srcreg+56]	;; R6
-	_movsd	[srcreg+32], xmm4	;; Save R5
-	_movsd	[srcreg+40], xmm5	;; Save R6
-	_movsd	[srcreg+48], xmm6	;; Save R7
-	_movsd	[srcreg+56], xmm7	;; Save R8
-	_movsd	xmm4, [srcreg+d1+32]	;; R3
-	_movsd	xmm5, [srcreg+d1+40]	;; R4
-	_movsd	xmm6, [srcreg+d1+48]	;; R7
+	movsd	Q [srcreg], xmm0	;; Save R1
+	movsd	Q [srcreg+8], xmm1	;; Save R2
+	movsd	Q [srcreg+16], xmm2	;; Save R3
+	movsd	Q [srcreg+24], xmm3	;; Save R4
+	movsd	xmm0, Q [srcreg+32]	;; R1
+	movsd	xmm1, Q [srcreg+40]	;; R2
+	movsd	xmm2, Q [srcreg+48]	;; R5
+	movsd	xmm3, Q [srcreg+56]	;; R6
+	movsd	Q [srcreg+32], xmm4	;; Save R5
+	movsd	Q [srcreg+40], xmm5	;; Save R6
+	movsd	Q [srcreg+48], xmm6	;; Save R7
+	movsd	Q [srcreg+56], xmm7	;; Save R8
+	movsd	xmm4, Q [srcreg+d1+32]	;; R3
+	movsd	xmm5, Q [srcreg+d1+40]	;; R4
+	movsd	xmm6, Q [srcreg+d1+48]	;; R7
 
 	xs4c_fft xmm0, xmm1, xmm4, xmm5, xmm2, xmm3, xmm6, xmm7, [srcreg+d1+56]
 
@@ -2635,14 +2635,14 @@ s2cl_eight_reals_with_mult_2 MACRO srcreg,srcinc,d1
 
 	xs4c_unfft xmm5, xmm1, xmm7, xmm6, xmm0, xmm4, xmm3, xmm2
 
-	_movsd	[srcreg+d1], xmm0	;; Save R1
-	_movsd	[srcreg+d1+8], xmm4	;; Save R2
-	_movsd	[srcreg+d1+16], xmm7	;; Save R3
-	_movsd	[srcreg+d1+24], xmm5	;; Save R4
-	_movsd	[srcreg+d1+32], xmm2	;; Save R5
-	_movsd	[srcreg+d1+40], xmm3	;; Save R6
-	_movsd	[srcreg+d1+48], xmm6	;; Save R7
-	_movsd	[srcreg+d1+56], xmm1	;; Save R8
+	movsd	Q [srcreg+d1], xmm0	;; Save R1
+	movsd	Q [srcreg+d1+8], xmm4	;; Save R2
+	movsd	Q [srcreg+d1+16], xmm7	;; Save R3
+	movsd	Q [srcreg+d1+24], xmm5	;; Save R4
+	movsd	Q [srcreg+d1+32], xmm2	;; Save R5
+	movsd	Q [srcreg+d1+40], xmm3	;; Save R6
+	movsd	Q [srcreg+d1+48], xmm6	;; Save R7
+	movsd	Q [srcreg+d1+56], xmm1	;; Save R8
 	lea	srcreg, [srcreg+srcinc]
 	ENDM
 
@@ -2651,49 +2651,49 @@ s2cl_eight_reals_with_mult_2 MACRO srcreg,srcinc,d1
 s2cl_eight_reals_with_mulf_2 MACRO srcreg,srcinc,d1
 	xmult7	srcreg+rbx, srcreg+rbp
 
-	_movsd	xmm3, [srcreg][rbx]	;; R1
-	_movsd	xmm2, [srcreg+8][rbx]	;; R2
-	_movsd	xmm0, [srcreg+16][rbx]	;; R3
-	_movsd	xmm1, [srcreg+24][rbx]	;; R4
-	_movsd	xmm5, [srcreg+32][rbx]	;; R5
-	_movsd	xmm7, [srcreg+40][rbx]	;; R6
-	_movsd	xmm4, [srcreg+48][rbx]	;; R7
-	_movsd	xmm6, [srcreg+56][rbx]	;; R8
+	movsd	xmm3, Q [srcreg][rbx]	;; R1
+	movsd	xmm2, Q [srcreg+8][rbx]	;; R2
+	movsd	xmm0, Q [srcreg+16][rbx];; R3
+	movsd	xmm1, Q [srcreg+24][rbx];; R4
+	movsd	xmm5, Q [srcreg+32][rbx];; R5
+	movsd	xmm7, Q [srcreg+40][rbx];; R6
+	movsd	xmm4, Q [srcreg+48][rbx];; R7
+	movsd	xmm6, Q [srcreg+56][rbx];; R8
 
 	xs8r_mulf xmm3, xmm2, xmm0, xmm1, xmm5, xmm7, xmm4, xmm6, [srcreg], [srcreg+8], [srcreg+16], [srcreg+24], [srcreg+32], [srcreg+40], [srcreg+48], [srcreg+56]
 
 	xs8r_unfft xmm3, xmm2, xmm0, xmm1, xmm5, xmm7, xmm4, xmm6
 
-	_movsd	[srcreg], xmm0		;; Save R1
-	_movsd	[srcreg+8], xmm1	;; Save R2
-	_movsd	[srcreg+16], xmm2	;; Save R3
-	_movsd	[srcreg+24], xmm3	;; Save R4
-	_movsd	[srcreg+32], xmm4	;; Save R5
-	_movsd	[srcreg+40], xmm5	;; Save R6
-	_movsd	[srcreg+48], xmm6	;; Save R7
-	_movsd	[srcreg+56], xmm7	;; Save R8
+	movsd	Q [srcreg], xmm0	;; Save R1
+	movsd	Q [srcreg+8], xmm1	;; Save R2
+	movsd	Q [srcreg+16], xmm2	;; Save R3
+	movsd	Q [srcreg+24], xmm3	;; Save R4
+	movsd	Q [srcreg+32], xmm4	;; Save R5
+	movsd	Q [srcreg+40], xmm5	;; Save R6
+	movsd	Q [srcreg+48], xmm6	;; Save R7
+	movsd	Q [srcreg+56], xmm7	;; Save R8
 
-	_movsd	xmm5, [srcreg+d1][rbx]	;; R1
-	_movsd	xmm7, [srcreg+d1+8][rbx];; R2
-	_movsd	xmm4, [srcreg+d1+16][rbx];; R5
-	_movsd	xmm6, [srcreg+d1+24][rbx];; R6
-	_movsd	xmm0, [srcreg+d1+32][rbx];; R3
-	_movsd	xmm1, [srcreg+d1+40][rbx];; R4
-	_movsd	xmm3, [srcreg+d1+48][rbx];; R7
-	_movsd	xmm2, [srcreg+d1+56][rbx];; R8
+	movsd	xmm5, Q [srcreg+d1][rbx];; R1
+	movsd	xmm7, Q [srcreg+d1+8][rbx];; R2
+	movsd	xmm4, Q [srcreg+d1+16][rbx];; R5
+	movsd	xmm6, Q [srcreg+d1+24][rbx];; R6
+	movsd	xmm0, Q [srcreg+d1+32][rbx];; R3
+	movsd	xmm1, Q [srcreg+d1+40][rbx];; R4
+	movsd	xmm3, Q [srcreg+d1+48][rbx];; R7
+	movsd	xmm2, Q [srcreg+d1+56][rbx];; R8
 
 	xs4c_mulf xmm5, xmm7, xmm4, xmm6, xmm0, xmm1, xmm3, xmm2, [srcreg+d1], [srcreg+d1+8], [srcreg+d1+16], [srcreg+d1+24], [srcreg+d1+32], [srcreg+d1+40], [srcreg+d1+48], [srcreg+d1+56]
 
 	xs4c_unfft xmm5, xmm7, xmm4, xmm6, xmm0, xmm1, xmm3, xmm2
 
-	_movsd	[srcreg+d1], xmm0	;; Save R1
-	_movsd	[srcreg+d1+8], xmm1	;; Save R2
-	_movsd	[srcreg+d1+16], xmm4	;; Save R3
-	_movsd	[srcreg+d1+24], xmm5	;; Save R4
-	_movsd	[srcreg+d1+32], xmm2	;; Save R5
-	_movsd	[srcreg+d1+40], xmm3	;; Save R6
-	_movsd	[srcreg+d1+48], xmm6	;; Save R7
-	_movsd	[srcreg+d1+56], xmm7	;; Save R8
+	movsd	Q [srcreg+d1], xmm0	;; Save R1
+	movsd	Q [srcreg+d1+8], xmm1	;; Save R2
+	movsd	Q [srcreg+d1+16], xmm4	;; Save R3
+	movsd	Q [srcreg+d1+24], xmm5	;; Save R4
+	movsd	Q [srcreg+d1+32], xmm2	;; Save R5
+	movsd	Q [srcreg+d1+40], xmm3	;; Save R6
+	movsd	Q [srcreg+d1+48], xmm6	;; Save R7
+	movsd	Q [srcreg+d1+56], xmm7	;; Save R8
 	lea	srcreg, [srcreg+srcinc]
 
 	ENDM
@@ -2732,13 +2732,13 @@ xs8r_fft MACRO r0, r1, r2, r3, r4, r5, r6, r7
 xs8r_mulf MACRO r1, r2, r3, r4, r5, r6, r7, r8, m1, m2, m3, m4, m5, m6, m7, m8
 	mulsd	r1, Q m1[rbp]		;; R11
 	mulsd	r2, Q m2[rbp]		;; R22
-	_movsd	[rsi-16], r1		;; Save product of sum of FFT values
-	_movsd	XMM_TMP1, r2		;; Save xmm2
+	movsd	Q [rsi-16], r1		;; Save product of sum of FFT values
+	movsd	XMM_TMP1, r2		;; Save xmm2
 	xs_complex_mult r3, r4, Q m3[rbp], Q m4[rbp], r2, r1
 	xs_complex_mult r5, r6, Q m5[rbp], Q m6[rbp], r2, r1
 	xs_complex_mult r7, r8, Q m7[rbp], Q m8[rbp], r2, r1
-	_movsd	r2, XMM_TMP1		;; Restore xmm2
-	_movsd	r1, [rsi-16]		;; Restore xmm3
+	movsd	r2, XMM_TMP1		;; Restore xmm2
+	movsd	r1, Q [rsi-16]		;; Restore xmm3
 	ENDM
 
 ;; Perform 2 levels of inverse FFT.  Input registers are:
@@ -2776,17 +2776,17 @@ xs8r_unfft MACRO r1, r2, r3, r4, r5, r6, r7, r8
 ;; Perform last 2 levels of FFT.
 ;; ***Optimization - these are sin/cos values special???
 xs4c_fft MACRO r1, r2, r3, r4, r5, r6, r7, r8, mem8
-	_movsd	r8, [rdi+32+24]		;; cosine/sine
+	movsd	r8, Q [rdi+32+24]	;; cosine/sine
 	mulsd	r8, r3			;; A3 = R3 * cosine/sine	;1-6
 	subsd	r8, r7			;; A3 = A3 - I3			;8-11
 	mulsd	r7, Q [rdi+32+24]	;; B3 = I3 * cosine/sine	;3-8
 	addsd	r7, r3			;; B3 = B3 + R3			;10-13
-	_movsd	r3, [rdi+0+24]		;; cosine/sine
+	movsd	r3, Q [rdi+0+24]	;; cosine/sine
 	mulsd	r3, r2			;; A2 = R2 * cosine/sine	;5-10
 	subsd	r3, r6			;; A2 = A2 - I2			;12-15
 	mulsd	r6, Q [rdi+0+24]	;; B2 = I2 * cosine/sine	;9-14
 	addsd	r6, r2			;; B2 = B2 + R2			;16-19
-	_movsd	r2, [rdi+64+24]		;; cosine/sine
+	movsd	r2, Q [rdi+64+24]	;; cosine/sine
 	mulsd	r2, Q mem8		;; B4 = I4 * cosine/sine	;11-16
 	addsd	r2, r4			;; B4 = B4 + R4			;18-21
 	mulsd	r4, Q [rdi+64+24]	;; A4 = R4 * cosine/sine	;7-12
@@ -2826,18 +2826,18 @@ xs4c_fft MACRO r1, r2, r3, r4, r5, r6, r7, r8, mem8
 ;; Perform the complex multiply step.  Input and output registers are:
 ;; R1=xmm5,I1=xmm7,R2=xmm1,I2=xmm3,R3=xmm2,I3=xmm4,R4=xmm6,I4=xmm0
 xs4c_mulf MACRO r1,r2,r3,r4,r5,r6,r7,r8,m1,m2,m3,m4,m5,m6,m7,m8
-	_movsd	XMM_TMP1, r7		;; Save r7
-	_movsd	XMM_TMP2, r8		;; Save r8
+	movsd	XMM_TMP1, r7		;; Save r7
+	movsd	XMM_TMP2, r8		;; Save r8
 	xs_complex_mult r1, r2, Q m1[rbp], Q m2[rbp], r7, r8
 	xs_complex_mult r3, r4, Q m3[rbp], Q m4[rbp], r7, r8
-	_movsd	r7, XMM_TMP1 		;; Restore r7
-	_movsd	r8, XMM_TMP2	 	;; Restore r8
-	_movsd	XMM_TMP1, r1		;; Save r1
-	_movsd	XMM_TMP2, r2		;; Save r2
+	movsd	r7, XMM_TMP1 		;; Restore r7
+	movsd	r8, XMM_TMP2	 	;; Restore r8
+	movsd	XMM_TMP1, r1		;; Save r1
+	movsd	XMM_TMP2, r2		;; Save r2
 	xs_complex_mult r5, r6, Q m5[rbp], Q m6[rbp], r1, r2
 	xs_complex_mult r7, r8, Q m7[rbp], Q m8[rbp], r1, r2
-	_movsd	r1, XMM_TMP1 		;; Restore r1
-	_movsd	r2, XMM_TMP2	 	;; Restore r2
+	movsd	r1, XMM_TMP1 		;; Restore r1
+	movsd	r2, XMM_TMP2	 	;; Restore r2
 	ENDM
 
 xp4c_mulf MACRO r1,r2,r3,r4,r5,r6,r7,r8,m1,m2,m3,m4,m5,m6,m7,m8
@@ -2878,17 +2878,17 @@ xs4c_unfft MACRO r1, r2, r3, r4, r5, r6, r7, r8
 	multwos	r7			;; I4 = I4 * 2
 	addsd	r7, r2			;; I4 = I2 + I4 (new I2)
 	subsd	r3, r5			;; R1 = R1 - R3 (new R3)
-	_movsd	XMM_TMP1, r6		;; Save new R2
+	movsd	XMM_TMP1, r6		;; Save new R2
 	mulsd	r2, Q [rdi+64+8]	;; B4 = new I4 * sine
-	_movsd	XMM_TMP2, r3		;; Save new R3
+	movsd	XMM_TMP2, r3		;; Save new R3
 	mulsd	r1, Q [rdi+64+8]	;; A4 = new R4 * sine
 	mulsd	r6, Q [rdi+0+24]	;; A2 = new R2 * cosine/sine
-	_movsd	XMM_TMP3, r2		;; Save B4
+	movsd	XMM_TMP3, r2		;; Save B4
 	mulsd	r3, Q [rdi+32+24]	;; A3 = new R3 * cosine/sine
 	subsd	r4, r8			;; I1 = I1 - I3 (new I3)
 	mulsd	r2, Q [rdi+64+24]	;; C4 = B4 * cosine/sine
 	multwos	r8			;; I3 = I3 * 2
-	_movsd	XMM_TMP4, r4		;; Save I1
+	movsd	XMM_TMP4, r4		;; Save I1
 	addsd	r6, r7			;; A2 = A2 + new I2
 	mulsd	r7, Q [rdi+0+24]	;; B2 = new I2 * cosine/sine
 	addsd	r3, r4			;; A3 = A3 + new I3
@@ -4384,105 +4384,98 @@ x3c_postmult MACRO r1, r2, r3, r4, r5, r6, t1, t2, off
 
 xmult7	MACRO	src1, src2
 	LOCAL	nozpad
-	cmp	_ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
+	cmp	ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
 	je	nozpad			;; No, skip 7 word multiply
-	_movsd	xmm0, [src1-40]		;; Result0 = word0 * word0
+	movsd	xmm0, Q [src1-40]	;; Result0 = word0 * word0
 	mulsd	xmm0, Q [src2-40]
-	_movsd	xmm1, [src1-48]		;;	   + word1 * word-1
+	movsd	xmm1, Q [src1-48]	;;	   + word1 * word-1
 	mulsd	xmm1, Q [src2-72]
 	addsd	xmm0, xmm1
-	_movsd	xmm2, [src1-56]		;;	   + word2 * word-2
+	movsd	xmm2, Q [src1-56]	;;	   + word2 * word-2
 	mulsd	xmm2, Q [src2-80]
 	addsd	xmm0, xmm2
-	_movsd	xmm3, [src1-64]		;;	   + word3 * word-3
+	movsd	xmm3, Q [src1-64]	;;	   + word3 * word-3
 	mulsd	xmm3, Q [src2-88]
 	addsd	xmm0, xmm3
-	_movsd	xmm1, [src1-72]		;;	   + word-1 * word1
+	movsd	xmm1, Q [src1-72]	;;	   + word-1 * word1
 	mulsd	xmm1, Q [src2-48]
 	addsd	xmm0, xmm1
-	_movsd	xmm2, [src1-80]		;;	   + word-2 * word2
+	movsd	xmm2, Q [src1-80]	;;	   + word-2 * word2
 	mulsd	xmm2, Q [src2-56]
 	addsd	xmm0, xmm2
-	_movsd	xmm3, [src1-88]		;;	   + word-3 * word3
+	movsd	xmm3, Q [src1-88]	;;	   + word-3 * word3
 	mulsd	xmm3, Q [src2-64]
 	addsd	xmm0, xmm3
-	_movsd	XMM_ZPAD0, xmm0
+	movsd	ZPAD0, xmm0
 
-	_movsd	xmm0, [src1-40]		;; Result1 = word0 * word1
+	movsd	xmm0, Q [src1-40]	;; Result1 = word0 * word1
 	mulsd	xmm0, Q [src2-48]
-	_movsd	xmm1, [src1-48]		;;	   + word1 * word0
+	movsd	xmm1, Q [src1-48]	;;	   + word1 * word0
 	mulsd	xmm1, Q [src2-40]
 	addsd	xmm0, xmm1
-	_movsd	xmm2, [src1-56]		;;	   + word2 * word-1
+	movsd	xmm2, Q [src1-56]	;;	   + word2 * word-1
 	mulsd	xmm2, Q [src2-72]
 	addsd	xmm0, xmm2
-	_movsd	xmm3, [src1-64]		;;	   + word3 * word-2
+	movsd	xmm3, Q [src1-64]	;;	   + word3 * word-2
 	mulsd	xmm3, Q [src2-80]
 	addsd	xmm0, xmm3
-	_movsd	xmm2, [src1-72]		;;	   + word-1 * word2
+	movsd	xmm2, Q [src1-72]	;;	   + word-1 * word2
 	mulsd	xmm2, Q [src2-56]
 	addsd	xmm0, xmm2
-	_movsd	xmm3, [src1-80]		;;	   + word-2 * word3
+	movsd	xmm3, Q [src1-80]	;;	   + word-2 * word3
 	mulsd	xmm3, Q [src2-64]
 	addsd	xmm0, xmm3
-	_movsd	XMM_ZPAD1, xmm0
+	movsd	ZPAD1, xmm0
 
-	_movsd	xmm0, [src1-40]		;; Result2 = word0 * word2
+	movsd	xmm0, Q [src1-40]	;; Result2 = word0 * word2
 	mulsd	xmm0, Q [src2-56]
-	_movsd	xmm1, [src1-48]		;;	   + word1 * word1
+	movsd	xmm1, Q [src1-48]	;;	   + word1 * word1
 	mulsd	xmm1, Q [src2-48]
 	addsd	xmm0, xmm1
-	_movsd	xmm2, [src1-56]		;;	   + word2 * word0
+	movsd	xmm2, Q [src1-56]	;;	   + word2 * word0
 	mulsd	xmm2, Q [src2-40]
 	addsd	xmm0, xmm2
-	_movsd	xmm3, [src1-64]		;;	   + word3 * word-1
+	movsd	xmm3, Q [src1-64]	;;	   + word3 * word-1
 	mulsd	xmm3, Q [src2-72]
 	addsd	xmm0, xmm3
-	_movsd	xmm3, [src1-72]		;;	   + word-1 * word3
+	movsd	xmm3, Q [src1-72]	;;	   + word-1 * word3
 	mulsd	xmm3, Q [src2-64]
 	addsd	xmm0, xmm3
-	_movsd	XMM_ZPAD2, xmm0
+	movsd	ZPAD2, xmm0
 
-	_movsd	xmm0, [src1-40]		;; Result3 = word0 * word3
+	movsd	xmm0, Q [src1-40]	;; Result3 = word0 * word3
 	mulsd	xmm0, Q [src2-64]
-	_movsd	xmm1, [src1-48]		;;	   + word1 * word2
+	movsd	xmm1, Q [src1-48]	;;	   + word1 * word2
 	mulsd	xmm1, Q [src2-56]
 	addsd	xmm0, xmm1
-	_movsd	xmm2, [src1-56]		;;	   + word2 * word1
+	movsd	xmm2, Q [src1-56]	;;	   + word2 * word1
 	mulsd	xmm2, Q [src2-48]
 	addsd	xmm0, xmm2
-	_movsd	xmm3, [src1-64]		;;	   + word3 * word0
+	movsd	xmm3, Q [src1-64]	;;	   + word3 * word0
 	mulsd	xmm3, Q [src2-40]
 	addsd	xmm0, xmm3
-	_movsd	XMM_ZPAD3, xmm0
+	movsd	ZPAD3, xmm0
 
-	_movsd	xmm0, [src1-48]		;; Result4 = word1 * word3
+	movsd	xmm0, Q [src1-48]	;; Result4 = word1 * word3
 	mulsd	xmm0, Q [src2-64]
-	_movsd	xmm1, [src1-56]		;;	   + word2 * word2
+	movsd	xmm1, Q [src1-56]	;;	   + word2 * word2
 	mulsd	xmm1, Q [src2-56]
 	addsd	xmm0, xmm1
-	_movsd	xmm2, [src1-64]		;;	   + word3 * word1
+	movsd	xmm2, Q [src1-64]	;;	   + word3 * word1
 	mulsd	xmm2, Q [src2-48]
 	addsd	xmm0, xmm2
-	_movsd	XMM_ZPAD4, xmm0
+	movsd	ZPAD4, xmm0
 
-	_movsd	xmm0, [src1-56]		;; Result5 = word2 * word3
+	movsd	xmm0, Q [src1-56]	;; Result5 = word2 * word3
 	mulsd	xmm0, Q [src2-64]
-	_movsd	xmm1, [src1-64]		;;	   + word3 * word2
+	movsd	xmm1, Q [src1-64]	;;	   + word3 * word2
 	mulsd	xmm1, Q [src2-56]
 	addsd	xmm0, xmm1
-	_movsd	XMM_ZPAD5, xmm0
+	movsd	ZPAD5, xmm0
 
-	_movsd	xmm0, [src1-64]		;; Result6 = word3 * word3
+	movsd	xmm0, Q [src1-64]	;; Result6 = word3 * word3
 	mulsd	xmm0, Q [src2-64]
-	_movsd	XMM_ZPAD6, xmm0
-
-	IFDEF X86_64
-	mov	r8, OFFSET XMM_ZPAD0
-	mov	zpad_addr, r8
-	ELSE
-	mov	zpad_addr, OFFSET XMM_ZPAD0
-	ENDIF
+	movsd	ZPAD6, xmm0
 
 nozpad:
 	ENDM

@@ -110,8 +110,7 @@ VOID ServiceStop()
  */
 void GetIniSettings()
 {
-	nameIniFiles (-1);
-	readIniFiles ();
+	nameAndReadIniFiles (-1);
 
 	IniGetString (INI_FILE, "ServiceName", SZSERVICENAME,
 		      sizeof (SZSERVICENAME), "ppp");

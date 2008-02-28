@@ -1,15 +1,13 @@
 Welcome to the gwnum library.
 
 -> how to use
-	Before calling one of the gwsetup routines, you must call the
-	two cpuid functions:
-		#include "cpuid.h"
-		guessCpuType ();
-		guessCpuSpeed ();
-	Alternatively, you can set the global variables defined in cpuid.h
+	Before calling gwinit and one of the gwsetup routines, the
+	global variables defined in cpuid.h must be initialized.  You can
+	do this yourself or let gwinit do it for you (it will call the
+	guessCpuType and guessCpuSpeed routines).
 
 	Next, study gwnum.h for a list of functions.  Also, study prp.c
-		for an example of how to use the gwnum library.
+	or commonb.c or ecm.c for examples of how to use the gwnum library.
 
 -> how to compile / how to port
 
@@ -22,28 +20,54 @@ Windows:
 	to build the 64-bit libraries.
 
 Linux:
-	makefile is used to convert the COFF object files built under Windows
-	into ELF object files for Linux.  The makefile also compiles the
-	necessary C and C++ source files.
+	The object files have already been converted to ELF format using
+	Agner Fog's objconv on a Windows machine.  Copy gwnum.a from the
+	gwnum\linux directory to gwnum.
 
-	Align the _GWDATA data segment on a 32 byte boundary.  You can link
-	with the gwnum.ld file or one of the dummy*.obj files to do this.
+	makefile is used to compile the necessary C and C++ source files on the
+	Linux machine and to finish building the gwnum library.  It adds to the
+	ELF library built on the Windows machine.
+	
+	A C application using gwnum must link with:
+		gwnum.a gwnum.ld -lpthread -lstdc++
 
-	A C application must link with -lstdc++
+Linux 64-bit:
+	The object files have already been converted to ELF format using
+	Agner Fog's objconv on a Windows machine.  Copy gwnum.a from the
+	gwnum\linux64 directory to gwnum.
+
+	make64 is used to compile the necessary C and C++ source files on the
+	Linux machine and to finish building the gwnum library
+	
+	A C application using gwnum must link with:
+		gwnum.a gwnum.ld -lpthread -lstdc++
 
 FreeBSD:
-	make.bsd is used to compile the	necessary C and C++ source files.
-	For the assembly code, you must copy the ELF .o files from a
-	Linux port.
+	The object files have already been converted to ELF format using
+	Agner Fog's objconv on a Windows machine.  Copy gwnum.a from the
+	gwnum\linux directory to gwnum.
 
-	Align the _GWDATA data segment on a 32 byte boundary.  You can link
-	with one of the dummy*.obj files to do this.
+	make.bsd is used to compile the	necessary C and C++ source files and
+	finish building the gwnum library.  It adds to the ELF library
+	built on the Windows machine.
 
-	A C application must link with -lcompat and -lstdc++
+	A C application must link with:
+		-lcompat gwnum.a gwnum.ld -lpthread -lstdc++
+
+Mac OS X:
+	The object files have already been converted to Mach-O format using
+	Agner Fog's objconv on a Windows machine.  Copy gwnum.a from the
+	gwnum\macosx directory to gwnum.
+
+	makemac is used to compile the necessary C and C++ source files and
+	finish building the gwnum library.  It adds to the MAC OS X library
+	built on the Windows machine.
+
+	A C application must link with gwnum.a -lpthread
 
 -> Legal stuff
 
-Copyright (c) 1996-2005, George Woltman
+Copyright (c) 1996-2007, George Woltman
 
 All rights reserved. 
 

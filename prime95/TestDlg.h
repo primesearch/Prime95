@@ -13,6 +13,9 @@ public:
 // Dialog Data
 	//{{AFX_DATA(CTestDlg)
 	enum { IDD = IDD_TEST };
+	CStatic	c_thread_text;
+	CEdit	c_thread;
+	UINT	m_thread;
 	UINT	m_p;
 	//}}AFX_DATA
 

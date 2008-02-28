@@ -1,4 +1,4 @@
-; Copyright 1995-2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -21,11 +21,6 @@ INCLUDE lucas.mac
 INCLUDE xmult.mac
 INCLUDE xlucas.mac
 
-EXTRN	_CPU_FLAGS:DWORD
-IFNDEF AMD
-EXTRN	_timeitAMD:PROC
-ENDIF
-
 IFDEF X86_64
 X87_CASES	EQU	0
 ELSE
@@ -34,7 +29,7 @@ ENDIF
 SSE2_CASES	EQU	134
 
 loopent	MACRO	y,z		; Create a entry in the loop entry table
-	DPTR	&y&z
+	DP	&y&z
 	ENDM
 looptab	MACRO	y, cnt		; Create the loop entry table
 	x = 0
@@ -167,7 +162,8 @@ x87mac	MACRO	memused, memarea, ops:vararg
 	inner_iters = memarea / memused
 	outer_iters = 10000 / inner_iters
 	mov	eax, outer_iters
-ss0a:	mov	rdi, _SRCARG
+	mov	SRCARG, rdi		;; Save work buf addr
+ss0a:	mov	rdi, SRCARG		;; Reload work buf addr
 	lea	rsi, [rdi+4096]
 	mov	ecx, inner_iters
 ss0b:	disp	&ops
@@ -186,7 +182,8 @@ sse2mac MACRO	lab, memused, memarea, ops:vararg
 lab:	mov	rbx, 262144+128		;; Offset for some sse2 macros
 	mov	rbp, 524288+256		;; Offset for mulf sse2 macros
 	mov	eax, outer_iters
-ss0a:	mov	rdi, _SRCARG		;; Sincos data
+	mov	SRCARG, rdi		;; Save work buf addr
+ss0a:	mov	rdi, SRCARG		;; Reload work buf addr (sincos data)
 	lea	rsi, [rdi+4096]		;; Source & dest ptr
 	lea	rdx, [rsi+524288+256]	;; Destination for "g" macros
 	mov	ecx, inner_iters
@@ -204,28 +201,27 @@ _TEXT	SEGMENT
 x87table: looptab case, X87_CASES
 sse2table: looptab sscase, SSE2_CASES
 
-PUBLICP _timeit
-PROCP	_timeit
+; gwtimeit (asm_data)
+;	Time a mini benchmark
+; Windows 32-bit (_gwtimeit)
+; Linux 32-bit (gwtimeit)
+;	Parameter asm_data = [esp+4]
+; Windows 64-bit (gwtimeit)
+;	Parameter asm_data = rcx
+; Linux 64-bit (gwtimeit)
+;	Parameter asm_data = rdi
 
-IFNDEF AMD
-	test	_CPU_FLAGS, 40h		;; Is 3dnow! supported?
-	jz	notamd			;; No, do P4 SSE2 versions of macros
-	JMP_Y	_timeitAMD		;; Yes, do AMD64 SSE2 versions
-notamd:
-ENDIF
+PROCFLP	gwtimeit
+	ad_prolog 0,0,rbx,rbp,rsi,rdi,xmm6,xmm7,xmm8,xmm9,xmm10,xmm11,xmm12,xmm13,xmm14,xmm15
 
-	push	rsi
-	push	rdi
-	push	rbp
-	push	rbx
+	mov	rdi, PPTR [AD_BASE]	; Load work buf address
+	mov	rsi, rdi
 
-	sub	ebx, ebx
+	mov	edx, DPTR [AD_BASE+8]	; Load n (which test to run)
+
+	sub	ebx, ebx		; Clear registers
 	sub	ecx, ecx
 	sub	ebp, ebp
-	mov	rdi, _SRCARG
-	mov	rsi, _SRCARG
-
-	mov	edx, _NUMARG		; Get test number
 
 	mov	eax, X87_CASES
 	cmp	edx, -1			; -1 = get num x87 cases
@@ -236,7 +232,8 @@ ENDIF
 
 	cmp	edx, 1000		; Tests above 1000 are SSE2 code
 	jl	short x87
-	subpd	xmm0, xmm0
+
+	subpd	xmm0, xmm0		; Clear XMM registers
 	subpd	xmm1, xmm1
 	subpd	xmm2, xmm2
 	subpd	xmm3, xmm3
@@ -520,13 +517,9 @@ sscase11:
 
 ; Exit the timing code
 
-exit:	pop	rbx
-	pop	rbp
-	pop	rdi
-	pop	rsi
-	ret
+exit:	ad_epilog 0,0,rbx,rbp,rsi,rdi,xmm6,xmm7,xmm8,xmm9,xmm10,xmm11,xmm12,xmm13,xmm14,xmm15
 
-ENDPP _timeit
+ENDPP	gwtimeit
 
 _TEXT ENDS
 END

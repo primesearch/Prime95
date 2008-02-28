@@ -14,15 +14,15 @@ public:
 
 // Dialog Data
 	enum { IDD = IDD_TORTURE };
+	CStatic	c_thread_text;
+	CEdit	c_thread;
+	UINT	m_thread;
 
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
 
 	DECLARE_MESSAGE_MAP()
 public:
-	afx_msg void OnBnClickedL2Cache();
-	afx_msg void OnBnClickedInPlace();
-	afx_msg void OnBnClickedBlend();
 	int m_torture_type;
 	int m_minfft;
 	int m_maxfft;
@@ -38,6 +38,12 @@ public:
 	CEdit c_memory;
 	CStatic c_timefft_text;
 	CEdit c_timefft;
+
+	int	m_blendmemory;
+
+	afx_msg void OnBnClickedL2Cache();
+	afx_msg void OnBnClickedInPlace();
+	afx_msg void OnBnClickedBlend();
 	afx_msg void OnBnClickedCustom();
 	afx_msg void OnBnClickedInPlaceFft();
 };

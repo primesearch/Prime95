@@ -19,6 +19,7 @@ CTestDlg::CTestDlg(CWnd* pParent /*=NULL*/)
 	: CDialog(CTestDlg::IDD, pParent)
 {
 	//{{AFX_DATA_INIT(CTestDlg)
+	m_thread = 1;
 	m_p = 0;
 	//}}AFX_DATA_INIT
 }
@@ -41,8 +42,14 @@ void CTestDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialog::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CTestDlg)
+	DDX_Control(pDX, IDC_THREAD_TEXT, c_thread_text);
+	DDX_Control(pDX, IDC_THREAD, c_thread);
+	DDX_Text(pDX, IDC_THREAD, m_thread);
+	DDV_MinMaxUInt(pDX, m_thread, 1, NUM_WORKER_THREADS);
 	DDX_Text(pDX, IDC_P, m_p);
 	//}}AFX_DATA_MAP
+	c_thread_text.EnableWindow (NUM_WORKER_THREADS > 1);
+	c_thread.EnableWindow (NUM_WORKER_THREADS > 1);
 	DDV_MinMaxUInt(pDX, m_p, MIN_PRIME,
 		       CPU_FLAGS & CPU_SSE2 ? MAX_PRIME_SSE2 : MAX_PRIME);
 	DDV_prime(pDX, m_p);

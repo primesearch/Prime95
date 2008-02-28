@@ -13,12 +13,7 @@ public:
 
 // Operations
 public:
-	void title (char *);
 	void rangeStatus ();
-	void LineFeed ();
-	void OutputStr (char *);
-	void Restart1 ();
-	void Restart2 ();
 
 // Overrides
 	// ClassWizard generated virtual function overrides
@@ -42,6 +37,9 @@ protected:
 // Generated message map functions
 protected:
 	//{{AFX_MSG(CPrime95Doc)
+	afx_msg void OnPrimenet();
+	afx_msg void OnUpdateWorkerThreads(CCmdUI* pCmdUI);
+	afx_msg void OnWorkerThreads();
 	afx_msg void OnContinue();
 	afx_msg void OnUpdateContinue(CCmdUI* pCmdUI);
 	afx_msg void OnStop();
@@ -55,8 +53,6 @@ protected:
 	afx_msg void OnUpdateTime(CCmdUI* pCmdUI);
 	afx_msg void OnTime();
 	afx_msg void OnRangeStatus();
-	afx_msg void OnPassword();
-	afx_msg void OnUpdatePassword(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateHelpFinder(CCmdUI* pCmdUI);
 	afx_msg void OnTray();
 	afx_msg void OnUpdateTray(CCmdUI* pCmdUI);
@@ -64,36 +60,33 @@ protected:
 	afx_msg void OnUpdateHide(CCmdUI* pCmdUI);
 	afx_msg void OnTorture();
 	afx_msg void OnUpdateTorture(CCmdUI* pCmdUI);
-	afx_msg void OnRangeUserinformation();
-	afx_msg void OnPrimenet();
-	afx_msg void OnPriority();
-	afx_msg void OnUpdatePriority(CCmdUI* pCmdUI);
 	afx_msg void OnServer();
 	afx_msg void OnUpdateServer(CCmdUI* pCmdUI);
 	afx_msg void OnQuitGimps();
-	afx_msg void OnVacation();
 	afx_msg void OnService();
 	afx_msg void OnUpdateService(CCmdUI* pCmdUI);
 	afx_msg void OnManualcomm();
 	afx_msg void OnUpdateManualcomm(CCmdUI* pCmdUI);
-	afx_msg void OnUpdateRangeUserinformation(CCmdUI* pCmdUI);
 	afx_msg void OnEcm();
 	afx_msg void OnUpdateEcm(CCmdUI* pCmdUI);
-	afx_msg void OnAffinity();
-	afx_msg void OnUpdateAffinity(CCmdUI* pCmdUI);
 	afx_msg void OnPminus1();
 	afx_msg void OnUpdatePminus1(CCmdUI* pCmdUI);
 	afx_msg void OnWelcome();
 	afx_msg void OnUsrTorture();
-	afx_msg void OnBroadcast();
-	afx_msg void OnOutputStr();
 	afx_msg void OnTitle();
 	afx_msg void OnUnreserve();
 	afx_msg void OnUpdateUnreserve(CCmdUI* pCmdUI);
-	afx_msg void OnUpdateVacation(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateQuit(CCmdUI* pCmdUI);
 	afx_msg void OnBenchmark();
 	afx_msg void OnUpdateBenchmark(CCmdUI* pCmdUI);
+	afx_msg void OnMergeMain();
+	afx_msg void OnUpdateMergeMain(CCmdUI* pCmdUI);
+	afx_msg void OnMergeComm();
+	afx_msg void OnUpdateMergeComm(CCmdUI* pCmdUI);
+	afx_msg void OnMergeAll();
+	afx_msg void OnUpdateMergeAll(CCmdUI* pCmdUI);
+	afx_msg void OnForum();
+	afx_msg void OnWiki();
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };

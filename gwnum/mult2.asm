@@ -1,4 +1,4 @@
-; Copyright 1995-2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -41,7 +41,6 @@ EXTRN gw_finish_mult:PROC
 ENDIF
 
 EXTRNP	pass2_8_levels
-EXTRNP	pass2_8_levels_p
 
 _TEXT SEGMENT
 
@@ -55,7 +54,6 @@ blkdst	EQU	(4096+64+64)
 ;; All the FFT routines for each FFT length.  We don't implement prefetching
 ;; versions for some of the smaller FFTs.
 
-PROCP	_gw_ffts2
 	EXPANDING = 2
 IFNDEF PFETCH
 	fft	5120
@@ -99,28 +97,24 @@ ENDIF
 ;	fft	256K
 ;	fft	256Kp
 
-; Common code to finish the FFT by restoring state and returning.
-
 IFNDEF PFETCH
-gw_finish_fft:
-	mov	DWORD PTR [esi-28], 3	; Set has-been-FFTed flags
-	fft_1_ret
-
-; Common code to finish up multiplies
 
 ; Split the accumulated carries into two carries - a high carry and a
 ; low carry.  Handle both the with and without two-to-phi array cases.
 ; Add these carries back into the FFT data.
 
-gw_carries:
-	cmp	_ZERO_PADDED_FFT, 0	; Special case the zero padded FFT case
+loopcount1	EQU	DPTR [rsp+first_local]
+
+PROCF	gw_carries
+	int_prolog 4,0,0
+	cmp	ZERO_PADDED_FFT, 0	; Special case the zero padded FFT case
 	jne	gw_carries_zpad
 	mov	esi, carries		; Addr of the carries
 	mov	ebx, addcount1		; Compute end of carries addr
 	shl	ebx, 4			; Two 8-byte doubles per section
 	add	ebx, esi
 	norm012_2d_part1
-	mov	ebp, _DESTARG		; Addr of the FFT data
+	mov	ebp, DESTARG		; Addr of the FFT data
 	mov	edi, norm_biglit_array	; Addr of the big/little flags array
 	mov	edx, norm_grp_mults	; Addr of the group multipliers
 	mov	ecx, addcount1		; Load section count
@@ -130,7 +124,7 @@ ilp1:	mov	ebx, norm_col_mults	; Addr of the column multipliers
 	mov	ebx, cache_line_multiplier ; Cache lines in each pass1 loop
 	lea	esi, [esi+2*8]		; Next carries pointer
 	add	ebp, pass1blkdst	; Next FFT data pointer
-	cmp	_RATIONAL_FFT, 0	; Don't bump these two pointers
+	cmp	RATIONAL_FFT, 0		; Don't bump these two pointers
 	jne	short iskip		; for rational FFTs
 	lea	edx, [edx+2*16]		; Next group multiplier
 	lea	edi, [edi+ebx*2]	; Next big/little flags pointer
@@ -138,14 +132,14 @@ iskip:	dec	ecx			; Test loop counter
 	jnz	ilp1			; Next carry row in section
 	fcompp				; Pop last 2 carries
 	mov	zero_fft, 0		; Clear zero-high-words-fft flag
-	ret
+	jmp	cdn			; Jump to common exit code
 
 gw_carries_zpad:
 	mov	esi, carries		; Addr of the carries
 	mov	ebp, addcount1		; Compute end of carries addr
 	shl	ebp, 4
 	add	ebp, esi
-	mov	esi, _DESTARG		; Addr of the FFT data
+	mov	esi, DESTARG		; Addr of the FFT data
 	mov	edi, norm_biglit_array	; Addr of the big/little flags array
 	mov	ebx, norm_col_mults	; Addr of the group multipliers
 	sub	eax, eax		; Clear big/little flag
@@ -167,7 +161,7 @@ c2c:	norm012_2d_zpad noexec		; Split carries for one cache line
 c2d:	mov	ebx, cache_line_multiplier ; Cache lines in each pass1 loop
 	lea	ebp, [ebp+2*8]		; Next carries pointer
 	add	esi, pass1blkdst	; Next FFT data pointer
-	cmp	_RATIONAL_FFT, 0	; Don't bump these two pointers
+	cmp	RATIONAL_FFT, 0		; Don't bump these two pointers
 	jne	short zskip		; for rational FFTs
 	lea	edx, [edx+2*16]		; Next group multiplier
 	lea	edi, [edi+ebx*2]	; Next big/little flags pointer
@@ -175,16 +169,37 @@ zskip:	dec	loopcount1		; Test loop counter
 	jnz	zlp1			; Next carry row in section
 	fcompp				; Pop last 2 carries
 	mov	const_fft, 0		; Clear mul-by-const-fft flag
-	ret
 
-; Finish the multiply.
+cdn:	int_epilog 4,0,0
+gw_carries ENDP
+
+
+; Common code to finish off the two-pass FFTs.  The Windows 64-bit ABI
+; frowns on us jumping from one procedure into another.
+; However, my reading of the spec is that as long as the two procedures have
+; identical prologs then stack unwinding for exception handling will work OK.
+; Of course, this code won't be linked into a 64-bit Windows executable,
+; but we include the dummy prolog to be consistent.
+
+PROCF	__common_2pass_fft_exit_code
+
+	;; Create a dummy prolog
+	ad_prolog 0,0,rbx,rbp,rsi,rdi
+
+; Common code to finish the FFT by restoring state and returning.
+
+gw_finish_fft:
+	mov	DWORD PTR [esi-28], 3	; Set has-been-FFTed flags
+	fft_1_ret
+
+; Common code to finish up multiplies
 
 gw_finish_mult:
 
 ; Set FFT-started flag
 
-cmnend:	mov	esi, _DESTARG		; Addr of FFT data
-	mov	eax, _POSTFFT		; Set FFT started flag
+	mov	esi, DESTARG		; Addr of FFT data
+	mov	eax, POSTFFT		; Set FFT started flag
 	mov	DWORD PTR [esi-28], eax
 
 ; Normalize SUMOUT value by multiplying by 1 / (fftlen/2).
@@ -195,14 +210,11 @@ cmnend:	mov	esi, _DESTARG		; Addr of FFT data
 
 ; Return
 
-exit:	pop	esi
-	pop	edi
-	pop	ebx
-	pop	ebp
-	ret
-ENDIF
+	ad_epilog 0,0,rbx,rbp,rsi,rdi
 
-ENDPP	_gw_ffts2
+__common_2pass_fft_exit_code ENDP
+
+ENDIF
 
 _TEXT	ENDS
 END

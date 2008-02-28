@@ -13,12 +13,16 @@ public:
 // Dialog Data
 	//{{AFX_DATA(CEcmDlg)
 	enum { IDD = IDD_ECM };
-	UINT	m_p;
-	UINT	m_bound1;
-	UINT	m_bound2;
-	double	m_curve;
+	CStatic	c_thread_text;
+	CEdit	c_thread;
+	UINT	m_thread;
+	double	m_k;
+	UINT	m_b;
+	UINT	m_n;
+	long	m_c;
+	double	m_bound1;
+	double	m_bound2;
 	UINT	m_num_curves;
-	BOOL	m_plus1;
 	//}}AFX_DATA
 
 

@@ -1,11 +1,11 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2005 Just For Fun Software, Inc., all rights reserved
+| Copyright 1995-2007 Just For Fun Software, Inc., all rights reserved
 | Author:  George Woltman
 | Email: woltman@alum.mit.edu
 |
 | This file contains routines to determine the CPU type and speed.
 | Plus, as a bonus, you get 3 routines to portably access the high
-| resolution timer!
+| resolution timer.
 +---------------------------------------------------------------------*/
 
 #ifndef _CPUID_H
@@ -20,7 +20,7 @@ extern "C" {
 
 /* Include common definitions */
 
-#include "common.h"
+#include "gwcommon.h"
 
 /* Routines that the user should call */
 
@@ -33,27 +33,9 @@ int isHighResTimerAvailable (void);
 double getHighResTimer (void);
 double getHighResTimerFrequency (void);
 
-/* Handle the difference between the naming conventions in */
-/* C compilers.  We need to to this for global variables that are */
-/* referenced by the assembly routines.  Most non-Windows systems */
-/* should #define ADD_UNDERSCORES before including this file. */
-
-#ifdef ADD_UNDERSCORES
-#define CPU_FLAGS	_CPU_FLAGS
-#define CPU_TYPE	_CPU_TYPE
-#define CPUID_EAX	_CPUID_EAX
-#define CPUID_EBX	_CPUID_EBX
-#define CPUID_ECX	_CPUID_ECX
-#define CPUID_EDX	_CPUID_EDX
-#define fpu_init	_fpu_init
-#define erdtsc		_erdtsc
-#define ecpuidsupport	_ecpuidsupport
-#define ecpuid		_ecpuid
-#endif
-
 /* Global variables describing the CPU we are running on */
 
-extern char CPU_BRAND[49];		/* Text description of CPU type */
+extern char CPU_BRAND[49];		/* Text description of CPU */
 extern double CPU_SPEED;		/* Actual CPU Speed in MHz */
 #define CPU_RDTSC	0x0001
 #define CPU_CMOV	0x0002
@@ -62,7 +44,13 @@ extern double CPU_SPEED;		/* Actual CPU Speed in MHz */
 #define CPU_SSE2	0x0010
 #define CPU_MMX		0x0020
 #define CPU_3DNOW	0x0040
+#define CPU_SSE3	0x0080
+#define CPU_SSSE3	0x0100
+#define CPU_SSE41	0x0200
+#define CPU_SSE42	0x0400
 extern unsigned int CPU_FLAGS;		/* Cpu capabilities */
+extern unsigned int CPU_HYPERTHREADS;	/* Number of virtual processors */
+					/* that each CPU core supports */
 extern int CPU_L1_CACHE_SIZE;
 extern int CPU_L2_CACHE_SIZE;
 extern int CPU_L1_CACHE_LINE_SIZE;
@@ -72,24 +60,32 @@ extern int CPU_L2_DATA_TLBS;
 extern int CPU_L1_SET_ASSOCIATIVE;
 extern int CPU_L2_SET_ASSOCIATIVE;
 
-/* Internal global variables */
+extern unsigned int CPU_SIGNATURE;	/* Vendor-specific family number, */
+					/* model number, stepping ID, etc. */
 
-extern unsigned long CPUID_EAX;	/* For communicating to asm routines */
-extern unsigned long CPUID_EBX;
-extern unsigned long CPUID_ECX;
-extern unsigned long CPUID_EDX;
+/* Assembly language structures and routines */
 
-/* Internal assembly routines */
+struct cpuid_data {
+	uint32_t EAX;		/* For communicating with asm routines */
+	uint32_t EBX;
+	uint32_t ECX;
+	uint32_t EDX;
+};
 
-void fpu_init (void);
 unsigned long ecpuidsupport (void);
-void ecpuid (void);
+void ecpuid (struct cpuid_data *);
+
+/* Cleaner access to cpuid assembly code */
+
 #define isCpuidSupported()	ecpuidsupport ()
-#define Cpuid(a)		{ CPUID_EAX = a; ecpuid (); }
+#define Cpuid(a,s)		{ (s)->EAX=a; ecpuid (s); }
 
 /* Routine used to time code chunks */
-#define rdtsc(hi,lo)	erdtsc(),*(hi)=CPUID_EDX,*(lo)=CPUID_EAX
-void erdtsc(void);
+void erdtsc (uint32_t *hi, uint32_t *lo);
+#define rdtsc(hi,lo)		erdtsc(hi,lo)
+
+/* Init the x87 FPU, probably not needed any longer */
+void fpu_init (void);
 
 #ifdef __cplusplus
 }

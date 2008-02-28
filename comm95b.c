@@ -8,7 +8,9 @@
 
 /* Common global variables */
 
-HANDLE	WORKER_THREAD = 0;
+#define MAX_THREAD_HANDLES	128
+HANDLE	THREAD_HANDLES[MAX_THREAD_HANDLES] = {0};
+int	NUM_THREAD_HANDLES = 0;
 
 /* Common routines */
 
@@ -39,27 +41,114 @@ int isWindows2000 ()
 	return (FALSE);
 }
 
-/* Set the thread priority correctly */
+/* Is this Windows Vista or a later Windows version? */
 
-void SetPriority ()
+int isWindowsVista ()
 {
-	SetPriorityClass (GetCurrentProcess (),
-		PRIORITY > 6 ? NORMAL_PRIORITY_CLASS : IDLE_PRIORITY_CLASS);
-	WORKER_THREAD = GetCurrentThread ();
-	SetThreadPriority (WORKER_THREAD,
-		(PRIORITY == 1) ? THREAD_PRIORITY_IDLE :
-		(PRIORITY == 2 || PRIORITY == 7) ? THREAD_PRIORITY_LOWEST :
-		(PRIORITY == 3 || PRIORITY == 8) ? THREAD_PRIORITY_BELOW_NORMAL :
-		(PRIORITY == 4 || PRIORITY == 9) ? THREAD_PRIORITY_NORMAL :
-		(PRIORITY == 5 || PRIORITY == 10) ? THREAD_PRIORITY_ABOVE_NORMAL :
-		THREAD_PRIORITY_HIGHEST);
-	if (CPU_AFFINITY != 99 && !isWindows95 ())
-		SetThreadAffinityMask (WORKER_THREAD, 1 << CPU_AFFINITY);
+	OSVERSIONINFO info;
+
+	info.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
+	if (GetVersionEx (&info)) {
+		return (info.dwPlatformId == VER_PLATFORM_WIN32_NT &&
+			info.dwMajorVersion >= 6);
+	}
+	return (FALSE);
 }
+
+
+/* Clear the array of active thread handles */
+
+void clearThreadHandleArray (void)
+{
+	NUM_THREAD_HANDLES = 0;
+}
+
+/* Set the thread priority correctly.  Most screen savers run at priority 4. */
+/* Most application's run at priority 9 when in foreground, 7 when in */
+/* background.  In selecting the proper thread priority I've assumed the */
+/* program usually runs in the background. */ 
+
+/* This routine is also responsible for setting the thread's CPU affinity. */
+/* If there are N cpus with hyperthreading, then physical cpu 0 is logical */
+/* cpu 0 and N, physical cpu 1 is logical cpu 1 and N+1, etc. */
+
+void setThreadPriorityAndAffinity (
+	int	priority,		/* Priority, 1=low, 9=high */
+	int	mask)			/* Affinity mask */
+{
+	HANDLE	h;
+
+/* Get and remember the thread handle */
+
+	h = GetCurrentThread ();
+	if (NUM_THREAD_HANDLES < MAX_THREAD_HANDLES)
+		THREAD_HANDLES[NUM_THREAD_HANDLES++] = h;
+
+/* Set the thread priority */
+
+	SetPriorityClass (GetCurrentProcess (), NORMAL_PRIORITY_CLASS);
+	SetThreadPriority (h,
+			   priority == 1 ?
+				THREAD_PRIORITY_IDLE : priority - 7);
+
+/* Disable thread priority boost */
+
+	SetThreadPriorityBoost (h, TRUE);
+
+/* Windows 95 does not support affinity settings */
+
+	if (isWindows95 ()) return;
+
+/* Set the affinity */
+
+	SetThreadAffinityMask (h, mask);
+}
+
+/* Register a thread termination.  We remove the thread handle from the */
+/* list of active worker threads. */
+
+void registerThreadTermination (void)
+{
+	int	i;
+	HANDLE	h;
+
+/* Get the thread handle and remove it from the thread handle array */
+
+	h = GetCurrentThread ();
+	for (i = 0; i < NUM_THREAD_HANDLES; i++) {
+		if (THREAD_HANDLES[i] != h) break;
+		THREAD_HANDLES[i] = THREAD_HANDLES[--NUM_THREAD_HANDLES];
+		break;
+	}
+}
+
+/* When stopping or exiting we raise the priority of all worker threads */
+/* so that they can terminate in a timely fashion even if there are other */
+/* CPU bound tasks running. */
+
+void raiseAllWorkerThreadPriority (void)
+{
+	int	i;
+
+	SetPriorityClass (GetCurrentProcess (), NORMAL_PRIORITY_CLASS);
+
+/* Loop through the thread handle array raising priority and */
+/* setting affinity */
+
+	for (i = 0; i < NUM_THREAD_HANDLES; i++) {
+		SetThreadPriority (THREAD_HANDLES[i],
+				   THREAD_PRIORITY_ABOVE_NORMAL);
+		if (! isWindows95 ())
+			SetThreadAffinityMask (THREAD_HANDLES[i], -1);
+	}
+}
+
 
 /* Enumerate processes so that we can pause if a user-specified process */
 /* is running.  This code is adapted from Microsoft's knowledge base article */
 /* Q175030. */
+
+#ifndef X86_64
 
 /* This function uses the ToolHelp32 and PSAPI.DLL functions via */
 /* explicit linking, rather than the more common implicit linking.  This */
@@ -78,7 +167,7 @@ typedef struct {
 BOOL WINAPI Enum16( DWORD dwThreadId, WORD hMod16, WORD hTask16,
       PSZ pszModName, PSZ pszFileName, LPARAM lpUserDefined ) ;
 
-int checkPauseList ()
+int checkPauseListCallback (void)
 {
 	int		retval = FALSE;
 	OSVERSIONINFO	osver;
@@ -329,3 +418,85 @@ BOOL WINAPI Enum16 (DWORD dwThreadId, WORD hMod16, WORD hTask16,
 	}
 	return (FALSE);
 }
+
+#else
+
+/* The 64-bit version does not need to dynamically load DLLs. */
+
+#include <psapi.h>
+
+int checkPauseListCallback (void)
+{
+	int		retval = FALSE;
+	LPDWORD		lpdwPIDs = NULL;
+	DWORD		dwSize, dwSize2, dwIndex;
+	char		szFileName[ MAX_PATH ];
+
+// Call the PSAPI function EnumProcesses to get all of the
+// ProcID's currently in the system.
+
+	dwSize2 = 256 * sizeof (DWORD);
+	do {
+		if (lpdwPIDs) {
+			HeapFree (GetProcessHeap(), 0, lpdwPIDs);
+			dwSize2 *= 2;
+		}
+		lpdwPIDs = (LPDWORD)
+			HeapAlloc (GetProcessHeap(), 0, dwSize2);
+		if (lpdwPIDs == NULL) goto ntdone;
+		if (!EnumProcesses (lpdwPIDs, dwSize2, &dwSize))
+			goto ntdone;
+	} while (dwSize == dwSize2);
+
+// How many ProcID's did we get?
+
+	dwSize /= sizeof (DWORD);
+
+// Loop through each ProcID.
+
+	for (dwIndex = 0; dwIndex < dwSize; dwIndex++) {
+		HMODULE	hMod;
+		HANDLE	hProcess;
+
+// Open the process (if we can... security does not
+// permit every process in the system).
+
+		hProcess = OpenProcess (
+			PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+			FALSE, lpdwPIDs[ dwIndex ] );
+		if (!hProcess) continue;
+
+// Here we call EnumProcessModules to get only the
+// first module in the process this is important,
+// because this will be the .EXE module for which we
+// will retrieve the full path name in a second.
+
+		if (!EnumProcessModules (hProcess, &hMod,
+					 sizeof (hMod), &dwSize2)) {
+			CloseHandle (hProcess);
+			continue;
+		}
+
+// Get Full pathname:
+
+		if (!GetModuleFileNameEx (hProcess, hMod, szFileName,
+					  sizeof (szFileName))) {
+			CloseHandle (hProcess);
+			continue;
+		}
+
+		CloseHandle (hProcess);
+
+// Does this process force us to pause?
+
+		if (isInPauseList (szFileName)) {
+			retval = TRUE;
+			goto ntdone;
+		}
+
+	}
+ntdone:	if (lpdwPIDs) HeapFree (GetProcessHeap(), 0, lpdwPIDs);
+	return (retval);
+}
+
+#endif

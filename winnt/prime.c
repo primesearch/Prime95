@@ -15,7 +15,6 @@
 #include <sys/timeb.h>
 
 #define PORT	5
-#include "giants.h"
 #include "gwnum.h"
 #include "gwutil.h"
 #include "commona.c"

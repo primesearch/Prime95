@@ -13,10 +13,15 @@ public:
 // Dialog Data
 	//{{AFX_DATA(CPminus1Dlg)
 	enum { IDD = IDD_PMINUS1 };
-	UINT	m_p;
-	UINT	m_bound1;
-	UINT	m_bound2;
-	BOOL	m_plus1;
+	CStatic	c_thread_text;
+	CEdit	c_thread;
+	UINT	m_thread;
+	double	m_k;
+	UINT	m_b;
+	UINT	m_n;
+	long	m_c;
+	double	m_bound1;
+	double	m_bound2;
 	//}}AFX_DATA
 
 

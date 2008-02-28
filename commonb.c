@@ -1,8 +1,7 @@
 /*----------------------------------------------------------------------
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
-| in one of the source code files of each port.  See common.h for the
-| common #defines and common routine definitions.
+| in one of the source code files of each port.
 |
 | Commona contains information used only during setup
 | Commonb contains information used only during execution
@@ -10,20 +9,6 @@
 +---------------------------------------------------------------------*/
 
 /* Global variables */
-
-EXTERNC unsigned long FACPASS = 0;
-EXTERNC unsigned long FACHSW = 0;	/* High word of found factor */
-EXTERNC unsigned long FACMSW = 0;	/* Middle word of found factor */
-EXTERNC unsigned long FACLSW = 0;	/* Low word of found factor */
-gwnum LLDATA = NULL;		/* For convienence, the Lucas-Lehmer and */
-void *FACDATA = NULL;		/* factor data is kept in a global */
-int STOP_REASON = 0;		/* Reason stopCheck stopped processing */
-time_t STOP_TIME = 0;		/* Time to stop processing because */
-				/* more or less memory is available */
-int HIGH_MEMORY_USAGE = 0;	/* Set if we are using a lot of memory */
-				/* If user changes the available memory */
-				/* settings, then we should stop and */
-				/* restart our computations */
 
 char ERRMSG0[] = "Iteration: %ld/%ld, %s";
 char ERRMSG1A[] = "ERROR: ILLEGAL SUMOUT\n";
@@ -37,11 +22,1205 @@ char ERRMSG3[] = "Continuing from last save file.\n";
 char ERRMSG4[] = "Waiting five minutes before restarting.\n";
 char ERRMSG5[] = "For added safety, redoing iteration using a slower, more reliable method.\n";
 char ERROK[] = "Disregard last error.  Result is reproducible and thus not a hardware problem.\n";
+char READFILEERR[] = "Error reading intermediate file: %s\n";
 char WRITEFILEERR[] = "Error writing intermediate file: %s\n";
-char DONE_MSG1[] = "There are no more exponents to test.\n";
-char DONE_MSG2[] = "Please send the results.txt file to woltman@alum.mit.edu\n";
-char DONE_MSG3[] = "Contact the PrimeNet server for more exponents.\n";
 char RENAME_MSG[] = "Renaming intermediate file %s to %s.\n";
+
+/**************************************************************/
+/*    Routines dealing with thread priority and affinity      */
+/**************************************************************/
+
+/* Set the thread priority correctly.  Most screen savers run at priority 4. */
+/* Most application's run at priority 9 when in foreground, 7 when in */
+/* background.  In selecting the proper thread priority I've assumed the */
+/* program usually runs in the background. */ 
+
+/* This routine is also responsible for setting the thread's CPU affinity. */
+/* If there are N cpus with hyperthreading, then physical cpu 0 is logical */
+/* cpu 0 and N, physical cpu 1 is logical cpu 1 and N+1, etc. */
+
+void SetPriority (
+	struct PriorityInfo *info)
+{
+	unsigned int i;
+	int	mask;
+
+/* Benchmarking affinity.  For hyperthreaded CPUs, we put auxillary */
+/* threads onto the logical CPUs before moving onto the next physical CPU. */  
+
+	if (info->type == SET_PRIORITY_BENCHMARKING) {
+		mask = 1 << (info->aux_thread_num / CPU_HYPERTHREADS);
+		for (i = 1; i < CPU_HYPERTHREADS; i++)
+			mask |= (mask << NUM_CPUS);
+	}
+
+/* Torture test affinity.  If we're running the same number of torture */
+/* tests as CPUs if the system then set affinity.  Otherwise, let the */
+/* threads run on any CPU. */
+
+	else if (info->type == SET_PRIORITY_TORTURE) {
+		if (info->num_threads == NUM_CPUS * CPU_HYPERTHREADS) {
+			mask = 1 << info->thread_num;
+		} else if (info->num_threads == NUM_CPUS) {
+			mask = 1 << (info->thread_num / CPU_HYPERTHREADS);
+			for (i = 1; i < CPU_HYPERTHREADS; i++)
+				mask |= (mask << NUM_CPUS);
+		} else
+			mask = -1;
+	}
+
+/* QA affinity.  Just let the threads run on any CPU. */
+
+	else if (info->type == SET_PRIORITY_QA) {
+		mask = -1;
+	}
+
+/* Normal worker threads.  Pay attention to the affinity option set */
+/* by the user. */
+
+/* A CPU_AFFINITY setting of 99 means "run on any CPU". */
+
+	else if (CPU_AFFINITY[info->thread_num] == 99) {
+ 		mask = -1;
+	}
+
+/* A small CPU_AFFINITY setting means run only on that CPU.  Since there is */
+/* no way to explicitly tell us which CPU to run an auxillary thread on, */
+/* we put the first auxillary thread on any hyperthreaded logical CPUs. */
+/* The next auxillary thread goes on the next physical CPU. */
+
+	else if (CPU_AFFINITY[info->thread_num] < 100) {
+		mask = 1 << CPU_AFFINITY[info->thread_num];
+		mask <<= ((info->aux_thread_num % CPU_HYPERTHREADS) *
+							CPU_HYPERTHREADS);
+		mask <<= (info->aux_thread_num / CPU_HYPERTHREADS);
+	}
+
+/* A CPU_AFFINITY setting of 100 means "smart affinity assignments". */
+/* We've now reached that case. */
+
+/* If all worker threadts are not set to smart affinity, then it is */
+/* just too hard to figure out what is best.  Just let the OS run the */
+/* threads on any CPU. */
+
+	else if (! PTOIsGlobalOption (CPU_AFFINITY))
+	 	mask = -1;
+
+/* If number of worker threads equals number of logical cpus then run each */
+/* worker thread on its own logical CPU.  If the user also has us running */
+/* auxillary threads, then the user has made a really bad decision and a */
+/* performance hit will occur. */
+
+	else if (NUM_WORKER_THREADS == NUM_CPUS * CPU_HYPERTHREADS) { 
+		mask = 1 << info->thread_num;
+		if (info->aux_thread_num) mask = -1;
+	}
+
+/* If number of worker threads equals number of physical cpus then run each */
+/* worker thread on its own physical CPU.  Run auxillary threads on the same */
+/* physical CPU.  This should be advantageous on hyperthreaded CPUs.  The */
+/* should be careful to not run more auxillary threads than available */
+/* logical CPUs created by hyperthreading. */ 
+
+	else if (NUM_WORKER_THREADS == NUM_CPUS) {
+		mask = 1 << (info->thread_num / CPU_HYPERTHREADS);
+		for (i = 1; i < CPU_HYPERTHREADS; i++)
+			mask |= (mask << NUM_CPUS);
+	}
+
+/* Otherwise, just run on any CPU. */
+
+	else
+		mask = -1;
+
+/* Call OS-specific routine to set the priority and affinity */
+
+	setThreadPriorityAndAffinity (PRIORITY, mask);
+}
+
+/* Gwnum thread callback routine */
+
+void SetAuxThreadPriority (int aux_thread_num, int action, void *data)
+{
+	struct PriorityInfo sp_info;
+
+/* Handle thread start action.  Set the thread priority. */
+
+	if (action == 0) {
+		memcpy (&sp_info, data, sizeof (struct PriorityInfo));
+		sp_info.aux_thread_num = aux_thread_num;
+		SetPriority (&sp_info);
+	}
+
+/* Handle thread terminate action.  Remove thread handle from list */
+/* of active worker threads. */
+
+	if (action == 1) {
+		registerThreadTermination ();
+	}
+}
+
+/**************************************************************/
+/*       Routines and globals dealing with stop codes         */
+/*             and the write save files timer                 */
+/**************************************************************/
+
+/* Note that we have one flag byte for each worker thread.  We could */
+/* use one bit per worker thread, but then we need to have locks around */
+/* updates so that 2 worker threads don't interleave a read-modigy-write */
+/* operation. */
+
+int	STOP_FOR_RESTART = FALSE;/* Flag indicating we should stop and */
+				/* restart all worker threads because an */
+				/* important option changed in the GUI. */
+				/* One example is changing the priority */
+				/* for worker threads. */
+int	STOP_FOR_TIMEOUT = FALSE;/* Flag indicating it is time to stop all */
+				/* workers due Time= prime.ini option. */
+char	STOP_FOR_MEM_CHANGED[MAX_NUM_WORKER_THREADS] = {0};
+				/* Flags indicating it is time to stop */
+				/* workers due to day/night memory change. */
+int	STOP_FOR_BATTERY = FALSE;/* Flag indicating it is time to stop */
+				/* workers due to running on battery. */
+char	STOP_FOR_PRIORITY_WORK[MAX_NUM_WORKER_THREADS] = {0};
+				/* Flags indicating it is time to switch */
+				/* a worker to high priority work. */
+int	PAUSED = FALSE;		/* Flag saying all worker threads should */
+				/* pause while another program runs */
+char	STOP_FOR_THROTTLE[MAX_NUM_WORKER_THREADS] = {0};
+				/* Flags indicating it is time to pause */
+				/* a worker for throttling. */
+char	STOP_FOR_ABORT[MAX_NUM_WORKER_THREADS] = {0};
+				/* Abort work unit due to unreserve, factor */
+				/* found in a different thread, server */
+				/* request, or any other reason. */
+char	WRITE_SAVE_FILES[MAX_NUM_WORKER_THREADS] = {0};
+				/* Flags indicating it is time to write */
+				/* a save file. */
+
+gwevent WORK_AVAILABLE_OR_STOP = 0;
+				/* Signal for telling primeContinue that */
+				/* work is now available or a thread stop */
+				/* needs to occur */
+gwevent SLEEP_TIME_OR_STOP = 0;
+				/* Signal for telling primeContinue that */
+				/* the sleep time has expired or a thread */
+				/* stop needs to occur */
+
+/* This routine checks if the worker thread needs to be stopped for any */
+/* reason whatsoever.  If the worker thread should stop, a stop reason */
+/* is returned.  The routine is declared EXTERNC becasue it can be called */
+/* by the C code in giants that does GCD. */
+
+EXTERNC int stopCheck (
+	int	thread_num)	/* Worker thread number */
+{
+
+/* Call an OS-specific callback routine.  This gives OSes that poll for */
+/* the ESC key a hook.  They can perform any necessary miscellaneous */
+/* functions and check for the ESC key to call stop_workers_for_escape. */
+
+	stopCheckCallback (thread_num);
+
+/* If the ESC key was hit, stop processing.  This takes precedence over */
+/* all other stop reasons. */
+
+	if (WORKER_THREADS_STOPPING) return (STOP_ESCAPE);
+
+/* If an important option changed in the GUI, restart all threads */
+
+	if (STOP_FOR_RESTART) return (STOP_RESTART);
+
+/* If the time= end time has been reached, stop processing all worker */
+/* threads so prime.ini can be reprocessed. */
+
+	if (STOP_FOR_TIMEOUT) return (STOP_TIMEOUT);
+
+/* If the time= end time has been reached, stop processing all worker */
+/* threads so prime.ini can be reprocessed. */
+
+	if (STOP_FOR_MEM_CHANGED[thread_num]) {
+		STOP_FOR_MEM_CHANGED[thread_num] = 0;
+		return (STOP_MEM_CHANGED);
+	}
+
+/* If we are on battery power, stop processing all worker */
+/* threads until we cease running on the battery. */
+
+	if (STOP_FOR_BATTERY) return (STOP_BATTERY);
+
+/* If the thread needs to go do some higher priority work, then stop */
+/* processing this work_unit and reprocess the worktodo file. */
+
+	if (STOP_FOR_PRIORITY_WORK[thread_num]) {
+		STOP_FOR_PRIORITY_WORK[thread_num] = 0;
+		return (STOP_PRIORITY_WORK);
+	}
+
+/* Check if thread should be stopped because another process is running */
+/* When pause completes, check stop codes again.  We may have been paused */
+/* a long time during which other stop timers may have fired. */
+
+	if (PAUSED) {
+		implementPause (thread_num);
+		return (stopCheck (thread_num));
+	}
+
+/* If the thread needs to go do some higher priority work, then stop */
+/* processing this work_unit and reprocess the worktodo file. */
+
+	if (STOP_FOR_THROTTLE[thread_num]) {
+		STOP_FOR_THROTTLE[thread_num] = 0;
+		implementThrottle (thread_num);
+	}
+
+/* If the thread needs to go do some higher priority work, then stop */
+/* processing this work_unit and reprocess the worktodo file. */
+
+	if (STOP_FOR_ABORT[thread_num]) {
+		STOP_FOR_ABORT[thread_num] = 0;
+		return (STOP_ABORT);
+	}
+
+/* No need to stop */
+
+	return (0);
+}
+
+/* Clear flags controlling the stopping of worker threads. */
+
+int stop_events_initialized = FALSE;
+
+void init_stop_code (void)
+{
+	STOP_FOR_RESTART = FALSE;
+	STOP_FOR_TIMEOUT = FALSE;
+	memset (STOP_FOR_MEM_CHANGED, 0, sizeof (STOP_FOR_MEM_CHANGED));
+	STOP_FOR_BATTERY = FALSE;
+	memset (STOP_FOR_PRIORITY_WORK, 0, sizeof (STOP_FOR_PRIORITY_WORK));
+	PAUSED = FALSE;
+	memset (STOP_FOR_THROTTLE, 0, sizeof (STOP_FOR_THROTTLE));
+	memset (STOP_FOR_ABORT, 0, sizeof (STOP_FOR_ABORT));
+	memset (WRITE_SAVE_FILES, 0, sizeof (WRITE_SAVE_FILES));
+
+	if (!stop_events_initialized) {
+		stop_events_initialized = TRUE;
+		gwevent_init (&WORK_AVAILABLE_OR_STOP);
+		gwevent_init (&SLEEP_TIME_OR_STOP);
+	}
+	gwevent_reset (&WORK_AVAILABLE_OR_STOP);
+	gwevent_reset (&SLEEP_TIME_OR_STOP);
+}
+
+/* Signal threads waiting for work to do */
+
+void restart_waiting_workers (void)
+{
+	if (stop_events_initialized) {
+		gwevent_signal (&WORK_AVAILABLE_OR_STOP);/* Start them */
+		gwevent_reset (&WORK_AVAILABLE_OR_STOP);/* Reset event */
+		gwevent_signal (&SLEEP_TIME_OR_STOP);	/* Start them */
+		gwevent_reset (&SLEEP_TIME_OR_STOP);	/* Reset event */
+	}
+}
+
+/* Set flags so that worker threads will stop due to ESC key being pressed. */
+
+void stop_workers_for_escape (void)
+{
+	if (WORKER_THREADS_ACTIVE) {
+		OutputStr (MAIN_THREAD_NUM, "Stopping all worker threads.\n");
+		WORKER_THREADS_STOPPING = TRUE;
+		restart_waiting_workers ();
+		raiseAllWorkerThreadPriority ();
+	}
+}
+
+/* Set flag so that all worker threads stop and restart because an */
+/* important INI option changed (like thread priority).  This routine only */
+/* restarts "genuine" work threads - not benchmarking and torture test */
+/* work threads. */
+
+void stop_workers_for_restart (void)
+{
+	if (WORKER_THREADS_ACTIVE &&
+	    LAUNCH_TYPE == LD_CONTINUE &&
+	    ! STOP_FOR_RESTART) {
+		OutputStr (MAIN_THREAD_NUM, "Restarting all worker threads.\n");
+		STOP_FOR_RESTART = TRUE;
+		restart_waiting_workers ();
+		if (NUM_WORKER_THREADS > WORKER_THREADS_ACTIVE)
+			create_worker_windows (NUM_WORKER_THREADS);
+	}
+}
+
+/* Set flag so that all worker threads stop and restart because an */
+/* important INI option changed (like thread priority). */
+
+void stop_workers_for_add_files (void)
+{
+	if (WORKER_THREADS_ACTIVE && ! STOP_FOR_RESTART) {
+		OutputStr (MAIN_THREAD_NUM, "Restarting all worker threads to process .add file.\n");
+		STOP_FOR_RESTART = TRUE;
+		restart_waiting_workers ();
+	}
+}
+
+/* Set flag so that worker threads will stop due to Time= end time being */
+/* reached.  We need to stop all worker threads, reprocess prime.ini, and */
+/* restart the worker threads. */
+
+void stop_workers_for_timeout (void)
+{
+	if (WORKER_THREADS_ACTIVE && ! STOP_FOR_TIMEOUT) {
+		OutputStr (MAIN_THREAD_NUM, "Restarting all worker threads with new timed INI settings.\n");
+		STOP_FOR_TIMEOUT = TRUE;
+		restart_waiting_workers ();
+	}
+}
+
+/* Set flags so that worker threads will stop due to day/night memory */
+/* changeover. */
+
+void stop_worker_for_mem_changed (
+	int	thread_num)
+{
+	if (WORKER_THREADS_ACTIVE && ! STOP_FOR_MEM_CHANGED[thread_num]) {
+		OutputStr (thread_num, "Restarting thread with new memory settings.\n");
+		STOP_FOR_MEM_CHANGED[thread_num] = 1;
+		restart_waiting_workers ();
+	}
+}
+
+/* Set flags so that worker threads will stop due to running on battery. */
+
+void stop_workers_for_battery (void)
+{
+	if (WORKER_THREADS_ACTIVE && ! STOP_FOR_BATTERY) {
+		OutputStr (MAIN_THREAD_NUM, "Pausing all worker threads while on battery power.\n");
+		STOP_FOR_BATTERY = TRUE;
+		/* Restart waiting workers (so that they can stop!) */
+		gwevent_signal (&WORK_AVAILABLE_OR_STOP);
+		gwevent_reset (&WORK_AVAILABLE_OR_STOP);
+	}
+}
+
+/* Set flag so that worker thread will stop to do priority work. */
+
+void stop_worker_for_advanced_test (
+	int	thread_num)
+{
+	if (WORKER_THREADS_ACTIVE && ! STOP_FOR_PRIORITY_WORK[thread_num]) {
+		OutputStr (thread_num, "Restarting thread to do LL test.\n");
+		STOP_FOR_PRIORITY_WORK[thread_num] = 1;
+	}
+}
+
+/* Set flag so that worker thread will stop to do priority work. */
+
+void stop_worker_for_priority_work (
+	int	thread_num)
+{
+	if (WORKER_THREADS_ACTIVE && ! STOP_FOR_PRIORITY_WORK[thread_num]) {
+		OutputStr (thread_num, "Restarting thread to do trial factoring prior to an LL test.\n");
+		STOP_FOR_PRIORITY_WORK[thread_num] = 1;
+	}
+}
+
+/* Set flags so that worker threads will stop for throttling. */
+
+void stop_workers_for_throttle (void)
+{
+	if (WORKER_THREADS_ACTIVE)
+		memset (STOP_FOR_THROTTLE, 1, sizeof (STOP_FOR_THROTTLE));
+}
+
+/* Set flags so that worker thread will abort processing its current */
+/* work unit.  There are many reasons to do this: unreserve, factor found */
+/* in another thread, server request, etc. */
+
+void stop_worker_for_abort (
+	int	thread_num)
+{
+	if (WORKER_THREADS_ACTIVE)
+		STOP_FOR_ABORT[thread_num] = 1;
+}
+
+/* Start save files timer */
+
+void start_save_files_timer ()
+{
+	add_timed_event (TE_SAVE_FILES, DISK_WRITE_TIME * 60);
+}
+
+/* Stop save files timer */
+
+void stop_save_files_timer ()
+{
+	delete_timed_event (TE_SAVE_FILES);
+}
+
+/* Set flags so that worker threads will write save files */
+/* at next convenient opportunity. */
+
+void saveFilesTimer ()
+{
+	memset (WRITE_SAVE_FILES, 1, sizeof (WRITE_SAVE_FILES));
+	start_save_files_timer ();
+}
+
+/* Return TRUE if it is time to write a save file. */
+
+int testSaveFilesFlag (
+	int	thread_num)
+{
+	if (WRITE_SAVE_FILES[thread_num]) {
+		WRITE_SAVE_FILES[thread_num] = 0;
+		return (TRUE);
+	}
+	return (FALSE);
+}
+
+/**************************************************************/
+/*      Routines dealing with Day/Night memory settings       */
+/**************************************************************/
+
+#define DEFAULT_MEM_USAGE 20	/* 20MB default */
+unsigned long AVAIL_MEM = 0;	/* Memory available now */
+unsigned long MAX_MEM = 0;	/* Max memory available */
+#define MEM_NOT_ENOUGH_TO_RUN 0x1 /* A thread's work unit did not have */
+				/* enough memory to run.  If memory */
+				/* settings change restart the thread */
+				/* containing this work unit. */
+#define	MEM_VARIABLE_USAGE 0x2	/* The current work unit is using a */
+				/* lot of memory now and if needed could */
+				/* use less if restarted. */
+#define MEM_MAX_AVAIL_RESTART 0x4 /* Current work unit needs a restart if */
+				/* max avail mem changes.  For example, P-1 */
+				/* may choose different bounds even though */
+				/* stage 1 uses a fixed amount of mem. */
+#define MEM_RESTART_IF_MORE 0x8	/* Work unit could use more memory and */
+				/* should be restarted if more becomes */
+				/* available. */
+#define MEM_USAGE_NOT_SET 0x10	/* The mem_in_use value is just a guess */
+				/* as the work unit for the thread has not */
+				/* started yet or is restarting. */
+#define MEM_WAITING	0x20	/* Set if thread is waiting before returning */
+				/* from set_memory_usage */
+char	MEM_FLAGS[MAX_NUM_WORKER_THREADS] = {0};
+				/* Flags indicating which threads will be */
+				/* affected by a change in memory settings. */
+unsigned int MEM_IN_USE[MAX_NUM_WORKER_THREADS] = {0};
+				/* Array containing memory in use by each */
+				/* worker thread */
+gwmutex	MEM_MUTEX;		/* Lock for accessing mem globals */
+gwevent MEM_EVENT;		/* Signal set when all worker threads have */
+				/* decided how much memory they will use */
+gwevent MEM_OK;			/* Signal set when all worker threads are */
+				/* collectively using less than maximum */
+				/* available memory */
+
+/* This routine initializes mem_changed globals.  It must be called prior */
+/* to launching the worker threads. */
+
+void init_mem_state (void)
+{
+	int	i;
+
+/* Clear flags saying thread is affected by changes in the memory settings. */
+/* Assume each worker thread will use a default amount of memory. */
+
+	for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+		MEM_FLAGS[i] = MEM_USAGE_NOT_SET;
+		MEM_IN_USE[i] = DEFAULT_MEM_USAGE;
+	}
+
+/* Init the mutex and event */
+
+	gwmutex_init (&MEM_MUTEX);
+	gwevent_init (&MEM_EVENT);
+	gwevent_reset (&MEM_EVENT);
+	gwevent_init (&MEM_OK);
+	gwevent_reset (&MEM_OK);
+}
+
+/* Start or restart the day/night memory timers. */
+/* This timer is only active while worker threads are running. */
+
+void start_mem_changed_timer (void)
+{
+	time_t	t;
+	struct tm *x;
+	unsigned int curtime, time_until_mem_changes;
+
+/* If the memory changed timer is active, kill the timer */
+
+	delete_timed_event (TE_MEM_CHANGE);
+
+/* If the same memory is available both day and night, then there */
+/* is no need to activate the memory changed timer. */
+
+	if (DAY_MEMORY == NIGHT_MEMORY) {
+		AVAIL_MEM = DAY_MEMORY;
+		return;
+	}
+
+/* Determine whether it is daytime or nighttime. */
+/* Return corresponding available memory. */
+/* Set timer for when daytime or nighttime ends. */
+
+	time (&t);
+        x = localtime (&t);
+	curtime = x->tm_hour * 60 + x->tm_min;
+	if (DAY_START_TIME < DAY_END_TIME) {
+		if (curtime < DAY_START_TIME) {
+			time_until_mem_changes = (DAY_START_TIME - curtime) * 60;
+			AVAIL_MEM = NIGHT_MEMORY;
+		} else if (curtime < DAY_END_TIME) {
+			time_until_mem_changes = (DAY_END_TIME - curtime) * 60;
+			AVAIL_MEM = DAY_MEMORY;
+		} else {
+			time_until_mem_changes = (DAY_START_TIME + 1440 - curtime) * 60;
+			AVAIL_MEM = NIGHT_MEMORY;
+		}
+	} else {
+		if (curtime < DAY_END_TIME) {
+			time_until_mem_changes = (DAY_END_TIME - curtime) * 60;
+			AVAIL_MEM = DAY_MEMORY;
+		} else if (curtime < DAY_START_TIME) {
+			time_until_mem_changes = (DAY_START_TIME - curtime) * 60;
+			AVAIL_MEM = NIGHT_MEMORY;
+		} else {
+			time_until_mem_changes = (DAY_END_TIME + 1440 - curtime) * 60;
+			AVAIL_MEM = DAY_MEMORY;
+		}
+	}
+
+/* Add the event that fires when the memory settings are to change. */
+
+	add_timed_event (TE_MEM_CHANGE, time_until_mem_changes);
+}
+
+/* Stop the memory change timer */
+
+void stop_mem_changed_timer (void)
+{
+	delete_timed_event (TE_MEM_CHANGE);
+}	
+
+/* Clear flag that says this thread will be affected by a change */
+/* in memory settings. */
+
+void clear_affected_by_mem_flags (
+	int	thread_num)
+{
+	MEM_FLAGS[thread_num] = 0;
+}
+
+/* Set flag that says this thread will be affected by a change */
+/* in memory settings. */
+
+void set_affected_by_mem_change (
+	int	thread_num)
+{
+	MEM_FLAGS[thread_num] |= MEM_NOT_ENOUGH_TO_RUN;
+}
+
+/* Set flag that says this thread will be affected by other threads */
+/* reducing their memory usage.  Workers that have proceeded postponed */
+/* stage 2 of P-1 and started their LL test or moved onto the next work */
+/* unit would set this flag.   A reduction in memory usage occurs when */
+/* another thread goes from using a lot of memory to using a normal */
+/* amount (as in finishing stage 2 of P-1 or ECM). */
+
+void set_affected_by_mem_usage (
+	int	thread_num)
+{
+	MEM_FLAGS[thread_num] |= MEM_RESTART_IF_MORE;
+}
+
+/* Worker thread tells us how much memory it will be using.  This may cause */
+/* other worker threads to restart if they are using more than their fair */
+/* share. NOTE: This is the only mem routine to take its argument in bytes */
+/* rather than megabytes. */
+/* Variable usage callers must examine the return code!  During startup */
+/* all threads may not have determined their memory needs.  This routine */
+/* waits a reasonable time for this to happen and returns TRUE if caller */
+/* should recalculate the amount of memory available for use because we */
+/* previously overestimated the amount of memory available to the thread. */
+/* This is cleaner than the previous implementation which returned */
+/* immediately but restarted the biggest memory user when memory became */
+/* overcommitted.  This resulted in many stop/restart messages on screen */
+/* until a suitable memory allocation scheme was found. */
+
+int set_memory_usage (
+	int	thread_num,
+	int	flags,		/* Valid values are MEM_VARIABLE_USAGE */
+				/* MEM_USAGE_NOT_SET */
+	unsigned long memory)	/* Memory in use (in bytes!!) */
+{
+	int	i, fixed_threads[MAX_NUM_WORKER_THREADS], worst_thread;
+	int	count_usage_not_set, num_variable_threads, made_a_change;
+	unsigned long fixed_usage, avail;
+
+/* Obtain lock before accessing memory global variables */
+
+	gwmutex_lock (&MEM_MUTEX);
+
+/* If we are going from variable usage to fixed usage, then start up any */
+/* threads that are waiting for more memory to become available, as well */
+/* as any that are currently using a lot of memory but might want to use */
+/* more. */
+
+	if (MEM_FLAGS[thread_num] & MEM_VARIABLE_USAGE &&
+	    !(flags & MEM_VARIABLE_USAGE)) {
+		for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+			if (MEM_FLAGS[i] & MEM_RESTART_IF_MORE)
+				stop_worker_for_mem_changed (i);
+		}
+	}
+
+/* Set flag indicating thread is executing code that can choose a */
+/* different amount of memory to use. */
+
+	if (flags & MEM_VARIABLE_USAGE)
+		MEM_FLAGS[thread_num] |= MEM_VARIABLE_USAGE;
+	else
+		MEM_FLAGS[thread_num] &= ~MEM_VARIABLE_USAGE;
+
+/* Set flag indicating we are guessing how much memory this thread */
+/* will use because the thread has not started its work unit. */
+
+	if (flags & MEM_USAGE_NOT_SET)
+		MEM_FLAGS[thread_num] |= MEM_USAGE_NOT_SET;
+	else
+		MEM_FLAGS[thread_num] &= ~MEM_USAGE_NOT_SET;
+
+/* Record the amount of memory being used */
+
+	MEM_IN_USE[thread_num] = (memory >> 20) + 1;
+
+/* Count the number of worker threads that have not computed their memory */
+/* usage yet. */
+
+	count_usage_not_set = 0;
+	for (i = 0; i < (int) NUM_WORKER_THREADS; i++)
+		if (MEM_FLAGS[i] & MEM_USAGE_NOT_SET) count_usage_not_set++;
+
+/* If all threads now know how much memory they intend to use, signal */
+/* the MEM_EVENT to wake up any variable usage workers that were waiting */
+/* for other workers to compute their memory usage.  Otherwise, reset the */
+/* event so that we can wait for all workers to compute their memory usage. */
+
+	if (count_usage_not_set == 0)
+		gwevent_signal (&MEM_EVENT);
+	else
+		gwevent_reset (&MEM_EVENT);
+
+/* If this thread wants to use a variable amount of memory and other */
+/* worker threads have not yet computed their memory usage then wait a */
+/* few seconds for these other worker threads to initialize.  Once they */
+/* initialize we can see if this thread is using too much memory. */
+
+	if (flags & MEM_VARIABLE_USAGE && count_usage_not_set) {
+		MEM_FLAGS[thread_num] |= MEM_WAITING;
+		gwmutex_unlock (&MEM_MUTEX);
+		gwevent_wait (&MEM_EVENT, 20);
+		gwmutex_lock (&MEM_MUTEX);
+		MEM_FLAGS[thread_num] &= ~MEM_WAITING;
+	}
+
+/* Check to see if any variable usage threads need to be restarted because */
+/* they are now using too much memory.  Duplicate much of the code in */
+/* avail_mem. */
+
+/* Sum up the amount of memory used by threads that cannot adjust their */
+/* memory usage.  Also count how many threads can adjust their memory usage. */
+
+	fixed_usage = 0;
+	num_variable_threads = 0;
+	for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+		if (MEM_FLAGS[i] & MEM_VARIABLE_USAGE) {
+			num_variable_threads++;
+			fixed_threads[i] = FALSE;
+		} else {
+			fixed_usage += MEM_IN_USE[i];
+			fixed_threads[i] = TRUE;
+		}
+	}
+
+/* We can now calculate how much memory is available for the threads */
+/* that are using a variable amount of memory.  If any variable threads */
+/* are using less memory than they are allowed to use, then make that */
+/* memory available to the other variable usage threads.  For no */
+/* particularly scientific reason we treat any thread within 5MB of the */
+/* maximum as OK (might save an occasional thread restart). */
+
+	do {
+		if (num_variable_threads == 0) {
+			gwevent_signal (&MEM_OK);
+			gwmutex_unlock (&MEM_MUTEX);
+			return (FALSE);
+		}
+		made_a_change = FALSE;
+		avail = (AVAIL_MEM > fixed_usage) ? AVAIL_MEM - fixed_usage : 0;
+		for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+			if (fixed_threads[i]) continue;
+			if (MEM_IN_USE[i] <= avail / num_variable_threads + 5){
+				fixed_usage += MEM_IN_USE[i];
+				fixed_threads[i] = TRUE;
+				num_variable_threads--;
+				made_a_change = TRUE;
+				break;
+			}
+		}
+	} while (made_a_change);
+
+/* We are using too much memory, reset the all-is-OK event */
+
+	gwevent_reset (&MEM_OK);
+
+/* If this thread is using too much memory, then tell caller to change */
+/* this thread's memory usage.  WARNING:  this could cause an infinite */
+/* loop if caller misbehaves and tries to use the same amount of memory. */
+
+	if (!fixed_threads[thread_num]) {
+		gwmutex_unlock (&MEM_MUTEX);
+		return (TRUE);
+	}
+
+/* If any of the worker threads that are using too much memory is waiting */
+/* for MEM_EVENT, then let that thread resume and tell its caller to */
+/* recalculate its memory requirements.  Maybe that will resolve our */
+/* memory overcommitment without restarting any workers already in progress. */
+/* Do not allocate our memory until we've resolved our memory */
+/* overcommitment.  We'll wait up to 20 seconds (a safety valve against */
+/* bugs in memory allocation). */
+
+	for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+		if (! fixed_threads[i] && MEM_FLAGS[i] & MEM_WAITING) {
+			gwmutex_unlock (&MEM_MUTEX);
+			gwevent_wait (&MEM_OK, 20);
+			return (FALSE);
+		}
+	}
+
+/* Restart one of the variable threads that is using more memory than it */
+/* should be.  We do this because the thread may reduce its memory usage */
+/* so much that the other offending threads will be OK.  This saves a */
+/* needless thread restart.  We'll restart the variable thread using the */
+/* most memory.  We also make sure the thread is using significantly */
+/* more memory than it should be so that minor fluctuations in memory */
+/* usage by the fixed threads do not cause needless restarts.  The 32MB */
+/* threshold is arbitrary. */
+
+	worst_thread = -1;
+	for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+		if (fixed_threads[i]) continue;
+		if (worst_thread == -1 ||
+		    MEM_IN_USE[i] > MEM_IN_USE[worst_thread])
+			worst_thread = i;
+	}
+	if (MEM_IN_USE[worst_thread] > avail / num_variable_threads + 32) {
+		stop_worker_for_mem_changed (worst_thread);
+		gwmutex_unlock (&MEM_MUTEX);
+		gwevent_wait (&MEM_OK, 20);
+		return (FALSE);
+	}
+
+/* Free lock after accessing memory global variables */
+
+	gwmutex_unlock (&MEM_MUTEX);
+	return (FALSE);
+}
+
+/* Set thread to default memory usage.  For now, this is 20MB -- roughly */
+/* the amount of memory used by LL test using a 2M FFT. */
+
+void set_default_memory_usage (
+	int	thread_num)
+{
+	set_memory_usage (thread_num,
+			  MEM_USAGE_NOT_SET,
+			  DEFAULT_MEM_USAGE << 20);
+}
+
+/* Return TRUE if other threads are using lots of the available memory. */
+/* We use this to delay ECM and P-1 stage 2 while other stage 2's */
+/* are running. */
+
+int are_threads_using_lots_of_memory (
+	int	thread_num)
+{
+	int	delay_stage2_count, i;
+
+/* Get a user configurable count.  This count tells us how many worker */
+/* threads must be using lots of memory before we delay a stage 2. */
+/* An eight-cpu user doing LL tests might set the count to 1.  An */
+/* eight-cpu user doing ECM might set the value to 3 or 4. */
+
+	delay_stage2_count = IniGetInt (INI_FILE, "DelayStage2ThreadCount",
+					NUM_WORKER_THREADS / 2);
+	if (delay_stage2_count < 1) delay_stage2_count = 1;
+
+/* If there are enough threads with variable memory usage, then return TRUE. */
+/* To guard against an ECM stage 2 that really isn't using a whole lot of */
+/* memory, also require the thread to be using 50MB. */
+
+	for (i = 0; i < (int) NUM_WORKER_THREADS; i++)
+		if (i != thread_num &&
+		    MEM_FLAGS[i] & MEM_VARIABLE_USAGE &&
+		    MEM_IN_USE[i] >= 50) {
+			delay_stage2_count--;
+			if (delay_stage2_count == 0) return (TRUE);
+		}
+	return (FALSE);
+}
+
+/* Clear flag that says this thread's work unit needs restarting if the */
+/* maximum amount of available memory changes. */
+
+void clear_max_memory_usage (
+	int	thread_num)
+{
+	MEM_FLAGS[thread_num] &= ~MEM_MAX_AVAIL_RESTART;
+}
+
+/* Set flag that says this thread's work unit needs restarting if the */
+/* maximum amount of available memory changes. */
+
+void set_max_memory_usage (
+	int	thread_num)
+{
+	MEM_FLAGS[thread_num] |= MEM_MAX_AVAIL_RESTART;
+}
+
+/* Routine to notify all worker threads the day/night memory settings */
+/* have changed.  This is called when the memory change timer fires OR */
+/* when memory settings are changed by the GUI. */
+
+void mem_settings_have_changed (void)
+{
+	unsigned int old_avail_mem, current_avail_mem;
+	unsigned int old_max_mem, current_max_mem;
+	int	tnum;
+
+/* If the worker threads are not active then no work needs to be done */
+
+	if (! WORKER_THREADS_ACTIVE) return;
+
+/* Restart the memory changed timer and recompute the available memory */
+
+	old_avail_mem = AVAIL_MEM;
+	old_max_mem = MAX_MEM;
+	start_mem_changed_timer ();
+	current_avail_mem = AVAIL_MEM;
+	current_max_mem = max_mem ();
+
+/* If available memory has changed see which threads need restarting. */
+/* Those threads that postponed work because there wasn't enough memory */
+/* and those that are currently using a lot of memory need restarting. */
+
+	for (tnum = 0; tnum < (int) NUM_WORKER_THREADS; tnum++) {
+		if ((current_avail_mem > old_avail_mem &&
+		     MEM_FLAGS[tnum] & MEM_NOT_ENOUGH_TO_RUN) ||
+		    (old_avail_mem != current_avail_mem &&
+		     (MEM_FLAGS[tnum] & MEM_VARIABLE_USAGE)) ||
+		    (old_max_mem != current_max_mem &&
+		     (MEM_FLAGS[tnum] & MEM_MAX_AVAIL_RESTART)))
+			stop_worker_for_mem_changed (tnum);
+	}
+}
+
+/* Return maximum available memory (in MB) */
+
+unsigned int max_mem (void)
+{
+	if (DAY_MEMORY > NIGHT_MEMORY) MAX_MEM = DAY_MEMORY;
+	MAX_MEM = NIGHT_MEMORY;
+	return (MAX_MEM);
+}
+
+/* Return TRUE if maximum memory is available now */
+
+int is_max_mem_available_now (void)
+{
+	return (AVAIL_MEM == max_mem ());
+}
+
+/* Return memory (in MB) now available for a variable usage thread. */
+/* This routine takes into account the memory used by other worker threads. */
+
+unsigned int avail_mem (
+	int	thread_num)
+{
+	int	i, fixed_threads[MAX_NUM_WORKER_THREADS];
+	unsigned long fixed_usage, num_variable_threads, avail;
+
+/* Obtain lock before accessing memory global variables */
+
+	gwmutex_lock (&MEM_MUTEX);
+
+/* Sum up the amount of memory used by threads that cannot adjust their */
+/* memory usage.  Also count how many threads (including this one) can */
+/* adjust their memory usage. */
+
+	fixed_usage = 0;
+	num_variable_threads = 1;
+	for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+		if (i == thread_num) continue;
+		if (MEM_FLAGS[i] & MEM_VARIABLE_USAGE) {
+			num_variable_threads++;
+			fixed_threads[i] = FALSE;
+		} else {
+			fixed_usage += MEM_IN_USE[i];
+			fixed_threads[i] = TRUE;
+		}
+	}
+
+/* We can now calculate how much memory is available for the threads */
+/* that are using a variable amount of memory.  If any variable threads */
+/* are using less memory than they are allowed to use, then make that */
+/* memory available to the other variable usage threads. */
+
+	avail = (AVAIL_MEM > fixed_usage) ? AVAIL_MEM - fixed_usage : 0;
+	for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+		if (i == thread_num) continue;
+		if (fixed_threads[i]) continue;
+		if (MEM_IN_USE[i] < avail / num_variable_threads) {
+			avail -= MEM_IN_USE[i];
+			fixed_threads[i] = TRUE;
+			num_variable_threads--;
+			i = -1;	    /* Restart loop */
+		}
+	}
+
+/* Free lock after accessing memory global variables */
+
+	gwmutex_unlock (&MEM_MUTEX);
+
+/* Return the amount of memory this thread can use.  If other variable */
+/* threads are using too much, they will be restarted once this thread */
+/* call set_memory_usage letting us know how much of the available memory */
+/* it actually used. */
+
+	return (avail / num_variable_threads);
+}
+
+
+/**************************************************************/
+/*           Routines dealing running on battery              */
+/**************************************************************/
+
+void start_battery_timer (void)
+{
+	if (RUN_ON_BATTERY) return;
+	add_timed_event (TE_BATTERY_CHECK, TE_BATTERY_CHECK_FREQ);
+}
+
+void stop_battery_timer (void)
+{
+	delete_timed_event (TE_BATTERY_CHECK);
+}
+
+/* This routine is called if the user changes the RUN_ON_BATTERY setting */
+/* from the GUI or it is changed by talking to the server. */
+
+void run_on_battery_changed (void)
+{
+	if (WORKER_THREADS_ACTIVE) {
+		stop_battery_timer ();
+		start_battery_timer ();
+	}
+}
+
+void test_battery (void)
+{
+	if (OnBattery ()) stop_workers_for_battery ();
+}
+
+/**************************************************************/
+/*           Routines dealing with priority work              */
+/**************************************************************/
+
+void start_priority_work_timer (void)
+{
+	if (IniGetInt (INI_FILE, "SequentialWorkToDo", 1)) return;
+	add_timed_event (TE_PRIORITY_WORK, TE_PRIORITY_WORK_FREQ);
+}
+
+void stop_priority_work_timer (void)
+{
+	delete_timed_event (TE_PRIORITY_WORK);
+}
+
+/* Returns true if this is a priority work item */
+
+int isPriorityWork (
+	struct work_unit *w)
+{
+	if (isWorkUnitActive (w)) return (FALSE);
+	if (w->work_type == WORK_ADVANCEDTEST) return (TRUE);
+	if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) &&
+	    (w->sieve_depth < w->factor_to || !w->pminus1ed))
+		return (TRUE);
+	if (w->work_type == WORK_PRP && !w->pminus1ed)
+		return (TRUE);
+	return (FALSE);
+}
+
+/* For all threads, check if any of the Lucas-Lehmer test lines also */
+/* require factoring. This will force factoring to be done first - giving */
+/* us more accurate estimates of how much work is queued up. */
+
+void check_for_priority_work (void)
+{
+	int	tnum;
+	struct work_unit *w;
+
+	for (tnum = 1; tnum < (int) NUM_WORKER_THREADS; tnum++) {
+		w = NULL;
+		for ( ; ; ) {
+			w = getNextWorkToDoLine (tnum, w, SHORT_TERM_USE);
+			if (w == NULL) break;
+			if (isPriorityWork (w))
+				stop_worker_for_priority_work (tnum);
+		}
+       }
+}
+
+/**************************************************************/
+/*        Routines dealing with "pause while running"         */
+/**************************************************************/
+
+char	PAUSE_PROGRAM[33] = {0};
+
+void start_pause_while_running_timer (void)
+{
+	if (PAUSE_WHILE_RUNNING == NULL) return;
+	add_timed_event (TE_PAUSE_WHILE, PAUSE_WHILE_RUNNING_FREQ);
+}
+
+void stop_pause_while_running_timer (void)
+{
+	delete_timed_event (TE_PAUSE_WHILE);
+}
+
+/* Every time the pause-while-running timer fires, this routine is called */
+
+void checkPauseWhileRunning (void)
+{
+
+/* Call OS-specific routine to see if a process is running such that */
+/* we should pause.  This OS-specific routine must get the list of active */
+/* processes and call isInPauseList for each one. */
+
+	PAUSED = checkPauseListCallback ();
+}
+
+/* This routine is called by the OS-specific routine that gets the process */
+/* list.  It returns TRUE if an active process is in the pause-while-running */
+/* list. */
+
+int isInPauseList (
+	char	*program_name)
+{
+	char	buf[512];
+	char	**p;
+
+	strcpy (buf, program_name);
+	strupper (buf);
+	for (p = PAUSE_WHILE_RUNNING; *p; p++) {
+		if (strstr (buf, *p) != NULL) {
+			buf[sizeof(PAUSE_PROGRAM)-1] = 0;
+			strcpy (PAUSE_PROGRAM, buf);
+			return (TRUE);
+		}
+	}
+	return (FALSE);
+}
+
+/* This routine implements a pause for one worker thread */
+
+void implementPause (
+	int	thread_num)
+{
+	char	buf[100];
+
+/* Output an informative message */
+
+	sprintf (buf, "Pausing because %s is running.\n", PAUSE_PROGRAM);
+	OutputStr (thread_num, buf);
+
+/* Every 0.5 seconds see if we should resume processing.  We check */
+/* frequently so that we can be responsive to an ESC or terminate command. */
+
+	while (PAUSED) {
+		if (WORKER_THREADS_STOPPING) return;
+		Sleep (500);
+	}
+
+/* Output another informative message */
+
+	OutputStr (thread_num, "Resuming processing.\n");
+}
+
+/**************************************************************/
+/*             Routines dealing with throttling               */
+/**************************************************************/
+
+int	THROTTLE_SLEEP_TIME_IN_SEC = 0;
+int	THROTTLE_SLEEP_TIME_IN_MS = 0;
+
+void start_throttle_timer (void)
+{
+	if (THROTTLE_PCT <= 0 || THROTTLE_PCT >= 100) return;
+	THROTTLE_SLEEP_TIME_IN_SEC = (int)
+		((double) TE_THROTTLE_FREQ * (100.0 / (double) THROTTLE_PCT - 1.0));
+	THROTTLE_SLEEP_TIME_IN_MS = (int)
+		((double) (TE_THROTTLE_FREQ + THROTTLE_SLEEP_TIME_IN_SEC) *
+			  (100.0 - (double) THROTTLE_PCT) * 10.0);
+	add_timed_event (TE_THROTTLE, TE_THROTTLE_FREQ);
+}
+
+void stop_throttle_timer (void)
+{
+	delete_timed_event (TE_THROTTLE);
+}
+
+/* Every time the throttle timer fires, this routine is called */
+
+int handleThrottleTimerEvent (void)
+{
+	stop_workers_for_throttle ();
+
+/* Assume most threads will pause very soon.  Set timer to fire again */
+/* after the idle time plus TE_THROTTLE_FREQ time.  That way each thread */
+/* will run approximately TE_THROTTLE_FREQ seconds and idle */
+/* THROTTLE_SLEEP_TIME_IN_SEC seconds for a CPU usage of THROTTLE_PCT. */
+
+	return (TE_THROTTLE_FREQ + THROTTLE_SLEEP_TIME_IN_SEC);
+}
+
+/* This routine implements a throttle for one worker thread */
+
+void implementThrottle (
+	int	thread_num)
+{
+	int	totaltime;
+
+/* Every 0.1 seconds see if we should resume processing.  We check */
+/* frequently so that we can be responsive to an ESC or terminate command. */
+
+	for (totaltime = 0; totaltime < THROTTLE_SLEEP_TIME_IN_MS; totaltime += 100) {
+		if (WORKER_THREADS_STOPPING) return;
+		Sleep (100);
+	}
+}
+
+/**************************************************************/
+/*                     Utility Routines                       */
+/**************************************************************/
 
 /* Return true is exponent yields a known Mersenne prime */
 
@@ -57,67 +1236,8 @@ int isKnownMersennePrime (
 		p == 110503 || p == 132049 || p == 216091 || p == 756839 ||
 		p == 859433 || p == 1257787 || p == 1398269 || p == 2976221 ||
 		p == 3021377 || p == 6972593 || p == 13466917 ||
-		p == 20996011 || p == 24036583 || p == 25964951);
-}
-
-/* Routine to set the stop timer when available memory settings change */
-
-void memSettingsChanged (void) {
-	if (HIGH_MEMORY_USAGE || STOP_TIME) STOP_TIME = 1;
-}
-
-/* Return memory available now */
-/* Compute the time where we must halt processing to change the */
-/* amount of available memory. */ 
-
-unsigned int avail_mem (void)
-{
-	time_t	t;
-	struct tm *x;
-	unsigned int curtime;
-
-/* Set flag indicating we are using a lot of memory */
-
-	HIGH_MEMORY_USAGE = TRUE;
-
-/* If the same memory is available both day and night, then return */
-/* that value and note that we won't have to stop in the future. */
-
-	if (DAY_MEMORY == NIGHT_MEMORY) {
-		STOP_TIME = 0;
-		return (DAY_MEMORY);
-	}
-
-/* Determine whether it is daytime or nighttime. */
-/* Return corresponding available memory. */
-/* Set timer for when daytime or nighttime ends. */
-
-	time (&t);
-        x = localtime (&t);
-	curtime = x->tm_hour * 60 + x->tm_min;
-	if (DAY_START_TIME < DAY_END_TIME) {
-		if (curtime < DAY_START_TIME) {
-			STOP_TIME = t + (DAY_START_TIME - curtime) * 60;
-			return (NIGHT_MEMORY);
-		} else if (curtime < DAY_END_TIME) {
-			STOP_TIME = t + (DAY_END_TIME - curtime) * 60;
-			return (DAY_MEMORY);
-		} else {
-			STOP_TIME = t + (DAY_START_TIME + 1440 - curtime) * 60;
-			return (NIGHT_MEMORY);
-		}
-	} else {
-		if (curtime < DAY_END_TIME) {
-			STOP_TIME = t + (DAY_END_TIME - curtime) * 60;
-			return (DAY_MEMORY);
-		} else if (curtime < DAY_START_TIME) {
-			STOP_TIME = t + (DAY_START_TIME - curtime) * 60;
-			return (NIGHT_MEMORY);
-		} else {
-			STOP_TIME = t + (DAY_END_TIME + 1440 - curtime) * 60;
-			return (DAY_MEMORY);
-		}
-	}
+		p == 20996011 || p == 24036583 || p == 25964951 ||
+		p == 30402457 || p == 32582657);
 }
 
 /* Make a string out of a 96-bit value (a found factor) */
@@ -162,589 +1282,26 @@ void makestr (
 	while (buf[0] == '0') strcpy (buf, buf+1);
 }
 
-/* Generate the 64-bit residue of a Lucas-Lehmer test.  Returns -1 for an */
-/* illegal result, 0 for a zero result, 1 for a non-zero result. */
-
-int generateResidue64 (
-	unsigned long units_bit,
-	unsigned long *reshi,
-	unsigned long *reslo)
-{
-	giant	tmp;
-	int	err_code;
-
-	*reshi = *reslo = 0;
-	tmp = popg ((PARG >> 5) + 5);
-	err_code = gwtogiant (LLDATA, tmp);
-	if (err_code < 0) return (err_code);
-	if (tmp->sign == 0) return (0);
-	gshiftright (units_bit, tmp);
-	if (tmp->sign > 0) *reslo = tmp->n[0];
-	if (tmp->sign > 1) *reshi = tmp->n[1];
-	pushg (1);
-	return (1);
-}
-
-/* Return TRUE if a continuation file exists.  If one does exist, */
-/* make sure it is named pXXXXXXX. */
-
-int continuationFileExists (
-	char	*filename)
-{
-	char	backupname[32];
-	char	buf[80];
-
-	if (fileExists (filename)) return (TRUE);
-	strcpy (backupname, filename);
-	backupname[0] = 'q';
-	if (fileExists (backupname)) {
-		sprintf (buf, RENAME_MSG, backupname, filename);
-		OutputBoth (buf);
-		rename (backupname, filename);
-		return (TRUE);
-	}
-	backupname[0] = 'r';
-	if (fileExists (backupname)) {
-		sprintf (buf, RENAME_MSG, backupname, filename);
-		OutputBoth (buf);
-		rename (backupname, filename);
-		return (TRUE);
-	}
-	return (FALSE);
-}
-
-/* Write intermediate Lucas-Lehmer results to a file */
-/* Note: we can't output the bits == 16 case in two bytes because the */
-/* rounding code in lucas.asm can create a value of 32768 which does*/
-/* not fit in a short. */
-
-int writeToFile (
-	char	*filename,
-	unsigned long counter,
-	unsigned long units_bit,
-	unsigned long error_count)
-{
-	int	fd, bits;
-	unsigned long i;
-	char	buf[4096];
-	char	*bufp;
-	short	type;
-	unsigned long buggy_error_count = 0;
-	long	sum = 0;
-
-/* If we are allowed to create multiple intermediate files, then */
-/* write to a file called rXXXXXXX. */
-
-	if (TWO_BACKUP_FILES && strlen (filename) == 8)
-		filename[0] = 'r';
-
-/* Now save to the intermediate file */
-
-	fd = _open (filename, _O_BINARY | _O_WRONLY | _O_TRUNC | _O_CREAT, CREATE_FILE_ACCESS);
-	if (fd < 0) return (FALSE);
-	if (FFTLEN < 8192)
-		type = (short) FFTLEN + 1;
-	else
-		type = (short) (FFTLEN / 1024);
-	if (_write (fd, &type, sizeof (short)) != sizeof (short))
-		goto writeerr;
-	if (_write (fd, &counter, sizeof (long)) != sizeof (long))
-		goto writeerr;
-
-	bits = (int) BITS_PER_WORD + 1;
-	bufp = buf;
-	for (i = 0; i < FFTLEN; i++) {
-		long	x;
-		if (bufp - buf >= sizeof (buf) - 20) {
-			if (_write (fd, buf, bufp - buf) != bufp - buf)
-				goto writeerr;
-			bufp = buf;
-		}
-		get_fft_value (LLDATA, i, &x);
-		if (bits <= 15) {
-			short y;
-			y = (short) x;
-			memcpy (bufp, &y, sizeof (y));
-			bufp += sizeof (y);
-  		} else {
-			long y;
-			y = (long) x;
-			memcpy (bufp, &y, sizeof (y));
-			bufp += sizeof (y);
-		}
-		sum += x;
-	}
-	sum += units_bit;
-	sum += error_count;
-	/* Kludge so that buggy v17 save files are rejected */
-	if (units_bit != 0) sum ^= 0x1;
-	memcpy (bufp, &sum, sizeof (long));
-	bufp += sizeof (long);
-	memcpy (bufp, &units_bit, sizeof (unsigned long));
-	bufp += sizeof (unsigned long);
-	memcpy (bufp, &buggy_error_count, sizeof (unsigned long));
-	bufp += sizeof (unsigned long);
-	memcpy (bufp, &error_count, sizeof (unsigned long));
-	bufp += sizeof (unsigned long);
-	if (_write (fd, buf, bufp - buf) != bufp - buf) goto writeerr;
-	_commit (fd);
-	_close (fd);
-
-/* Now rename the intermediate files */
-
-	if (TWO_BACKUP_FILES && strlen (filename) == 8) {
-		char	backupname[16];
-		strcpy (backupname, filename);
-		backupname[0] = 'q'; filename[0] = 'p';
-		_unlink (backupname);
-		 rename (filename, backupname);
-		backupname[0] = 'r';
-		rename (backupname, filename);
-	}
-
-	return (TRUE);
-
-/* An error occured.  Delete the current file and rename the backup */
-/* intermediate file */
-
-writeerr:
-	_close (fd);
-	_unlink (filename);
-	return (FALSE);
-}
-
-/* Update the error count at the end of an intermediate file */
-/* Note: If a save file hasn't been created yet or the save file is */
-/* a pre-V19 save file, then the error will not get recorded. */
-
-void writeNewErrorCount (
-	char	*filename,
-	unsigned long new_error_count)
-{
-	int	fd;
-	long	offset, units_bit, sum, trash;
-	unsigned long old_error_count;
-
-/* Open the intermediate file, position past the FFT data */
-
-	fd = _open (filename, _O_BINARY | _O_RDWR);
-	if (fd < 0) return;
-
-	offset = sizeof (short) +			/* type field */
-		 sizeof (long) +			/* counter field */
-		 FFTLEN * ((BITS_PER_WORD + 1 <= 15) ?	/* FFT data */
-			sizeof (short) : sizeof (long));
-	
-/* Read in the checksum, units_bit, and old error count */
-
-	_lseek (fd, offset, SEEK_SET);
-	if (_read (fd, &sum, sizeof (long)) != sizeof (long))
-		goto err;
-	if (_read (fd, &units_bit, sizeof (long)) != sizeof (long))
-		goto err;
-	if (_read (fd, &trash, sizeof (long)) != sizeof (long))
-		goto err;
-	if (_read (fd, &old_error_count, sizeof (long)) != sizeof (long))
-		goto err;
-
-/* Update the checksum */
-
-	if (units_bit != 0) sum ^= 0x1;
-	sum = sum - old_error_count + new_error_count;
-	if (units_bit != 0) sum ^= 0x1;
-
-/* Write out the checksum and new error count */
-
-	_lseek (fd, offset, SEEK_SET);
-	if (_write (fd, &sum, sizeof (long)) != sizeof (long))
-		goto err;
-	_lseek (fd, offset + 3 * sizeof (long), SEEK_SET);
-	if (_write (fd, &new_error_count, sizeof (long)) != sizeof (long))
-		goto err;
-
-/* Close file and return */
-
-err:	_close (fd);
-}
-
-/* Read the data portion of an intermediate Lucas-Lehmer results file */
-
-int readFileData (
-	int	fd,
-	unsigned long *units_bit,
-	unsigned long *error_count)
-{
-	unsigned long i, buggy_error_count;
-	long	sum, filesum;
-	int	bits, zero;		/* Guard against a zeroed out file */
-
-	if (fd < 0) return (FALSE);
-
-	bits = (int) BITS_PER_WORD + 1;
-	sum = 0;
-	zero = TRUE;
-	for (i = 0; i < FFTLEN; i++) {
-		long	x;
-		if (bits <= 15) {
-			short y;
-			if (_read (fd, &y, sizeof (y)) != sizeof (y))
-				goto err;
-			x = y;
-		} else {
-			long y;
-			if (_read (fd, &y, sizeof (y)) != sizeof (y))
-				goto err;
-			x = y;
-		}
-		if ((x & 0xFF000000) != 0 && (x & 0xFF000000) != 0xFF000000)
-			goto err;
-		sum += x;
-		if (x) zero = FALSE;
-		set_fft_value (LLDATA, i, x);
-	}
-	if (_read (fd, &filesum, sizeof (long)) != sizeof (long)) goto err;
-	if (_read (fd, units_bit, sizeof (long)) != sizeof (long))
-		*units_bit = 0;
-	else
-		sum += *units_bit;
-	/* V18 and earlier did not save a correct error count */
-	/* Read in this erroneous error count */
-	if (_read (fd, &buggy_error_count, sizeof (long)) != sizeof (long))
-		buggy_error_count = 0;
-	else
-		sum += buggy_error_count;
-	/* Now read in the correct V19 error count */
-	if (_read (fd, error_count, sizeof (long)) != sizeof (long))
-		*error_count = 0x80000000 | buggy_error_count;
-	else
-		sum += *error_count;
-	/* Kludge so that buggy v17 save files are rejected */
-	/* V18 and later flip the bottom checksum bit */
-	if (*units_bit != 0) sum ^= 0x1;
-	/* Kludge so that only large exponent v17 saves are rejected */
-	/* Clear bottom checksum bits if v17 would not corrupt this save file */
-	if (PARG < 4194304) sum &= 0xFFFFFFFE, filesum &= 0xFFFFFFFE;
-	if (filesum != sum) goto err;
-	if (zero) goto err;
-	if (*units_bit >= PARG) goto err;
-	_close (fd);
-	return (TRUE);
-err:	_close (fd);
-	return (FALSE);
-}
-
-/* Update the work-to-do list.  This isn't perfect code, but should */
-/* handle all the cases where the worktodo file wasn't bizarrely edited. */
-
-void updateWorkToDo (
-	double	k,		/* K in K*B^N+C. Must be a positive integer. */
-	unsigned long b,	/* B in K*B^N+C. Must be two. */
-	unsigned long n,	/* N in K*B^N+C. Exponent to test. */
-	signed long c,		/* C in K*B^N+C. Must be relatively prime to K. */
-	int	work_type,	/* type of work performed */
-	unsigned long data)	/* how_far_factored OR ECM bound */
-{
-	unsigned int i;
-
-/* Note if the well-behaved-work-option is on, then just */
-/* delete the first line and write the file every half hour */
-
-	if (WELL_BEHAVED_WORK && work_type == WORK_FACTOR) {
-		static time_t last_time_written = 0;
-		time_t	current_time;
-		IniDeleteLine (WORKTODO_FILE, 1);
-		time (&current_time);
-		if (current_time > last_time_written + 1800) {
-			if (last_time_written) IniFileClose (WORKTODO_FILE);
-			last_time_written = current_time;
-		}
-		return;
-	}
-
-/* Read the WorkToDo from disk prior to updating it. */
-
-	IniFileOpen (WORKTODO_FILE, 0);
-
-/* Clear the exponent from the work-to-do-file */
-
-	for (i = 1; ; i++) {
-		struct work_unit w;
-		int	changed = FALSE, deleteLine = FALSE, done = FALSE;
-
-/* Read the line of the work file */
-
-		if (! parseWorkToDoLine (i, &w)) break;
-
-/* Skip the line if the number does not match */
-
-		if (k != w.k || b != w.b || n != w.n || c != w.c) continue;
-
-/* Switch off the work type just completed */
-
-		switch (work_type) {
-
-/* Delete line if a factor was found or this was a factoring-only work type. */
-/* Otherwise update Test, Dblchk, Pfactor lines. */
-
-		case WORK_FACTOR:
-			if (data == 0 || w.work_type == WORK_FACTOR)
-				deleteLine = TRUE;
-			else if (w.work_type == WORK_TEST ||
-				 w.work_type == WORK_DBLCHK) {
-				w.bits = data;
-				changed = TRUE;
-			}
-			else if (w.work_type == WORK_PFACTOR) {
-				w.sieve_depth = data;
-				changed = TRUE;
-			}
-			break;
-
-/* Delete line if an LL test completed. */
-
-		case WORK_TEST:
-			deleteLine = TRUE;
-			break;
-
-/* Delete matching ECM line */
-
-		case WORK_ECM:
-			if (w.work_type == WORK_ECM && w.B1 == data) {
-				deleteLine = TRUE;
-				done = TRUE;
-			}
-			break;
-
-/* Delete matching Pminus1 and Pfactor lines, update Test and DblChk lines. */
-
-		case WORK_PMINUS1:
-			if (w.work_type == WORK_PMINUS1 ||
-			    w.work_type == WORK_PFACTOR) {
-				deleteLine = TRUE;
-				done = TRUE;
-			} else if (w.work_type == WORK_TEST ||
-				   w.work_type == WORK_DBLCHK) {
-				w.pminus1ed = TRUE;
-				changed = TRUE;
-			}
-			break;
-		}
-
-/* Now implement the decisions made above */
-
-		if (changed) {
-			char	buf[20];
-			if (w.work_type == WORK_PFACTOR)
-				sprintf (buf, "%ld,%f,%d", w.n, w.sieve_depth, w.pminus1ed);
-			else
-				sprintf (buf, "%ld,%d,%d", w.n, w.bits, w.pminus1ed);
-			IniReplaceLineAsString (
-				WORKTODO_FILE, i,
-				(w.work_type == WORK_DBLCHK) ? "DoubleCheck" :
-				(w.work_type == WORK_TEST) ? "Test" : "Pfactor",
-				buf);
-		}
-
-		if (deleteLine) {
-			IniDeleteLine (WORKTODO_FILE, i);
-			i--;
-		}
-
-		if (done) break;
-	}
-
-/* Write out the updated worktodo file */
-
-	IniFileClose (WORKTODO_FILE);
-}
-
-/* Returns true if this is a priority work item */
-
-int isPriorityWork (
-	struct work_unit *w)
-{
-	if (w->n == EXP_BEING_WORKED_ON) return (FALSE);
-	if (w->work_type == WORK_ADVANCEDTEST) return (TRUE);
-	if (IniGetInt (INI_FILE, "SequentialWorkToDo", 1)) return (FALSE);
-	if ((w->work_type == WORK_TEST ||
-	     w->work_type == WORK_DBLCHK) &&
-	    (w->bits < factorLimit (w->n, w->work_type) || !w->pminus1ed))
-		return (TRUE);
-	return (FALSE);
-}
-
-/* Check if any of the Lucas-Lehmer test lines also require factoring. */
-/* This will force factoring to be done first - giving us more accurate */
-/* estimates of how much work is queued up. */
-
-int getPriorityWork (void) {
-	unsigned int i;
-	struct work_unit w;
-
-	IniFileOpen (WORKTODO_FILE, 0);
-	for (i = 1; ; i++) {
-		if (!parseWorkToDoLine (i, &w)) break;
-		if (isPriorityWork (&w)) return (i);
-	}
-
-/* No priority work to do */
-
-	return (0);
-}
-
-/* Clear rolling average start time in case Factoring, Torture Test, */
-/* Advanced/Test, etc. interrupted a Lucas-Lehmer test. */
-
-void clearRollingStart (void)
-{
-	IniWriteInt (LOCALINI_FILE, "RollingStartTime", 0);
-}
-		
-/* We're starting a prime, save the current time so that */
-/* we can maintain the rolling average computations. */
-
-void startRollingAverage (void)
-{
-	time_t	current_time;
-	time (&current_time);
-	if (VACATION_END && !ON_DURING_VACATION) current_time = 0;
-	IniWriteInt (LOCALINI_FILE, "RollingStartTime", (long) current_time);
-}
-
-/* We've completed 65536 Lucas-Lehmer iterations or a factoring. */
-/* Examine how long it took compared to our expectaions.  Maintain */
-/* a rolling average for more accurate time estimates. */
-
-void updateRollingAverage (
-	double	est)			/* estimated time for last work unit */
-{
-#ifndef SERVER_TESTING
-	time_t	start_time, current_time;
-
-/* Get the current time and when the iterations started */
-
-	time (&current_time);
-	start_time = IniGetInt (LOCALINI_FILE, "RollingStartTime", 0);
-	if (start_time == 0 || current_time <= start_time) return;
-
-/* Compute the rolling average where the existing rolling average
-/* accounts for 90% of the new rolling average and the current */
-/* data point accounts for 10%.  The rolling average */
-/* measures this computer's speed as compared to our estimated */
-/* speed for this CPU.  A value of 1200 means the this computer */
-/* is 20% faster than expected.  A value of 1000 means the this computer */
-/* is as fast as expected.   A value of 800 means this computer */
-/* is 20% slower than expected. */
-
-/* The old formula used prior to version 19.1 (ra = 0.9 * ra + 0.1 * est) */
-/* produced poor results on machines that were not on 24 hours a day.  As */
-/* an example the wild fluctuations of 2000, 667, 2000, 667, etc. averaged */
-/* out to well more than the correct 1000.  Brian Beesley suggested a new */
-/* formula (ra = 1 / (0.9 / ra + 0.1 / est)) which works much better. */
-
-	est = est / (current_time - start_time) * 1000.0;
-	if (est > 50000.0) return;	/* A safeguard against bogus data */
-	if (est < 0.5 * ROLLING_AVERAGE) est = 0.5 * ROLLING_AVERAGE;
-	if (est > 2.0 * ROLLING_AVERAGE) est = 2.0 * ROLLING_AVERAGE;
-
-	ROLLING_AVERAGE = (unsigned int)
-		(1.0 / (0.9 / ROLLING_AVERAGE + 0.1 / est) + 0.5);
-	if (ROLLING_AVERAGE < 20) ROLLING_AVERAGE = 20;
-	if (ROLLING_AVERAGE > 4000) ROLLING_AVERAGE = 4000;
-	IniWriteInt (LOCALINI_FILE, "RollingAverage", ROLLING_AVERAGE);
-#endif
-}
-
-/* Utility output routines */
-
-void LineFeed (void)
-{
-	OutputStr ("\n");
-}
-
-void OutputTimeStamp ()
-{
-	time_t	this_time;
-	char	tbuf[40], buf[40];
-
-	if (TIMESTAMPING) {
-		time (&this_time);
-		strcpy (tbuf, ctime (&this_time)+4);
-		tbuf[12] = 0;
-		sprintf (buf, "[%s] ", tbuf);
-		OutputStr (buf);
-	}
-}
-
-void OutputNum (
-	unsigned long num)
-{
-	char	buf[20];
-	sprintf (buf, "%lu", num);
-	OutputStr (buf);
-}
-
-EXTERNC
-int stopCheck (void)
-{
-static	int	time_counter = 0;
-
-/* If the ESC key is hit, stop processing */
-
-	if (escapeCheck ()) {
-		STOP_REASON = STOP_ESCAPE;
-		return (TRUE);
-	}
-
-/* Perform timed checks less often */
-
-	if (++time_counter <= 100) return (FALSE);
-	time_counter = 0;
-
-/* If this is a timed run, check if our time has expired */
-/* This is a little used feature described in the readme.txt file */
-
-	if (END_TIME) {
-		time_t	this_time;
-		time (&this_time);
-		if (this_time > END_TIME) {
-			STOP_REASON = STOP_TIMEOUT;
-			return (TRUE);
-		}
-	}
-
-/* If we're checking for the day/night memory change, check the timer now. */
-
-	if (STOP_TIME) {
-		time_t	this_time;
-		time (&this_time);
-		if (this_time > STOP_TIME) {
-			STOP_REASON = STOP_MEM_CHANGED;
-			return (TRUE);
-		}
-	}
-
-/* No need to stop */
-
-	return (FALSE);
-}
-
 /* Sleep five minutes before restarting */
 
-int SleepFive (void)
+int SleepFive (
+	int	thread_num)
 {
 	int	i;
 
-	OutputStr (ERRMSG4);
-	BlinkIcon (10);			/* Blink icon for 10 seconds */
-	Sleep (10000);
-	ChangeIcon (IDLE_ICON);		/* Idle icon for rest of 5 minutes */
-	for (i = 0; i < 290; i++) {
-		Sleep (1000);
-		if (escapeCheck ()) return (FALSE);
+	OutputStr (thread_num, ERRMSG4);
+	BlinkIcon (thread_num, 10);		/* Blink icon for 10 seconds */
+	for (i = 0; i < 100; i++) {
+		Sleep (100);
+		if (WORKER_THREADS_STOPPING) return (STOP_ESCAPE);
 	}
-	ChangeIcon (WORKING_ICON);	/* And back to the working icon */
-	return (TRUE);
+	ChangeIcon (thread_num, IDLE_ICON);	/* Idle icon while stopped */
+	for (i = 0; i < 2900; i++) {
+		Sleep (100);
+		if (WORKER_THREADS_STOPPING) return (STOP_ESCAPE);
+	}
+	ChangeIcon (thread_num, WORKING_ICON);	/* Back to the working icon */
+	return (0);
 }
 
 /* Truncate a percentage to the requested number of digits. */
@@ -753,34 +1310,37 @@ int SleepFive (void)
 double trunc_percent (
 	double	percent)
 {
+	percent *= 100.0;
 	if (percent > 100.0) percent = 100.0;
 	percent -= 0.5 * pow (10.0, - (double) PRECISION);
 	if (percent < 0.0) return (0.0);
 	return (percent);
 }
 
+/*************************************/
 /* Routines used to time code chunks */
+/*************************************/
 
-double timers[10];			/* Up to ten separate timers */
-
-void clear_timers (void) {
+void clear_timers (double *timers, int num_timers) {
 	int	i;
-	for (i = 0; i < 10; i++) timers[i] = 0.0;
+	for (i = 0; i < num_timers; i++) timers[i] = 0.0;
 }
 
 void clear_timer (
+	double	*timers,
 	int	i)
 {
 	timers[i] = 0.0;
 }
 
 void start_timer (
+	double	*timers,
 	int	i)
 {
 	if (RDTSC_TIMING < 10) {
 		timers[i] -= getHighResTimer ();
 	} else if (RDTSC_TIMING > 10 && (CPU_FLAGS & CPU_RDTSC)) {
-		unsigned long hi, lo;
+		uint32_t hi, lo;
 		rdtsc (&hi, &lo);
 		timers[i] -= (double) hi * 4294967296.0 + lo;
 	} else {
@@ -791,12 +1351,13 @@ void start_timer (
 }
 
 void end_timer (
+	double	*timers,
 	int	i)
 {
 	if (RDTSC_TIMING < 10) {
 		timers[i] += getHighResTimer ();
 	} else if (RDTSC_TIMING > 10 && (CPU_FLAGS & CPU_RDTSC)) {
-		unsigned long hi, lo;
+		uint32_t hi, lo;
 		rdtsc (&hi, &lo);
 		timers[i] += (double) hi * 4294967296.0 + lo;
 	} else {
@@ -807,13 +1368,15 @@ void end_timer (
 }
 
 void divide_timer (
+	double	*timers,
 	int	i,
 	int	j)
 {
-	timers[i] = timers[i] / j;
+	timers[i] = timers[i] / (double) j;
 }
 
 double timer_value (
+	double	*timers,
 	int	i)
 {
 	if (RDTSC_TIMING < 10)
@@ -828,21 +1391,22 @@ double timer_value (
 #define TIMER_CLR	0x2
 #define TIMER_OPT_CLR	0x4
 #define TIMER_MS	0x8
-#define TIMER_OUT_BOTH  0x1000
 
 void print_timer (
+	double	*timers,
 	int	i,
+	char	*buf,
 	int	flags)
 {
 	double	t;
-	char	buf[40];
 
 /* The timer could be less than zero if the computer went into hibernation. */
 /* Hibernation is where the memory image is saved to disk and the computer */
 /* shut off.  Upon power up the memory image is restored but the RDTSC */
 /* timestamp counter has been reset to zero. */
 
-	t = timer_value (i);
+	buf += strlen (buf);
+	t = timer_value (timers, i);
 	if (t < 0.0) {
 		strcpy (buf, "Unknown");
 		timers[i] = 0.0;
@@ -880,106 +1444,703 @@ void print_timer (
 
 	if (flags & TIMER_CLR) timers[i] = 0.0;
 	if ((flags & TIMER_OPT_CLR) && !CUMULATIVE_TIMING) timers[i] = 0.0;
+}
 
-/* Output the formatted timer value */
+/****************************************************************************/
+/*             Portable routines to launch worker threads                   */
+/****************************************************************************/
 
-	if (flags & TIMER_OUT_BOTH)
-		OutputBoth (buf);
+/* Structure used in launching one worker thread. */
+
+struct LaunchData {
+	int	thread_num;		/* This thread number */
+	unsigned int num_threads;	/* Num threads to run */
+	unsigned long p;		/* Exponent to time */
+	unsigned long iters;		/* Iterations to time */
+	int	stop_reason;		/* Returned stop reason */
+};
+
+/* Create windows for the worker threads.  Windows REALLY prefers this be */
+/* done in the main thread.  Otherwise, deadlocks can occur. */
+
+void create_worker_windows (
+	int	num_threads)
+{
+	int	tnum;
+	char	buf[80];
+
+/* Make sure each worker thread has a window to output to */
+
+	for (tnum = 0; tnum < num_threads; tnum++) {
+		create_window (tnum);
+		if (NUM_CPUS * CPU_HYPERTHREADS > 1)
+			sprintf (buf, "Worker thread #%d", tnum+1);
+		else
+			strcpy (buf, "Worker thread");
+		base_title (tnum, buf);
+	}
+}
+
+/* Launch the worker threads to process work units */
+
+int LaunchWorkerThreads (
+	int	wait_flag)		/* TRUE if we wait for workers to */
+					/* end before returning. */
+{
+	struct LaunchData *ld;
+	gwthread thread_handle;
+
+	ld = (struct LaunchData *) malloc (sizeof (struct LaunchData));
+	if (ld == NULL) return (OutOfMemory (MAIN_THREAD_NUM));
+	ld->num_threads = NUM_WORKER_THREADS;
+	LAUNCH_TYPE = LD_CONTINUE;
+	create_worker_windows (NUM_WORKER_THREADS);
+	if (wait_flag) {
+		gwthread_create_waitable (&thread_handle, &Launcher, ld);
+		gwthread_wait_for_exit (&thread_handle);
+	} else
+		gwthread_create (&thread_handle, &Launcher, ld);
+	return (0);
+}
+
+/* Launch threads to do a torture test */
+
+int LaunchTortureTest (
+	unsigned long num_threads,	/* Number of torture tests to run */
+	int	wait_flag)		/* TRUE if we wait for workers to */
+					/* end before returning. */
+{
+	struct LaunchData *ld;
+	gwthread thread_handle;
+
+	ld = (struct LaunchData *) malloc (sizeof (struct LaunchData));
+	if (ld == NULL) return (OutOfMemory (MAIN_THREAD_NUM));
+	ld->num_threads = num_threads;
+	LAUNCH_TYPE = LD_TORTURE;
+	create_worker_windows (num_threads);
+	if (wait_flag) {
+		gwthread_create_waitable (&thread_handle, &Launcher, ld);
+		gwthread_wait_for_exit (&thread_handle);
+	} else
+		gwthread_create (&thread_handle, &Launcher, ld);
+	return (0);
+}
+
+/* Launch a thread to do a benchmark */
+
+int LaunchBench (void)
+{
+	struct LaunchData *ld;
+	gwthread thread_handle;
+
+	ld = (struct LaunchData *) malloc (sizeof (struct LaunchData));
+	if (ld == NULL) return (OutOfMemory (MAIN_THREAD_NUM));
+	ld->num_threads = 1;
+	LAUNCH_TYPE = LD_BENCH;
+	create_worker_windows (1);
+	gwthread_create (&thread_handle, &Launcher, ld);
+	return (0);
+}
+
+/* Launch the worker thread(s) to process Advanced/Time */
+
+int LaunchAdvancedTime (
+	unsigned long p,		/* Exponent to time */
+	unsigned long iters)		/* Iterations to time */
+{
+	struct LaunchData *ld;
+	gwthread thread_handle;
+
+	ld = (struct LaunchData *) malloc (sizeof (struct LaunchData));
+	if (ld == NULL) return (OutOfMemory (MAIN_THREAD_NUM));
+	if (p >= 9900 && p <= 9919) ld->num_threads = p - 9900 + 1;
+	else if (p >= 9920 && p <= 9939) ld->num_threads = p - 9920 + 1;
+	else ld->num_threads = 1;
+	ld->p = p;
+	ld->iters = iters;
+	LAUNCH_TYPE = LD_TIME;
+	create_worker_windows (ld->num_threads);
+	gwthread_create (&thread_handle, &Launcher, ld);
+	return (0);
+}
+
+/* Launch all worker threads */
+
+void Launcher (void *arg)
+{
+	struct LaunchData *ld;
+	unsigned int tnum;
+	int	stop_reason;
+	gwthread handles[MAX_NUM_WORKER_THREADS];
+	struct LaunchData *ldwork[MAX_NUM_WORKER_THREADS];
+
+/* This thread will create more worker threads if necessary and */
+/* then become thread number 0. */
+
+	ld = (struct LaunchData *) arg;
+
+/* If worker threads are already active, then stop them all.  This can */
+/* happen when we choose Torture Test, Benchmark, or Advanced/Time from */
+/* the menus while the worker threads are running */
+
+	if (WORKER_THREADS_ACTIVE) {
+		stop_workers_for_escape ();
+		while (WORKER_THREADS_STOPPING) Sleep (50);
+	}
+
+/* Set flags so that GUI knows worker threads are active */
+
+	WORKER_THREADS_ACTIVE = ld->num_threads;
+	WORKER_THREADS_STOPPING = FALSE;
+
+/* Output a starting worker threads message */
+
+	if (ld->num_threads > 1)
+		OutputStr (MAIN_THREAD_NUM, "Starting worker threads.\n");
 	else
-		OutputStr (buf);
-}
+		OutputStr (MAIN_THREAD_NUM, "Starting worker thread.\n");
 
-/* More utility routines */
+/* Every time the user chooses Test/Continue, clear any timers that */
+/* prevents communication for a period of time.  This allows the user */
+/* to try something and if it doesn't work, ESC and choose Test/Continue */
+/* to try some other system settings (without waiting an hour). */
 
-static int PAUSED = FALSE;
+	clear_comm_rate_limits ();
 
-int pauseWhileRunning ()
-{
-	int	i;
-static	time_t	last_check = 0;
-static	int	how_often = -1;
+/* Clear array of active thread handles */
 
-/* In most installations, there is no pause list.  Return quickly. */
+again:	clearThreadHandleArray ();
 
-	if (PAUSE_WHILE_RUNNING == NULL) return (TRUE);
+/* Reread prime.ini, local.ini, and worktodo.ini files just in case user */
+/* hand edited it.  We don't officially support this, but we'll do it */
+/* anyway.  Also, check for a .add file, which we do officially support. */
+/* If the user edited the ini files changing the number of worker threads */
+/* then handle that here.  We also jump here if the threads were restarted */
+/* because the user changed the number of worker threads using dialog boxes. */
+/* NOTE: If the user increases the number of threads, then he will not see */
+/* worker windows until he does a stop and restart. */
 
-/* Only check the paused list every 10 seconds */
+	stop_reason = readIniFiles ();
+	if (stop_reason) {
+		OutputStr (MAIN_THREAD_NUM, "Error rereading INI files.\n");
+		return;
+	}
+	if (LAUNCH_TYPE == LD_CONTINUE) ld->num_threads = NUM_WORKER_THREADS;
 
-	if (how_often < 0)
-		how_often = IniGetInt (INI_FILE, "PauseCheckInterval", 10);
-	if (how_often) {
+/* Initialize flags that cause the worker threads to stop at the */
+/* appropriate time */
+
+	init_stop_code ();
+
+/* See if we are in a sleep time period */
+/* Sleep in two second intervals so we can detect a thread stop */
+/* or program exit command. */
+
+	if (SLEEP_TIME && LAUNCH_TYPE == LD_CONTINUE) {
 		time_t	current_time;
+		char	buf[80];
+
 		time (&current_time);
-		if (current_time < last_check + how_often) return (TRUE);
-		last_check = current_time;
+		if (current_time < SLEEP_TIME) {
+			sprintf (buf, "Sleeping until %s\n", ctime (&SLEEP_TIME));
+			OutputStr (MAIN_THREAD_NUM, buf);
+			title (MAIN_THREAD_NUM, "Sleeping");
+			gwevent_wait (&SLEEP_TIME_OR_STOP,
+				      (int) (SLEEP_TIME - current_time));
+			if (WORKER_THREADS_STOPPING) goto leave;
+			goto again;
+		}
 	}
 
-/* Check if a process is running such that we should pause */
+/* Init the code that keeps track of the memory used by each worker thread */
 
-	if (! checkPauseList ()) return (TRUE);
-	PAUSED = TRUE;
+	init_mem_state ();
 
-/* Every 10 seconds see if we should resume processing.  More frequently */
-/* see if we should write a save file and stop processing - most likely */
-/* due to a shutdown. */
+/* Run OS-specific code prior to launching the worker threads */
 
-	for ( ; ; ) {
-		for (i = 0; i < 20; i++) {
+	PreLaunchCallback (LAUNCH_TYPE);
+
+/* Change the icon */
+
+	ChangeIcon (MAIN_THREAD_NUM, WORKING_ICON);
+
+/* Start all appropriate timers */
+
+	if (LAUNCH_TYPE == LD_CONTINUE) {
+
+/* Start timer that tells us to write save files every so often */
+
+		start_save_files_timer ();
+
+/* Start the timer that fires when memory settings change from day to night */
+
+		start_mem_changed_timer ();
+
+/* Start the timer that checks battery status */
+
+		start_battery_timer ();
+
+/* Start the timer that checks for priority work */
+
+		start_priority_work_timer ();
+
+/* Start the timer that checks the pause-while-running list */
+
+		start_pause_while_running_timer ();
+
+/* Start the throttle timer */
+
+		start_throttle_timer ();
+	}
+
+/* Launch more worker threads if needed */
+
+	for (tnum = 1; tnum < ld->num_threads; tnum++) {
+		ldwork[tnum] = (struct LaunchData *) malloc (sizeof (struct LaunchData));
+		if (ldwork[tnum] == NULL) {
+			OutOfMemory (MAIN_THREAD_NUM);
+			return;
+		}
+		memcpy (ldwork[tnum], ld, sizeof (struct LaunchData));
+		ldwork[tnum]->thread_num = tnum;
+		gwthread_create_waitable (&handles[tnum], &LauncherDispatch, ldwork[tnum]);
+	}
+
+/* This thread is a worker thread too.  Call dispatching routine. */
+
+	ld->thread_num = 0;
+	LauncherDispatch (ld);
+	stop_reason = ld->stop_reason;
+
+/* Wait for other threads to finish */
+/* Combine the stop reason with the stop reason returned by other threads */
+
+	for (tnum = 1; tnum < ld->num_threads; tnum++) {
+		gwthread_wait_for_exit (&handles[tnum]);
+		if (stop_reason == 0)
+			stop_reason = ldwork[tnum]->stop_reason;
+		else if (stop_reason == STOP_ESCAPE ||
+			 ldwork[tnum]->stop_reason == STOP_ESCAPE)
+			stop_reason = STOP_ESCAPE;
+		free (ldwork[tnum]);
+	}
+
+/* Write the worktodo file in case the WELL_BEHAVED_WORK flag caused us */
+/* to delay writing the file. */
+
+	if (LAUNCH_TYPE == LD_CONTINUE) {
+		writeWorkToDoFile (TRUE);
+
+/* Clear timers we started earlier */
+
+		stop_save_files_timer ();
+		stop_mem_changed_timer ();
+		stop_battery_timer ();
+		stop_priority_work_timer ();
+		stop_pause_while_running_timer ();
+		stop_throttle_timer ();
+	}
+
+/* Change the icon */
+
+	ChangeIcon (MAIN_THREAD_NUM, IDLE_ICON);
+
+/* Run OS-specific code after worker threads terminate */
+
+	PostLaunchCallback (LAUNCH_TYPE);
+
+/* Restart all worker threads if the stop reason tells us to.  Make sure */
+/* we set num_threads in case the reason for the restart is a change to */
+/* NUM_WORKER_THREADS. */
+
+	if (stop_reason == STOP_RESTART) {
+		OutputStr (MAIN_THREAD_NUM, "Restarting all worker threads using new settings.\n");
+		goto again;
+	}
+
+	if (stop_reason == STOP_TIMEOUT) {
+		OutputStr (MAIN_THREAD_NUM, "Restarting all worker threads using new timed prime.ini settings.\n");
+		goto again;
+	}
+
+/* For STOP_BATTERY stop reason, restart all threads only when AC power */
+/* is restored. */
+
+	if (stop_reason == STOP_BATTERY) {
+// bug - should we use an event here instead???
+		for ( ; ; ) {
 			Sleep (500);
-			if (escapeCheck ()) {
-				PAUSED = FALSE;
-				return (FALSE);
-			}
+			if (WORKER_THREADS_STOPPING) break;
+			if (OnBattery ()) continue;
+			OutputStr (MAIN_THREAD_NUM, "AC power restored, restarting all worker threads.\n");
+			goto again;
 		}
-		if (! checkPauseList ()) {
-			OutputStr ("Resuming processing.\n");
-			PAUSED = FALSE;
-			return (TRUE);
+	}
+
+/* Output informative message */
+
+	if (LAUNCH_TYPE == LD_CONTINUE || LAUNCH_TYPE == LD_TORTURE)
+		OutputStr (MAIN_THREAD_NUM, "Execution halted.\n");
+	if (LAUNCH_TYPE == LD_CONTINUE)
+		OutputStr (MAIN_THREAD_NUM, "Choose Test/Continue to restart.\n");
+
+/* Clear flags so that GUI knows worker threads are not active */
+
+leave:	WORKER_THREADS_ACTIVE = 0;
+	WORKER_THREADS_STOPPING = FALSE;
+
+/* Free the ld structure and exit the first worker thread */
+
+	free (ld);
+}
+
+/* Now that the worker thread has been created, call the correct routine */
+/* to do some work. */
+
+void LauncherDispatch (void *arg)
+{
+	struct LaunchData *ld;
+	int	stop_reason;
+
+	ld = (struct LaunchData *) arg;
+
+/* Change the title bar */
+
+	title (ld->thread_num, "Starting");
+	OutputStr (ld->thread_num, "Work thread starting\n");
+	ChangeIcon (ld->thread_num, WORKING_ICON);
+
+/* Dispatch to the correct code */
+
+	switch (LAUNCH_TYPE) {
+	case LD_CONTINUE:
+		stop_reason = primeContinue (ld->thread_num);
+		break;
+	case LD_TIME:
+		stop_reason = primeTime (ld->thread_num, ld->p, ld->iters);
+		break;
+	case LD_BENCH:
+		stop_reason = primeBench (ld->thread_num);
+		break;
+	case LD_TORTURE:
+		stop_reason = tortureTest (ld->thread_num, ld->num_threads);
+		break;
+	}
+
+/* Change the title bar and output a line to the window */
+
+	title (ld->thread_num, "Not running");
+	OutputStr (ld->thread_num, "Work thread stopped.\n");
+	ChangeIcon (ld->thread_num, IDLE_ICON);
+
+/* Set the return code and exit this worker thread */
+
+	ld->stop_reason = stop_reason;
+}
+
+/****************************************************************************/
+/*                       Process the work units                             */
+/****************************************************************************/
+
+/* Continue factoring/testing Mersenne numbers */
+
+int primeContinue (
+	int	thread_num)
+{
+	struct PriorityInfo sp_info;
+	struct work_unit *w;
+	unsigned int pass, sequential;
+	int	stop_reason, rc;
+
+/* Set the process/thread priority */
+
+	sp_info.type = SET_PRIORITY_NORMAL_WORK;
+	sp_info.thread_num = thread_num;
+	sp_info.aux_thread_num = 0;
+	SetPriority (&sp_info);
+
+/* Loop until the ESC key is hit or the entire work-to-do INI file */
+/* is processed and we are not connected to the server. */
+
+	sequential = IniGetInt (INI_FILE, "SequentialWorkToDo", 1);
+	for ( ; ; ) {
+
+/* Check for a stop code.  We do this here in case the work-to-do file */
+/* is empty (this call will be our only chance to check for a stop code). */
+
+	stop_reason = stopCheck (thread_num);
+	if (stop_reason) goto check_stop_code;
+
+/* Clear flags that says we need to restart this thread if memory settings */
+/* change.  If a work_unit cannot be processed because of a lack of */
+/* available memory, then we will set these flags. */
+
+	clear_affected_by_mem_flags (thread_num);
+
+/* Make three passes over the worktodo.ini file looking for the ideal */
+/* piece of work to do.  In pass 1, we look for high-priority work.  This */
+/* includes trial and P-1 factoring prior to an LL test.  If a factor is */
+/* found, it can reduce the amount of work we have queued up, requiring */
+/* us to ask the server for more.  We also do AdvancedTest= lines in */
+/* pass 1.  In pass 2, we process the file in order (except for LL tests */
+/* that are not yet ready because the P-1 factoring has not completed). */
+/* In pass 3, as a last resort we start P-1 stage 2 even if they will share */
+/* memory with another P-1 in stage 2 and we start LL tests where P-1 */
+/* factoring is stalled because of low memory. */
+/* Skip first pass on large well-behaved work files. */
+
+	for (pass = (WELL_BEHAVED_WORK || sequential) ? 2 : 1;
+	     pass <= 3;
+	     pass++) {
+
+/* Examine each line in the worktodo.ini file */
+
+	    for (w = NULL; ; ) {
+
+/* Read the line from the work file, break when out of lines */
+/* Skip comment lines from worktodo.ini */
+		
+		w = getNextWorkToDoLine (thread_num, w, LONG_TERM_USE);
+		if (w == NULL) break;
+		if (w->work_type == WORK_NONE) continue;
+
+/* Clear flags indicating this work_unit is using a lot of memory */
+
+		clear_max_memory_usage (thread_num);
+		set_default_memory_usage (thread_num);
+
+/* Handle a factoring assignment */
+
+		if (w->work_type == WORK_FACTOR && pass == 2) {
+			stop_reason = primeFactor (thread_num, &sp_info, w, 0);
 		}
+
+/* Do special P-1 factoring work. */
+
+		if (w->work_type == WORK_PFACTOR && pass == 2) {
+			stop_reason = pfactor (thread_num, &sp_info, w, pass);
+		}
+
+/* Run the LL test */
+
+		if (w->work_type == WORK_ADVANCEDTEST ||
+		    w->work_type == WORK_TEST ||
+		    w->work_type == WORK_DBLCHK) {
+			stop_reason = prime (thread_num, &sp_info, w, pass);
+		}
+
+/* See if this is an ECM factoring line */
+
+		if (w->work_type == WORK_ECM && pass == 2) {
+			stop_reason = ecm (thread_num, &sp_info, w, pass);
+		}
+
+/* See if this is an P-1 factoring line */
+
+		if (w->work_type == WORK_PMINUS1 && pass == 2) {
+			stop_reason = pminus1 (thread_num, &sp_info, w, pass);
+		}
+
+/* Run a PRP test */
+
+		if (w->work_type == WORK_PRP) {
+			stop_reason = prp (thread_num, &sp_info, w, pass);
+		}
+
+/* Clear flags indicating this work_unit is using a lot of memory */
+
+		clear_max_memory_usage (thread_num);
+		set_default_memory_usage (thread_num);
+
+/* If the work unit completed remove it from the worktodo.ini file and */
+/* move on to the next entry */
+
+		if (stop_reason == STOP_WORK_UNIT_COMPLETE) {
+			rolling_average_work_unit_complete (thread_num, w);
+			stop_reason = deleteWorkToDoLine (thread_num, w, FALSE);
+		}
+
+/* If a work unit could not be processed because there isn't enough memory,*/
+/* then set a flag so that when the memory settings change this thread will */
+/* restart from the beginning of the worktodo.ini file and hopefully process */
+/* this work unit with more available memory.  In the meantime, move on to */
+/* the next worktodo entry. */
+
+		if (stop_reason == STOP_NOT_ENOUGH_MEM) {
+			set_affected_by_mem_change (thread_num);
+			stop_reason = 0;
+		}
+
+/* If a work unit would rather wait for more memory (another thread is using */
+/* a lot right now), then set a flag so that when the other thread finishes */
+/* using a lot of memory, this thread will be restarted.  In the meantime, */
+/* move on to the next worktodo entry. */
+
+		if (stop_reason == STOP_NOT_DESIRED_MEM) {
+			set_affected_by_mem_usage (thread_num);
+			stop_reason = 0;
+		}
+
+/* If we are aborting this work unit (probably because it is being deleted) */
+/* then print a message. */
+
+		if (stop_reason == STOP_ABORT)
+			OutputStr (thread_num, "Aborting processing of this work unit.\n");
+
+/* If stop reason is set then unlock this work unit and go process the */
+/* stop reason.  Otherwise, no work was done, move on to the next entry */
+/* in the worktodo.ini file. */
+
+		if (stop_reason) {
+			decrementWorkUnitUseCount (w, LONG_TERM_USE);
+			goto check_stop_code;
+		}
+
+/* Process next work unit in the current pass */
+
+	    }
+
+/* Make another pass over the worktodo.ini file */
+
+	}
+
+/* If we are aborted a work unit (probably because it is being deleted) */
+/* then start again. */
+
+check_stop_code:
+	if (stop_reason == STOP_ABORT) continue;
+
+/* If we need to do priority work then reprocess the entire worktodo.ini. */
+
+	if (stop_reason == STOP_PRIORITY_WORK) continue;
+
+/* If we need to restart with the new memory settings, do so. */
+
+	if (stop_reason == STOP_MEM_CHANGED) continue;
+
+/* The stop reason was not caught above.  It must be a fatal error or a */
+/* stop code that causes the worker thread to terminate. */
+
+	if (stop_reason) return (stop_reason);
+
+/* Ugh, we made three passes over the worktodo file and couldn't find */
+/* any work to do.  I think this can only happen if we are low on memory */
+/* or the worktodo file is empty. */
+
+//bug? - only do this if two attempts are made at executing work?  Because
+// work might have been added to the front of the file???
+
+/* Output a message saying this worker thread is waiting for work */
+
+	title (thread_num, "Waiting for work");
+	OutputStr (thread_num, "No work to do at the present time.  Waiting.\n");
+	ChangeIcon (thread_num, IDLE_ICON);
+
+/* Set memory usage to zero */
+
+	set_memory_usage (thread_num, 0, 0);
+
+/* Spool a message to check the work queue.  Since we have no work queued */
+/* up, this should cause us to get some work from the server. */
+
+	spoolMessage (MSG_CHECK_WORK_QUEUE, NULL);
+
+/* Wait for a mem-changed event OR communication attempt (it might get work) */
+/* OR user entering new work via the dialog boxes OR the discovery of a .add */
+/* file OR wait for a thread stop event (like ESC or shutdown). */
+
+	rc = gwevent_wait (&WORK_AVAILABLE_OR_STOP, 3600);
+	OutputStr (thread_num, "Resuming.\n");
+	ChangeIcon (thread_num, WORKING_ICON);
+
+/* Loop scanning the work-to-do file.  Hopefully the event triggered */
+/* because we now have work to do. */
+
 	}
 }
 
-int isInPauseList (
-	char	*program_name)
-{
-	char	buf[512];
-	char	**p;
+/************************/
+/* Trial Factoring code */
+/************************/
 
-	strcpy (buf, program_name);
-	strupper (buf);
-	for (p = PAUSE_WHILE_RUNNING; *p; p++) {
-		if (strstr (buf, *p) != NULL) {
-			if (!PAUSED) {
-				sprintf (buf,
-					 "Pausing because %s is running.\n",
-					 program_name);
-				OutputStr (buf);
-			}
-			return (TRUE);
-		}
+/* This defines the C / assembly language communication structure */
+
+#define NEW_STACK_SIZE	(4096+256)
+struct facasm_data {
+	uint32_t EXPONENT;		/* Mersenne number to factor */
+	uint32_t FACPASS;		/* Which of 16 factoring passes */
+	uint32_t FACHSW;		/* High word of found factor */
+	uint32_t FACMSW;		/* Middle word of found factor */
+	uint32_t FACLSW;		/* Low word of found factor */
+	uint32_t cpu_flags;		/* Copy of CPU_FLAGS */
+	uint32_t firstcall;		/* Flag set on first facpasssetup */
+	uint32_t pad[5];
+	uint32_t xmm_data[100];		/* XMM data initialized in C code */
+};
+
+/* This defines the factoring data handled in C code.  The handle */
+/* abstracts all the internal details from callers of the factoring code. */
+
+typedef struct {
+	struct	facasm_data *asm_data;	/* Memory for factoring code */
+} fachandle;
+
+EXTERNC void setupf (struct facasm_data *);	/* Assembly code, setup */
+EXTERNC int factor64 (struct facasm_data *);	/* Assembly code, do work */
+
+/* Prepare a factoring run */
+
+int factorSetup (
+	int	thread_num,
+	unsigned long p,
+	fachandle *facdata)
+{
+	void	*asm_data_alloc;
+	struct facasm_data *asm_data;
+
+/* Allocate 1MB for the assembly code global data.  This area is preceded */
+/* by a temporary stack.  This allows the assembly code to access the global */
+/* data using offsets from the stack pointer.  We zero the first 64KB, */
+/* asm code requires this (such as XMM_COMPARE_VALn). */
+
+	asm_data_alloc = aligned_malloc (1000000, 4096);
+	if (asm_data_alloc == NULL) {
+		OutputStr (thread_num, "Error allocating memory for trial factoring.\n");
+		return (STOP_OUT_OF_MEM);
 	}
-	return (FALSE);
+	facdata->asm_data = asm_data = (struct facasm_data *)
+		((char *) asm_data_alloc + NEW_STACK_SIZE);
+	memset (asm_data, 0, 65536);
+
+/* Init */
+
+	asm_data->EXPONENT = p;
+	asm_data->cpu_flags = CPU_FLAGS;
+	asm_data->firstcall = 0;
+
+/* Setup complete */
+
+	return (0);
 }
 
-/* Prepare for making a factoring run */
+/* Prepare for one of the 16 factoring passes */
 
-void factorSetup (unsigned long p)
+int factorPassSetup (
+	int	thread_num,
+	unsigned long pass,
+	fachandle *facdata)		/* Handle returned by factorSetup */
 {
-
-/* Allocate 1MB memory for factoring */
-
-	if (FACDATA == NULL) FACDATA = aligned_malloc (1000000, 65536);
+	struct facasm_data *asm_data;
 
 /* Call the factoring setup assembly code */
 
-	FACLSW = p;
-	SRCARG = FACDATA;
-	setupf ();
+	asm_data = (struct facasm_data *) facdata->asm_data;
+	asm_data->FACPASS = pass;
+	setupf (asm_data);
 
 /* If using the SSE2 factoring code, do more initialization */
 /* We need to initialize much of the following data: */
-/*	XMM_BITS30		DD	0,3FFFFFFFh,0,3FFFFFFFh
-	XMM_INITVAL		DD	0,0,0,0
+/*	XMM_INITVAL		DD	0,0,0,0
 	XMM_INVFAC		DD	0,0,0,0
 	XMM_I1			DD	0,0,0,0
 	XMM_I2			DD	0,0,0,0
@@ -995,521 +2156,980 @@ void factorSetup (unsigned long p)
 	XMM_SHIFTER		DD	64 DUP (0)
 	TWO_TO_FACSIZE_PLUS_62	DQ	0.0
 	SSE2_LOOP_COUNTER	DD	0 */
-/* The address to XMM_BITS30 was returned in SRCARG. */
 
 #ifndef X86_64
-	if (CPU_FLAGS & CPU_SSE2) {
-		unsigned long i, bits_in_factor;
-		unsigned long *xmm_data;
+	if (asm_data->cpu_flags & CPU_SSE2) {
+		unsigned long i, p, bits_in_factor;
+		uint32_t *xmm_data;
 
 /* Compute the number of bits in the factors we will be testing */
 
-		if (FACHSW) bits_in_factor = 64, i = FACHSW;
-		else if (FACMSW) bits_in_factor = 32, i = FACMSW;
-		else return;
+		if (asm_data->FACHSW)
+			bits_in_factor = 64, i = asm_data->FACHSW;
+		else if (asm_data->FACMSW)
+			bits_in_factor = 32, i = asm_data->FACMSW;
+		else return (0);
 		while (i) bits_in_factor++, i >>= 1;
 
 /* Factors 63 bits and below use the non-SSE2 code */
 
-		if (bits_in_factor <= 63) return;
+		if (bits_in_factor <= 63) return (0);
 
 /* Set XMM_SHIFTER values (the first shifter value is not used). */
 /* Also compute the initial value. */
 
-		xmm_data = (unsigned long *) SRCARG;
+		xmm_data = asm_data->xmm_data;
+		p = asm_data->EXPONENT;
 		for (i = 0; p > bits_in_factor + 59; i++) {
-			xmm_data[52+i*2] = (p & 1) ? 1 : 0;
+			xmm_data[48+i*2] = (p & 1) ? 1 : 0;
 			p >>= 1;
 		}
-		xmm_data[4] =			/* XMM_INITVAL */
-		xmm_data[6] = p >= 90 ? 0 : (1 << (p - 60));
-		xmm_data[44] = 62 - (120 - bits_in_factor);/* XMM_INIT120BS */
-		xmm_data[46] = 62 - (p - bits_in_factor);/* XMM_INITBS */
-		xmm_data[116] = i;		/* SSE2_LOOP_COUNTER */
-		*(double *)(&xmm_data[114]) = pow ((double) 2.0, (int) (bits_in_factor + 62));
-						/* TWO_TO_FACSIZE_PLUS_62 */
+		xmm_data[0] =			/* XMM_INITVAL */
+		xmm_data[2] = p >= 90 ? 0 : (1 << (p - 60));
+		xmm_data[40] = 62 - (120 - bits_in_factor);/* XMM_INIT120BS */
+		xmm_data[42] = 62 - (p - bits_in_factor);/* XMM_INITBS */
+		xmm_data[112] = i;		/* SSE2_LOOP_COUNTER */
+		*(double *)(&xmm_data[110]) =	/* TWO_TO_FACSIZE_PLUS_62 */
+			pow ((double) 2.0, (int) (bits_in_factor + 62));
 
 /* Set XMM_BS to 60 - (120 - fac_size + 1) as defined in factor64.mac */
 
-		xmm_data[48] = bits_in_factor - 61;
+		xmm_data[44] = bits_in_factor - 61;
 	}
 #endif
+
+/* Setup complete */
+
+	return (0);
+}
+
+/* Factor one "chunk".  The assembly code decides how big a chunk is. */
+
+int factorChunk (
+	fachandle *facdata)		/* Handle returned by factorSetup */
+{
+	return (factor64 (facdata->asm_data));
 }
 
 /* Cleanup after making a factoring run */
 
-void factorDone (void)
+void factorDone (
+	fachandle *facdata)		/* Handle returned by factorSetup */
 {
 
-/* Free factoring data */
+/* Free assembly code work area */
 
-	aligned_free (FACDATA);
-	FACDATA = NULL;
+	if (facdata->asm_data != NULL) {
+		aligned_free ((char *) facdata->asm_data - NEW_STACK_SIZE);
+		facdata->asm_data = NULL;
+	}
 }
 
-/* Prepare for running a Lucas-Lehmer test */
+/* Wrapper code that verifies any factors found by the assembly code */
+/* res is set to 2 if a factor was not found, 1 otherwise */
+
+int factorAndVerify (
+	int	thread_num,
+	unsigned long p,
+	fachandle *facdata,
+	int	*res)
+{
+	unsigned long hsw, msw;
+	int	stop_reason;
+
+/* Remember starting point in case of an error */
+
+	hsw = facdata->asm_data->FACHSW;
+	msw = facdata->asm_data->FACMSW;
+
+/* Call assembly code */
+
+
+loop:	*res = factorChunk (facdata);
+
+/* If a factor was not found, return. */
+
+	if (*res == 2) return (stopCheck (thread_num));
+
+/* Otherwise verify the factor. */
+
+	if (facdata->asm_data->FACHSW ||
+	    facdata->asm_data->FACMSW ||
+	    facdata->asm_data->FACLSW > 1) {
+		giant	f, x;
+
+		f = newgiant (100);
+		itog ((int) facdata->asm_data->FACHSW, f);
+		gshiftleft (32, f);
+		uladdg (facdata->asm_data->FACMSW, f);
+		gshiftleft (32, f);
+		uladdg (facdata->asm_data->FACLSW, f);
+
+		x = newgiant (100);
+		itog (2, x);
+		powermod (x, p, f);
+		*res = isone (x);
+
+		free (f);
+		free (x);
+
+		if (*res) return (0);
+	}
+
+/* If factor is no good, print an error message, sleep, and */
+/* restart the factoring code. */
+
+	OutputBoth (thread_num, "ERROR: Incorrect factor found.\n");
+	facdata->asm_data->FACHSW = hsw;
+	facdata->asm_data->FACMSW = msw;
+	stop_reason = SleepFive (thread_num);
+	if (stop_reason) return (stop_reason);
+	stop_reason = factorSetup (thread_num, p, facdata);
+	if (stop_reason) return (stop_reason);
+	stop_reason = factorPassSetup (thread_num, p, facdata);
+	if (stop_reason) return (stop_reason);
+	goto loop;
+}
+
+/* Trial factor a Mersenne number prior to running a Lucas-Lehmer test */
+
+char FACMSG[] = "Trial factoring of M%%ld to 2^%%d is %%.%df%%%% complete.";
+
+#define FACTOR_MAGICNUM		0x1567234D
+#define FACTOR_VERSION		1
+
+int primeFactor (
+	int	thread_num,
+	struct PriorityInfo *sp_info,	/* SetPriority information */
+	struct work_unit *w,
+	unsigned int factor_limit_adjustment)
+{
+	fachandle facdata;		/* Handle to the factoring data */
+	unsigned long p;		/* Exponent to factor */
+	unsigned long bits;		/* How far already factored in bits */
+	unsigned long test_bits;	/* How far to factor to */
+	long	factor_found;		/* Returns true if factor found */
+	int	fd;			/* Continuation file handle or zero */
+	int	first_iter_msg, continuation, stop_reason, find_smaller_factor;
+	unsigned long endpthi, endptlo;
+	double	endpt, startpt;		/* For computing percent complete */
+	unsigned long pass;		/* Factoring pass 0 through 15 */
+	unsigned long report_bits;	/* When to report results one bit */
+					/* at a time */
+	char	filename[32];
+	char	buf[200], str[80];
+	double	timers[2];
+
+/* Init */
+
+	factor_found = 0;
+	p = w->n;
+	bits = (unsigned int) w->sieve_depth;
+
+/* Determine how much we should factor (in bits) */
+
+	test_bits = (unsigned int) w->factor_to - factor_limit_adjustment;
+
+/* Is exponent already factored enough? This should never happen with */
+/* WORK_FACTOR work units.  However, I suppose the user could have */
+/* manually changed the line in worktodo.ini.  So send a message to */
+/* server saying we didn't do any factoring but we are done with */
+/* this work unit.  Then delete the work unit. */
+
+	if (bits >= test_bits) {
+		if (w->work_type == WORK_FACTOR) {
+			struct primenetAssignmentResult pkt;
+			memset (&pkt, 0, sizeof (pkt));
+			strcpy (pkt.computer_guid, COMPUTER_GUID);
+			strcpy (pkt.assignment_uid, w->assignment_uid);
+			pkt.result_type = PRIMENET_AR_TF_NOFACTOR;
+			pkt.n = p;
+			pkt.done = TRUE;
+			spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
+			return (STOP_WORK_UNIT_COMPLETE);
+		}
+		return (0);
+	}
+
+/* Setup the factoring code */
+
+	stop_reason = factorSetup (thread_num, p, &facdata);
+	if (stop_reason) return (stop_reason);
+
+/* Record the amount of memory being used by this thread (1MB). */
+
+	set_memory_usage (thread_num, 0, 1 << 20);
+
+/* Check for a v24 continuation file.  These were named pXXXXXXX.  The */
+/* first 16 bits contained a 2 to distinguish it from a LL save file. */
+/* In v25, we name the file fXXXXXXX and use the common header format */
+/* to make Test/Status and computing completion dates easier. */
+
+	continuation = FALSE;
+	tempFileName (w, filename);
+	filename[0] = 'p';
+	fd = _open (filename, _O_BINARY | _O_RDONLY);
+	if (fd > 0) {
+		short	type;
+		short	shortdummy;
+		unsigned long longdummy, fachsw, facmsw;
+		short	file_factor_found, file_bits, file_pass;
+
+		if (read_short (fd, &type) &&
+		    type == 2 &&
+		    read_long (fd, &longdummy, NULL) &&
+		    read_short (fd, &shortdummy) &&
+		    read_short (fd, &file_factor_found) &&
+		    read_short (fd, &shortdummy) &&
+		    read_short (fd, &file_bits) &&
+		    read_short (fd, &file_pass) &&
+		    read_long (fd, &fachsw, NULL) &&
+		    read_long (fd, &facmsw, NULL) &&
+		    read_long (fd, &endpthi, NULL) &&
+		    read_long (fd, &endptlo, NULL)) {
+			OutputBoth (thread_num, "Using old-style factoring save file.\n");
+			facdata.asm_data->FACHSW = fachsw;
+			facdata.asm_data->FACMSW = facmsw;
+			factor_found = file_factor_found;
+			bits = file_bits;
+			pass = file_pass;
+			continuation = TRUE;
+			_close (fd);
+			_unlink (filename);
+		} else {
+			_close (fd);
+		}
+	}
+	
+/* Read v25+ continuation file */
+
+	filename[0] = 'f';
+	if (!continuation &&
+	    (fd = _open (filename, _O_BINARY | _O_RDONLY)) > 0) {
+		unsigned long version, sum, fachsw, facmsw;
+
+		if (read_magicnum (fd, FACTOR_MAGICNUM) &&
+		    read_header (fd, &version, w, &sum) &&
+		    version == FACTOR_VERSION &&
+		    read_long (fd, (unsigned long *) &factor_found, NULL) &&
+		    read_long (fd, &bits, NULL) &&
+		    read_long (fd, &pass, NULL) &&
+		    read_long (fd, &fachsw, NULL) &&
+		    read_long (fd, &facmsw, NULL) &&
+		    read_long (fd, &endpthi, NULL) &&
+		    read_long (fd, &endptlo, NULL)) {
+			_close (fd);
+			facdata.asm_data->FACHSW = fachsw;
+			facdata.asm_data->FACMSW = facmsw;
+			continuation = TRUE;
+		} else {
+			sprintf (buf, READFILEERR, filename);
+			OutputBoth (thread_num, buf);
+			_close (fd);
+			_unlink (filename);
+		}
+	}
+
+/* Init the title */
+
+	sprintf (buf, "Factoring M%ld", p);
+	title (thread_num, buf);
+	sprintf (buf, "%s trial factoring of M%ld to 2^%d\n",
+		 fd > 0 ? "Resuming" : "Starting", p, test_bits);
+	OutputStr (thread_num, buf);
+
+/* Clear all timers */
+
+	clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
+
+/* When doing easy and quick trial factoring on a Mersenne number, */
+/* do not send a message to the server for every bit level we complete. */
+/* If we did, the client would spend more CPU time sending messages to the */
+/* server than actually factoring numbers.  Here we calculate the threshold */
+/* where we'll start reporting results one bit at time.  We've arbitrarily */
+/* chosen the difficulty in trial factoring M80000000 to 2^60 as the */
+/* point where it is worthwhile to report results one bit at a time. */
+
+	report_bits = (unsigned long)
+		(60.0 + log ((double) p / 80000000.0) / log (2.0));
+	if (report_bits >= test_bits) report_bits = test_bits;
+
+/* Loop testing larger and larger factors until we've tested to the */
+/* appropriate number of bits.  Advance one bit at a time because it */
+/* is faster to look for factors at lower bit levels first. */
+/* We always enter this loop if there is a continuation file because v23 */
+/* had higher factoring limits and if we upgrade to v25 midstream, we */
+/* might not send a factoring complete message to the server if we don't */
+/* finish off the current bit level. */
+
+	while (test_bits > bits || continuation) {
+	    unsigned int end_bits;
+	    unsigned long iters, iters_r;
+
+/* Advance one bit at a time to minimize wasted time looking for a */
+/* second factor after a first factor is found. */
+
+	    end_bits = (bits < 50) ? 50 : bits + 1;
+	    if (end_bits > test_bits) end_bits = test_bits;
+	    sprintf (w->stage, "TF%d", end_bits);
+
+/* Compute the ending point for each pass */
+
+	    if (!continuation) {
+		if (end_bits < 64) {
+			endpthi = 0;
+			endptlo = 1L << (end_bits-32);
+		} else {
+			endpthi = 1L << (end_bits-64);
+			endptlo = 0;
+		}
+	    }
+
+/* Precompute some constant for calculating percent complete */
+
+	    if (bits < 32) startpt = 0.0;
+	    else startpt = pow ((double) 2.0, (int) (bits-32));
+	    endpt = endpthi * 4294967296.0 + endptlo;
+
+/* Sixteen passes.  Two for the 1 or 7 mod 8 factors times two for the */
+/* 1 or 2 mod 3 factors times four for the 1, 2, 3, or 4 mod 5 factors. */
+
+	    iters_r = 0;
+	    iters = 0;
+	    first_iter_msg = TRUE;
+	    if (! continuation) pass = 0;
+	    for ( ; pass < 16; pass++) {
+
+/* Set the starting point only if we are not resuming from */
+/* a continuation file.  For no particularly good reason we */
+/* quickly redo trial factoring for factors below 2^50. */
+
+		if (continuation)
+			continuation = FALSE;
+		else {
+			if (bits < 50) {
+				facdata.asm_data->FACHSW = 0;
+				facdata.asm_data->FACMSW = 0;
+			} else if (bits < 64) {
+				facdata.asm_data->FACHSW = 0;
+				facdata.asm_data->FACMSW = 1L << (bits-32);
+			} else {
+				facdata.asm_data->FACHSW = 1L << (bits-64);
+				facdata.asm_data->FACMSW = 0;
+			}
+		}
+
+/* Only test for factors less than 2^32 on the first pass */
+
+		if (facdata.asm_data->FACHSW == 0 &&
+		    facdata.asm_data->FACMSW == 0 && pass != 0)
+			facdata.asm_data->FACMSW = 1;
+
+/* Setup the factoring program */
+
+		stop_reason = factorPassSetup (thread_num, pass, &facdata);
+		if (stop_reason) {
+			factorDone (&facdata);
+			return (stop_reason);
+		}
+
+/* Loop until all factors tested or factor found */
+
+		for ( ; ; ) {
+			int	res;
+			double	currentpt;
+
+/* Do a chunk of factoring */
+
+			start_timer (timers, 0);
+#ifdef SERVER_TESTING
+			if (facdata.asm_data->FACMSW >= 0xFFF00000) {
+				facdata.asm_data->FACHSW++;
+				facdata.asm_data->FACMSW = 0;
+			} else
+				facdata.asm_data->FACMSW += 0x100000;
+			stop_reason = stopCheck (thread_num);
+			if (rand () == 1234 && rand () < 3000) res = 0;
+			else res = 2;
+#else
+			stop_reason = factorAndVerify (thread_num, p, &facdata, &res);
+#endif
+			end_timer (timers, 0);
+			if (res != 2) break;
+
+/* Compute new percentage complete (of this bit level) */
+
+			currentpt = facdata.asm_data->FACHSW * 4294967296.0 +
+				    facdata.asm_data->FACMSW;
+			if (currentpt > endpt) currentpt = endpt;
+			w->pct_complete =
+				(pass + (currentpt - startpt) /
+					(endpt - startpt)) / 16.0;
+
+/* Output informative message */
+
+			if (++iters >= ITER_OUTPUT || first_iter_msg) {
+				char	fmt_mask[80];
+				double	pct;
+				pct = trunc_percent (w->pct_complete);
+				sprintf (fmt_mask,
+					 "%%.%df%%%% of M%%ld to 2^%%d",
+					 PRECISION);
+				sprintf (buf, fmt_mask, pct, p, end_bits);
+				title (thread_num, buf);
+				sprintf (fmt_mask, FACMSG, PRECISION);
+				sprintf (buf, fmt_mask, p, end_bits, pct);
+				if (first_iter_msg) {
+					strcat (buf, "\n");
+					clear_timer (timers, 0);
+				} else {
+					strcat (buf, "  Time: ");
+					print_timer (timers, 0, buf,
+						     TIMER_NL | TIMER_OPT_CLR);
+				}
+				OutputStr (thread_num, buf);
+				iters = 0;
+				first_iter_msg = FALSE;
+			}
+
+/* Output informative message */
+
+			if (++iters_r >= ITER_OUTPUT_RES ||
+			    (NO_GUI && stop_reason)) {
+				char	fmt_mask[80];
+				double	pct;
+				pct = trunc_percent (w->pct_complete);
+				sprintf (fmt_mask, FACMSG, PRECISION);
+				sprintf (buf, fmt_mask, p, end_bits, pct);
+				strcat (buf, "\n");
+				writeResults (buf);
+				iters_r = 0;
+			}
+
+/* If an escape key was hit, write out the results and return */
+
+			if (stop_reason || testSaveFilesFlag (thread_num)) {
+				fd = _open (filename, _O_BINARY | _O_WRONLY | _O_CREAT, CREATE_FILE_ACCESS);
+				write_header (fd, FACTOR_MAGICNUM, FACTOR_VERSION, w);
+				write_long (fd, factor_found, NULL);
+				write_long (fd, bits, NULL);
+				write_long (fd, pass, NULL);
+				write_long (fd, facdata.asm_data->FACHSW, NULL);
+				write_long (fd, facdata.asm_data->FACMSW, NULL);
+				write_long (fd, endpthi, NULL);
+				write_long (fd, endptlo, NULL);
+				_commit (fd);
+				_close (fd);
+				if (stop_reason) {
+					factorDone (&facdata);
+					return (stop_reason);
+				}
+			}
+
+/* Test for completion */
+
+			if (facdata.asm_data->FACHSW > endpthi ||
+			    (facdata.asm_data->FACHSW == endpthi &&
+			     facdata.asm_data->FACMSW >= endptlo))
+				goto nextpass;
+		}
+
+/* Set flag indicating a factor has been found! */
+
+		factor_found = TRUE;
+
+/* We used to continue factoring to find a smaller factor in a later pass. */
+/* We'll continue to do this if the found factor is really small (less than */
+/* 2^56) or if the user sets FindSmallestFactor in prime.ini. */
+
+		find_smaller_factor =
+			(end_bits <= (unsigned int) IniGetInt (INI_FILE, "FindSmallestFactor", 56));
+
+/* Format and output a message */
+
+		makestr (facdata.asm_data->FACHSW,
+			 facdata.asm_data->FACMSW,
+			 facdata.asm_data->FACLSW, str);
+		sprintf (buf, "M%ld has a factor: %s\n", p, str);
+		OutputStr (thread_num, buf);
+		formatMsgForResultsFile (buf, w);
+		writeResults (buf);
+
+/* Send assignment result to the server.  To avoid flooding the server */
+/* with small factors from users needlessly redoing factoring work, make */
+/* sure the factor is more than 50 bits or so. */
+
+		if (strlen (str) >= 15 ||
+		    p > 79300000 ||	/* LMH of new area - remove someday! */
+		    IniGetInt (INI_FILE, "SendAllFactorData", 0)) {
+			struct primenetAssignmentResult pkt;
+			memset (&pkt, 0, sizeof (pkt));
+			strcpy (pkt.computer_guid, COMPUTER_GUID);
+			strcpy (pkt.assignment_uid, w->assignment_uid);
+			strcpy (pkt.message, buf);
+			pkt.result_type = PRIMENET_AR_TF_FACTOR;
+			pkt.n = p;
+			strcpy (pkt.factor, str);
+			pkt.start_bits = (bits < report_bits) ?
+				     (unsigned int) w->sieve_depth : bits;
+			pkt.done = !find_smaller_factor;
+			spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
+		}
+
+/* If we're looking for smaller factors, set a new end point.  Otherwise, */
+/* skip all remaining passes. */
+
+		if (!find_smaller_factor) break;
+
+		if (facdata.asm_data->FACMSW != 0xFFFFFFFF) {
+			endpthi = facdata.asm_data->FACHSW;
+			endptlo = facdata.asm_data->FACMSW+1;
+		} else {
+			endpthi = facdata.asm_data->FACHSW+1;
+			endptlo = 0;
+		}
+	        endpt = endpthi * 4294967296.0 + endptlo;
+
+/* Do next of the 16 passes */
+
+nextpass:	;
+	    }
+
+/* If we've found a factor then we need to send an assignment done */
+/* message if we continued to look for a smaller factor. */
+
+	    if (factor_found) {
+		if (w->assignment_uid[0] && find_smaller_factor) {
+			struct primenetAssignmentResult pkt;
+			memset (&pkt, 0, sizeof (pkt));
+			strcpy (pkt.computer_guid, COMPUTER_GUID);
+			strcpy (pkt.assignment_uid, w->assignment_uid);
+			pkt.result_type = PRIMENET_AR_NO_RESULT;
+			pkt.done = TRUE;
+			spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
+		}
+		break;
+	    }
+
+/* Output a no factor found message */
+
+	    if (end_bits >= report_bits) {
+		unsigned int start_bits;
+
+		start_bits = (end_bits == report_bits) ?
+				(unsigned int) w->sieve_depth : bits;
+		if (start_bits < 32)
+		    sprintf (buf,
+			     "M%ld no factor to 2^%d, Wd%d: %08lX\n",
+			     p, end_bits, PORT, SEC3 (p));
+		else
+		    sprintf (buf,
+			     "M%ld no factor from 2^%d to 2^%d, Wd%d: %08lX\n",
+			     p, start_bits, end_bits, PORT, SEC3 (p));
+		OutputStr (thread_num, buf);
+		formatMsgForResultsFile (buf, w);
+		writeResults (buf);
+
+/* Send no factor found message to the server for each bit */
+/* level (i.e. one bit at a time).  As always to avoid swamping */
+/* the server with needless data, do not send small bit level */
+/* messages - that work has already been done. */
+
+		if (end_bits >= 50 ||
+		    p > 79300000 ||	/* LMH of new area - remove someday! */
+		    IniGetInt (INI_FILE, "SendAllFactorData", 0)) {
+			struct primenetAssignmentResult pkt;
+			memset (&pkt, 0, sizeof (pkt));
+			strcpy (pkt.computer_guid, COMPUTER_GUID);
+			strcpy (pkt.assignment_uid, w->assignment_uid);
+			strcpy (pkt.message, buf);
+			pkt.result_type = PRIMENET_AR_TF_NOFACTOR;
+			pkt.n = p;
+			pkt.start_bits = start_bits;
+			pkt.end_bits = end_bits;
+			pkt.done = (w->work_type == WORK_FACTOR) &&
+				   (end_bits >= test_bits);
+			spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
+		}
+	    }
+
+/* Advance the how far factored variable */
+
+	    bits = end_bits;
+	}
+
+/* Clean up allocated factoring data */
+
+	factorDone (&facdata);
+
+/* Delete the continuation file */
+
+	_unlink (filename);
+
+/* If we found a factor, then we likely performed much less work than */
+/* we estimated.  Make sure we do not update the rolling average with */
+/* this inaccurate data. */
+
+	if (factor_found) invalidateNextRollingAverageUpdate ();
+
+/* If we finished this work unit, return the happy news */
+
+	if (factor_found || w->work_type == WORK_FACTOR)
+		return (STOP_WORK_UNIT_COMPLETE);
+
+/* Update the worktodo file */
+
+	w->sieve_depth = bits;
+	stop_reason = updateWorkToDoLine (thread_num, w);
+	if (stop_reason) return (stop_reason);
+
+/* All done */
+
+	return (0);
+}
+
+/***************************************/
+/* Routines to run a Lucas-Lehmer test */
+/***************************************/
+
+/* Structure for holding lucas setup data */
+
+typedef struct {		/* Some of the data kept during LL test */
+	gwhandle gwdata;	/* When we multithread the gwnum code, */
+				/* gwsetup will return a handle */
+	gwnum	lldata;		/* Number in the lucas sequence */
+	unsigned long units_bit; /* Shift count */
+} llhandle;
+
+/* Prepare for running a Lucas-Lehmer test.  Caller must have already */
+/* called gwinit. */
 
 int lucasSetup (
+	int	thread_num,	/* Worker thread number */
 	unsigned long p,	/* Exponent to test */
-	unsigned long fftlen)	/* Specific FFT length to use, or zero */
+	unsigned long fftlen,	/* Specific FFT length to use, or zero */
+	llhandle *lldata)	/* Common LL data structure */
 {
 	int	res;
 
-/* Init the FFT code for squaring modulo 1.0*2^p-1.  NOTE: As a kludge for */
-/* the benchmarking code, an odd FFTlen sets up the 1.0*2p+1 FFT code. */
+/* Init LL data structure */
 
+	lldata->lldata = NULL;
+	lldata->units_bit = 0;
+
+/* Init the FFT code for squaring modulo 1.0*2^p-1.  NOTE: As a kludge for */
+/* the benchmarking code, an odd FFTlen sets up the 1.0*2^p+1 FFT code. */
+
+	gwset_specific_fftlen (&lldata->gwdata, fftlen & ~1);
 	if (fftlen & 1)
-		res = gwsetup (1.0, 2, p, 1, fftlen-1);
+		res = gwsetup (&lldata->gwdata, 1.0, 2, p, 1);
 	else
-		res = gwsetup (1.0, 2, p, -1, fftlen);
+		res = gwsetup (&lldata->gwdata, 1.0, 2, p, -1);
+
+/* If we were unable to init the FFT code, then print an error message */
+/* and return an error code.  There is one exception, when we are doing */
+/* a benchmark of all possible FFT implementations, do not print an error */
+/* message. */
+
 	if (res) {
-		LLDATA = NULL;
-		return (res);
+		if (!lldata->gwdata.bench_pick_nth_fft) {
+			char	buf[80];
+			sprintf (buf, "Cannot initialize FFT code, errcode=%d\n", res);
+			OutputBoth (thread_num, buf);
+		}
+		return (STOP_FATAL_ERROR);
 	}
 		
 /* Allocate memory for the Lucas-Lehmer data (the number to square) */
 
-	LLDATA = gwalloc ();
+	lldata->lldata = gwalloc (&lldata->gwdata);
+	if (lldata->lldata == NULL) {
+		gwdone (&lldata->gwdata);
+		OutputStr (thread_num, "Error allocating memory for FFT data.\n");
+		return (STOP_OUT_OF_MEM);
+	}
 	return (0);
 }
 
 /* Clean up after running a Lucas-Lehmer test */
 
-void lucasDone (void)
+void lucasDone (
+	llhandle *lldata)	/* Common LL data structure */
 {
 
 /* Free memory for the Lucas-Lehmer data */
 
-	gwfree (LLDATA);
+	gwfree (&lldata->gwdata, lldata->lldata);
 
 /* Cleanup the FFT code */
 
-	gwdone ();
+	gwdone (&lldata->gwdata);
 }
 
-/* Continue factoring/testing Mersenne numbers */
+/* Generate the 64-bit residue of a Lucas-Lehmer test.  Returns -1 for an */
+/* illegal result, 0 for a zero result, 1 for a non-zero result. */
 
-void primeContinue (void) 
+int generateResidue64 (
+	llhandle *lldata,
+	unsigned long *reshi,
+	unsigned long *reslo)
 {
-	struct work_unit w;
-	char	filename[20];
-	unsigned int line, pass, sequential;
-	int	fd;
-	short	type;
-	unsigned long counter, fftlen;
-static	int	first_call = TRUE;
+	giant	tmp;
+	int	err_code;
 
-/* Output a message indicating we are starting an LL test */
+	*reshi = *reslo = 0;
+	tmp = popg (&lldata->gwdata.gdata, (lldata->gwdata.n >> 5) + 5);
+	err_code = gwtogiant (&lldata->gwdata, lldata->lldata, tmp);
+	if (err_code < 0) return (err_code);
+	if (tmp->sign == 0) return (0);
+	gshiftright (lldata->units_bit, tmp);
+	if (tmp->sign > 0) *reslo = tmp->n[0];
+	if (tmp->sign > 1) *reshi = tmp->n[1];
+	pushg (&lldata->gwdata.gdata, 1);
+	return (1);
+}
 
-	if (first_call) {
-		char	buf[80];
-		first_call = FALSE;
-		sprintf (buf, "Mersenne number primality test program version %s\n", VERSION);
-		OutputStr (buf);
+/* Return TRUE if a continuation file exists.  If one does exist, */
+/* make sure it is named pXXXXXXX. */
+
+int continuationFileExists (
+	int	thread_num,
+	char	*filename)
+{
+	char	backupname[32];
+	char	buf[80];
+
+	if (fileExists (filename)) return (TRUE);
+	strcpy (backupname, filename);
+	backupname[0] = 'q';
+	if (fileExists (backupname)) {
+		sprintf (buf, RENAME_MSG, backupname, filename);
+		OutputBoth (thread_num, buf);
+		rename (backupname, filename);
+		return (TRUE);
 	}
-
-/* See if we are in a sleep time period */
-/* Sleep in two second intervals so we can detect a thread stop */
-/* or program exit command. */
-
-again:	if (SLEEP_TIME) {
-		time_t	current_time;
-		char	buf[80];
-		sprintf (buf, "Sleeping until %s\n", ctime (&SLEEP_TIME));
-		OutputStr (buf);
-		title ("Sleeping");
-		ChangeIcon (IDLE_ICON);
-		for ( ; ; ) {
-			time (&current_time);
-			if (current_time >= SLEEP_TIME) break;
-			Sleep (2000);
-			if (escapeCheck ()) return;
-		}
-		ChangeIcon (WORKING_ICON);
-		readIniFiles ();
-		goto again;
+	backupname[0] = 'r';
+	if (fileExists (backupname)) {
+		sprintf (buf, RENAME_MSG, backupname, filename);
+		OutputBoth (thread_num, buf);
+		rename (backupname, filename);
+		return (TRUE);
 	}
+	return (FALSE);
+}
 
-/* If the ESC key is hit (or we shouldn't even get started due to */
-/* a laptop running on a battery) then return. */
+/* Read the data portion of an intermediate Lucas-Lehmer results file */
 
-	if (escapeCheck ()) return;
+int convertOldStyleLLSaveFile (
+	llhandle *lldata,
+	int	fd,
+	unsigned long *counter,
+	unsigned long *error_count)
+{
+	unsigned long i, buggy_error_count;
+	unsigned long fftlen;
+	unsigned long sum, filesum;
+	int	bits, zero;		/* Guard against a zeroed out file */
+	unsigned short type;
 
-/* Set the process/thread priority */
+	_lseek (fd, 0, SEEK_SET);
+	if (! read_short (fd, (short *) &type)) goto err;
+	if (! read_long (fd, counter, NULL)) goto err;
 
-	SetPriority ();
-
-/* Send new completion dates once a month */
-
-	ConditionallyUpdateEndDates ();
-
-/* Every time the user chooses Test/Continue, clear the timer that */
-/* prevents communication for a period of time.  This allows the user */
-/* to try something and if it doesn't work, ESC and choose Test/Continue */
-/* to try some other system settings (without waiting an hour). */
-
-	next_comm_time = 0; 
-
-/* Loop until the ESC key is hit or the entire work-to-do INI file */
-/* is processed and we are not connected to the server. */
-
-	sequential = IniGetInt (INI_FILE, "SequentialWorkToDo", 1);
-	for ( ; ; ) {
-
-/* Clear variable indicating reason for stopping */
-
-	STOP_REASON = 0;
-
-/* Send any queued results and get work to do (if necessary) */
-
-	CHECK_WORK_QUEUE = 1;
-	if (! communicateWithServer ()) goto check_stop_code;
-
-/* If the ESC key is hit, break out of this loop */
-
-	if (escapeCheck ()) goto check_stop_code;
-
-/* See if there is any work queued up for us to do. */
-/* If not, end the thread if we're not connected to primenet. */
-/* Otherwise loop until we get some work from primenet. */
-
-	IniFileOpen (WORKTODO_FILE, 0);
-	if (IniGetNumLines (WORKTODO_FILE) == 0) {
-		ChangeIcon (IDLE_ICON);
-		if (! USE_PRIMENET) {
-			OutputSomewhere (DONE_MSG1);
-			OutputSomewhere (DONE_MSG2);
-			OutputSomewhere (DONE_MSG3);
-			goto done;
-		}
-		title ("IDLE");
-		Sleep (1000);
-		ChangeIcon (WORKING_ICON);
-		continue;
-	}
-
-/* Clear timer indicating we need to stop and reprocess the worktodo.ini */
-/* file because more or less memory is now available. */
-
-	STOP_TIME = 0;
-
-/* Make three passes over the worktodo.ini file looking for the ideal */
-/* piece of work to do.  In pass 1, we look for high-priority work.  This */
-/* includes trial and P-1 factoring prior to an LL test.  If a factor is */
-/* found, it can reduce the amount of work we have queued up, requiring */
-/* us to ask the server for more.  In pass 2, we process the file in */
-/* order (except for LL tests that are not yet ready because the P-1 */
-/* factoring has not completed).  In pass 3, as a last resort we start */
-/* LL tests where P-1 factoring is stalled because of low memory. */
-
-/* Skip one pass on large well-behaved work files */
-
-	for (pass = WELL_BEHAVED_WORK ? 2 : 1; pass <= 3; pass++) {
-
-/* Examine each line in the worktodo.ini file */
-
-	for (line = 1; ; line++) {
-
-/* Clear flag indicating we are using a lot of memory */
-
-	HIGH_MEMORY_USAGE = FALSE;
-
-/* Read the line from the work file, break when out of lines */
-
-	if (!parseWorkToDoLine (line, &w)) break;
-
-/* Make sure this line of work from the file makes sense. The exponent */
-/* should be a prime number, bounded by values we can handle, and we */
-/* should never be asked to factor a number more than we are capable of. */
-
-	if (w.k == 1.0 && w.b == 2 && !isPrime (w.n) && w.c == -1 &&
-	    w.work_type != WORK_ECM && w.work_type != WORK_PMINUS1 &&
-	    w.work_type != WORK_ADVANCEDFACTOR) {
-		char	buf[80];
-		sprintf (buf, "Error: Work-to-do file contained composite exponent: %ld\n", w.n);
-		LogMsg (buf);
-		updateWorkToDo (w.k, w.b, w.n, w.c, WORK_FACTOR, 0);
-		goto did_some_work;
-	}
-	if ((w.work_type == WORK_TEST || w.work_type == WORK_DBLCHK) &&
-	    (w.n < MIN_PRIME ||
-	     w.n > (unsigned long) (CPU_FLAGS & CPU_SSE2 ? MAX_PRIME_SSE2 : MAX_PRIME))) {
-		char	buf[80];
-		sprintf (buf, "Error: Work-to-do file contained bad LL exponent: %ld\n", w.n);
-		LogMsg (buf);
-		updateWorkToDo (w.k, w.b, w.n, w.c, WORK_FACTOR, 0);
-		goto did_some_work;
-	}
-	if (w.work_type == WORK_FACTOR &&
-	    (w.n < 727 || w.n > MAX_FACTOR || w.bits >= factorLimit (w.n, w.work_type))) {
-		char	buf[100];
-		sprintf (buf, "Error: Work-to-do file contained bad factoring assignment: %ld,%d\n", w.n, w.bits);
-		LogMsg (buf);
-		updateWorkToDo (w.k, w.b, w.n, w.c, WORK_FACTOR, 0);
-		goto did_some_work;
-	}
-
-/* Does a continuation file exist?  If so, open and validate it, setting */
-/* fftlen if this is an LL save file.  Otherwise, set fd to zero. */
-
-readloop:
-	tempFileName (filename, w.n);
-	fd = 0;
-	fftlen = 0;
-	counter = 0;
-	if (continuationFileExists (filename)) {
-
-/* Read the initial data from the file */
-
-		if (! readFileHeader (filename, &fd, &type, &counter)) {
-			char	buf[80];
-readerr:		sprintf (buf, READFILEERR, filename);
-			OutputBoth (buf);
-			_unlink (filename);
-			goto readloop;
-		}
-
-/* Type 3 files are obsolete Advanced / Factoring continuation files */
-
-		if (type == 3) goto readerr;
-
+/* Check for corrupt LL continuation files. */
 /* Type 2 files are factoring continuation files */
+/* Type 3 files are obsolete Advanced / Factoring continuation files */
 /* Type 4 files are Advanced / Factoring continuation files */
 
-		if (type < 2 || type > 4) {
+	if (type <= 7) goto err;
 
 /* Deduce the fftlen from the type field */
 
-	 		if (type & 1)
-				fftlen = (unsigned long) type - 1;
-			else	
-				fftlen = (unsigned long) type * 1024;
-
-/* Check for corrupt LL continuation files. */
-
-			if ((type & 1 &&
-			     fftlen != gwmap_to_fftlen (1.0, 2, w.n, -1)) ||
-			    counter > w.n) {
-				_close (fd);
-				goto readerr;
-			}
-		}
-	}
-
-/* See if the exponent needs more factoring.  We treat factoring that is */
-/* part of a pfactor or LL test as priority work (done in pass 1).  If the */
-/* save file indicates the LL test has begun, then don't do the factoring */
-/* (it would destroy the LL save file!) */
-
-	if (w.k == 1.0 && w.b == 2 && w.c == -1 &&
-	    ((w.work_type == WORK_FACTOR && pass == 2) ||
-	     ((w.work_type == WORK_PFACTOR ||
-	       w.work_type == WORK_TEST ||
-	       w.work_type == WORK_DBLCHK) &&
-	      ((pass == 1 && !sequential) || pass == 2) &&
-	      ! IniGetInt (INI_FILE, "SkipTrialFactoring", 0))) &&
-	    (fd == 0 || fftlen == 0) &&
-	    w.bits < factorLimit (w.n,
-			          w.work_type != WORK_PFACTOR ? w.work_type :
-			          w.pminus1ed ? WORK_DBLCHK : WORK_TEST)) {
-		int	res;
-		if (! primeFactor (w.n, w.bits, &res, w.work_type, fd))
-			goto check_stop_code;
-		if (res == 999) goto readerr;
-		if (w.work_type == WORK_FACTOR && WELL_BEHAVED_WORK) {
-			line--;
-			continue;
-		}
-		goto did_some_work;
-	}
-
-/* Make sure the first-time user runs a successful self-test. */
-
-	if (w.k == 1.0 && w.b == 2 && w.c == -1 &&
-	    ((pass == 1 && !sequential && !w.pminus1ed) || pass == 2) &&
-	    (w.work_type == WORK_TEST ||
-	     w.work_type == WORK_DBLCHK || w.work_type == WORK_PFACTOR)) {
-		if (! selfTest (w.n)) goto check_stop_code;
-	}
-
-/* See if this exponent needs special P-1 factoring.  We treat P-1 factoring */
-/* that is part of an LL test as priority work (done in pass 1).  If the */
-/* save file indicates an LL test is more than 50% complete, then don't */
-/* do the factoring - it would likely annoy the user. */
-
-	if (((w.work_type == WORK_PFACTOR && pass == 2) ||
-	     ((w.work_type == WORK_TEST || w.work_type == WORK_DBLCHK) &&
-	      ! w.pminus1ed &&
-	      ((pass == 1 && !sequential) || pass == 2) &&
-	      (fd == 0 || fftlen == 0 || counter < w.n / 2)))) {
-		if (fd) _close (fd), fd = 0;
-		if (! pick_fft_size (w.k, w.b, w.n, w.c)) goto check_stop_code;
-		if (! pfactor (&w)) {
-			if (STOP_REASON != STOP_NOT_ENOUGH_MEM) goto check_stop_code;
-		} else
-			goto did_some_work;
-	}
-
-/* Run the LL test */
-
-	if ((pass == 1 && w.work_type == WORK_ADVANCEDTEST) ||
-	    (((pass == 2 && (w.pminus1ed || counter >= w.n / 2)) || pass == 3) &&
-	     (w.work_type == WORK_TEST || w.work_type == WORK_DBLCHK))) {
-		unsigned long units_bit, err_cnt;
-		int	res;
-
-/* Setup */
-
-		if (! pick_fft_size (w.k, w.b, w.n, w.c)) goto check_stop_code;
-		res = lucasSetup (w.n, fftlen ? fftlen : advanced_map_exponent_to_fftlen (w.n));
-		if (res) {
-			char	buf[80];
-			sprintf (buf, "Cannot initialize FFT code, errcode=%d\n", res);
-			OutputBoth (buf);
-			goto done;
-		}
-
-/* Read the initial data from the file, on failure try the backup */
-/* intermediate file. */
-
-		if (fd && fftlen) {
-			if (! readFileData (fd, &units_bit, &err_cnt)) {
-				lucasDone ();
-				goto readerr;
-			}
+	if (type & 1)
+		fftlen = (unsigned long) type - 1;
+	else	
+		fftlen = (unsigned long) type * 1024;
 
 /* Handle case where the save file was for a different FFT length than */
-/* we would prefer to use.  This can happen, for example, when upgrading */
-/* to a Pentium 4 with its SSE2-based FFT using less precision. */
+/* we would prefer to use. */
 
-			if (fftlen != advanced_map_exponent_to_fftlen (w.n)) {
-				giant	g;
-				g = newgiant ((w.n + 32) / sizeof (short));
-				gwtogiant (LLDATA, g);
-				lucasDone ();
-				res = lucasSetup (w.n, advanced_map_exponent_to_fftlen (w.n));
-				if (res) {
-					char	buf[80];
-					sprintf (buf, "Cannot initialize FFT code, errcode=%d\n", res);
-					OutputBoth (buf);
-					free (g);
-					goto done;
-				}
-				gianttogw (g, LLDATA);
-				free (g);
-			}
+	if (fftlen != gwfftlen (&lldata->gwdata)) {
+		OutputStr (MAIN_THREAD_NUM, "FFT length mismatch in old LL save file\n");
+		goto err;
+	}
+
+/* Read the fft data */
+
+	bits = (int) lldata->gwdata.BITS_PER_WORD + 1;
+	sum = 0;
+	zero = TRUE;
+	for (i = 0; i < gwfftlen (&lldata->gwdata); i++) {
+		long	x;
+		if (bits <= 15) {
+			short y;
+			if (! read_short (fd, &y)) goto err;
+			x = (long) y;
+		} else {
+			if (! read_slong (fd, &x, NULL)) goto err;
 		}
+		if ((x & 0xFF000000) != 0 && (x & 0xFF000000) != 0xFF000000)
+			goto err;
+		sum = (uint32_t) (sum + x);
+		if (x) zero = FALSE;
+		set_fft_value (&lldata->gwdata, lldata->lldata, i, x);
+	}
+	if (!read_long (fd, &filesum, NULL)) goto err;
+	if (!read_long (fd, &lldata->units_bit, &sum)) goto err;
+	if (!read_long (fd, &buggy_error_count, &sum)) goto err;
+	/* Now read in the correct V19 error count */
+	if (!read_long (fd, error_count, &sum)) goto err;
+	/* Kludge so that buggy v17 save files are rejected */
+	/* V18 and later flip the bottom checksum bit */
+	if (lldata->units_bit != 0) sum ^= 0x1;
+	if (filesum != sum) goto err;
+	if (zero) goto err;
+	if (lldata->units_bit >= lldata->gwdata.n) goto err;
+	_close (fd);
+	return (TRUE);
+err:	_close (fd);
+	return (FALSE);
+}
 
-/* Start off with the 1st Lucas number */
+/* Write intermediate Lucas-Lehmer results to a file */
+/* The LL save file format is: */
+/*	52-bytes	standard header for all work types */
+/*	u32		error_count */
+/*	u32		iteration counter */
+/*	u32		shift_count */
+/*	gwnum		FFT data (u32 len, array u32s) */
 
-		else {
-			counter = 2;
-			units_bit = 0;
-			err_cnt = 0;
-		}
+#define LL_MAGICNUM		0x2c7330a8
+#define LL_VERSION		1
+#define LL_ERROR_COUNT_OFFSET	52
 
-/* We read the continuation file successfully, continue LL testing */
+int writeLLSaveFile (
+	llhandle *lldata,
+	char	*filename,
+	struct work_unit *w,
+	unsigned long counter,
+	unsigned long error_count)
+{
+	int	fd;
+	unsigned long sum = 0;
 
-		if (! prime (w.n, counter, units_bit, err_cnt)) {
-			lucasDone ();
-			goto check_stop_code;
-		}
-		lucasDone ();
-		goto did_some_work;
+/* If we are allowed to create multiple intermediate files, then */
+/* write to a file called rXXXXXXX. */
+
+	if (TWO_BACKUP_FILES && strlen (filename) == 8)
+		filename[0] = 'r';
+
+/* Now save to the intermediate file */
+
+	fd = _open (filename, _O_BINARY | _O_WRONLY | _O_TRUNC | _O_CREAT, CREATE_FILE_ACCESS);
+	if (fd < 0) return (FALSE);
+
+	if (!write_header (fd, LL_MAGICNUM, LL_VERSION, w)) goto err;
+
+	if (!write_long (fd, error_count, &sum)) goto err;
+	if (!write_long (fd, counter, &sum)) goto err;
+	if (!write_long (fd, lldata->units_bit, &sum)) goto err;
+	if (!write_gwnum (fd, &lldata->gwdata, lldata->lldata, &sum)) goto err;
+
+	if (!write_checksum (fd, sum)) goto err;
+
+	_commit (fd);
+	_close (fd);
+
+/* Now rename the intermediate files */
+
+	if (TWO_BACKUP_FILES && strlen (filename) == 8) {
+		char	backupname[16];
+		strcpy (backupname, filename);
+		backupname[0] = 'q'; filename[0] = 'p';
+		_unlink (backupname);
+		 rename (filename, backupname);
+		backupname[0] = 'r';
+		rename (backupname, filename);
 	}
 
-/* Check for Advanced / Factoring work */
+	return (TRUE);
 
-	if (w.work_type == WORK_ADVANCEDFACTOR && pass == 2) {
-		if (! primeSieve (w.bits, w.B1, (unsigned short) w.B2_start,
-				  (unsigned short) w.B2_end, fd))
-			goto check_stop_code;
-		goto did_some_work;
-	}
+/* An error occured.  Delete the current file. */
 
-/* Close the temporary file if we haven't used it by now */
+err:	_close (fd);
+	_unlink (filename);
+	return (FALSE);
+}
 
-	if (fd) _close (fd);
+/* Update the error count in an intermediate file */
 
-/* See if this is an ECM factoring line */
+void writeNewErrorCount (
+	char	*filename,
+	unsigned long new_error_count)
+{
+	int	fd;
+	unsigned long sum, old_error_count;
 
-	if (w.work_type == WORK_ECM && pass == 2) {
-		if (! ecm (w.k, w.b, w.n, w.c, w.B1, w.B2_start, w.B2_end,
-			   w.curves_to_do, w.curve))
-			goto check_stop_code;
-		goto did_some_work;
-	}
+/* Open the intermediate file, position past the FFT data */
 
-/* See if this is an P-1 factoring line */
+	fd = _open (filename, _O_BINARY | _O_RDWR);
+	if (fd < 0) return;
 
-	if (w.work_type == WORK_PMINUS1 && pass == 2) {
-		if (! pick_fft_size (w.k, w.b, w.n, w.c)) goto check_stop_code;
-		if (! pminus1 (w.k, w.b, w.n, w.c, w.B1, w.B2_start, w.B2_end, FALSE))
-			goto check_stop_code;
-		goto did_some_work;
-	}
+/* Read in the checksum and old error count */
 
-/* This work-to-do line wasn't processed by any of the cases above */
-/* Move onto the next worktodo line */
+	if (!read_checksum (fd, &sum)) goto err;
+	_lseek (fd, LL_ERROR_COUNT_OFFSET, SEEK_SET);
+	if (!read_long (fd, &old_error_count, NULL)) goto err;
 
-	}
+/* Update the checksum */
 
-/* Make another pass over the worktodo.ini file */
+	sum = sum - old_error_count + new_error_count;
 
-	}
+/* Write out the checksum and new error count */
 
-/* Ugh, we made three passes over the worktodo file and couldn't find */
-/* any work to do.  I think this can only happen if we are low on memory. */
-/* If STOP_TIME is set, sleep until the timer expires. */
+	if (!write_checksum (fd, sum)) goto err;
+	_lseek (fd, LL_ERROR_COUNT_OFFSET, SEEK_SET);
+	if (!write_long (fd, new_error_count, NULL)) goto err;
 
-	if (STOP_TIME) {
-		time_t	current_time;
-		char	buf[80];
-		sprintf (buf, "Sleeping until %s\n", ctime (&STOP_TIME));
-		OutputStr (buf);
-		title ("Sleeping");
-		ChangeIcon (IDLE_ICON);
-		for ( ; ; ) {
-			time (&current_time);
-			if (current_time >= STOP_TIME) break;
-			Sleep (2000);
-			if (escapeCheck ()) return;
-		}
-		ChangeIcon (WORKING_ICON);
-	}
+/* Close file and return */
 
-/* Loop to potentially contact the server for more work and then process */
-/* the updated work-to-do file. */
+err:	_close (fd);
+}
 
-did_some_work:;
-	}
+/* Read the data portion of an intermediate Lucas-Lehmer results file */
 
-/* Examine the stop reason (if any) and either return, reread the INI */
-/* files, or examine the work-to-do file for more work. */
+int readLLSaveFile (
+	llhandle *lldata,
+	char	*filename,
+	struct work_unit *w,
+	unsigned long *counter,
+	unsigned long *error_count)
+{
+	int	fd;
+	unsigned long sum, filesum, version;
 
-check_stop_code:
+	fd = _open (filename, _O_BINARY | _O_RDONLY);
+	if (fd <= 0) return (FALSE);
 
-/* If this was a timed run, read the new INI file settings */
-/* and continue processing */
+	if (!read_magicnum (fd, LL_MAGICNUM))
+		return (convertOldStyleLLSaveFile (lldata, fd, counter,
+						   error_count));
+	if (!read_header (fd, &version, w, &filesum)) goto err;
+	if (version != LL_VERSION) goto err;
 
-	if (STOP_REASON == STOP_TIMEOUT) {
-		readIniFiles ();
-		goto again;
-	}
+	sum = 0;
+	if (!read_long (fd, error_count, &sum)) goto err;
+	if (!read_long (fd, counter, &sum)) goto err;
+	if (!read_long (fd, &lldata->units_bit, &sum)) goto err;
+	if (lldata->units_bit >= lldata->gwdata.n) goto err;
 
-/* If we stopped because the available memory changed, then reprocess */
-/* the worktodo file from the beginning in case there are items that */
-/* were stalled waiting for more memory. */
+	if (!read_gwnum (fd, &lldata->gwdata, lldata->lldata, &sum)) goto err;
 
-	if (STOP_REASON == STOP_MEM_CHANGED) {
-		OutputStr ("Restarting with new memory settings.\n");
-		goto did_some_work;
-	}
-
-/* Otherwise the escape key was hit, close the worktodo file in case */
-/* WELL_BEHAVED_WORK caused us to delay writing the file, then return */
-
-done:	IniFileClose (WORKTODO_FILE);
+	if (filesum != sum) goto err;
+	_close (fd);
+	return (TRUE);
+err:	_close (fd);
+	return (FALSE);
 }
 
 /* Increment the error counter.  The error counter is one 32-bit */
@@ -1536,18 +3156,33 @@ void inc_error_count (
 /* of the location of the ever changing units bit. */
 
 void lucas_fixup (
-	unsigned long *units_bit,
+	llhandle *lldata,
 	unsigned long p)	/* Exponent being tested */
 {
 
 /* We are about to square the number, the units bit position will double */
 
-	*units_bit <<= 1;
-	if (*units_bit >= p) *units_bit -= p;
+	lldata->units_bit <<= 1;
+	if (lldata->units_bit >= p) lldata->units_bit -= p;
 
 /* Tell gwnum code the value to subtract 2 from the squared result. */
 
-	gwsetaddinatbit (-2, *units_bit);
+	gwsetaddinatbit (&lldata->gwdata, -2, lldata->units_bit);
+}
+
+/* Generate random FFT data for timing the Lucas-Lehmer code */
+
+void generateRandomData (
+	llhandle *lldata)
+{
+	unsigned long i;
+
+/* Fill data space with random values. */
+
+	srand ((unsigned) time (NULL));
+	for (i = 0; i < gwfftlen (&lldata->gwdata); i++) {
+		set_fft_value (&lldata->gwdata, lldata->lldata, i, rand() & 0xFF);
+	}
 }
 
 /* For exponents that are near an FFT limit, do 1000 sample iterations */
@@ -1555,25 +3190,54 @@ void lucas_fixup (
 /* the average roundoff error to determine which FFT size to use. */
 
 int pick_fft_size (
-	double	k,
-	unsigned long b,
-	unsigned long p,
-	signed long c)
+	int	thread_num,
+	struct work_unit *w)
 {
+	llhandle lldata;
 	char	buf[120];
 	double	softpct, total_error, avg_error, max_avg_error;
-	unsigned long small_fftlen, large_fftlen, fftlen;
-	int	i, res;
+	unsigned long small_fftlen, large_fftlen;
+	int	i, stop_reason;
 
 /* We only do this for Mersenne numbers */
 
-	if (k != 1.0 || b != 2 || c != -1) return (TRUE);
+	if (w->k != 1.0 || w->b != 2 || w->c != -1) return (0);
 
 /* We don't do this for small exponents.  We've not studied the average */
 /* error enough on smaller FFT sizes to intelligently pick the FFT size. */
 /* Also, for really large exponents there is no larger FFT size to use! */
 
-	if (p <= 5000000) return (TRUE);
+	if (w->n <= 5000000) return (0);
+
+/* If we've already calculated the best FFT size, then return */
+
+	if (w->forced_fftlen) return (0);
+
+/* If we have an old-style (v24) entry for this exponent in local.ini, then */
+/* use it.  V25 and later store the fft length in the worktodo.ini file. */
+
+	IniGetString (LOCALINI_FILE, "SoftCrossoverData", buf, sizeof (buf), "0");
+	if (w->n == (unsigned long) atol (buf)) {
+		char	*comma;
+		unsigned long fftlen;
+		comma = strchr (buf, ',');
+		if (comma != NULL) {
+			*comma++ = 0;
+			fftlen = atol (comma);
+			comma = strchr (comma, ',');
+			if (comma != NULL) {
+				unsigned long sse2;
+				*comma++ = 0;
+				sse2 = atol (comma);
+				if ((sse2 && (CPU_FLAGS & CPU_SSE2)) ||
+				    (!sse2 && !(CPU_FLAGS & CPU_SSE2))) {
+					w->forced_fftlen = fftlen;
+					stop_reason = updateWorkToDoLine (thread_num, w);
+					if (stop_reason) return (stop_reason);
+				}
+			}
+		}
+	}
 
 /* Get the info on how what percentage of exponents on either side of */
 /* an FFT crossover we will do this 1000 iteration test. */
@@ -1584,14 +3248,10 @@ int pick_fft_size (
 /* If this exponent is not close to an FFT crossover, then we are done */
 
 	small_fftlen = gwmap_to_fftlen (1.0, 2,
-			(unsigned long) ((1.0 - softpct) * p), -1);
+			(unsigned long) ((1.0 - softpct) * w->n), -1);
 	large_fftlen = gwmap_to_fftlen (1.0, 2,
-			(unsigned long) ((1.0 + softpct) * p), -1);
-	if (small_fftlen == large_fftlen || large_fftlen == 0) return (TRUE);
-
-/* If we've already picked an FFT length, then return */
-
-	if (fftlen_from_ini_file (p)) return (TRUE);
+			(unsigned long) ((1.0 + softpct) * w->n), -1);
+	if (small_fftlen == large_fftlen || large_fftlen == 0) return (0);
 
 /* Let the user be more conservative or more aggressive in picking the */
 /* acceptable average error.  By default, we accept an average error */
@@ -1607,79 +3267,75 @@ int pick_fft_size (
 
 	sprintf (buf,
 		 "Trying 1000 iterations for exponent %ld using %dK FFT.\n",
-		 p, small_fftlen / 1024);
-	OutputBoth (buf);
+		 w->n, small_fftlen / 1024);
+	OutputBoth (thread_num, buf);
 	sprintf (buf,
 		 "If average roundoff error is above %.5g, then a larger FFT will be used.\n",
 		 max_avg_error);
-	OutputBoth (buf);
+	OutputBoth (thread_num, buf);
 
 /* Init the FFT code using the smaller FFT size */
 
-	res = lucasSetup (p, small_fftlen);
-	if (res) {
-		char	buf[80];
-		sprintf (buf, "Cannot initialize FFT code, errcode=%d\n", res);
-		OutputBoth (buf);
-		return (FALSE);
-	}
+	gwinit (&lldata.gwdata);
+	stop_reason = lucasSetup (thread_num, w->n, small_fftlen, &lldata);
+	if (stop_reason) return (stop_reason);
 
 /* Fill data space with random values then do one squaring to make */
 /* the data truly random. */
 
-	generateRandomData ();
-	gwsetnormroutine (0, TRUE, 0);
-	gwstartnextfft (TRUE);
-	gwsquare (LLDATA);
+	generateRandomData (&lldata);
+	gwsetnormroutine (&lldata.gwdata, 0, TRUE, 0);
+	gwstartnextfft (&lldata.gwdata, TRUE);
+	gwsquare (&lldata.gwdata, lldata.lldata);
 
 /* Average the roundoff error over a 1000 iterations. */
 
 	for (i = 0, total_error = 0.0; ; ) {
-		MAXERR = 0.0;
-		gwsquare (LLDATA);
-		total_error += MAXERR;
-		if (escapeCheck ()) {
-			lucasDone ();
-			return (FALSE);
+		gw_clear_maxerr (&lldata.gwdata);
+		gwsquare (&lldata.gwdata, lldata.lldata);
+		total_error += gw_get_maxerr (&lldata.gwdata);
+		stop_reason = stopCheck (thread_num);
+		if (stop_reason) {
+			lucasDone (&lldata);
+			return (stop_reason);
 		}
 		if (++i == 1000) break;
 		if (i % 100 == 0) {
 			sprintf (buf,
 				 "After %d iterations average roundoff error is %.5g.\n",
 				 i, total_error / (double) i);
-			OutputStr (buf);
+			OutputStr (thread_num, buf);
 		}
 	}
 	avg_error = total_error / 1000.0;
-	lucasDone ();
+	lucasDone (&lldata);
 
 /* Now decide which FFT size to use based on the average error. */
-/* Save this info in local.ini so that we don't need to do this again. */
-/* We write the SSE2 flag to the INI file so that it won't cause a problem */
-/* if the local.ini file is copied between P3 and P4 machines. */
+/* Save this info in worktodo.ini so that we don't need to do this again. */
 
-	fftlen = (avg_error <= max_avg_error) ? small_fftlen : large_fftlen;
-	sprintf (buf, "%ld,%ld,%d", p, fftlen, CPU_FLAGS & CPU_SSE2 ? 1 : 0);
-	IniWriteString (LOCALINI_FILE, "SoftCrossoverData", buf);
+	w->forced_fftlen = (avg_error <= max_avg_error) ? small_fftlen : large_fftlen;
+	stop_reason = updateWorkToDoLine (thread_num, w);
+	if (stop_reason) return (stop_reason);
 
 /* Output message to user informing him of the outcome. */
 
 	sprintf (buf,
 		 "Final average roundoff error is %.5g, using %dK FFT for exponent %ld.\n",
-		 avg_error, fftlen / 1024, p);
-	OutputBoth (buf);
-	return (TRUE);
+		 avg_error, w->forced_fftlen / 1024, w->n);
+	OutputBoth (thread_num, buf);
+	return (0);
 }
 
 /* Test if we are near the maximum exponent this fft length can test */
 /* We only support this (careful iterations when near fft limit) for */
 /* Mersenne numbers. */
 
-int exponent_near_fft_limit ()
+int exponent_near_fft_limit (
+	gwhandle *gwdata)		/* Handle returned by gwsetup */
 {
 	char	pct[30];
 	IniGetString (INI_FILE, "NearFFTLimitPct", pct, sizeof(pct), "0.5");
-	return (gwnear_fft_limit (atof (pct)));
+	return (gwnear_fft_limit (gwdata, atof (pct)));
 }
 
 /* Do an LL iteration very carefully.  This is done after a normal */
@@ -1687,8 +3343,7 @@ int exponent_near_fft_limit ()
 /* will not generate a roundoff error. */
 
 void careful_iteration (
-	gwnum	x,			/* Number to square */
-	unsigned long *units_bit,	/* Units bit (if subtracting two) */
+	llhandle *lldata,		/* Handle from lucasSetup */
 	unsigned long p)		/* Exponent being tested */
 {
 	gwnum	hi, lo;
@@ -1696,99 +3351,213 @@ void careful_iteration (
 
 /* Copy the data to hi and lo.  Zero out half the FFT data in each. */
 
-	hi = gwalloc ();
-	lo = gwalloc ();
-	gwcopy (x, hi);
-	gwcopy (x, lo);
-	for (i = 0; i < FFTLEN/2; i++) set_fft_value (hi, i, 0);
-	for ( ; i < FFTLEN; i++) set_fft_value (lo, i, 0);
+	hi = gwalloc (&lldata->gwdata);
+	lo = gwalloc (&lldata->gwdata);
+	gwcopy (&lldata->gwdata, lldata->lldata, hi);
+	gwcopy (&lldata->gwdata, lldata->lldata, lo);
+	for (i = 0; i < gwfftlen (&lldata->gwdata)/2; i++)
+		set_fft_value (&lldata->gwdata, hi, i, 0);
+	for ( ; i < gwfftlen (&lldata->gwdata); i++)
+		set_fft_value (&lldata->gwdata, lo, i, 0);
 
 /* Now do the squaring using three multiplies and adds */
 
-	gwsetnormroutine (0, 0, 0);
-	gwstartnextfft (0);
-	gwsetaddin (0);
-	gwfft (hi, hi);
-	gwfft (lo, lo);
-	gwfftfftmul (lo, hi, x);
-	gwfftfftmul (hi, hi, hi);
-	if (units_bit != NULL) lucas_fixup (units_bit, p);
-	gwfftfftmul (lo, lo, lo);
-	gwaddquick (x, x);
-	gwaddquick (hi, x);
-	gwadd (lo, x);
+	gwsetnormroutine (&lldata->gwdata, 0, 0, 0);
+	gwstartnextfft (&lldata->gwdata, FALSE);
+	gwsetaddin (&lldata->gwdata, 0);
+	gwfft (&lldata->gwdata, hi, hi);
+	gwfft (&lldata->gwdata, lo, lo);
+	gwfftfftmul (&lldata->gwdata, lo, hi, lldata->lldata);
+	gwfftfftmul (&lldata->gwdata, hi, hi, hi);
+	lucas_fixup (lldata, p);
+	gwfftfftmul (&lldata->gwdata, lo, lo, lo);
+	gwaddquick (&lldata->gwdata, lldata->lldata, lldata->lldata);
+	gwaddquick (&lldata->gwdata, hi, lldata->lldata);
+	gwadd (&lldata->gwdata, lo, lldata->lldata);
 
 /* Since our error recovery code cannot cope with an error during a careful */
 /* iteration, make sure the error variable is cleared.  This shouldn't */
 /* ever happen, but two users inexplicably ran into this problem. */
 
-	GWERROR = 0;
+	gw_clear_error (&lldata->gwdata);
 
 /* Free memory and return */
 
-	gwfree (hi);
-	gwfree (lo);
+	gwfree (&lldata->gwdata, hi);
+	gwfree (&lldata->gwdata, lo);
+}
+
+/* Output the good news of a new prime to the screen in an infinite loop */
+
+void good_news (void *arg)
+{
+	char	buf[80];
+
+	title (MAIN_THREAD_NUM, "New Prime!!!");
+	sprintf (buf, "M%d is prime!\n", (int) (intptr_t) arg);
+	while (WORKER_THREADS_ACTIVE && ! WORKER_THREADS_STOPPING) {
+		OutputStr (MAIN_THREAD_NUM, "New Mersenne Prime!!!!  ");
+		OutputStr (MAIN_THREAD_NUM, buf);
+		flashWindowAndBeep ();
+		Sleep (50);
+	}
 }
 
 /* Do the Lucas-Lehmer test */
 
 int prime (
-	unsigned long p,
-	unsigned long counter,
-	unsigned long units_bit,
-	unsigned long error_count)
+	int	thread_num,		/* Worker thread number */
+	struct PriorityInfo *sp_info,	/* SetPriority information */
+	struct work_unit *w,		/* Worktodo entry */
+	int	pass)			/* PrimeContinue pass */
 {
-	long	write_time = DISK_WRITE_TIME * 60;
+	llhandle lldata;
+	unsigned long p;
+	unsigned long counter;
+	unsigned long error_count;
 	unsigned long iters;
-	char	filename[20];
+	char	filename[32];
+	double	timers[2];
+	double	inverse_p;
 	double	reallyminerr = 1.0;
 	double	reallymaxerr = 0.0;
 	double	*addr1;
-	int	priority_work = 0;
-	int	escaped, saving, near_fft_limit, sleep5;
-	unsigned long i, high32, low32;
-	int	rc, isPrime;
-	char	buf[160];
-	time_t	start_time, current_time;
-	unsigned long interimFiles, interimResidues, throttle;
-static	unsigned long last_counter = 0;		/* Iteration of last error */
-static	int	maxerr_recovery_mode = 0;	/* Big roundoff err rerun */
+	int	first_iter_msg, saving, near_fft_limit, sleep5;
+	unsigned long high32, low32;
+	int	rc, isPrime, stop_reason;
+	char	buf[160], fft_desc[100];
+	int	slow_iteration_count;
+	double	best_iteration_time;
+	unsigned long last_counter = 0;		/* Iteration of last error */
+	int	maxerr_recovery_mode = 0;	/* Big roundoff err rerun */
+	double	last_suminp = 0.0;
+	double	last_sumout = 0.0;
+	double	last_maxerr = 0.0;
 
-/* A new option to create interim save files every N iterations. */
-/* This allows two machines to simultanously work on the same exponent */
-/* and compare results along the way. */
+/* Initialize */
 
-	interimFiles = IniGetInt (INI_FILE, "InterimFiles", 0);
-	interimResidues = IniGetInt (INI_FILE, "InterimResidues", interimFiles);
+	p = w->n;
 
-/* Option to slow down the program by sleeping after every iteration.  You */
-/* might use this on a laptop or a computer running in a hot room to keep */
-/* temperatures down and thus reduce the chance of a hardware error.  */
+/* Do some of the trial factoring.  We treat factoring that is part of a */
+/* LL test as priority work (done in pass 1).  We don't do all the trial */
+/* factoring as the last 2 bit levels take a lot of time and are unlikely */
+/* to find a factor.  The P-1 test will probably be needed anyway and */
+/* may find a factor thus saving us from doing the last 2 bit levels. */
 
-	throttle = IniGetInt (INI_FILE, "Throttle", 0);
+	if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) &&
+	    ! IniGetInt (INI_FILE, "SkipTrialFactoring", 0)) {
+		stop_reason = primeFactor (thread_num, sp_info, w, 2);
+		if (stop_reason) return (stop_reason);
+	}
+
+/* See if this exponent needs P-1 factoring.  We treat P-1 factoring */
+/* that is part of an LL test as priority work (done in pass 1). */
+
+	if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) &&
+	    ! w->pminus1ed) {
+		stop_reason = pfactor (thread_num, sp_info, w, pass);
+		if (stop_reason) {
+			if (pass == 3 &&
+			    (stop_reason == STOP_NOT_ENOUGH_MEM ||
+			     stop_reason == STOP_NOT_DESIRED_MEM)) {
+				stop_reason = 0;
+				set_affected_by_mem_usage (thread_num);
+			} else
+				return (stop_reason);
+		}
+	}
+
+/* Do the rest of the trial factoring. */
+
+	if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) &&
+	    ! IniGetInt (INI_FILE, "SkipTrialFactoring", 0)) {
+		stop_reason = primeFactor (thread_num, sp_info, w, 0);
+		if (stop_reason) return (stop_reason);
+	}
+
+/* Done with pass 1 priority work.  Return to do more priority work. */
+
+	if (pass == 1 && w->work_type != WORK_ADVANCEDTEST) return (0);
+
+/* Figure out which FFT size we should use */
+
+	stop_reason = pick_fft_size (thread_num, w);
+	if (stop_reason) return (stop_reason);
+
+/* Make sure the first-time user runs a successful self-test. */
+/* The one-hour self-test may have been useful when it was first introduced */
+/* but I think it now does little to catch buggy machines (they eventually */
+/* work OK for an hour) and does create user confusion and annoyance. */
+
+#ifdef ONE_HOUR_SELF_TEST
+	if (w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) {
+		stop_reason = selfTest (thread_num, sp_info, w);
+		if (stop_reason) return (stop_reason);
+	}
+#endif
+
+/* Loop reading from save files (and backup save files) */
+
+readloop:
+	tempFileName (w, filename);
+
+/* Setup the LL test */
+
+	gwinit (&lldata.gwdata);
+	gwset_num_threads (&lldata.gwdata, THREADS_PER_TEST[thread_num]);
+	gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
+	gwset_thread_callback_data (&lldata.gwdata, sp_info);
+	stop_reason = lucasSetup (thread_num, p, w->forced_fftlen, &lldata);
+	if (stop_reason) return (stop_reason);
+
+/* Record the amount of memory being used by this thread. */
+
+	set_memory_usage (thread_num, 0,
+			  gwmemused (&lldata.gwdata) +
+				gwnum_size (&lldata.gwdata));
+
+/* Read an LL save file.  On error try the backup intermediate file. */
+
+	if (continuationFileExists (thread_num, filename)) {
+		if (! readLLSaveFile (&lldata, filename, w, &counter, &error_count) ||
+		    counter > w->n) {
+			lucasDone (&lldata);
+			sprintf (buf, READFILEERR, filename);
+			OutputBoth (thread_num, buf);
+			_unlink (filename);
+			goto readloop;
+		}
+	}
+
+/* Start off with the 1st Lucas number */
+
+	else {
+		counter = 2;
+		error_count = 0;
+	}
+
+/* Hyperthreading backoff is an option to pause the program when iterations */
+/* take longer than usual.  This is useful on hyperthreaded machines so */
+/* that prime95 doesn't steal cycles from a foreground task, thus hurting */
+/* the computers responsiveness. */
+
+	best_iteration_time = 1.0e50;
+	slow_iteration_count = 0;
 
 /* Clear all timers */
 
-	clear_timers ();
-
-/* Get the current time */
-
-	time (&start_time);
-
-/* Init filename */
-
-	tempFileName (filename, p);
+	clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
 
 /* Init the title */
 
 	sprintf (buf, "%ld / %ld", counter, p);
-	title (buf);
+	title (thread_num, buf);
 
-/* Init global vars for Test/Status and CommunicateWithServer */
+/* Init vars for Test/Status and CommunicateWithServer */
 
-	EXP_BEING_WORKED_ON = p;
-	EXP_BEING_FACTORED = 0;
-	EXP_PERCENT_COMPLETE = (double) counter / (double) p;
+	strcpy (w->stage, "LL");
+	inverse_p = 1.0 / (double) p;
+	w->pct_complete = (double) counter * inverse_p;
 
 /* Start off with the 1st Lucas number - four */
 /* Note we do something a little strange here.  We actually set the */
@@ -1798,129 +3567,77 @@ static	int	maxerr_recovery_mode = 0;	/* Big roundoff err rerun */
 /* a CPU or program error corrupts the results. */
 
 	if (counter == 2) {
-		unsigned long i, word, bit_in_word, hi, lo;
+		unsigned long i, word, bit_in_word;
+		uint32_t hi, lo;
 		srand ((unsigned) time (NULL));
-		units_bit = (rand () << 16) + rand ();
-		if (CPU_FLAGS & CPU_RDTSC) { rdtsc(&hi,&lo); units_bit += lo; }
-		units_bit = units_bit % p;
-		bitaddr ((units_bit + 2) % p, &word, &bit_in_word);
-		for (i = 0; i < FFTLEN; i++) {
-			set_fft_value (LLDATA, i, (i == word) ? (1L << bit_in_word) : 0);
+		lldata.units_bit = (rand () << 16) + rand ();
+		if (CPU_FLAGS & CPU_RDTSC) { rdtsc(&hi,&lo); lldata.units_bit += lo; }
+		lldata.units_bit = lldata.units_bit % p;
+		bitaddr (&lldata.gwdata, (lldata.units_bit + 2) % p, &word, &bit_in_word);
+		for (i = 0; i < gwfftlen (&lldata.gwdata); i++) {
+			set_fft_value (&lldata.gwdata, lldata.lldata, i, (i == word) ? (1L << bit_in_word) : 0);
 		}
-		startRollingAverage ();
+		first_iter_msg = FALSE;
+	} else
+		first_iter_msg = TRUE;
 
-/* Immediately create a save file so that writeNewErrorCount can properly */
-/* keep track of error counts. */
+/* Output a message indicating we are starting/resuming an LL test. */
+/* Also tell user the FFT length. */
 
-		if (p > 1500000) start_time = 0;
-
-/* Output a message indicating we are starting an LL test */
-
-		sprintf (buf, "Starting primality test of M%ld\n", p);
-		OutputStr (buf);
-	}
-
-/* Otherwise, output a message indicating we are resuming an LL test */
-
-	else {
-		char	fmt_mask[80];
-		double	pct;
-		pct = trunc_percent (counter * 100.0 / p);
-		sprintf (fmt_mask,
-			 "Resuming primality test of M%%ld at iteration %%ld [%%.%df%%%%]\n",
-			 PRECISION);
-		sprintf (buf, fmt_mask, p, counter, pct);
-		OutputStr (buf);
-	}
+	gwfft_description (&lldata.gwdata, fft_desc);
+	sprintf (buf, "%s primality test of M%ld using %s\n",
+		 (counter == 2) ? "Starting" : "Resuming", p, fft_desc);
+	OutputStr (thread_num, buf);
 
 /* If we are near the maximum exponent this fft length can test, then we */
 /* will error check all iterations */
 
-	near_fft_limit = exponent_near_fft_limit ();
+	near_fft_limit = exponent_near_fft_limit (&lldata.gwdata);
 
 /* Get address of second FFT data element.  We'll use this for very */
 /* quickly checking for zeroed FFT data. */
 
-	addr1 = addr (LLDATA, 1);
+	addr1 = addr (&lldata.gwdata, lldata.lldata, 1);
 
 /* Compute numbers in the lucas series, write out every 30 minutes to a file */
 
 	iters = 0;
-	escaped = 0;
 	while (counter < p) {
-		int	stopping, echk;
+		int	echk;
 
-/* Use this opportunity to perform other miscellaneous tasks that may */
-/* be required by this particular OS port */
-
-		doMiscTasks ();
-
-/* Every so often, communicate with the server. */
-/* Even more rarely, set flag to see if we have enough work queued up. */
-
-		if ((counter & 0x3F) == 0) {
-			EXP_PERCENT_COMPLETE = (double) counter / (double) p;
-			if (!communicateWithServer ()) escaped = 1;
-			if (!pauseWhileRunning ()) escaped = 1;
-
-/* See if we should switch to factoring.  This is sometimes done */
-/* when we get a new assignment that hasn't been factored.  To be sure */
-/* that we will be able to immediately startup a LL test when this one */
-/* completes, we will factor the next exponent and then come back to */
-/* finish the LL test of this exponent. */
-
-			if ((counter & 0xFFFF) == 0) {
-				unsigned long sets;
-				double	timing, iters_per_day;
-				if (getPriorityWork ()) priority_work = 1;
-
-/* In an effort to reduce wild fluctuations in the rolling average */
-/* we will try to update the rolling average only twice a day. */
-
-				timing = gwmap_to_timing (1.0, 2, p, -1, CPU_TYPE);
-				iters_per_day = CPU_HOURS * 3600.0 / timing;
-				sets = (unsigned long) (iters_per_day / 2.0 / 65536.0);
-				if (sets == 0) sets = 1;
-				if ((counter >> 16) % sets == 0) {
-					updateRollingAverage (
-						timing * sets * 65536.0 *
-						24.0 / CPU_HOURS);
-					startRollingAverage ();
-				}
-			}
-		}
-
-/* Error check the last 50 iterations, before writing an */
-/* intermediate file (either user-requested stop or a */
-/* 30 minute interval expired), and every 128th iteration. */
-/* Also save right after a we pass an errored iteration and several */
+/* On first iteration create a save file so that writeNewErrorCount */
+/* can properly keep track of error counts. */
+/* Also save right after we pass an errored iteration and several */
 /* iterations before retesting an errored iteration so that we don't */
 /* have to backtrack very far to do a careful_iteration	(we don't do the */
 /* iteration immediately before because on the P4 a save operation will */
 /* change the FFT data and make the error non-reproducible. */
+/* Error check the last 50 iterations, before writing an */
+/* intermediate file (either user-requested stop or a */
+/* 30 minute interval expired), and every 128th iteration. */
 
-		escaped |= stopCheck ();
-		saving = (counter == last_counter-8 || counter == last_counter);
-		stopping = escaped || priority_work;
-		echk = stopping || saving || near_fft_limit || ERRCHK || (counter >= p - 50);
-		if ((counter & 127) == 0) {
-			echk = 1;
-			time (&current_time);
-			saving |= (current_time - start_time > write_time);
-		}
-		MAXERR = 0.0;
+		stop_reason = stopCheck (thread_num);
+		saving = stop_reason ||
+			 (counter == 2 && p > 1500000) ||
+			 counter == last_counter-8 ||
+			 counter == last_counter ||
+			 testSaveFilesFlag (thread_num);
+		echk = saving || near_fft_limit || ERRCHK ||
+			(counter >= p - 50) || ((counter & 127) == 0);
+		gw_clear_maxerr (&lldata.gwdata);
 
 /* Do a Lucas-Lehmer iteration */
 
-		start_timer (0);
+		timers[1] = 0.0;
+		start_timer (timers, 1);
 
 /* If we are recovering from a big roundoff error, then run one */
 /* iteration using three multiplies where half the data is zeroed. */
-/* This won't run into any roundoff problems and will protect from */
+/* This won't run into any roundoff problems and will protect us from */
 /* roundoff errors up to 0.6. */
 
 		if (maxerr_recovery_mode && counter == last_counter) {
-			careful_iteration (LLDATA, &units_bit, p);
+			careful_iteration (&lldata, p);
 			maxerr_recovery_mode = 0;
 			echk = 0;
 		}
@@ -1929,35 +3646,29 @@ static	int	maxerr_recovery_mode = 0;	/* Big roundoff err rerun */
 
 #ifndef SERVER_TESTING
 		else {
-			gwsetnormroutine (0, echk, 0);
-			gwstartnextfft (!stopping && !saving &&
-					!maxerr_recovery_mode &&
+			gwsetnormroutine (&lldata.gwdata, 0, echk, 0);
+			gwstartnextfft (&lldata.gwdata,
+					!saving && !maxerr_recovery_mode &&
 					counter+1 != p &&
-					(interimResidues == 0 ||
-					 (counter+1) % interimResidues > 2));
-			lucas_fixup (&units_bit, p);
-//gwnum qw = gwalloc ();
-//gwfft (LLDATA, qw);
-//gwfftfftmul (qw, qw, LLDATA);
-//	gwcopy (LLDATA, qw);
-//	gwmul (qw, LLDATA);
-//gwfree(qw);
-			gwsquare (LLDATA);
-			if (throttle) Sleep (throttle);
+					(INTERIM_RESIDUES == 0 ||
+					 (counter+1) % INTERIM_RESIDUES > 2));
+			lucas_fixup (&lldata, p);
+			gwsquare (&lldata.gwdata, lldata.lldata);
 		}
 #endif
 
-/* End iteration timing and increase count of iteration completed */
+/* End iteration timing and increase count of iterations completed */
 
-		end_timer (0);
+		end_timer (timers, 1);
+		timers[0] += timers[1];
 		iters++;
 
 /* If the sum of the output values is an error (such as infinity) */
 /* then raise an error. */
 
-		if (gw_test_illegal_sumout ()) {
+		if (gw_test_illegal_sumout (&lldata.gwdata)) {
 			sprintf (buf, ERRMSG0, counter, p, ERRMSG1A);
-			OutputBoth (buf);
+			OutputBoth (thread_num, buf);
 			inc_error_count (2, &error_count);
 			sleep5 = TRUE;
 			goto restart;
@@ -1967,25 +3678,23 @@ static	int	maxerr_recovery_mode = 0;	/* Big roundoff err rerun */
 /* equal to the sum of unfft results.  Since this check may not */
 /* be perfect, check for identical results after a restart. */
 
-		if (gw_test_mismatched_sums ()) {
-			static double last_suminp = 0.0;
-			static double last_sumout = 0.0;
+		if (gw_test_mismatched_sums (&lldata.gwdata)) {
 			if (counter == last_counter &&
-			    gwsuminp (LLDATA) == last_suminp &&
-			    gwsumout (LLDATA) == last_sumout) {
-				OutputBoth (ERROK);
+			    gwsuminp (&lldata.gwdata, lldata.lldata) == last_suminp &&
+			    gwsumout (&lldata.gwdata, lldata.lldata) == last_sumout) {
+				OutputBoth (thread_num, ERROK);
 				inc_error_count (3, &error_count);
-				GWERROR = 0;
+				gw_clear_error (&lldata.gwdata);
 			} else {
 				char	msg[100];
 				sprintf (msg, ERRMSG1B,
-					 gwsuminp (LLDATA),
-					 gwsumout (LLDATA));
+					 gwsuminp (&lldata.gwdata, lldata.lldata),
+					 gwsumout (&lldata.gwdata, lldata.lldata));
 				sprintf (buf, ERRMSG0, counter, p, msg);
-				OutputBoth (buf);
+				OutputBoth (thread_num, buf);
 				last_counter = counter;
-				last_suminp = gwsuminp (LLDATA);
-				last_sumout = gwsumout (LLDATA);
+				last_suminp = gwsuminp (&lldata.gwdata, lldata.lldata);
+				last_sumout = gwsumout (&lldata.gwdata, lldata.lldata);
 				inc_error_count (0, &error_count);
 				sleep5 = TRUE;
 				goto restart;
@@ -1997,23 +3706,23 @@ static	int	maxerr_recovery_mode = 0;	/* Big roundoff err rerun */
 /* then repeat the iteration using a safer, slower method.  This can */
 /* happen when operating near the limit of an FFT. */
 
-		if (echk && MAXERR >= 0.40625) {
-			static double last_maxerr = 0.0;
-			if (counter == last_counter && MAXERR == last_maxerr) {
-				OutputBoth (ERROK);
+		if (echk && gw_get_maxerr (&lldata.gwdata) >= 0.40625) {
+			if (counter == last_counter &&
+			    gw_get_maxerr (&lldata.gwdata) == last_maxerr) {
+				OutputBoth (thread_num, ERROK);
 				inc_error_count (3, &error_count);
-				GWERROR = 0;
-				OutputBoth (ERRMSG5);
+				gw_clear_error (&lldata.gwdata);
+				OutputBoth (thread_num, ERRMSG5);
 				maxerr_recovery_mode = 1;
 				sleep5 = FALSE;
 				goto restart;
 			} else {
 				char	msg[100];
-				sprintf (msg, ERRMSG1C, MAXERR);
+				sprintf (msg, ERRMSG1C, gw_get_maxerr (&lldata.gwdata));
 				sprintf (buf, ERRMSG0, counter, p, msg);
-				OutputBoth (buf);
+				OutputBoth (thread_num, buf);
 				last_counter = counter;
-				last_maxerr = MAXERR;
+				last_maxerr = gw_get_maxerr (&lldata.gwdata);
 				inc_error_count (1, &error_count);
 				sleep5 = FALSE;
 				goto restart;
@@ -2025,9 +3734,9 @@ static	int	maxerr_recovery_mode = 0;	/* Big roundoff err rerun */
 /* and the units_bit value was corrupt then we could get a false positive */
 /* result.  With this fix we should get into a safe -2, 2, 2, 2 loop. */
 
-		if (units_bit >= p) {
+		if (lldata.units_bit >= p) {
 			sprintf (buf, ERRMSG0, counter, p, ERRMSG1D);
-			OutputBoth (buf);
+			OutputBoth (thread_num, buf);
 			inc_error_count (2, &error_count);
 			sleep5 = TRUE;
 			goto restart;
@@ -2036,13 +3745,15 @@ static	int	maxerr_recovery_mode = 0;	/* Big roundoff err rerun */
 /* Check if the FFT data has been zeroed. This will help reduce the chances */
 /* of another false positive being reported. */
 
+#ifndef SERVER_TESTING
 		if (*addr1 == 0.0 && p > 1000 &&
 		    counter > 50 && counter < p-2 && counter != last_counter) {
+			unsigned long i;		
 			for (i = 2; ; i++) {
-				if (*addr (LLDATA, i) != 0.0) break;
+				if (*addr (&lldata.gwdata, lldata.lldata, i) != 0.0) break;
 				if (i == 50) {
 					sprintf (buf, ERRMSG0, counter, p, ERRMSG1F);
-					OutputBoth (buf);
+					OutputBoth (thread_num, buf);
 					inc_error_count (2, &error_count);
 					last_counter = counter;
 					sleep5 = TRUE;
@@ -2050,82 +3761,56 @@ static	int	maxerr_recovery_mode = 0;	/* Big roundoff err rerun */
 				}
 			}
 		}
-
-/* Some special debugging code to dump out FFT results */
-
-#ifdef XXX
-xxx:{
-unsigned long i;
-char	buf[1024];
-int	fd = _open (RESFILE, _O_TEXT | _O_RDWR | _O_CREAT, CREATE_FILE_ACCESS);
-while (_read (fd, buf, sizeof (buf)));
-for (i = 0; i < FFTLEN; i++) {
-	double *dblp = addr (LLDATA, i);
-	if (*dblp < -0.0001 || *dblp > 0.0001) {
-		sprintf (buf, "i: %ld, %10.6f\n", i, *dblp);
-		_write (fd, buf, strlen (buf));
-	}
-}
-_close (fd);
-}
 #endif
 
-/* Update counter and maximum round-off error */
+/* Update counter, percentage complete, and maximum round-off error */
 
 		counter++;
+		w->pct_complete = (double) counter * inverse_p;
 		if (ERRCHK) {
-			if (MAXERR < reallyminerr && counter > 30)
-				reallyminerr = MAXERR;
-			if (MAXERR > reallymaxerr)
-				reallymaxerr = MAXERR;
+			if (gw_get_maxerr (&lldata.gwdata) < reallyminerr && counter > 30)
+				reallyminerr = gw_get_maxerr (&lldata.gwdata);
+			if (gw_get_maxerr (&lldata.gwdata) > reallymaxerr)
+				reallymaxerr = gw_get_maxerr (&lldata.gwdata);
 		}
 
 /* Print a message every so often */
 
-		if (counter % ITER_OUTPUT == 0) {
+		if (counter % ITER_OUTPUT == 0 || first_iter_msg) {
 			char	fmt_mask[80];
 			double	pct;
-			pct = trunc_percent (counter * 100.0 / p);
-			sprintf (fmt_mask, "%%.%df%%%% of %%ld", PRECISION);
+			pct = trunc_percent (w->pct_complete);
+			sprintf (fmt_mask, "%%.%df%%%% of M%%ld", PRECISION);
 			sprintf (buf, fmt_mask, pct, p);
-			title (buf);
+			title (thread_num, buf);
 			sprintf (fmt_mask,
 				 "Iteration: %%ld / %%ld [%%.%df%%%%]",
 				 PRECISION);
 			sprintf (buf, fmt_mask, counter, p, pct);
-			OutputTimeStamp ();
-			OutputStr (buf);
 			if (ERRCHK && counter > 30) {
-				OutputStr (".  Round off: ");
-				sprintf (buf, "%10.10f", reallyminerr);
-				OutputStr (buf);
-				sprintf (buf, " to %10.10f", reallymaxerr);
-				OutputStr (buf);
+				sprintf (buf+strlen(buf),
+					 ".  Round off: %10.10f to %10.10f",
+					 reallyminerr, reallymaxerr);
 			}
-			OutputStr (".  Per iteration time: ");
-			divide_timer (0, iters);
-			print_timer (0, TIMER_NL | TIMER_OPT_CLR);
+			if (first_iter_msg) {
+				strcat (buf, ".\n");
+				clear_timer (timers, 0);
+			} else {
+				strcat (buf, ".  Per iteration time: ");
+				divide_timer (timers, 0, iters);
+				print_timer (timers, 0, buf,
+					     TIMER_NL | TIMER_OPT_CLR);
+			}
+			OutputStr (thread_num, buf);
 			if (!CUMULATIVE_TIMING) iters = 0;
+			first_iter_msg = FALSE;
 		}
 
 /* Print a results file message every so often */
 
-		if (counter % ITER_OUTPUT_RES == 0 || (NO_GUI && stopping)) {
+		if (counter % ITER_OUTPUT_RES == 0 || (NO_GUI && stop_reason)) {
 			sprintf (buf, "Iteration %ld / %ld\n", counter, p);
 			writeResults (buf);
-		}
-
-/* If an escape key was hit, write out the results and return */
-
-		if (stopping) {
-			if (! writeToFile (filename, counter,
-					   units_bit, error_count)) {
-				sprintf (buf, WRITEFILEERR, filename);
-				OutputBoth (buf);
-				return (FALSE);
-			}
-			if (escaped) return (FALSE);
-			return (TRUE);
 		}
 
 /* Write results to a file every DISK_WRITE_TIME minutes */
@@ -2133,36 +3818,68 @@ _close (fd);
 /* disk-full situation) */
 
 		if (saving) {
-			write_time = DISK_WRITE_TIME * 60;
-			if (! writeToFile (filename, counter,
-					   units_bit, error_count)) {
+			if (! writeLLSaveFile (&lldata, filename, w, counter,
+					       error_count)) {
 				sprintf (buf, WRITEFILEERR, filename);
-				OutputBoth (buf);
-				if (write_time > 600) write_time = 600;
+				OutputBoth (thread_num, buf);
 			}
-			time (&start_time);
+		}
+
+/* If an escape key was hit, write out the results and return */
+
+		if (stop_reason) {
+			char	fmt_mask[80];
+			sprintf (fmt_mask,
+				 "Stopping primality test of M%%ld at iteration %%ld [%%.%df%%%%]\n",
+				 PRECISION);
+			sprintf (buf, fmt_mask, p, counter,
+				 trunc_percent (w->pct_complete));
+			OutputStr (thread_num, buf);
+			lucasDone (&lldata);
+			return (stop_reason);
 		}
 
 /* Output the 64-bit residue at specified interims.  Also output the */
 /* residues for the next two iterations so that we can compare our */
 /* residues to programs that start counter at zero or one. */
 
-		if (interimResidues && counter % interimResidues <= 2) {
-			generateResidue64 (units_bit, &high32, &low32);
+		if (INTERIM_RESIDUES && counter % INTERIM_RESIDUES <= 2) {
+			generateResidue64 (&lldata, &high32, &low32);
 			sprintf (buf, 
-				 "M%ld interim Wc%d residue %08lX%08lX at iteration %ld\n",
+				 "M%ld interim Wd%d residue %08lX%08lX at iteration %ld\n",
 				 p, PORT, high32, low32, counter);
-			OutputBoth (buf);
+			OutputBoth (thread_num, buf);
 		}
 
-/* Write a save file every "interimFiles" iterations. */
+/* Write a save file every INTERIM_FILES iterations. */
 
-		if (interimFiles && counter % interimFiles == 0) {
+		if (INTERIM_FILES && counter % INTERIM_FILES == 0) {
 			char	interimfile[20];
 			sprintf (interimfile, "%.8s.%03d",
-				 filename, counter / interimFiles);
-			writeToFile (interimfile, counter,
-				     units_bit, error_count);
+				 filename, counter / INTERIM_FILES);
+			writeLLSaveFile (&lldata, interimfile, w, counter,
+				         error_count);
+		}
+
+/* If ten iterations take 40% longer than a typical iteration, then */
+/* assume a foreground process is running and sleep for a short time */
+/* to give the foreground process more CPU time.  Even though a foreground */
+/* process runs at higher priority, hyperthreading will cause this */
+/* program to run at an equal priority, hurting responsiveness. */
+
+		if (HYPERTHREADING_BACKOFF && p > 10000000) {
+			if (timers[1] < best_iteration_time)
+				best_iteration_time = timers[1];
+			if (timers[1] > 1.40 * best_iteration_time) {
+				if (slow_iteration_count == 10) {
+					sprintf (buf, "Pausing %d seconds.\n",
+						 HYPERTHREADING_BACKOFF);
+					OutputStr (thread_num, buf);
+					Sleep (HYPERTHREADING_BACKOFF * 1000);
+				}
+				slow_iteration_count++;
+			} else
+				slow_iteration_count = 0;
 		}
 	}
 
@@ -2170,10 +3887,10 @@ _close (fd);
 /* We found a prime if result is zero */
 /* Note that all values of -1 is the same as zero */
 
-	rc = generateResidue64 (units_bit, &high32, &low32);
+	rc = generateResidue64 (&lldata, &high32, &low32);
 	if (rc < 0) {
 		sprintf (buf, ERRMSG0, counter, p, ERRMSG1E);
-		OutputBoth (buf);
+		OutputBoth (thread_num, buf);
 		inc_error_count (2, &error_count);
 		sleep5 = TRUE;
 		goto restart;
@@ -2182,33 +3899,37 @@ _close (fd);
 
 /* Format the output message */
 
-	if (isPrime) {
-		sprintf (buf, "M%ld is prime! Wc%d: %08lX,%08lX\n",
+	if (isPrime)
+		sprintf (buf, "M%ld is prime! Wd%d: %08lX,%08lX\n",
 			 p, PORT, SEC1 (p), error_count);
-	} else {
-		generateResidue64 (units_bit, &high32, &low32);
+	else
 		sprintf (buf,
-			 "M%ld is not prime. Res64: %08lX%08lX. Wc%d: %08lX,%ld,%08lX\n",
+			 "M%ld is not prime. Res64: %08lX%08lX. Wd%d: %08lX,%ld,%08lX\n",
 			 p, high32, low32, PORT,
-			 SEC2 (p, high32, low32, units_bit, error_count),
-			 units_bit, error_count);
-	}
+			 SEC2 (p, high32, low32, lldata.units_bit, error_count),
+			 lldata.units_bit, error_count);
+	OutputStr (thread_num, buf);
+	formatMsgForResultsFile (buf, w);
+	rc = writeResults (buf);
 
 /* Output results to the screen, results file, and server */
 
 	{
 		struct primenetAssignmentResult pkt;
 		memset (&pkt, 0, sizeof (pkt));
-		pkt.exponent = p;
-		pkt.resultType =
-			isPrime ? PRIMENET_RESULT_PRIME : PRIMENET_RESULT_TEST;
-		sprintf (pkt.resultInfo.residue,
-			 "%08lX%08lX", high32, low32);
+		strcpy (pkt.computer_guid, COMPUTER_GUID);
+		strcpy (pkt.assignment_uid, w->assignment_uid);
+		strcpy (pkt.message, buf);
+		pkt.result_type =
+			isPrime ? PRIMENET_AR_LL_PRIME : PRIMENET_AR_LL_RESULT;
+		pkt.n = p;
+		sprintf (pkt.residue, "%08lX%08lX", high32, low32);
+		pkt.shift_count = lldata.units_bit;
+		sprintf (pkt.error_count, "%08lX", error_count);
+		pkt.fftlen = gwfftlen (&lldata.gwdata);
+		pkt.done = TRUE;
 		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 	}
-	OutputStr (buf);
-	rc = writeResults (buf);
-	spoolMessage (PRIMENET_RESULT_MESSAGE, buf);
 
 /* Delete the continuation files - assuming the results file write */
 /* was successful. */
@@ -2219,42 +3940,26 @@ _close (fd);
 		_unlink (filename);
 	}
 
-/* Clear prime from the to-do list */
+/* Clean up */
 
-	updateWorkToDo (1.0, 2, p, -1, WORK_TEST, 0);
+	lucasDone (&lldata);
 
-/* Clear rolling average start time in case Advanced/Test */
-/* interrupted a Lucas-Lehmer test. */
-
-	clearRollingStart ();
-		
 /* Output good news to the screen in an infinite loop */
 
 	if (isPrime && !SILENT_VICTORY && !isKnownMersennePrime (p)) {
-		title ("New Prime!!!");
-		for ( ; ; ) {
-			OutputStr ("New Mersenne Prime!!!!  ");
-			OutputStr (buf);
-			flashWindowAndBeep ();
-			if (escapeCheck ()) return (FALSE);
-			if (!communicateWithServer ()) return (FALSE);
-		}
+		gwthread thread_handle;
+		gwthread_create (&thread_handle, &good_news, (void *) p);
 	}
 
 /* All done */
 
-	return (TRUE);
+	return (STOP_WORK_UNIT_COMPLETE);
 
-/* An error occured, sleep, then try restarting at last save point. */
-/* Clear rolling average in case we will be backtracking past a */
-/* 64K iteration boundary. */
+/* An error occured, output a message saying we are restarting, sleep, */
+/* then try restarting at last save point. */
 
-restart:clearRollingStart ();
-
-/* Output a message saying we are restarting */
-
-	if (sleep5) OutputBoth (ERRMSG2);
-	OutputBoth (ERRMSG3);
+restart:if (sleep5) OutputBoth (thread_num, ERRMSG2);
+	OutputBoth (thread_num, ERRMSG3);
 
 /* Update the error count in the save file */
 
@@ -2262,12 +3967,20 @@ restart:clearRollingStart ();
 
 /* Sleep five minutes before restarting */
 
-	if (sleep5 && ! SleepFive ()) return (FALSE);
+	if (sleep5) {
+		stop_reason = SleepFive (thread_num);
+		if (stop_reason) return (stop_reason);
+	}
 
 /* Return so that last continuation file is read in */
 
-	return (TRUE);
+	lucasDone (&lldata);
+	goto readloop;
 }
+
+/*********************/
+/* Torture test code */
+/*********************/
 
 #define TORTURE1 "Beginning a continuous self-test to check your computer.\n"
 #if defined (__linux__) || defined (__FreeBSD__) || defined (__EMX__)
@@ -2278,11 +3991,8 @@ restart:clearRollingStart ();
 #define SELFMSG1A "The program will now perform a self-test to make sure the\n"
 #define SELFMSG1B "Lucas-Lehmer code is working properly on your computer.\n"
 #define SELFMSG1C "This will take about an hour.\n"
-#define SELFMSG5C "This will take about 29 hours.\n"
-#define SELF1 "Test %i, %i Lucas-Lehmer iterations of M%ld using %ldK FFT length.\n"
+#define SELF1 "Test %i, %i Lucas-Lehmer iterations of M%ld using %s.\n"
 #define SELFFAIL "FATAL ERROR: Final result was %08lX, expected: %08lX.\n"
-#define SELFFAILW "FATAL ERROR: Writing to temp file.\n"
-#define SELFFAILR "FATAL ERROR: Reading from temp file.\n"
 char SELFFAIL1[] = "ERROR: ILLEGAL SUMOUT\n";
 char SELFFAIL2[] = "FATAL ERROR: Resulting sum was %.16g, expected: %.16g\n";
 char SELFFAIL3[] = "FATAL ERROR: Rounding was %.10g, expected less than 0.4\n";
@@ -2292,9 +4002,6 @@ char SELFFAIL6[] = "Maximum number of warnings exceeded.\n";
 
 #define SELFPASS "Self-test %iK passed!\n"
 char SelfTestIniMask[] = "SelfTest%iPassed";
-
-int SELF_TEST_ERRORS = 0;
-int SELF_TEST_WARNINGS = 0;
 
 struct self_test_info {
 	unsigned long p;
@@ -2701,155 +4408,167 @@ struct self_test_info SELF_TEST_DATA2[MAX_SELF_TEST_ITERS2] = {
 {141311, 800000, 0x9BB8A6A3}, {135169, 800000, 0xECA55A45}
 };
 
+#ifdef ONE_HOUR_SELF_TEST
 int selfTest (
-	unsigned long pArg)
+	int	thread_num,
+	struct PriorityInfo *sp_info,
+	struct work_unit *w)
 {
 	unsigned long fftlen;
-	int	i;
-
-/* Set the process/thread priority */
-
-	SetPriority ();
-
-/* Clear rolling average start time in case we've */
-/* interrupted a Lucas-Lehmer test. */
-
-	clearRollingStart ();
-
-/* Clear counters */
-
-	SELF_TEST_ERRORS = 0;
-	SELF_TEST_WARNINGS = 0;
-
-/* Are we to self-test all fft lengths? (pArg = 0) */
-/* Check for the torture-test case (pArg = 1) */
-
-	if (pArg <= 1) {
-#define SELF_FFT_LENGTHS	49
-		int	lengths[SELF_FFT_LENGTHS] = {1024,8,10,896,768,12,14,640,512,16,20,448,384,24,28,320,256,32,40,224,192,48,56,160,128,64,80,112,96,1280,1536,1792,2048,2560,3072,3584,4096,5120,6144,7168,8192,10240,12288,14336,16384,20480,24576,28672,32768};
-		int	min_fft, max_fft, test_time;
-		time_t	start_time, current_time;
-		unsigned int memory;	/* Memory to use during torture test */
-		void	*bigbuf = NULL;
-
-/* Make sure the user really wants to spend many hours doing this now */
-
-		if (pArg == 0) {
-			OutputStr (SELFMSG1A);
-			OutputStr (SELFMSG1B);
-			OutputStr (SELFMSG5C);
-			test_time = 60;
-		} else {
-			OutputStr (TORTURE1);
-			OutputStr (TORTURE2);
-			test_time = IniGetInt (INI_FILE, "TortureTime", 15);
-			time (&start_time);
-		}
-
-/* Now self-test each fft length */
-
-		min_fft = IniGetInt (INI_FILE, "MinTortureFFT", 8);
-		max_fft = IniGetInt (INI_FILE, "MaxTortureFFT", 4096);
-		memory = IniGetInt (INI_FILE, "TortureMem", DAY_MEMORY > NIGHT_MEMORY ? DAY_MEMORY : NIGHT_MEMORY);
-		while (memory > 8 && bigbuf == NULL) {
-			bigbuf = aligned_malloc (memory * 1000000, 128);
-			if (bigbuf == NULL) memory--;
-		}
-		for ( ; ; ) {
-		    for (i = 0; i < SELF_FFT_LENGTHS; i++) {
-			if (lengths[i] < min_fft || lengths[i] > max_fft)
-				continue;
-			if (! selfTestInternal (lengths[i]*1024, test_time, i, memory, bigbuf)) {
-				if (pArg == 1) {
-					char	buf[100];
-					int	hours, minutes;
-					time (&current_time);
-					minutes = (int) (current_time - start_time) / 60;
-					hours = minutes / 60;
-					minutes = minutes % 60;
-					OutputStr ("Torture Test ran ");
-					if (hours) {
-						sprintf (buf, "%d hours, ", hours);
-						OutputStr (buf);
-					}
-					sprintf (buf, "%d minutes - %d errors, %d warnings.\n", minutes, SELF_TEST_ERRORS, SELF_TEST_WARNINGS);
-					OutputStr (buf);
-				}
-				GW_BIGBUF = NULL;
-				GW_BIGBUF_SIZE = 0;
-				aligned_free (bigbuf);
-				return (FALSE);
-			}
-		    }
-		    if (pArg == 0) break;
-		}
-		GW_BIGBUF = NULL;
-		GW_BIGBUF_SIZE = 0;
-		aligned_free (bigbuf);
-	}
-
-/* Otherwise we are self-testing a specific word length. */
-
-	else {
-		char	iniName[32];
+	char	iniName[32];
+	int	self_test_errors, self_test_warnings;
 
 /* What fft length are we running? */
 
-		fftlen = gwmap_to_fftlen (1.0, 2, pArg, -1);
+	if (w->forced_fftlen)
+		fftlen = w->forced_fftlen;
+	else
+		fftlen = gwmap_to_fftlen (1.0, 2, w->n, -1);
 
 /* If fftlength is less than 64K return (we don't have any small exponents */
 /* in our self test data) */
 
-		if (fftlen < 65536) return (TRUE);
+	if (fftlen < 65536) return (0);
 
-/* If so, make sure we haven't done so already. */
+/* Make sure we haven't run this self-test already. */
 
-		sprintf (iniName, SelfTestIniMask, (int) (fftlen/1024));
-		if (IniGetInt (LOCALINI_FILE, iniName, 0)) return (TRUE);
+	sprintf (iniName, SelfTestIniMask, (int) (fftlen/1024));
+	if (IniGetInt (LOCALINI_FILE, iniName, 0)) return (0);
+#ifdef SERVER_TESTING
+	return (0);
+#endif
 
 /* Make sure the user really wants to spend an hour doing this now */
 
-		OutputStr (SELFMSG1A);
-		OutputStr (SELFMSG1B);
-		OutputStr (SELFMSG1C);
+	OutputStr (thread_num, SELFMSG1A);
+	OutputStr (thread_num, SELFMSG1B);
+	OutputStr (thread_num, SELFMSG1C);
 
 /* Do the self test */
 
-		if (! selfTestInternal (fftlen, 60, -1, 0, NULL))
-			return (FALSE);
+	self_test_errors = 0;
+	self_test_warnings = 0;
+	return (selfTestInternal (thread_num, sp_info, fftlen, 60, NULL, 0, NULL,
+				  &self_test_errors, &self_test_warnings));
+}
+#endif
+
+int tortureTest (
+	int	thread_num,
+	int	num_threads)
+{
+	struct PriorityInfo sp_info;
+#define SELF_FFT_LENGTHS	49
+	int	lengths[SELF_FFT_LENGTHS] = {1024,8,10,896,768,12,14,640,512,16,20,448,384,24,28,320,256,32,40,224,192,48,56,160,128,64,80,112,96,1280,1536,1792,2048,2560,3072,3584,4096,5120,6144,7168,8192,10240,12288,14336,16384,20480,24576,28672,32768};
+	int	data_index[SELF_FFT_LENGTHS] = {0};
+	int	min_fft, max_fft, test_time;
+	int	self_test_errors, self_test_warnings;
+	int	i, run_indefinitely, stop_reason;
+	time_t	start_time, current_time;
+	unsigned int memory;	/* Memory to use during torture test */
+	void	*bigbuf = NULL;
+
+/* Set the process/thread priority */
+
+	sp_info.type = SET_PRIORITY_TORTURE;
+	sp_info.thread_num = thread_num;
+	sp_info.aux_thread_num = 0;
+	sp_info.num_threads = num_threads;
+	SetPriority (&sp_info);
+
+/* We used to support a menu option to run the self-test for an hour on */
+/* each FFT length.  If we ever decide to resupport this option, change */
+/* the run_indefiitely argument to an argument and change the output */
+/* message below. */
+
+	run_indefinitely = TRUE;
+
+/* Make sure the user really wants to spend many hours doing this now */
+
+	if (run_indefinitely) {
+		OutputStr (thread_num, TORTURE1);
+		OutputStr (thread_num, TORTURE2);
+		test_time = IniGetInt (INI_FILE, "TortureTime", 15);
 	}
 
-/* Self test completed! */
+/* Determine fft lengths we should run and allocate a big block */
+/* of memory to test. */
 
-	return (TRUE);
+	min_fft = IniGetInt (INI_FILE, "MinTortureFFT", 8);
+	max_fft = IniGetInt (INI_FILE, "MaxTortureFFT", 4096);
+	memory = IniGetInt (INI_FILE, "TortureMem", 8);
+	while (memory > 8 && bigbuf == NULL) {
+		bigbuf = aligned_malloc (memory * 1000000, 128);
+		if (bigbuf == NULL) memory--;
+	}
+
+/* Now self-test each fft length */
+
+	stop_reason = 0;
+	self_test_errors = 0;
+	self_test_warnings = 0;
+	time (&start_time);
+	for ( ; ; ) {
+	    for (i = 0; i < SELF_FFT_LENGTHS; i++) {
+		if (lengths[i] < min_fft || lengths[i] > max_fft)
+			continue;
+		stop_reason =
+			selfTestInternal (thread_num, &sp_info, lengths[i]*1024,
+					  test_time, &data_index[i],
+					  memory, bigbuf,
+					  &self_test_errors,
+					  &self_test_warnings);
+		if (stop_reason) {
+			char	buf[120];
+			int	hours, minutes;
+			time (&current_time);
+			minutes = (int) (current_time - start_time) / 60;
+			hours = minutes / 60;
+			minutes = minutes % 60;
+			strcpy (buf, "Torture Test ran ");
+			if (hours)
+				sprintf (buf+strlen(buf), "%d hours, ", hours);
+			sprintf (buf+strlen(buf),
+				 "%d minutes - %d errors, %d warnings.\n",
+				 minutes, self_test_errors, self_test_warnings);
+			OutputStr (thread_num, buf);
+			run_indefinitely = FALSE;
+			break;
+		}
+	    }
+	    if (! run_indefinitely) break;
+	}
+
+/* Self test completed!  Free memory and return. */
+
+	aligned_free (bigbuf);
+	return (stop_reason);
 }
 
 int selfTestInternal (
+	int	thread_num,
+	struct PriorityInfo *sp_info,
 	unsigned long fftlen,
 	unsigned int test_time,	/* Number of minutes to self-test */
-	int	torture_count,	/* Index into array of fft sizes */
+	int	*torture_index,	/* Index into self test data array */
 	unsigned int memory,	/* MB of memory the torture test can use */
-	void	*bigbuf)	/* Memory block for the torture test */
+	void	*bigbuf,	/* Memory block for the torture test */
+	int	*errors,	/* Returned count of self test errors */
+	int	*warnings)	/* Returned count of self test warnings */
 {
-	unsigned long k, limit;
-	unsigned int i, iter, countdown;
-	char	filename[16];
+	llhandle lldata;
+	unsigned long k, limit, num_threads;
+	unsigned int i, iter;
 	char	buf[120];
 	char	iniName[32];
 	time_t	start_time, current_time;
-static	int	data_index[SELF_FFT_LENGTHS] = {0};
 	struct self_test_info *test_data;
 	unsigned int test_data_count;
-	int	res, cpu_supports_3dnow;
+	int	cpu_supports_3dnow, stop_reason;
 
 /* Set the title */
 
-	title ("Self-Test");
-
-/* Generate file name for temp files */
-
-	strcpy (filename, "ptemp");
-	strcat (filename, EXTENSION);
+	title (thread_num, "Self-Test");
 
 /* Pick which self test data array to use.  Machines are much faster now */
 /* compared to when the torture test was introduced.  This new self test */
@@ -2864,9 +4583,15 @@ static	int	data_index[SELF_FFT_LENGTHS] = {0};
 		test_data_count = MAX_SELF_TEST_ITERS2;
 	}
 
+/* Decide how many threads the torture test can use.  This should only */
+/* really be needed for QA purposes as the user can probably create more */
+/* more stress by running one torture test window for each CPU core. */
+
+	num_threads = IniGetInt (INI_FILE, "TortureTestThreads", 1);
+
 /* Determine the range from which we'll choose an exponent to test. */
 
-	limit = map_fftlen_to_max_exponent (fftlen);
+	limit = gwmap_fftlen_to_max_exponent (fftlen);
 
 /* Get the current time */
 
@@ -2875,14 +4600,14 @@ static	int	data_index[SELF_FFT_LENGTHS] = {0};
 /* Start in the self test data array where we left off the last time */
 /* torture test executed this FFT length. */
 
-	i = (torture_count < 0) ? 0 : data_index[torture_count];
+	i = (torture_index == NULL) ? 0 : *torture_index;
 
 /* Loop testing various exponents from self test data array until */
 /* time runs out */
 
-	countdown = 1;
 	for (iter = 1; ; iter++) {
-		unsigned long p, reshi, reslo, units_bit;
+		char	fft_desc[80];
+		unsigned long p, reshi, reslo;
 		unsigned int ll_iters, num_gwnums;
 		gwnum	*gwarray, g;
 
@@ -2912,12 +4637,6 @@ static	int	data_index[SELF_FFT_LENGTHS] = {0};
 			break;
 		}
 
-/* Output start message */
-
-		ll_iters = test_data[i].iters;
-		sprintf (buf, SELF1, iter, ll_iters, p, fftlen / 1024);
-		OutputStr (buf);
-
 /* Anecdotal evidence suggests that some AMD chips struggle with FFTs */
 /* that do not use the prefetchw instruction (they would fail a version */
 /* 23.8 torture test, but pass a version 24.11 torture test).  Thus, I've */
@@ -2928,21 +4647,27 @@ static	int	data_index[SELF_FFT_LENGTHS] = {0};
 /* Now run Lucas setup, for extra safety double the maximum allowable */
 /* sum(inputs) vs. sum(outputs) difference. */
 
-		GW_BIGBUF = (char *) bigbuf;
-		GW_BIGBUF_SIZE = (bigbuf != NULL) ? memory * 1000000 : 0;
-		if (cpu_supports_3dnow && p > 5000000 && torture_count >= 0 &&
+		gwinit (&lldata.gwdata);
+		gwset_num_threads (&lldata.gwdata, num_threads);
+		lldata.gwdata.GW_BIGBUF = (char *) bigbuf;
+		lldata.gwdata.GW_BIGBUF_SIZE = (bigbuf != NULL) ? memory * 1000000 : 0;
+		if (cpu_supports_3dnow && p > 5000000 &&
+		    torture_index != NULL &&
 		    (test_data[i].reshi & 1) &&
 		    IniGetInt (INI_FILE, "Special3DNowTorture", 1))
 			CPU_FLAGS &= ~CPU_3DNOW;
-		res = lucasSetup (p, fftlen);
+		stop_reason = lucasSetup (thread_num, p, fftlen, &lldata);
 		if (cpu_supports_3dnow)
 			CPU_FLAGS |= CPU_3DNOW;
-		if (res) {
-			sprintf (buf, "Cannot initialize FFT code, errcode=%d\n", res);
-			OutputBoth (buf);
-			return (FALSE);
-		}
-		MAXDIFF *= 2.0;
+		if (stop_reason) return (stop_reason);
+		lldata.gwdata.MAXDIFF *= 2.0;
+
+/* Output start message */
+
+		ll_iters = test_data[i].iters;
+		gwfft_description (&lldata.gwdata, fft_desc);
+		sprintf (buf, SELF1, iter, ll_iters, p, fft_desc);
+		OutputStr (thread_num, buf);
 
 /* Determine how many gwnums we can allocate in the memory we are given */
 
@@ -2951,8 +4676,8 @@ static	int	data_index[SELF_FFT_LENGTHS] = {0};
 		else {
 			num_gwnums = (unsigned int)
 				(((double) memory * 1000000.0 -
-				  (double) gwmap_to_memused (1.0, 2, p, -1)) /
-				 (double) (gwnum_size (FFTLEN) + GW_HEADER_SIZE + GW_ALIGNMENT));
+				  (double) gwmemused (&lldata.gwdata)) /
+				 (double) (gwnum_size (&lldata.gwdata)));
 			if (num_gwnums < 1) num_gwnums = 1;
 			if (num_gwnums > ll_iters) num_gwnums = ll_iters;
 		}
@@ -2960,9 +4685,13 @@ static	int	data_index[SELF_FFT_LENGTHS] = {0};
 /* Allocate gwnums to eat up the available memory */
 
 		gwarray = (gwnum *) malloc (num_gwnums * sizeof (gwnum));
-		gwarray[0] = LLDATA;
+		if (gwarray == NULL) {
+			lucasDone (&lldata);
+			return (OutOfMemory (thread_num));
+		}
+		gwarray[0] = lldata.lldata;
 		for (k = 1; k < num_gwnums; k++) {
-			gwarray[k] = gwalloc ();
+			gwarray[k] = gwalloc (&lldata.gwdata);
 			if (gwarray[k] == NULL) {
 				num_gwnums = k;
 				break;
@@ -2971,16 +4700,12 @@ static	int	data_index[SELF_FFT_LENGTHS] = {0};
 
 /* Init data area with a pre-determined value */
 
-restart_test:	units_bit = 0;
-		dbltogw (4.0, LLDATA);
-		g = LLDATA;
+restart_test:	dbltogw (&lldata.gwdata, 4.0, lldata.lldata);
+		g = lldata.lldata;
 
 /* Do Lucas-Lehmer iterations */
 
 		for (k = 0; k < ll_iters; k++) {
-			int	fd;
-			short	type;
-			unsigned long trash;
 
 /* Copy previous squared value (so we plow through memory) */
 
@@ -2988,105 +4713,83 @@ restart_test:	units_bit = 0;
 				gwnum	prev;
 				prev = g;
 				g = gwarray[k % num_gwnums];
-				gwcopy (prev, g);
+				gwcopy (&lldata.gwdata, prev, g);
 			}
 
 /* One Lucas-Lehmer test with error checking */
 
-			gwsetnormroutine (0, 1, 0);
-			gwstartnextfft (k != 100 && k != ll_iters - 1);
-			lucas_fixup (&units_bit, p);
-			gwsquare (g);
+			gwsetnormroutine (&lldata.gwdata, 0, 1, 0);
+			gwstartnextfft (&lldata.gwdata, k != ll_iters - 1);
+			lucas_fixup (&lldata, p);
+			gwsquare (&lldata.gwdata, g);
 
 /* If the sum of the output values is an error (such as infinity) */
 /* then raise an error. */
 
-			if (gw_test_illegal_sumout ()) {
-				OutputBoth (SELFFAIL1);
-				SELF_TEST_WARNINGS++;
-				if (SELF_TEST_WARNINGS < 100) {
-					OutputBoth (SELFFAIL4);
+			if (gw_test_illegal_sumout (&lldata.gwdata)) {
+				OutputBoth (thread_num, SELFFAIL1);
+				(*warnings)++;
+				if (*warnings < 100) {
+					OutputBoth (thread_num, SELFFAIL4);
 					goto restart_test;
 				} else {
-					OutputBoth (SELFFAIL6);
-					lucasDone ();
+					OutputBoth (thread_num, SELFFAIL6);
+					lucasDone (&lldata);
 					free (gwarray);
-					return (FALSE);
+					return (STOP_FATAL_ERROR);
 				}
 			}
 
 /* Check that the sum of the input numbers squared is approximately */
 /* equal to the sum of unfft results. */
 
-			if (gw_test_mismatched_sums ()) {
+			if (gw_test_mismatched_sums (&lldata.gwdata)) {
 				sprintf (buf, SELFFAIL2,
-					 gwsumout (g),
-					 gwsuminp (g));
-				OutputBoth (buf);
-				OutputBoth (SELFFAIL5);
-				SELF_TEST_ERRORS++;
-				lucasDone ();
+					 gwsumout (&lldata.gwdata, g),
+					 gwsuminp (&lldata.gwdata, g));
+				OutputBoth (thread_num, buf);
+				OutputBoth (thread_num, SELFFAIL5);
+				(*errors)++;
+				lucasDone (&lldata);
 				free (gwarray);
-				return (FALSE);
+				return (STOP_FATAL_ERROR);
 			}
 
 /* Make sure round off error is tolerable */
 
-			if (MAXERR > 0.45) {
-				sprintf (buf, SELFFAIL3, MAXERR);
-				OutputBoth (buf);
-				OutputBoth (SELFFAIL5);
-				SELF_TEST_ERRORS++;
-				lucasDone ();
+			if (gw_get_maxerr (&lldata.gwdata) > 0.45) {
+				sprintf (buf, SELFFAIL3, gw_get_maxerr (&lldata.gwdata));
+				OutputBoth (thread_num, buf);
+				OutputBoth (thread_num, SELFFAIL5);
+				(*errors)++;
+				lucasDone (&lldata);
 				free (gwarray);
-				return (FALSE);
+				return (STOP_FATAL_ERROR);
 			}
 
 /* Abort if user demands it */
 
-			if (escapeCheck ()) {
-				lucasDone ();
+			stop_reason = stopCheck (thread_num);
+			if (stop_reason) {
+				lucasDone (&lldata);
 				free (gwarray);
-				return (FALSE);
+				return (stop_reason);
 			}
-
-/* Test our ability to read and write files too. */
-
-			if (k != 100) continue;
-			if (--countdown) continue;
-			if (g != LLDATA) gwcopy (g, LLDATA);
-			if (! writeToFile (filename, 0, 0, 0)) {
-				OutputBoth (SELFFAILW);
-				SELF_TEST_ERRORS++;
-				lucasDone ();
-				free (gwarray);
-				return (FALSE);
-			}
-			countdown = 9;
-			dbltogw (0.0, LLDATA); /* clear memory */
-			if (! readFileHeader (filename, &fd, &type, &trash) ||
-			    ! readFileData (fd, &trash, &trash)) {
-				OutputBoth (SELFFAILR);
-				SELF_TEST_ERRORS++;
-				lucasDone ();
-				free (gwarray);
-				return (FALSE);
-			}
-			_unlink (filename);
 		}
 
 /* Compare final 32 bits with the pre-computed array of correct residues */
 
-		if (g != LLDATA) gwcopy (g, LLDATA);
-		generateResidue64 (units_bit, &reshi, &reslo);
-		lucasDone ();
+		if (g != lldata.lldata)
+			gwcopy (&lldata.gwdata, g, lldata.lldata);
+		generateResidue64 (&lldata, &reshi, &reslo);
+		lucasDone (&lldata);
 		free (gwarray);
 		if (reshi != test_data[i].reshi) {
 			sprintf (buf, SELFFAIL, reshi, test_data[i].reshi);
-			OutputBoth (buf);
-			OutputBoth (SELFFAIL5);
-			SELF_TEST_ERRORS++;
-			return (FALSE);
+			OutputBoth (thread_num, buf);
+			OutputBoth (thread_num, SELFFAIL5);
+			(*errors)++;
+			return (STOP_FATAL_ERROR);
 		}
 
 /* Bump index into self test data array */
@@ -3102,17 +4805,21 @@ restart_test:	units_bit = 0;
 /* Save our position in self test data array for next time torture test */
 /* executes this FFT length */
 
-	if (torture_count >= 0) data_index[torture_count] = i;
+	if (torture_index != NULL) *torture_index = i;
 
 /* We've passed the self-test.  Remember this in the .INI file */
 /* so that we do not need to do this again. */
 
 	sprintf (buf, SELFPASS, (int) (fftlen/1024));
-	OutputBoth (buf);
+	OutputBoth (thread_num, buf);
 	sprintf (iniName, SelfTestIniMask, (int) (fftlen/1024));
 	IniWriteInt (LOCALINI_FILE, iniName, 1);
-	return (TRUE);
+	return (0);
 }
+
+/*******************************************/
+/* Various QA and data analysis functions! */
+/*******************************************/
 
 /* Read a file of exponents to run LL iterations on as part of a QA process */
 /* The format of this file is: */
@@ -3126,35 +4833,37 @@ restart_test:	units_bit = 0;
 /* Type 2 and higher have not been used much and may not work */
 
 int lucas_QA (
+	int	thread_num,
 	int	type)
 {
+	llhandle lldata;
 	FILE	*fd;
+	int	stop_reason;
 
 /* Set the title, init random generator */
 
-	title ("QA");
+	title (thread_num, "QA");
 	srand ((unsigned) time (NULL));
 
 /* Open QA file */
 
 	fd = fopen ("qa", "r");
 	if (fd == NULL) {
-		OutputStr ("File named 'qa' could not be opened.\n");
-		return (TRUE);
+		OutputStr (thread_num, "File named 'qa' could not be opened.\n");
+		return (STOP_FILE_IO_ERROR);
 	}
 
 /* Loop until the entire file is processed */
 
 	for ( ; ; ) {
-		unsigned long p, fftlen, iters, units_bit;
+		unsigned long p, fftlen, iters;
 		char	buf[500], res[80];
-		unsigned long reshi, reslo;
+		unsigned long reshi, reslo, units_bit;
 		unsigned long i, word, bit_in_word, maxerrcnt, loops;
 		double	maxsumdiff, maxerr, toterr, M, S;
 		unsigned long ge_300, ge_325, ge_350, ge_375, ge_400;
 		gwnum	t1, t2;
 		unsigned int iters_unchecked;
-		int	rcode;
 
 /* Read a line from the file */
 
@@ -3172,12 +4881,10 @@ int lucas_QA (
 
 /* Now run Lucas setup */
 
-		rcode = lucasSetup (p, fftlen);
-		if (rcode) {
-			sprintf (buf, "Cannot initialize FFT code, errcode=%d\n", rcode);
-			OutputBoth (buf);
-			return (FALSE);
-		}
+		gwinit (&lldata.gwdata);
+		stop_reason = lucasSetup (thread_num, p, fftlen, &lldata);
+		lldata.units_bit = units_bit;
+		if (stop_reason) return (stop_reason);
 		maxsumdiff = 0.0;
 		ge_300 = ge_325 = ge_350 = ge_375 = ge_400 = 0;
 		maxerr = 0.0; maxerrcnt = 0; toterr = 0.0;
@@ -3185,20 +4892,23 @@ int lucas_QA (
 
 /* Check for a randomized units bit */
 
-		if (units_bit >= p) {
-			unsigned long hi, lo;
-			units_bit = (rand () << 16) + rand ();
-			if (CPU_FLAGS & CPU_RDTSC) { rdtsc (&hi,&lo); units_bit += lo; }
-			units_bit = units_bit % p;
-			sprintf (buf, "Units bit = %lu\n", units_bit);
-			OutputBoth (buf);
+		if (lldata.units_bit >= p) {
+			uint32_t hi, lo;
+			lldata.units_bit = (rand () << 16) + rand ();
+			if (CPU_FLAGS & CPU_RDTSC) {
+				rdtsc (&hi, &lo);
+				lldata.units_bit += lo;
+			}
+			lldata.units_bit = lldata.units_bit % p;
+			sprintf (buf, "Units bit = %lu\n", lldata.units_bit);
+			OutputBoth (thread_num, buf);
 		}
 
 /* Init data area with a pre-determined value */
 
-		bitaddr ((units_bit + 2) % p, &word, &bit_in_word);
-		for (i = 0; i < FFTLEN; i++) {
-			set_fft_value (LLDATA, i,
+		bitaddr (&lldata.gwdata, (lldata.units_bit + 2) % p, &word, &bit_in_word);
+		for (i = 0; i < gwfftlen (&lldata.gwdata); i++) {
+			set_fft_value (&lldata.gwdata, lldata.lldata, i,
 				       (type == 3 || type == 4) ?
 					 (rand () & 1) ? rand () : -rand () :
 				       (i == word) ? (1L << bit_in_word) : 0);
@@ -3207,13 +4917,13 @@ int lucas_QA (
 /* The thorough, P-1, and ECM tests use more than one number */
 
 		if (type == 2 || type == 3) {
-			t1 = gwalloc ();
-			dbltogw (234872639921.0, t1);
-			gwfft (t1, t1);
-			t2 = gwalloc ();
-			dbltogw (1982387192367.0, t2);
-			gwfft (t2, t2);
-			MAXDIFF *= 16;
+			t1 = gwalloc (&lldata.gwdata);
+			dbltogw (&lldata.gwdata, 234872639921.0, t1);
+			gwfft (&lldata.gwdata, t1, t1);
+			t2 = gwalloc (&lldata.gwdata);
+			dbltogw (&lldata.gwdata, 1982387192367.0, t2);
+			gwfft (&lldata.gwdata, t2, t2);
+			lldata.gwdata.MAXDIFF *= 16;
 		}
 
 /* Do Lucas-Lehmer iterations */
@@ -3223,89 +4933,89 @@ int lucas_QA (
 /* One Lucas-Lehmer iteration with error checking */
 
 			if (type == 0) {		/* Typical LL test */
-				gwsetnormroutine (0, (i & 63) == 37, 0);
-				gwstartnextfft (i < iters / 2);
+				gwsetnormroutine (&lldata.gwdata, 0, (i & 63) == 37, 0);
+				gwstartnextfft (&lldata.gwdata, i < iters / 2);
 				if (i > iters / 2 && (i & 63) == 44)
-					careful_iteration (LLDATA, &units_bit, p);
+					careful_iteration (&lldata, p);
 				else {
-					lucas_fixup (&units_bit, p);
-					gwsquare (LLDATA);
+					lucas_fixup (&lldata, p);
+					gwsquare (&lldata.gwdata, lldata.lldata);
 				}
 			} else if (type == 1 || type == 4) { /* Gather stats */
-				gwsetnormroutine (0, 1, 0);
-				gwstartnextfft (i < iters / 2);
-				lucas_fixup (&units_bit, p);
-				gwsquare (LLDATA);
+				gwsetnormroutine (&lldata.gwdata, 0, 1, 0);
+				gwstartnextfft (&lldata.gwdata, i < iters / 2);
+				lucas_fixup (&lldata, p);
+				gwsquare (&lldata.gwdata, lldata.lldata);
 			} else if (type == 2) {		/* Thorough test */
 				unsigned long j;
 				for (j = 0; j < (i & 7); j++) {
-					gwadd (LLDATA, LLDATA);
-					units_bit = (units_bit+1) % p;
+					gwadd (&lldata.gwdata, lldata.lldata, lldata.lldata);
+					lldata.units_bit = (lldata.units_bit+1) % p;
 				}
 				if ((i & 15) == 13) {
-					gwadd3quick (LLDATA, LLDATA, t1);
-					gwsub3quick (t1, LLDATA, LLDATA);
-					gwadd3 (LLDATA, LLDATA, t1);
-					gwsub3 (t1, LLDATA, LLDATA);
-					gwaddsub4 (LLDATA, LLDATA, t1, t2);
-					gwaddsub (t1, LLDATA);
-					gwadd (t2, LLDATA);
+					gwadd3quick (&lldata.gwdata, lldata.lldata, lldata.lldata, t1);
+					gwsub3quick (&lldata.gwdata, t1, lldata.lldata, lldata.lldata);
+					gwadd3 (&lldata.gwdata, lldata.lldata, lldata.lldata, t1);
+					gwsub3 (&lldata.gwdata, t1, lldata.lldata, lldata.lldata);
+					gwaddsub4 (&lldata.gwdata, lldata.lldata, lldata.lldata, t1, t2);
+					gwaddsub (&lldata.gwdata, t1, lldata.lldata);
+					gwadd (&lldata.gwdata, t2, lldata.lldata);
 				}
-				lucas_fixup (&units_bit, p);
+				lucas_fixup (&lldata, p);
 				if ((i & 3) == 0) {
-					gwsquare (LLDATA);
+					gwsquare (&lldata.gwdata, lldata.lldata);
 				} else if ((i & 3) == 1) {
-					gwfft (LLDATA, LLDATA);
-					gwfftfftmul (LLDATA, LLDATA, LLDATA);
+					gwfft (&lldata.gwdata, lldata.lldata, lldata.lldata);
+					gwfftfftmul (&lldata.gwdata, lldata.lldata, lldata.lldata, lldata.lldata);
 				} else {
-					gwfft (LLDATA, t1);
-					gwfftmul (t1, LLDATA);
+					gwfft (&lldata.gwdata, lldata.lldata, t1);
+					gwfftmul (&lldata.gwdata, t1, lldata.lldata);
 				}
 			} else if (type == 3) {		/* Typical ECM run */
-				lucas_fixup (&units_bit, p);
-				gwfftsub3 (t1, t2, t2);
-				gwfft (LLDATA, LLDATA);
-				gwfftfftmul (t2, LLDATA, t2);
-				gwswap (t1, LLDATA);
-				gwswap (t2, LLDATA);
+				lucas_fixup (&lldata, p);
+				gwfftsub3 (&lldata.gwdata, t1, t2, t2);
+				gwfft (&lldata.gwdata, lldata.lldata, lldata.lldata);
+				gwfftfftmul (&lldata.gwdata, t2, lldata.lldata, t2);
+				gwswap (t1, lldata.lldata);
+				gwswap (t2, lldata.lldata);
 			}
 
 /* Keep track of the standard deviation - see Knuth vol 2 */
 
 			if (i > iters_unchecked) {
-				toterr += MAXERR;
+				toterr += gw_get_maxerr (&lldata.gwdata);
 				if (i == iters_unchecked + 1) {
-					M = MAXERR;
+					M = gw_get_maxerr (&lldata.gwdata);
 					S = 0.0;
 				} else {
 					double	newM;
-					newM = M + (MAXERR - M) /
+					newM = M + (gw_get_maxerr (&lldata.gwdata) - M) /
 						   (i - iters_unchecked);
-					S = S + (MAXERR - M) * (MAXERR - newM);
+					S = S + (gw_get_maxerr (&lldata.gwdata) - M) * (gw_get_maxerr (&lldata.gwdata) - newM);
 					M = newM;
 				}
 			}
 
 /* Maintain range info */
 
-			if (MAXERR >= 0.300) ge_300++;
-			if (MAXERR >= 0.325) ge_325++;
-			if (MAXERR >= 0.350) ge_350++;
-			if (MAXERR >= 0.375) ge_375++;
-			if (MAXERR >= 0.400) ge_400++;
+			if (gw_get_maxerr (&lldata.gwdata) >= 0.300) ge_300++;
+			if (gw_get_maxerr (&lldata.gwdata) >= 0.325) ge_325++;
+			if (gw_get_maxerr (&lldata.gwdata) >= 0.350) ge_350++;
+			if (gw_get_maxerr (&lldata.gwdata) >= 0.375) ge_375++;
+			if (gw_get_maxerr (&lldata.gwdata) >= 0.400) ge_400++;
 
 /* Maintain maximum error info */
 
-			if (MAXERR > maxerr) maxerr = MAXERR, maxerrcnt = 1;
-			else if (MAXERR == maxerr) maxerrcnt++;
-			MAXERR = 0.0;
+			if (gw_get_maxerr (&lldata.gwdata) > maxerr) maxerr = gw_get_maxerr (&lldata.gwdata), maxerrcnt = 1;
+			else if (gw_get_maxerr (&lldata.gwdata) == maxerr) maxerrcnt++;
+			gw_clear_maxerr (&lldata.gwdata);
 
 /* Maintain maximum suminp/sumout difference */
 
-			if (fabs (gwsuminp (LLDATA) - gwsumout (LLDATA)) >
-								maxsumdiff) {
-				maxsumdiff = fabs (gwsuminp (LLDATA) -
-						  gwsumout (LLDATA));
+			if (fabs (gwsuminp (&lldata.gwdata, lldata.lldata) -
+				  gwsumout (&lldata.gwdata, lldata.lldata)) > maxsumdiff) {
+				maxsumdiff = fabs (gwsuminp (&lldata.gwdata, lldata.lldata) -
+						   gwsumout (&lldata.gwdata, lldata.lldata));
 			}
 
 /* If the sum of the output values is an error (such as infinity) */
@@ -3313,51 +5023,34 @@ int lucas_QA (
 /* as zero by the C compiler.  There is probably a better way to */
 /* check for this error condition. */
 
-			if (gw_test_illegal_sumout ()) {
-				OutputBoth ("Warning: ILLEGAL SUMOUT\n");
-				dbltogw (11.0, LLDATA);
-				GWERROR = 0;
+			if (gw_test_illegal_sumout (&lldata.gwdata)) {
+				OutputBoth (thread_num, "Warning: ILLEGAL SUMOUT\n");
+				dbltogw (&lldata.gwdata, 11.0, lldata.lldata);
+				gw_clear_error (&lldata.gwdata);
 			}
 
 /* Check that the sum of the input numbers squared is approximately */
 /* equal to the sum of unfft results. */
 
-			if (gw_test_mismatched_sums ()) {
-				OutputBoth ("Warning: SUMOUT MISMATCH\n");
-				GWERROR = 0;
+			if (gw_test_mismatched_sums (&lldata.gwdata)) {
+				OutputBoth (thread_num, "Warning: SUMOUT MISMATCH\n");
+				gw_clear_error (&lldata.gwdata);
 			}
 
 /* Abort if user demands it */
 
-			if (escapeCheck ()) {
-				lucasDone ();
+			stop_reason = stopCheck (thread_num);
+			if (stop_reason) {
+				lucasDone (&lldata);
 				fclose (fd);
-				return (FALSE);
-			}
-
-/* Test our ability to read and write files too. */
-
-			if (type == 2 && (i & 1023) == 255) {
-				char	filename[16];
-				int	fd;
-				short	type;
-				unsigned long trash;
-				strcpy (filename, "ptemp");
-				strcat (filename, EXTENSION);
-				if (! writeToFile (filename, 0, 0, 0))
-					OutputBoth ("Warning: File write failed\n");
-				dbltogw (0.0, LLDATA); /* clear memory */
-				if (! readFileHeader (filename, &fd, &type, &trash) ||
-				    ! readFileData (fd, &trash, &trash))
-					OutputBoth ("Warning: File read failed\n");
-				_unlink (filename);
+				return (stop_reason);
 			}
 		}
 
 /* Generate residue and cleanup */
 
-		generateResidue64 (units_bit, &reshi, &reslo);
-		lucasDone ();
+		generateResidue64 (&lldata, &reshi, &reslo);
+		lucasDone (&lldata);
 
 /* Output array of distributions of MAXERR */
 
@@ -3366,15 +5059,15 @@ int lucas_QA (
 			toterr /= iters - iters_unchecked;
 			sprintf (buf, "avg: %6.6f, stddev: %6.6f, #stdev to 0.5: %6.6f\n",
 				 toterr, S, (0.50 - toterr) / S);
-			OutputBoth (buf);
+			OutputBoth (thread_num, buf);
 		}
 
 /* Compare residue with correct residue from the input file */
 
 		sprintf (buf, "%08X%08X", reshi, reslo);
-		if (type <= 2 && stricmp (res, buf)) {
+		if (type <= 2 && _stricmp (res, buf)) {
 			sprintf (buf, "Warning: Residue mismatch. Expected %s\n", res);
-			OutputBoth (buf);
+			OutputBoth (thread_num, buf);
 		}
 
 /* Output message */
@@ -3382,103 +5075,241 @@ int lucas_QA (
 		sprintf (buf, "Exp/iters: %lu/%lu, res: %08X%08X, maxerr: %6.6f/%lu, %lu/%lu/%lu/%lu/%lu, maxdiff: %9.9f/%9.9f\n",
 			 p, iters, reshi, reslo, maxerr, maxerrcnt,
 			 ge_300, ge_325, ge_350, ge_375, ge_400,
-			 maxsumdiff, MAXDIFF);
-		OutputBoth (buf);
+			 maxsumdiff, lldata.gwdata.MAXDIFF);
+		OutputBoth (thread_num, buf);
 		}
 	}
 	fclose (fd);
 
-	return (TRUE);
+	return (0);
 }
 
-/* Generate random FFT data for timing the Lucas-Lehmer code */
+/* Test the factoring program */
 
-void generateRandomData (void)
+int primeSieveTest (
+	int	thread_num)
 {
-	unsigned long i;
+	fachandle facdata;
+	char	buf[500];
+	FILE	*fd;
+	unsigned long p;
+	int	stop_reason;
+	uint32_t res, carryl, carryh;
 
-/* Fill data space with random values. */
+/* Open factors file */
 
-	srand ((unsigned) time (NULL));
-	for (i = 0; i < FFTLEN; i++) {
-		set_fft_value (LLDATA, i, rand() & 0xFF);
+	fd = fopen ("factors", "r");
+
+/* Loop until all the entire range is factored */
+
+	while (fscanf (fd, "%ld", &p) && p) {
+		unsigned long fachi, facmid, faclo;
+		unsigned long i, pass;
+		char fac[480];
+		char *f;
+
+/* What is the factor? */
+
+		fscanf (fd, "%s", fac);
+		fachi = facmid = faclo = 0;
+		for (f = fac; *f; f++) {
+			if (*f < '0' || *f > '9') continue;
+			res = *f - '0';
+			carryl = 0;
+			muladdhlp (&res, &carryl, &carryh, faclo, 10);
+			faclo = res;
+			res = carryl;
+			carryl = 0;
+			muladdhlp (&res, &carryl, &carryh, facmid, 10);
+			facmid = res;
+			fachi = fachi * 10 + carryl;
+			if (fachi >= 4194304 ||
+			    (fachi >= 4096 && !(CPU_FLAGS & CPU_SSE2))) {
+				sprintf (buf, "%ld%s factor too big.\n", p, fac);
+				OutputBoth (thread_num, buf);
+				goto nextp;
+			}
+		}
+
+/* See if p is a prime */
+
+		if (! isPrime (p)) {
+			sprintf (buf, "%ld not a prime.\n", p);
+			OutputBoth (thread_num, buf);
+			goto nextp;
+		}
+
+/* Setup the factoring program */
+
+		i = (fachi % 120 * 16 + facmid % 120 * 16 + faclo % 120) % 120;
+		if (i == 1) pass = 0;
+		else if (i == 7) pass = 1;
+		else if (i == 17) pass = 2;
+		else if (i == 23) pass = 3;
+		else if (i == 31) pass = 4;
+		else if (i == 41) pass = 5;
+		else if (i == 47) pass = 6;
+		else if (i == 49) pass = 7;
+		else if (i == 71) pass = 8;
+		else if (i == 73) pass = 9;
+		else if (i == 79) pass = 10;
+		else if (i == 89) pass = 11;
+		else if (i == 97) pass = 12;
+		else if (i == 103) pass = 13;
+		else if (i == 113) pass = 14;
+		else if (i == 119) pass = 15;
+		else goto bad;
+		stop_reason = factorSetup (thread_num, p, &facdata);
+		if (stop_reason) {
+			fclose (fd);
+			return (stop_reason);
+		}
+		facdata.asm_data->FACHSW = fachi;
+		facdata.asm_data->FACMSW = facmid;
+		stop_reason = factorPassSetup (thread_num, pass, &facdata);
+		if (stop_reason) {
+			fclose (fd);
+			factorDone (&facdata);
+			return (stop_reason);
+		}
+
+/* Factor found, is it a match? */
+
+		do {
+			if (factorChunk (&facdata) != 2 &&
+			    facdata.asm_data->FACHSW == fachi &&
+			    facdata.asm_data->FACMSW == facmid &&
+			    facdata.asm_data->FACLSW == faclo) {
+				sprintf (buf, "%ld%s factored OK.\n", p, fac);
+				OutputSomewhere (thread_num, buf);
+				goto nextp;
+			}
+		} while (facdata.asm_data->FACMSW == facmid);
+
+/* Uh oh. */
+
+bad:		sprintf (buf, "%ld%s factor not found.\n", p, fac);
+		OutputBoth (thread_num, buf);
+
+/* If an escape key was hit, write out the results and return */
+
+nextp:		stop_reason = stopCheck (thread_num);
+		if (stop_reason) {
+			fclose (fd);
+			factorDone (&facdata);
+			return (stop_reason);
+		}
+		p = 0;
 	}
+
+/* All done */
+
+	fclose (fd);
+	factorDone (&facdata);
+	return (0);
 }
+
+/*********************/
+/* Benchmarking code */
+/*********************/
 
 /* Time a few iterations of an LL test on a given exponent */
 
-void primeTime (
+int primeTime (
+	int	thread_num,
 	unsigned long p,
 	unsigned long iterations)
 {
+	struct PriorityInfo sp_info;
 #define SAVED_LIMIT	10
-	unsigned long i, j, saved, save_limit;
+	llhandle lldata;
+	unsigned long i, j, saved, save_limit, num_threads;
 	char	buf[80], fft_desc[100];
 	double	time, saved_times[SAVED_LIMIT];
-	int	res, days, hours, minutes;
-	unsigned long best_asm_timers[32]= {0};
-
-/* Set the process/thread priority */
-
-	SetPriority ();
+	int	days, hours, minutes, stop_reason;
+	uint32_t *ASM_TIMERS;
+	uint32_t best_asm_timers[32] = {0};
+	double	timers[2];
 
 /* Clear all timers */
 
-	clear_timers ();
+	clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
 
 /* Look for special values to run QA suites */
 
-	if (p >= 9994 && p <= 9999) {
-		lucas_QA (9999 - p);
-		return;
+	if (p >= 9900 && p <= 9999) {
+		sp_info.type = SET_PRIORITY_QA;
+		sp_info.thread_num = thread_num;
+		sp_info.aux_thread_num = 0;
+		SetPriority (&sp_info);
+
+		if (p >= 9994 && p <= 9999)
+			return (lucas_QA (thread_num, 9999 - p));
+		if (p == 9992)
+			return (pminus1_QA (thread_num, &sp_info));
+		if (p == 9991)
+			return (ecm_QA (thread_num, &sp_info));
+		if (p == 9990)
+			return (primeSieveTest (thread_num));
+		if (p >= 9900 && p <= 9919)
+			return (test_randomly (thread_num, &sp_info));
+		return (test_all_impl (thread_num, &sp_info));
 	}
-	if (p == 9991) {
-		ecm_QA ();
-		return;
-	}
-	if (p == 9992) {
-		pminus1_QA ();
-		return;
-	}
+
+/* Set the process/thread priority */
+
+	sp_info.type = SET_PRIORITY_BENCHMARKING;
+	sp_info.thread_num = thread_num;
+	sp_info.aux_thread_num = 0;
+	SetPriority (&sp_info);
+
+/* Loop through all possible num_thread values */
+
+	for (num_threads = 1;
+	     num_threads <= NUM_CPUS * CPU_HYPERTHREADS;
+	     num_threads++) {
 
 /* Init the FFT code */
 
-	res = lucasSetup (p, 0);
-	if (res) {
-		sprintf (buf, "Cannot initialize FFT code, errcode=%d\n", res);
-		OutputBoth (buf);
-		return;
-	}
+	gwinit (&lldata.gwdata);
+	gwset_num_threads (&lldata.gwdata, num_threads);
+	gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
+	gwset_thread_callback_data (&lldata.gwdata, &sp_info);
+	stop_reason = lucasSetup (thread_num, p, 0, &lldata);
+	if (stop_reason) return (stop_reason);
+	ASM_TIMERS = get_asm_timers (&lldata.gwdata);
+	memset (ASM_TIMERS, 0, 32 * sizeof (uint32_t));
 
 /* Output a message about the FFT length */
 
-	gwfft_description (fft_desc);
+	gwfft_description (&lldata.gwdata, fft_desc);
 	sprintf (buf, "Using %s\n", fft_desc);
-	OutputStr (buf);
+	OutputStr (thread_num, buf);
+	title (thread_num, "Timing");
 
 /* Fill data space with random values. */
 
-	generateRandomData ();
+	generateRandomData (&lldata);
 
 /* Do one squaring untimed, to prime the caches and start the */
 /* post-FFT process going. */
 
-	gwsetnormroutine (0, ERRCHK != 0, 0);
-	gwstartnextfft (TRUE);
-	gwsquare (LLDATA);
+	gwsetnormroutine (&lldata.gwdata, 0, ERRCHK != 0, 0);
+	gwstartnextfft (&lldata.gwdata, TRUE);
+	gwsquare (&lldata.gwdata, lldata.lldata);
 
 /* Compute numbers in the lucas series */
 /* Note that for reasons unknown, we've seen cases where printing out
 /* the times on each iteration greatly impacts P4 timings. */
 
-	save_limit = (CPU_TYPE >= 12 && p <= 4000000) ? SAVED_LIMIT : 1;
+	save_limit = (p <= 4000000) ? SAVED_LIMIT : 1;
 	for (i = 0, saved = 0; i < iterations; i++) {
 
 /* Time a single squaring */
 
-		start_timer (0);
-		gwsquare (LLDATA);
-		end_timer (0);
+		start_timer (timers, 0);
+		gwsquare (&lldata.gwdata, lldata.lldata);
+		end_timer (timers, 0);
 		timers[1] += timers[0];
 		saved_times[saved++] = timers[0];
 		timers[0] = 0;
@@ -3493,63 +5324,71 @@ void primeTime (
 
 		if (saved == save_limit || i == iterations - 1) {
 			for (j = 0; j < saved; j++) {
-				OutputStr ("p: ");
-				OutputNum (p);
-				OutputStr (".  Time: ");
+				sprintf (buf, "p: %u.  Time: ", p);
 				timers[0] = saved_times[j];
-				print_timer (0, TIMER_MS | TIMER_NL | TIMER_CLR);
+				print_timer (timers, 0, buf, TIMER_MS | TIMER_NL | TIMER_CLR);
+				OutputStr (thread_num, buf);
 			}
 			saved = 0;
 		}
 
 /* Abort early if so requested */
 
-		if (escapeCheck ()) {
-			lucasDone ();
-			return;
+		stop_reason = stopCheck (thread_num);
+		if (stop_reason) {
+			lucasDone (&lldata);
+			return (stop_reason);
 		}
 	}
-	lucasDone ();
-	time = timer_value (1);
+	lucasDone (&lldata);
+	time = timer_value (timers, 1);
 
 /* Print an estimate for how long it would take to test this number */
 
-	OutputStr ("Iterations: ");
-	OutputNum (iterations);
-	OutputStr (".  Total time: ");
-	print_timer (1, TIMER_NL | TIMER_CLR);
+	sprintf (buf, "Iterations: %d.  Total time: ", iterations);
+	print_timer (timers, 1, buf, TIMER_NL | TIMER_CLR);
+	OutputStr (thread_num, buf);
 	time = time * p / iterations;
 	days = (int) (time / 86400.0); time -= (double) days * 86400.0;
 	hours = (int) (time / 3600.0); time -= (double) hours * 3600.0;
 	minutes = (int) (time / 60.0);
-	OutputStr ("Estimated time to complete this exponent: ");
-	sprintf (buf, days == 1 ? "%d day, " : "%d days, ", days);
-	OutputStr (buf);
-	sprintf (buf, hours == 1 ? "%d hour, " : "%d hours, ", hours);
-	OutputStr (buf);
-	sprintf (buf, minutes == 1 ? "%d minute.\n" : "%d minutes.\n", minutes);
-	OutputStr (buf);
+	strcpy (buf, "Estimated time to complete this exponent: ");
+	sprintf (buf+strlen(buf), days == 1 ? "%d day, " : "%d days, ", days);
+	sprintf (buf+strlen(buf), hours == 1 ? "%d hour, " : "%d hours, ", hours);
+	sprintf (buf+strlen(buf), minutes == 1 ? "%d minute.\n" : "%d minutes.\n", minutes);
+	OutputStr (thread_num, buf);
 
 /* I use these assembly language timers to time various chunks of */
 /* assembly code.  Print these timers out. */
 
 	for (i = 0; i < 32; i++) {
-		sprintf (buf, "timer %d: %d\n", i, best_asm_timers[i]);
-		if (best_asm_timers[i]) OutputBoth (buf);
+		sprintf (buf, "timer %d: %d\n", i, (int) best_asm_timers[i]);
+		if (best_asm_timers[i]) OutputBoth (thread_num, buf);
 	}
+
+/* Loop through all possible thread counts */
+
+	}
+
+/* All done */
+
+	return (0);
 }
 
-#define BENCH1 "\nYour timings will be written to the results.txt file.\n"
+#define BENCH1 "Your timings will be written to the results.txt file.\n"
 #define BENCH2 "Compare your results to other computers at http://www.mersenne.org/bench.htm\n"
-#define BENCH3 "That web page also contains instructions on how your results can be included.\n\n"
 
-void factorBench (void)
+int factorBench (
+	int	thread_num,
+	struct primenetBenchmarkData *pkt)
 {
+	fachandle facdata;
 	unsigned long num_lengths, i, j;
 	double	best_time;
 	char	buf[512];
 	int	bit_lengths[] = {58, 59, 60, 61, 62, 63, 64, 65, 66, 67};
-	int	res;
+	int	res, stop_reason;
+	double	timers[2];
 
 /* Loop over all trial factor lengths */
 
@@ -3558,40 +5397,44 @@ void factorBench (void)
 
 /* Initialize for this bit length. */
 
+		stop_reason = factorSetup (thread_num, 35000011, &facdata);
+		if (stop_reason) return (stop_reason);
 		if (bit_lengths[i] < 64) {
-			FACHSW = 0;
-			FACMSW = 1L << (bit_lengths[i]-32);
+			facdata.asm_data->FACHSW = 0;
+			facdata.asm_data->FACMSW = 1L << (bit_lengths[i]-32);
 		} else {
-			FACHSW = 1L << (bit_lengths[i]-64);
-			FACMSW = 0;
+			facdata.asm_data->FACHSW = 1L << (bit_lengths[i]-64);
+			facdata.asm_data->FACMSW = 0;
 		}
-		FACPASS = 0;
-		factorSetup (35000011);
+		stop_reason = factorPassSetup (thread_num, 0, &facdata);
+		if (stop_reason) return (stop_reason);
 
-/* Output start message for this FFT length */
+/* Output start message for this bit length */
 
 		sprintf (buf, "Timing trial factoring of M35000011 with %d bit length factors.  ", bit_lengths[i]);
-		OutputStr (buf);
+		OutputStr (thread_num, buf);
 
 /* Do one "iteration" untimed, to prime the caches. */
 
-		res = factor64 ();
+		res = factorChunk (&facdata);
 
 /* Time 10 iterations. Take best time. */
 
 		for (j = 0; j < 10; j++) {
-			if (escapeCheck ()) {
-				OutputStr ("\nExecution halted.\n");
-				factorDone ();
-				return;
+			stop_reason = stopCheck (thread_num);
+			if (stop_reason) {
+				OutputStrNoTimeStamp (thread_num, "\n");
+				OutputStr (thread_num, "Execution halted.\n");
+				factorDone (&facdata);
+				return (stop_reason);
 			}
-			clear_timers ();
-			start_timer (0);
-			res = factor64 ();
-			end_timer (0);
+			clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
+			start_timer (timers, 0);
+			res = factorChunk (&facdata);
+			end_timer (timers, 0);
 			if (j == 0 || timers[0] < best_time) best_time = timers[0];
 		}
-		factorDone ();
+		factorDone (&facdata);
 
 /* Print the best time for this bit length.  Take into account that */
 /* X86_64 factoring code does 3 times as much work (bigger sieve). */
@@ -3599,33 +5442,60 @@ void factorBench (void)
 #ifdef X86_64
 		best_time = best_time / 3;
 #endif
-		OutputStr ("Best time: ");
-		sprintf (buf, "Best time for %d bit trial factors: ", bit_lengths[i]);
-		writeResults (buf);
 		timers[0] = best_time;
-		print_timer (0, TIMER_NL | TIMER_MS | TIMER_OUT_BOTH);
+		strcpy (buf, "Best time: ");
+		print_timer (timers, 0, buf, TIMER_NL | TIMER_MS);
+		OutputStrNoTimeStamp (thread_num, buf);
+		sprintf (buf, "Best time for %d bit trial factors: ", bit_lengths[i]);
+		print_timer (timers, 0, buf, TIMER_NL | TIMER_MS);
+		writeResults (buf);
+
+/* Accumulate best times to send to the server */
+
+		if (pkt->num_data_points < PRIMENET_BENCH_MAX_DATAPOINTS) {
+			sprintf (pkt->data_points[pkt->num_data_points].bench,
+				 "TF%d", bit_lengths[i]);
+			pkt->data_points[pkt->num_data_points].timing = timer_value (timers, 0);
+			pkt->num_data_points++;
+		}
+
 	}
+	return (0);
 }
 
 /* Time a few iterations of many FFT lengths */
 
-void primeBench (void)
+int primeBench (
+	int	thread_num)
 {
+	struct PriorityInfo sp_info;
+	llhandle lldata;
 	unsigned long num_lengths, i, ii, j, iterations;
 	double	best_time;
 	char	buf[512];
+	unsigned int threads;
 	int	fft_lengths[] = {4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 896, 1024, 1280, 1536, 1792, 2048, 2560, 3072, 3584, 4096, 5120, 6144, 7168, 8192, 10240, 12288, 14336, 16384, 20480, 24576, 28672, 32768};
-	int	res, all_bench, plus1;
+	int	all_bench, plus1, stop_reason;
+	double	timers[2];
+	struct primenetBenchmarkData pkt;
+
+/* Init */
+
+	memset (&pkt, 0, sizeof (pkt));
+	strcpy (pkt.computer_guid, COMPUTER_GUID);
 
 /* Set the process/thread priority */
 
-	SetPriority ();
+	sp_info.type = SET_PRIORITY_BENCHMARKING;
+	sp_info.thread_num = thread_num;
+	sp_info.aux_thread_num = 0;
+	SetPriority (&sp_info);
 
 /* Output startup message */
 
-	OutputStr (BENCH1);
-	OutputBoth (BENCH2);
-	OutputBoth (BENCH3);
+	title (thread_num, "Benchmarking");
+	OutputStr (thread_num, BENCH1);
+	OutputBoth (thread_num, BENCH2);
 
 /* Output to the results file a full CPU description */
 
@@ -3640,34 +5510,47 @@ void primeBench (void)
 #endif
 	writeResults (buf);
 
+/* Loop over all all possible multithread possibilities */
+
+	for (threads = 1; threads <= NUM_CPUS * CPU_HYPERTHREADS; threads++) {
+	  if (threads > CPU_HYPERTHREADS && threads % CPU_HYPERTHREADS != 0)
+	    continue;
+	  if (threads > 1) {
+	    if (CPU_HYPERTHREADS == 1) {
+	      sprintf (buf, "Timing FFTs using %d threads.\n", threads);
+	      OutputBoth (thread_num, buf);
+	    } else {
+	      sprintf (buf, "Timing FFTs using %d threads on %d physical CPUs.\n", threads, (threads + CPU_HYPERTHREADS - 1) / CPU_HYPERTHREADS);
+	      OutputBoth (thread_num, buf);
+	    }
+	  }
+
 /* Loop over all FFT lengths */
 
-	all_bench = IniGetInt (INI_FILE, "AllBench", 0);
-	if (IniGetInt (INI_FILE, "FullBench", 0)) {
-		i = 0;
-		num_lengths = sizeof (fft_lengths) / sizeof (int);
-	} else {
-		i = 28;
-		num_lengths = sizeof (fft_lengths) / sizeof (int) - 12;
-	}
-	for ( ; i < num_lengths; i++) {
-	  for (plus1 = 0; plus1 <= 1; plus1++) {
-	    for (ii = 1; ; ii++) {
+	  all_bench = IniGetInt (INI_FILE, "AllBench", 0);
+	  if (IniGetInt (INI_FILE, "FullBench", 0)) {
+	    i = 0;
+	    num_lengths = sizeof (fft_lengths) / sizeof (int);
+	  } else {
+	    i = 30;
+	    num_lengths = sizeof (fft_lengths) / sizeof (int) - 8;
+	    if (! (CPU_FLAGS & CPU_SSE2)) num_lengths -= 4;
+	  }
+	  for ( ; i < num_lengths; i++) {
+	    for (plus1 = 0; plus1 <= 1; plus1++) {
+	      for (ii = 1; ; ii++) {
 
 /* Initialize for this FFT length.  Compute the number of iterations to */
 /* time.  This is based on the fact that it doesn't take too long for */
 /* my 1400 MHz P4 to run 10 iterations of a 1792K FFT. */
 
-		if (all_bench) bench_pick_nth_fft = ii;
-		res = lucasSetup (fft_lengths[i] * 1024 * 17 + 1, fft_lengths[i] * 1024 + plus1);
-		if (all_bench) bench_pick_nth_fft = 0;
-		if (res) {
-			if (! all_bench) {
-				sprintf (buf, "Cannot initialize FFT code, errcode=%d\n", res);
-				OutputBoth (buf);
-			}
-			break;
-		}
+		gwinit (&lldata.gwdata);
+		gwset_num_threads (&lldata.gwdata, threads);
+		gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
+		gwset_thread_callback_data (&lldata.gwdata, &sp_info);
+		if (all_bench) lldata.gwdata.bench_pick_nth_fft = ii;
+		stop_reason = lucasSetup (thread_num, fft_lengths[i] * 1024 * 17 + 1, fft_lengths[i] * 1024 + plus1, &lldata);
+		if (stop_reason) break;
 		iterations = (unsigned long) (10 * 1792 * CPU_SPEED / 1400 / fft_lengths[i]);
 		if (iterations < 10) iterations = 10;
 		if (iterations > 100) iterations = 100;
@@ -3677,51 +5560,70 @@ void primeBench (void)
 		sprintf (buf, "Timing %d iterations at %dK%s FFT length.  ",
 			 iterations, fft_lengths[i],
 			 plus1 ? " all-complex" : "");
-		OutputStr (buf);
+		OutputStr (thread_num, buf);
 
 /* Fill data space with random values. */
 
-		generateRandomData ();
+		generateRandomData (&lldata);
 
 /* Do one squaring untimed, to prime the caches and start the */
 /* POSTFFT optimization going. */
 
-		gwsetnormroutine (0, 0, 0);
-		gwstartnextfft (TRUE);
-		gwsquare (LLDATA);
+		gwsetnormroutine (&lldata.gwdata, 0, 0, 0);
+		gwstartnextfft (&lldata.gwdata, TRUE);
+		gwsquare (&lldata.gwdata, lldata.lldata);
 
 /* Compute numbers in the lucas series */
 /* Note that for reasons unknown, we've seen cases where printing out
 /* the times on each iteration greatly impacts P4 timings. */
 
 		for (j = 0; j < iterations; j++) {
-			if (escapeCheck ()) {
-				OutputStr ("\nExecution halted.\n");
-				lucasDone ();
-				return;
+			stop_reason = stopCheck (thread_num);
+			if (stop_reason) {
+				OutputStrNoTimeStamp (thread_num, "\n");
+				OutputStr (thread_num, "Execution halted.\n");
+				lucasDone (&lldata);
+				return (stop_reason);
 			}
-			clear_timers ();
-			start_timer (0);
-			gwsquare (LLDATA);
-			end_timer (0);
+			clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
+			start_timer (timers, 0);
+			gwsquare (&lldata.gwdata, lldata.lldata);
+			end_timer (timers, 0);
 			if (j == 0 || timers[0] < best_time) best_time = timers[0];
 		}
-		lucasDone ();
+		lucasDone (&lldata);
 
 /* Print the best time for this FFT length */
 
-		OutputStr ("Best time: ");
+		timers[0] = best_time;
+		strcpy (buf, "Best time: ");
+		print_timer (timers, 0, buf, TIMER_NL | TIMER_MS);
+		OutputStrNoTimeStamp (thread_num, buf);
 		if (all_bench)
 			sprintf (buf,
 				 "Time FFTlen=%dK%s, Levels2=%d, clm=%d: ",
 				 fft_lengths[i], plus1 ? " all-complex" : "",
-				 PASS2_LEVELS, PASS1_CACHE_LINES / 2);
+				 lldata.gwdata.PASS2_LEVELS,
+				 lldata.gwdata.PASS1_CACHE_LINES / 2);
 		else
 			sprintf (buf, "Best time for %dK%s FFT length: ",
 				 fft_lengths[i], plus1 ? " all-complex" : "");
+		print_timer (timers, 0, buf, TIMER_NL | TIMER_MS);
 		writeResults (buf);
-		timers[0] = best_time;
-		print_timer (0, TIMER_NL | TIMER_MS | TIMER_OUT_BOTH);
+
+/* Accumulate best times to send to the server */
+
+		if (!all_bench &&
+		    pkt.num_data_points < PRIMENET_BENCH_MAX_DATAPOINTS) {
+			if (threads == 1)
+				sprintf (pkt.data_points[pkt.num_data_points].bench,
+					 "FFT%dK", fft_lengths[i]);
+			else
+				sprintf (pkt.data_points[pkt.num_data_points].bench,
+					 "FFT%dK %dT", fft_lengths[i], threads);
+			pkt.data_points[pkt.num_data_points].timing = timer_value (timers, 0);
+			pkt.num_data_points++;
+		}
 
 /* Do next FFT implementation (if all_bench set) or next FFT size (if */
 /* all_bench is not set) */
@@ -3735,897 +5637,700 @@ void primeBench (void)
 	    if (!all_bench) break;
 	  }
 	}
+}
 
 /* Now benchmark the trial factoring code */
 
-	factorBench ();
-	OutputStr ("Benchmark complete.\n");
+	stop_reason = factorBench (thread_num, &pkt);
+	if (stop_reason) return (stop_reason);
+	OutputStr (thread_num, "Benchmark complete.\n");
+
+/* Finally, send the benchmark data to the server. */
+
+//bug - send bench data to server. (checkbox to allow sending data to server?)
+//only do this if guid is registered? Or should we auto-register computer
+//under ANONYMOUS userid for stress-testers.
+
+	spoolMessage (PRIMENET_BENCHMARK_DATA, &pkt);
+	return (0);
 }
 
-/* Wrapper code that verifies any factors found by the assembly code */
+/****************************/
+/* Probable Prime Test code */
+/****************************/
 
-int factorAndVerify (
-	unsigned long p)
+/* Write intermediate PRP results to a file */
+/* The PRP save file format is: */
+/*	u32		magic number  (different for ll, p-1, prp, tf, ecm) */
+/*	u32		version number */
+/*	double		pct complete */
+/*	char(11)	stage */
+/*	char(1)		pad */
+/*	u32		checksum of following data */
+/*	u32		error_count */
+/*	u32		iteration counter */
+/*	gwnum		FFT data (u32 len, array u32s) */
+
+#define PRP_MAGICNUM		0x87f2a91b
+#define PRP_VERSION		1
+
+int writePRPSaveFile (
+	gwhandle *gwdata,
+	gwnum	x,
+	char	*filename,
+	struct work_unit *w,
+	unsigned long counter,
+	unsigned long error_count)
 {
-	unsigned long hsw, msw;
-	int	res;
+	int	fd;
+	unsigned long sum = 0;
 
-/* Remember starting point in case of an error */
+/* If we are allowed to create multiple intermediate files, then */
+/* write to a file called rXXXXXXX. */
 
-	hsw = FACHSW;
-	msw = FACMSW;
+	if (TWO_BACKUP_FILES && strlen (filename) == 8)
+		filename[0] = 'r';
 
-/* Call assembly code */
+/* Now save to the intermediate file */
 
-loop:	res = factor64 ();
+	fd = _open (filename, _O_BINARY | _O_WRONLY | _O_TRUNC | _O_CREAT, CREATE_FILE_ACCESS);
+	if (fd < 0) return (FALSE);
 
-/* If a factor was not found, return. */
+	if (!write_header (fd, PRP_MAGICNUM, PRP_VERSION, w)) goto err;
 
-	if (res == 2) return (2);
+	if (!write_long (fd, error_count, &sum)) goto err;
+	if (!write_long (fd, counter, &sum)) goto err;
+	if (!write_gwnum (fd, gwdata, x, &sum)) goto err;
 
-/* Otherwise verify the factor. */
+	if (!write_checksum (fd, sum)) goto err;
 
-	if (FACHSW || FACMSW || FACLSW > 1) {
-		giant	f, x;
+	_commit (fd);
+	_close (fd);
 
-		f = newgiant (100);
-		itog ((int) FACHSW, f);
-		gshiftleft (32, f);
-		uladdg (FACMSW, f);
-		gshiftleft (32, f);
-		uladdg (FACLSW, f);
+/* Now rename the intermediate files */
 
-		x = newgiant (100);
-		itog (2, x);
-		powermod (x, p, f);
-		res = isone (x);
-	
-		free (f);
-		free (x);
-
-		if (res) return (1);
+	if (TWO_BACKUP_FILES && strlen (filename) == 8) {
+		char	backupname[16];
+		strcpy (backupname, filename);
+		backupname[0] = 'q'; filename[0] = 'p';
+		_unlink (backupname);
+		 rename (filename, backupname);
+		backupname[0] = 'r';
+		rename (backupname, filename);
 	}
 
-/* If factor is no good, print an error message, sleep, and */
-/* restart the factoring code. */
+	return (TRUE);
 
-	OutputBoth ("ERROR: Incorrect factor found.\n");
-	if (! SleepFive ()) return (FALSE);
-	FACHSW = hsw;
-	FACMSW = msw;
-	factorSetup (p);
-	goto loop;
+/* An error occured.  Delete the current file. */
+
+err:	_close (fd);
+	_unlink (filename);
+	return (FALSE);
 }
 
-/* Compute percent completion of a factoring job */
+/* Read the data portion of an intermediate PRP results file */
 
-double facpct (
-	short	pass,
-	unsigned int bits,
-	unsigned long endpthi,
-	unsigned long endptlo)
+int readPRPSaveFile (
+	gwhandle *gwdata,
+	gwnum	x,
+	char	*filename,
+	struct work_unit *w,
+	unsigned long *counter,
+	unsigned long *error_count)
 {
-	double	startpt, endpt, current;
+	int	fd;
+	unsigned long sum, filesum, version;
 
-	current = FACHSW * 4294967296.0 + FACMSW;
-	endpt = endpthi * 4294967296.0 + endptlo;
-	if (current > endpt) current = endpt;
-        if (bits < 32) bits = 32;
-        startpt = pow ((double) 2.0, (int) (bits-32));
-	return ((pass + (current - startpt) / (endpt - startpt)) / 16.0 * 100.0);
+	fd = _open (filename, _O_BINARY | _O_RDONLY);
+	if (fd <= 0) return (FALSE);
+
+	if (!read_magicnum (fd, PRP_MAGICNUM)) goto err;
+	if (!read_header (fd, &version, w, &filesum)) goto err;
+	if (version != PRP_VERSION) goto err;
+
+	sum = 0;
+	if (!read_long (fd, error_count, &sum)) goto err;
+	if (!read_long (fd, counter, &sum)) goto err;
+
+	if (!read_gwnum (fd, gwdata, x, &sum)) goto err;
+
+	if (filesum != sum) goto err;
+	_close (fd);
+	return (TRUE);
+err:	_close (fd);
+	return (FALSE);
 }
 
-/* Trial factor a Mersenne number prior to running a Lucas-Lehmer test */
+/* Do a PRP test */
 
-char FACMSG[] = "Factoring M%%ld to 2^%%d is %%.%df%%%% complete.";
-
-int primeFactor (
-	unsigned long p,		/* Exponent to factor */
-	unsigned int bits,		/* How far already factored in bits */
-	int	*result,		/* Returns true if factor found */
-	int	work_type,		/* Work type from worktodo.ini file */
-	int	fd)			/* Continuation file handle or zero */
+int prp (
+	int	thread_num,		/* Worker thread number */
+	struct PriorityInfo *sp_info,	/* SetPriority information */
+	struct work_unit *w,		/* Worktodo entry */
+	int	pass)			/* PrimeContinue pass */
 {
-	int	continuation, old_style;
-	long	write_time = DISK_WRITE_TIME * 60;
-	unsigned int test_bits;
-	unsigned long endpthi, endptlo;
-	short	pass;
-	time_t	start_time, current_time;
-	struct work_unit w;
-	char	filename[20];
-	char	buf[80], str[80];
+	gwhandle gwdata;
+	gwnum	x;
+	giant	N, tmp;
+	int	first_iter_msg, res, stop_reason;
+	int	echk, saving, near_fft_limit, sleep5, isProbablePrime;
+	unsigned long Nlen, counter, iters, error_count;
+	int	slow_iteration_count;
+	double	timers[2];
+	double	inverse_Nlen;
+	double	reallyminerr = 1.0;
+	double	reallymaxerr = 0.0;
+	double	best_iteration_time;
+	char	filename[32];
+	char	buf[160], fft_desc[100], res64[17];
+	unsigned long last_counter = 0;		/* Iteration of last error */
+	int	maxerr_recovery_mode = 0;	/* Big roundoff err rerun */
+	double	last_suminp = 0.0;
+	double	last_sumout = 0.0;
+	double	last_maxerr = 0.0;
+	char	string_rep[80];
+	int	string_rep_truncated;
 
-/* Clear all timers */
+/* See if this exponent needs P-1 factoring.  We treat P-1 factoring */
+/* that is part of a PRP test as priority work (done in pass 1). */
 
-	clear_timers ();
-
-/* Get the current time */
-
-	time (&start_time);
-
-/* Init temporary file name */
-
-	tempFileName (filename, p);
-
-/* Create a work packet for later updating of the rolling average */
- 
-	w.work_type = WORK_FACTOR;
-	w.n = p;
-	w.bits = bits;
-
-/* Determine how much we should factor (in bits) */
-
-	test_bits = factorLimit (p, work_type);
-	if (test_bits < 32) test_bits = 32;
-
-/* By default we do not do the old style of factoring which was 16 passes */
-/* each pass testing from bits to test_bits */
-
-	old_style = FALSE;
-
-/* Is this a continuation?  If so, read continuation file. */
-/* There are two types of continuation files, handle both */
-
-	if (fd) {
-		short	shortdummy;
-		if (_read (fd, &pass, sizeof (short)) != sizeof (short))
-			goto readerr;
-		pass--;
-		if (_read (fd, &shortdummy, sizeof (short)) != sizeof (short))
-			goto readerr;
-		*result = shortdummy;
-		if (pass < 900) {
-			unsigned long startpt;
-			FACHSW = 0;
-			if (_read (fd, &FACMSW, sizeof (long)) != sizeof (long))
-				goto readerr;
-			if (_read (fd, &startpt, sizeof (long)) != sizeof (long))
-				goto readerr;
-			endpthi = 0;
-			if (_read (fd, &endptlo, sizeof (long)) != sizeof (long))
-				goto readerr;
-			old_style = TRUE;
-		} else {
-			if (_read (fd, &shortdummy, sizeof (short)) != sizeof (short))
-				goto readerr;
-			old_style = shortdummy;
-			if (_read (fd, &shortdummy, sizeof (short)) != sizeof (short))
-				goto readerr;
-			bits = shortdummy;
-			if (_read (fd, &pass, sizeof (short)) != sizeof (short))
-				goto readerr;
-			if (_read (fd, &FACHSW, sizeof (long)) != sizeof (long))
-				goto readerr;
-			if (_read (fd, &FACMSW, sizeof (long)) != sizeof (long))
-				goto readerr;
-			if (_read (fd, &endpthi, sizeof (long)) != sizeof (long))
-				goto readerr;
-			if (_read (fd, &endptlo, sizeof (long)) != sizeof (long))
-				goto readerr;
+	if (! w->pminus1ed) {
+		stop_reason = pfactor (thread_num, sp_info, w, pass);
+		if (stop_reason) {
+			if (pass == 3 &&
+			    (stop_reason == STOP_NOT_ENOUGH_MEM ||
+			     stop_reason == STOP_NOT_DESIRED_MEM)) {
+				stop_reason = 0;
+				set_affected_by_mem_usage (thread_num);
+			} else
+				return (stop_reason);
 		}
-		_close (fd);
-		continuation = TRUE;
-	} else {
-		startRollingAverage ();
-		*result = FALSE;
-		continuation = FALSE;
 	}
 
-/* Is prime already factored enough?  If so, return.  However, if we are */
-/* processing a continuation file, then return the result from the file. */
-/* This bizarre case happens when someone lowers the FactorOverride value */
-/* in the middle of a factoring job. */
+/* Done with pass 1 priority work.  Return to do more priority work. */
 
-	if (bits >= test_bits) {
-		if (fd) goto done;
-		return (TRUE);
+	if (pass == 1) return (0);
+
+/* Figure out which FFT size we should use */
+
+	stop_reason = pick_fft_size (thread_num, w);
+	if (stop_reason) return (stop_reason);
+
+/* Make sure the first-time user runs a successful self-test. */
+/* The one-hour self-test may have been useful when it was first introduced */
+/* but I think it now does little to catch buggy machines (they eventually */
+/* work OK for an hour) and does create user confusion and annoyance. */
+
+#ifdef ONE_HOUR_SELF_TEST
+	stop_reason = selfTest (thread_num, sp_info, w);
+	if (stop_reason) return (stop_reason);
+#endif
+
+/* Init the FFT code for squaring modulo k*b^n+c. */
+
+begin:	gwinit (&gwdata);
+	gwset_num_threads (&gwdata, THREADS_PER_TEST[thread_num]);
+	gwset_thread_callback (&gwdata, SetAuxThreadPriority);
+	gwset_thread_callback_data (&gwdata, sp_info);
+	gwset_specific_fftlen (&gwdata, w->forced_fftlen);
+	res = gwsetup (&gwdata, w->k, w->b, w->n, w->c);
+
+/* If we were unable to init the FFT code, then print an error message */
+/* and return an error code. */
+
+	if (res) {
+		sprintf (buf, "PRP cannot initialize FFT code, errcode=%d\n", res);
+		OutputBoth (thread_num, buf);
+		return (STOP_FATAL_ERROR);
+	}
+
+/* Record the amount of memory being used by this thread. */
+
+	set_memory_usage (thread_num, 0,
+			  gwmemused (&gwdata) + gwnum_size (&gwdata));
+
+/* Allocate memory for the PRP test */
+
+	x = gwalloc (&gwdata);
+	if (x == NULL) {
+		gwdone (&gwdata);
+		OutputStr (thread_num, "Error allocating memory for FFT data.\n");
+		return (STOP_OUT_OF_MEM);
+	}
+
+/* Format the string representation of the test number */
+
+	strcpy (string_rep, gwmodulo_as_string (&gwdata));
+	if (w->known_factors == NULL)
+		string_rep_truncated = FALSE;
+	else if (strlen (w->known_factors) < 40) {
+		char	*p;
+		strcat (string_rep, "/");
+		strcat (string_rep, w->known_factors);
+		while ((p = strchr (string_rep, ',')) != NULL) *p = '/';
+		string_rep_truncated = FALSE;
+	} else {
+		strcat (string_rep, "/known_factors");
+		string_rep_truncated = TRUE;
 	}
 
 /* Init the title */
 
-	sprintf (buf, "Factoring M%ld", p);
-	title (buf);
-	sprintf (buf, "%s factoring M%ld to 2^%d\n",
-		 fd ? "Resuming" : "Starting", p, test_bits);
-	OutputStr (buf);
+	sprintf (buf, "PRP %s", string_rep);
+	title (thread_num, buf);
 
-/* Loop testing larger and larger factors until we've tested to the */
-/* appropriate number of bits.  Advance one bit at a time to minimize wasted */
-/* time looking for a second factor after a first factor is found. */
+/* Loop reading from save files (and backup save files) */
 
-	while (test_bits > bits) {
-	    unsigned int end_bits;
-	    unsigned long iters, iters_r;
-	    int	stopping, saving;
+readloop:
+	tempFileName (w, filename);
 
-/* Advance one bit at a time to minimize wasted time looking for a */
-/* second factor after a first factor is found. */
+/* Read a PRP save file.  On error try the backup save file. */
 
-	    end_bits = (bits < 50) ? 50 : bits + 1;
-	    if (old_style) {
-		    unsigned long x;
-		    if (endpthi || endptlo == 0xFFFFFFFF) {
-			    end_bits = 64;
-			    endpthi = 1;
-			    endptlo = 0;
-		    }
-		    else for (x = endptlo, end_bits = 31; x; x >>= 1) end_bits++;
-	    }
-	    if (end_bits > test_bits) end_bits = test_bits;
-
-/* Compute the ending point for each pass */
-
-	    if (!continuation) {
-		if (end_bits < 64) {
-			endpthi = 0;
-			endptlo = 1L << (end_bits-32);
-		} else {
-			endpthi = 1L << (end_bits-64);
-			endptlo = 0;
+	if (continuationFileExists (thread_num, filename)) {
+		if (! readPRPSaveFile (&gwdata, x, filename, w, &counter, &error_count)) {
+			sprintf (buf, READFILEERR, filename);
+			OutputBoth (thread_num, buf);
+			_unlink (filename);
+			goto readloop;
 		}
-	    }
-
-/* Sixteen passes.  Two for the 1 or 7 mod 8 factors times two for the */
-/* 1 or 2 mod 3 factors times four for the 1, 2, 3, or 4 mod 5 factors. */
-
-	    iters_r = 0;
-	    iters = 0;
-	    if (! continuation) pass = 0;
-	    for ( ; pass < 16; pass++) {
-
-/* Set the starting point only if we are not resuming from */
-/* a continuation file.  For no particularly good reason we */
-/* quickly redo trial factoring for factors below 2^50. */
-
-		if (continuation)
-			continuation = FALSE;
-		else {
-			if (bits < 50) {
-				FACHSW = 0;
-				FACMSW = 0;
-			} else if (bits < 64) {
-				FACHSW = 0;
-				FACMSW = 1L << (bits-32);
-			} else {
-				FACHSW = 1L << (bits-64);
-				FACMSW = 0;
-			}
-		}
-
-/* Only test for factors less than 2^32 on the first pass */
-
-		if (FACHSW == 0 && FACMSW == 0 && pass != 0) FACMSW = 1;
-
-/* Setup the factoring program */
-
-		FACPASS = pass;
-		factorSetup (p);
-
-/* Loop until all factors tested or factor found */
-
-		for ( ; ; ) {
-			int	res;
-
-/* Use this opportunity to perform other miscellaneous tasks that may */
-/* be required by this particular OS port */
-
-			doMiscTasks ();
-
-/* Periodically set global vars for Test/Status and CommunicateWithServer */
-
-			if ((iters & 0xFFF) == 0) {
-				EXP_BEING_WORKED_ON = p;
-				EXP_BEING_FACTORED = 1;
-				if (*result)
-					EXP_PERCENT_COMPLETE = 999.0;
-				else
-					EXP_PERCENT_COMPLETE =
-						pow ((double) 0.5, (int) (test_bits - end_bits + 1)) *
-						(1.0 + facpct (pass, bits, endpthi, endptlo) / 100.0);
-			}
-
-/* Do a chunk of factoring */
-
-#ifdef SERVER_TESTING
-			if (FACMSW & 0x80000000) FACHSW++;
-			FACMSW=FACMSW*2+1000;
-			if ((rand() & 0x1FF) == 0x111) break;
-#else
-			start_timer (0);
-			res = factorAndVerify (p);
-			end_timer (0);
-			if (res != 2) break;
-#endif
-
-/* Send queued messages to the server every so often */
-/* Set flag if we are saving or stopping */
-
-			stopping = stopCheck ();
-			if ((iters_r & 0x7F) == 0 && !stopping) {
-				if (!communicateWithServer ()) stopping = 1;
-				if (!pauseWhileRunning ()) stopping = 1;
-				time (&current_time);
-				saving = (current_time-start_time > write_time);
-			} else
-				saving = 0;
-
-/* Output informative message */
-
-			if (++iters >= ITER_OUTPUT) {
-				char	fmt_mask[80];
-				double	percent;
-				percent = facpct (pass, bits, endpthi, endptlo);
-				percent = trunc_percent (percent);
-				sprintf (fmt_mask, FACMSG, PRECISION);
-				sprintf (buf, fmt_mask, p, end_bits, percent);
-				OutputTimeStamp ();
-				OutputStr (buf);
-				OutputStr ("  Time: ");
-				print_timer (0, TIMER_NL | TIMER_OPT_CLR);
-				sprintf (fmt_mask, "%%.%df%%%%", PRECISION);
-				sprintf (buf, fmt_mask, percent);
-				title (buf);
-				iters = 0;
-			}
-
-/* Output informative message */
-
-			if (++iters_r >= ITER_OUTPUT_RES ||
-			    (NO_GUI && stopping)) {
-				char	fmt_mask[80];
-				double	percent;
-				percent = facpct (pass, bits, endpthi, endptlo);
-				percent = trunc_percent (percent);
-				sprintf (fmt_mask, FACMSG, PRECISION);
-				sprintf (buf, fmt_mask, p, end_bits, percent);
-				strcat (buf, "\n");
-				writeResults (buf);
-				iters_r = 0;
-			}
-
-/* Test for completion */
-
-			if (FACHSW > endpthi ||
-			    (FACHSW == endpthi && FACMSW >= endptlo))
-				goto nextpass;
-
-/* If an escape key was hit, write out the results and return */
-
-			if (stopping || saving) {
-				short	shortdummy;
-				long	longdummy;
-				fd = _creat (filename, CREATE_FILE_ACCESS);
-				_close (fd);
-				fd = _open (filename, _O_BINARY | _O_RDWR);
-				shortdummy = 2;
-				_write (fd, &shortdummy, sizeof (short));
-				longdummy = 0;
-				_write (fd, &longdummy, sizeof (long));
-				shortdummy = 999;
-				_write (fd, &shortdummy, sizeof (short));
-				shortdummy = *result;
-				_write (fd, &shortdummy, sizeof (short));
-				shortdummy = old_style;
-				_write (fd, &shortdummy, sizeof (short));
-				shortdummy = bits;
-				_write (fd, &shortdummy, sizeof (short));
-				_write (fd, &pass, sizeof (short));
-				_write (fd, &FACHSW, sizeof (long));
-				_write (fd, &FACMSW, sizeof (long));
-				_write (fd, &endpthi, sizeof (long));
-				_write (fd, &endptlo, sizeof (long));
-				_commit (fd);
-				_close (fd);
-				if (stopping) {
-					factorDone ();
-					return (FALSE);
-				}
-				start_time = current_time;
-			}
-		}
-
-/* Format the output message */
-
-		makestr (FACHSW, FACMSW, FACLSW, str);
-
-/* Output results to the screen, results file, and server */
-
-		{
-			struct primenetAssignmentResult pkt;
-			memset (&pkt, 0, sizeof (pkt));
-			pkt.exponent = p;
-			pkt.resultType = PRIMENET_RESULT_FACTOR;
-			strcpy (pkt.resultInfo.factor, str);
-			spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
-		}
-		sprintf (buf, "M%ld has a factor: %s\n", p, str);
-		OutputBoth (buf);
-		spoolMessage (PRIMENET_RESULT_MESSAGE, buf);
-
-/* Set flag indicating a factor has been found */
-
-		*result = TRUE;
-
-/* We used to continue factoring to find a smaller factor in a later pass. */
-/* However, there was a bug - restarting from the save file skipped the */
-/* further factoring AND the time it takes to search for smaller factors */
-/* is getting longer and longer as we factor deeper and deeper.  Therefore, */
-/* in version 20 I've elected to no longer search for smaller factors. */
-/* The one exception is users that are using FactorOverride to locate */
-/* small factors. */
-
-		if (work_type != WORK_FACTOR ||
-		    IniGetInt (INI_FILE, "FactorOverride", 99) > 60) break;
-
-		if (FACMSW != 0xFFFFFFFF) {
-			endpthi = FACHSW;
-			endptlo = FACMSW+1;
-		} else {
-			endpthi = FACHSW+1;
-			endptlo = 0;
-		}
-
-/* Do next of the 16 passes */
-
-nextpass:	;
-	    }
-
-/* If we've found a factor, then we are done factoring */
-
-	    if (*result) break;
-
-/* Advance the how far factored variable */
-
-	    bits = end_bits;
-	    old_style = FALSE;
+		first_iter_msg = TRUE;
 	}
 
-/* Clear prime from the to-do list */
-
-done:	if (*result)
-		updateWorkToDo (1.0, 2, p, -1, WORK_FACTOR, 0);
-
-/* Output message if no factor found */
+/* Start off with the 1st PRP squaring */
 
 	else {
-		struct primenetAssignmentResult pkt;
-
-		memset (&pkt, 0, sizeof (pkt));
-		pkt.exponent = p;
-		pkt.resultType = PRIMENET_RESULT_NOFACTOR;
-		pkt.resultInfo.how_far_factored = bits;
-		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
-
-		sprintf (buf, "M%ld no factor to 2^%d, Wc%d: %08lX\n",
-			 p, bits, PORT, SEC3 (p));
-		OutputBoth (buf);
-		spoolMessage (PRIMENET_RESULT_MESSAGE, buf);
-
-		updateWorkToDo (1.0, 2, p, -1, WORK_FACTOR, bits);
-
-/* Update the rolling average when no factor is found */
-
-		updateRollingAverage (raw_work_estimate (&w) * 24.0 / CPU_HOURS);
+		dbltogw (&gwdata, 3.0, x);
+		counter = 0;
+		error_count = 0;
+		first_iter_msg = FALSE;
 	}
 
-/* Delete the continuation file */
+/* Output a message saying we are starting/resuming the PRP test. */
+/* Also output the FFT length. */
 
-	_unlink (filename);
+	gwfft_description (&gwdata, fft_desc);
+	sprintf (buf, "%s PRP test of %s using %s\n",
+		 (counter == 0) ? "Starting" : "Resuming",
+		 string_rep, fft_desc);
+	OutputStr (thread_num, buf);
 
-/* Clear rolling average start time in case we've */
-/* interrupted a Lucas-Lehmer test. */
+/* Compute the number we are testing. */
 
-	clearRollingStart ();
+	stop_reason = setN (&gwdata, thread_num, w, &N);
+	if (stop_reason) goto exit;
 
-/* All done */
+/* Subtract 1 from N to compute a^(N-1) mod N.  Get the exact bit length */
+/* of the number.  We will perform bitlen(N)-1 squarings for the PRP test. */
 
-	factorDone ();
-	return (TRUE);
+	iaddg (-1, N);
+	Nlen = bitlen (N);
 
-/* Return a kludgy error code to indicate an error reading intermediate file */
+/* Hyperthreading backoff is an option to pause the program when iterations */
+/* take longer than usual.  This is useful on hyperthreaded machines so */
+/* that prime95 doesn't steal cycles from a foreground task, thus hurting */
+/* the computers responsiveness. */
 
-readerr:_close (fd);
-	*result = 999;
-	return (TRUE);
-}
-
-
-/* Factor a range of primes using factors of the specified size */
-
-char NOFAC[] = "M%ld no factor from 2^%d to 2^%d, Wc%d: %08lX\n";
-
-int primeSieve (
-	unsigned long startp,
-	unsigned long endp,
-	unsigned short minbits,
-	unsigned short maxbits,
-	int	fd)			/* Continuation file */
-{
-	long	write_time = DISK_WRITE_TIME * 60;
-	char	filename[20], buf[80], str[80];
-	int	increasing, continuation;
-	unsigned long p, endpthi, endptlo, iters, iters_r;
-	unsigned short bits;
-	short	pass;
-	int	stopping, saving;
-	time_t	start_time, current_time;
+	best_iteration_time = 1.0e50;
+	slow_iteration_count = 0;
 
 /* Clear all timers */
 
-	clear_timers ();
+	clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
 
-/* Get the current time */
+/* Init vars for Test/Status and CommunicateWithServer */
 
-	time (&start_time);
+	strcpy (w->stage, "PRP");
+	inverse_Nlen = 1.0 / (double) (Nlen - 1);
+	w->pct_complete = (double) counter * inverse_Nlen;
 
-/* Clear rolling average start time in case we've */
-/* interrupted a Lucas-Lehmer test. */
+/* If we are near the maximum exponent this fft length can test, then we */
+/* will error check all iterations */
 
-	clearRollingStart ();
+	near_fft_limit = exponent_near_fft_limit (&gwdata);
 
-/* Special value indicates check all factors in a file named "factors" */
+/* Do the PRP test */
 
-	if (startp == 8888) {
-		primeSieveTest ();
-		return (FALSE);
-	}
+//#define CHECK_ITER
+#ifdef CHECK_ITER
+{giant t1, t2;
+t1 = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 4) + 5);
+t2 = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 4) + 5);
+gwtogiant (&gwdata, x, t1);
+#endif
+	gwsetmulbyconst (&gwdata, 3);
+	iters = 0;
+	while (counter < Nlen - 1) {
 
-/* Is this a continuation?  If so, read continuation file. */
+/* On first iteration create a save file so that writeNewErrorCount */
+/* can properly keep track of error counts. */
+/* Also save right after we pass an errored iteration and several */
+/* iterations before retesting an errored iteration so that we don't */
+/* have to backtrack very far to do a careful_iteration	(we don't do the */
+/* iteration immediately before because on the P4 a save operation will */
+/* change the FFT data and make the error non-reproducible. */
+/* Error check the first and last 50 iterations, before writing an */
+/* intermediate file (either user-requested stop or a */
+/* 30 minute interval expired), and every 128th iteration. */
 
-	if (fd) {
-		_read (fd, &p, sizeof (long));
-		_read (fd, &pass, sizeof (short));
-		_read (fd, &bits, sizeof (short));
-		_read (fd, &FACHSW, sizeof (long));
-		_read (fd, &FACMSW, sizeof (long));
-		_close (fd);
-		continuation = TRUE;
-	} else
-		continuation = FALSE;
+		stop_reason = stopCheck (thread_num);
+		saving = stop_reason ||
+			 (counter == 0 && Nlen > 1500000) ||
+			 counter == last_counter-8 ||
+			 counter == last_counter ||
+			 testSaveFilesFlag (thread_num);
+		echk = saving || near_fft_limit || ERRCHK ||
+			counter < 50 || counter >= Nlen-51 ||
+			((counter & 127) == 0);
+		gw_clear_maxerr (&gwdata);
 
-/* Init filename */
+/* Do one PRP iteration */
 
-	tempFileName (filename, 0);
+		timers[1] = 0.0;
+		start_timer (timers, 1);
 
-/* Loop until all the entire range is factored */
+/* Process this bit.  Use square carefully the first and last 30 iterations. */
+/* This should avoid any pathological non-random bit pattterns.  Also square */
+/* carefully during an error recovery. This will protect us from roundoff */
+/* errors up to 0.6. */
 
-	increasing = (startp <= endp);
-	if (!continuation) p = startp;
-	if ((p & 1) == 0) p = increasing ? p + 1 : p - 1;
-	for ( ; ; p = increasing ? p + 2 : p - 2) {
-
-/* Reached endp? */
-
-		if (increasing) {
-			if (p > endp) break;
+		gwstartnextfft (&gwdata,
+				!saving && !maxerr_recovery_mode &&
+				counter > 35 && counter < Nlen-35 &&
+				(INTERIM_RESIDUES == 0 ||
+				 (counter+1) % INTERIM_RESIDUES > 0));
+#ifdef CHECK_ITER
+squareg (t1);
+if (bitval (N, Nlen-2-counter)) imulg (3, t1);
+specialmodg (&gwdata, t1);
+if (w->known_factors) {	iaddg (1, N); modg (N, t1); iaddg (-1, N); }
+gwstartnextfft (&gwdata, 0);
+echk=1;
+#endif
+		if (bitval (N, Nlen-2-counter)) {
+			gwsetnormroutine (&gwdata, 0, echk, 1);
 		} else {
-			if (p < endp) break;
+			gwsetnormroutine (&gwdata, 0, echk, 0);
+		}
+		if (maxerr_recovery_mode && counter == last_counter) {
+			gwsquare_carefully (&gwdata, x);
+			maxerr_recovery_mode = 0;
+			echk = 0;
+		} else if (counter < 30 || counter > Nlen-32)
+			gwsquare_carefully (&gwdata, x);
+		else
+			gwsquare (&gwdata, x);
+
+#ifdef CHECK_ITER
+gwtogiant (&gwdata, x, t2);
+if (w->known_factors) {	iaddg (1, N); modg (N, t2); iaddg (-1, N); }
+if (gcompg (t1, t2) != 0)
+OutputStr (thread_num, "Iteration failed.\n");
+//if (counter == 100) counter = Nlen-2;
+#endif
+
+/* End iteration timing and increase count of iterations completed */
+
+		end_timer (timers, 1);
+		timers[0] += timers[1];
+		iters++;
+
+/* If the sum of the output values is an error (such as infinity) */
+/* then raise an error. */
+
+		if (gw_test_illegal_sumout (&gwdata)) {
+			sprintf (buf, ERRMSG0, counter+1, Nlen-1, ERRMSG1A);
+			OutputBoth (thread_num, buf);
+			inc_error_count (2, &error_count);
+			sleep5 = TRUE;
+			goto restart;
 		}
 
-/* Is p a prime? */
+/* Check that the sum of the input numbers squared is approximately */
+/* equal to the sum of unfft results.  Since this check may not */
+/* be perfect, check for identical results after a restart. */
 
-		if (!isPrime (p)) goto nextp;
-
-/* Loop through all the bit levels */
-
-		if (!continuation) bits = minbits;
-		for ( ; bits <= maxbits; bits++) {
-
-/* Determine how much we should factor */
-
-		if (bits < 64) {
-			endpthi = 0;
-			endptlo = 1L << (bits-32);
-		} else {
-			endpthi = 1L << (bits-64);
-			endptlo = 0;
-		}
-
-/* Sixteen passes! two for the 1 or 7 mod 8 factors times two for the */
-/* 1 or 2 mod 3 factors times four for the 1, 2, 3, or 4 mod 5 factors. */
-
-		if (!continuation) pass = 0;
-		for ( ; pass < 16; pass++) {
-
-/* Setup the factoring program */
-
-		if (!continuation) {
-			if (bits <= 32) {
-				FACHSW = 0;
-				FACMSW = 0;
-			} else if (bits <= 64) {
-				FACHSW = 0;
-				FACMSW = 1L << (bits-33);
+		if (gw_test_mismatched_sums (&gwdata)) {
+			if (counter == last_counter &&
+			    gwsuminp (&gwdata, x) == last_suminp &&
+			    gwsumout (&gwdata, x) == last_sumout) {
+				OutputBoth (thread_num, ERROK);
+				inc_error_count (3, &error_count);
+				gw_clear_error (&gwdata);
 			} else {
-				FACHSW = 1L << (bits-65);
-				FACMSW = 0;
+				char	msg[100];
+				sprintf (msg, ERRMSG1B,
+					 gwsuminp (&gwdata, x),
+					 gwsumout (&gwdata, x));
+				sprintf (buf, ERRMSG0, counter+1, Nlen-1, msg);
+				OutputBoth (thread_num, buf);
+				last_counter = counter;
+				last_suminp = gwsuminp (&gwdata, x);
+				last_sumout = gwsumout (&gwdata, x);
+				inc_error_count (0, &error_count);
+				sleep5 = TRUE;
+				goto restart;
 			}
-			if (pass > 0 && FACMSW == 0) FACMSW = 1;
 		}
-		FACPASS = pass;
-		factorSetup (p);
-		continuation = FALSE;
 
-/* Loop until all factors tested or factor found */
+/* Check for excessive roundoff error.  If round off is too large, repeat */
+/* the iteration to see if this was a hardware error.  If it was repeatable */
+/* then repeat the iteration using a safer, slower method.  This can */
+/* happen when operating near the limit of an FFT. */
 
-		iters = 0;
-		iters_r = 0;
-		for ( ; ; ) {
-			int	res;
-
-/* Test for completion */
-
-			if (FACHSW > endpthi ||
-			    (FACHSW == endpthi && FACMSW >= endptlo))
-				break;
-
-/* Factor some more */
-
-			start_timer (0);
-			res = factorAndVerify (p);
-			end_timer (0);
-			if (res != 2) goto bingo;
-
-/* Send queued messages to the server every so often */
-/* Set flag if we are saving or stopping */
-
-			stopping = stopCheck ();
-			if ((iters_r & 0x7F) == 0 && !stopping) {
-				if (!communicateWithServer ()) stopping = 1;
-				if (!pauseWhileRunning ()) stopping = 1;
-				time (&current_time);
-				saving = (current_time-start_time > write_time);
-			} else
-				saving = 0;
-
-/* Output informative message */
-
-			if (++iters >= ITER_OUTPUT) {
-				char	fmt_mask[80];
-				double	percent;
-				percent = facpct (pass, bits-1, endpthi, endptlo);
-				percent = trunc_percent (percent);
-				sprintf (fmt_mask, FACMSG, PRECISION);
-				sprintf (buf, fmt_mask, p, bits, percent);
-				OutputTimeStamp ();
-				OutputStr (buf);
-				OutputStr ("  Time: ");
-				print_timer (0, TIMER_NL | TIMER_OPT_CLR);
-				sprintf (fmt_mask, "%%.%df%%%%", PRECISION);
-				sprintf (buf, fmt_mask, percent);
-				title (buf);
-				iters = 0;
+		if (echk && gw_get_maxerr (&gwdata) >= 0.40625) {
+			if (counter == last_counter &&
+			    gw_get_maxerr (&gwdata) == last_maxerr) {
+				OutputBoth (thread_num, ERROK);
+				inc_error_count (3, &error_count);
+				gw_clear_error (&gwdata);
+				OutputBoth (thread_num, ERRMSG5);
+				maxerr_recovery_mode = 1;
+				sleep5 = FALSE;
+				goto restart;
+			} else {
+				char	msg[100];
+				sprintf (msg, ERRMSG1C, gw_get_maxerr (&gwdata));
+				sprintf (buf, ERRMSG0, counter+1, Nlen-1, msg);
+				OutputBoth (thread_num, buf);
+				last_counter = counter;
+				last_maxerr = gw_get_maxerr (&gwdata);
+				inc_error_count (1, &error_count);
+				sleep5 = FALSE;
+				goto restart;
 			}
+		}
 
-/* Output informative message */
+/* Update counter, percentage complete, and maximum round-off error */
 
-			if (++iters_r >= ITER_OUTPUT_RES) {
-				char	fmt_mask[80];
-				double	percent;
-				percent = facpct (pass, bits-1, endpthi, endptlo);
-				percent = trunc_percent (percent);
-				sprintf (fmt_mask, FACMSG, PRECISION);
-				sprintf (buf, fmt_mask, p, bits, percent);
-				strcat (buf, "\n");
-				writeResults (buf);
-				iters_r = 0;
+		counter++;
+		w->pct_complete = (double) counter * inverse_Nlen;
+		if (ERRCHK) {
+			if (counter > 30 &&
+			    gw_get_maxerr (&gwdata) < reallyminerr)
+				reallyminerr = gw_get_maxerr (&gwdata);
+			if (gw_get_maxerr (&gwdata) > reallymaxerr)
+				reallymaxerr = gw_get_maxerr (&gwdata);
+		}
+
+/* Print a message every so often */
+
+		if (counter % ITER_OUTPUT == 0 || first_iter_msg) {
+			char	fmt_mask[80];
+			double	pct;
+			pct = trunc_percent (w->pct_complete);
+			sprintf (fmt_mask, "%%.%df%%%% of %%s", PRECISION);
+			sprintf (buf, fmt_mask, pct, string_rep);
+			title (thread_num, buf);
+			sprintf (fmt_mask,
+				 "Iteration: %%ld / %%ld [%%.%df%%%%]",
+				 PRECISION);
+			sprintf (buf, fmt_mask, counter, Nlen-1, pct);
+			if (ERRCHK && counter > 30) {
+				sprintf (buf+strlen(buf),
+					 ".  Round off: %10.10f to %10.10f",
+					 reallyminerr, reallymaxerr);
 			}
+			if (first_iter_msg) {
+				strcat (buf, ".\n");
+				clear_timer (timers, 0);
+			} else {
+				strcat (buf, ".  Per iteration time: ");
+				divide_timer (timers, 0, iters);
+				print_timer (timers, 0, buf,
+					     TIMER_NL | TIMER_OPT_CLR);
+			}
+			OutputStr (thread_num, buf);
+			if (!CUMULATIVE_TIMING) iters = 0;
+			first_iter_msg = FALSE;
+		}
+
+/* Print a results file message every so often */
+
+		if (counter % ITER_OUTPUT_RES == 0 || (NO_GUI && stop_reason)) {
+			sprintf (buf, "Iteration %ld / %ld\n", counter, Nlen-1);
+			writeResults (buf);
+		}
+
+/* Write results to a file every DISK_WRITE_TIME minutes */
+/* On error, retry in 10 minutes (it could be a temporary */
+/* disk-full situation) */
+
+		if (saving) {
+			if (! writePRPSaveFile (&gwdata, x, filename, w,
+						counter, error_count)) {
+				sprintf (buf, WRITEFILEERR, filename);
+				OutputBoth (thread_num, buf);
+			}
+		}
 
 /* If an escape key was hit, write out the results and return */
 
-			if (stopping || saving) {
-				short	four = 4;
-				fd = _open (filename, _O_BINARY | _O_WRONLY | _O_TRUNC | _O_CREAT, CREATE_FILE_ACCESS);
-				_write (fd, &four, sizeof (short));
-				_write (fd, &p, sizeof (long)); /* dummy */
-				_write (fd, &p, sizeof (long));
-				_write (fd, &pass, sizeof (short));
-				_write (fd, &bits, sizeof (short));
-				_write (fd, &FACHSW, sizeof (long));
-				_write (fd, &FACMSW, sizeof (long));
-				_commit (fd);
-				_close (fd);
-				if (stopping) {
-					factorDone ();
-					return (FALSE);
+		if (stop_reason) {
+			char	fmt_mask[80];
+			sprintf (fmt_mask,
+				 "Stopping PRP test of %%s at iteration %%ld [%%.%df%%%%]\n",
+				 PRECISION);
+			sprintf (buf, fmt_mask, string_rep,
+				 counter, trunc_percent (w->pct_complete));
+			OutputStr (thread_num, buf);
+			goto exit;
+		}
+
+/* Output the 64-bit residue at specified interims.  Also output the */
+/* residues for the next two iterations so that we can compare our */
+/* residues to programs that start counter at zero or one. */
+
+		if (INTERIM_RESIDUES && counter % INTERIM_RESIDUES == 0) {
+			tmp = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 5) + 5);
+			gwtogiant (&gwdata, x, tmp);
+			if (w->known_factors) {	iaddg (1, N); modg (N, tmp); iaddg (-1, N); }
+			sprintf (buf, 
+				 "%s interim Wd%d residue %08lX%08lX at iteration %ld\n",
+				 string_rep, PORT, tmp->n[1], tmp->n[0], counter);
+			OutputBoth (thread_num, buf);
+			pushg (&gwdata.gdata, 1);
+		}
+
+/* Write a save file every INTERIM_FILES iterations. */
+
+		if (INTERIM_FILES && counter % INTERIM_FILES == 0) {
+			char	interimfile[20];
+			sprintf (interimfile, "%.8s.%03d",
+				 filename, counter / INTERIM_FILES);
+			writePRPSaveFile (&gwdata, x, interimfile, w, counter,
+					  error_count);
+		}
+
+/* If ten iterations take 40% longer than a typical iteration, then */
+/* assume a foreground process is running and sleep for a short time */
+/* to give the foreground process more CPU time.  Even though a foreground */
+/* process runs at higher priority, hyperthreading will cause this */
+/* program to run at an equal priority, hurting responsiveness. */
+
+		if (HYPERTHREADING_BACKOFF && Nlen > 1500000) {
+			if (timers[1] < best_iteration_time)
+				best_iteration_time = timers[1];
+			if (timers[1] > 1.40 * best_iteration_time) {
+				if (slow_iteration_count == 10) {
+					sprintf (buf, "Pausing %d seconds.\n",
+						 HYPERTHREADING_BACKOFF);
+					OutputStr (thread_num, buf);
+					Sleep (HYPERTHREADING_BACKOFF * 1000);
 				}
-				start_time = current_time;
-			}
+				slow_iteration_count++;
+			} else
+				slow_iteration_count = 0;
 		}
-		}
-		}
+	}
+#ifdef CHECK_ITER
+pushg(&gwdata.gdata, 2);}
+#endif
 
-/* Output message if no factor found */
+/* See if we've found a probable prime.  If not, format a 64-bit residue. */
 
-		sprintf (buf, NOFAC, p, minbits-1, maxbits, PORT, SEC4 (p));
-		OutputBoth (buf);
-		spoolMessage (PRIMENET_RESULT_MESSAGE, buf);
-		goto nextp;
+	tmp = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 5) + 5);
+	gwtogiant (&gwdata, x, tmp);
+	if (w->known_factors) {	iaddg (1, N); modg (N, tmp); iaddg (-1, N); }
+	isProbablePrime = isone (tmp);
+	if (!isProbablePrime) {
+		sprintf (res64, "%08lX%08lX", tmp->n[1], tmp->n[0]);
+	}
+	pushg (&gwdata.gdata, 1);
+	gwfree (&gwdata, x);
 
-/* Format and output the factor found message */
+/* Print results. */
 
-bingo:		makestr (FACHSW, FACMSW, FACLSW, str);
-		{
-			struct primenetAssignmentResult pkt;
-			memset (&pkt, 0, sizeof (pkt));
-			pkt.exponent = p;
-			pkt.resultType = PRIMENET_RESULT_FACTOR;
-			strcpy (pkt.resultInfo.factor, str);
-			spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
-		}
-		sprintf (buf, "M%ld has a factor: %s\n", p, str);
-		OutputBoth (buf);
-		spoolMessage (PRIMENET_RESULT_MESSAGE, buf);
+	if (isProbablePrime)
+		sprintf (buf, "%s is a probable prime! Wd%d: %08lX,%08lX\n",
+			 string_rep, PORT, SEC1 (w->n), error_count);
+	else
+		sprintf (buf, "%s is not prime.  RES64: %s. Wd%d: %08lX,%08lX\n",
+			 string_rep, res64, PORT, SEC1 (w->n), error_count);
+	OutputStr (thread_num, buf);
+	formatMsgForResultsFile (buf, w);
 
-/* Factor next prime */
+/* Update the output file */
 
-nextp:		;
+	if ((isProbablePrime && IniGetInt (INI_FILE, "OutputPrimes", 1)) ||
+	    (!isProbablePrime && IniGetInt (INI_FILE, "OutputComposites", 1)))
+		writeResults (buf);
+
+//if (ERRCHK) {
+//	sprintf (buf, "Round off: %10.10f to %10.10f\n", reallyminerr, reallymaxerr);
+//	OutputBoth (thread_num, buf);
+//}
+
+/* Output results to the server */
+
+	{
+		struct primenetAssignmentResult pkt;
+		memset (&pkt, 0, sizeof (pkt));
+		strcpy (pkt.computer_guid, COMPUTER_GUID);
+		strcpy (pkt.assignment_uid, w->assignment_uid);
+		strcpy (pkt.message, buf);
+		pkt.result_type =
+			isProbablePrime ? PRIMENET_AR_PRP_PRIME : PRIMENET_AR_PRP_RESULT;
+		pkt.k = w->k;
+		pkt.b = w->b;
+		pkt.n = w->n;
+		pkt.c = w->c;
+		strcpy (pkt.residue, res64);
+		sprintf (pkt.error_count, "%08lX", error_count);
+		pkt.fftlen = gwfftlen (&gwdata);
+		pkt.done = TRUE;
+		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 	}
 
-/* Delete the continuation file */
+/* Print known factors */
+
+	if (string_rep_truncated) {
+		char	*bigbuf;
+		bigbuf = (char *) malloc (strlen (w->known_factors) + 100);
+		if (bigbuf != NULL) {
+			sprintf (bigbuf,
+				 "Known factors used for PRP test were: %s\n",
+				 w->known_factors);
+			OutputBoth (thread_num, bigbuf);
+			free (bigbuf);
+		}
+	}
+
+/* Delete the continuation files. */
 
 	_unlink (filename);
+	filename[0] = 'q';
+	_unlink (filename);
 
-/* Delete the entry from worktodo.ini */
+/* Return work unit completed stop reason */
 
-	updateWorkToDo (1.0, 2, 0, -1, WORK_FACTOR, 0);
+	stop_reason = STOP_WORK_UNIT_COMPLETE;
 
-/* All done */
+/* Cleanup and exit */
 
-	factorDone ();
-	return (TRUE);
-}
+exit:	gwdone (&gwdata);
+	free (N);
+	return (stop_reason);
 
+/* An error occured, output a message saying we are restarting, sleep, */
+/* then try restarting at last save point. */
 
-/* Test the factoring program */
+restart:if (sleep5) OutputBoth (thread_num, ERRMSG2);
+	OutputBoth (thread_num, ERRMSG3);
 
-void primeSieveTest (void)
-{
-	char	buf[500];
-	FILE	*fd;
-	unsigned long p;
+/* Update the error count in the save file */
 
-/* Open factors file */
+	writeNewErrorCount (filename, error_count);
 
-	fd = fopen ("factors", "r");
+/* Sleep five minutes before restarting */
 
-/* Loop until all the entire range is factored */
-
-	while (fscanf (fd, "%ld", &p) && p) {
-		unsigned long fachi, facmid, faclo;
-		unsigned long i;
-		char fac[480];
-		char *f;
-
-/* What is the factor? */
-
-		fscanf (fd, "%s", fac);
-		fachi = facmid = faclo = 0;
-		for (f = fac; *f; f++) {
-			if (*f < '0' || *f > '9') continue;
-			RES = *f - '0';
-			CARRYL = 0;
-			muladdhlp (faclo, 10);
-			faclo = RES;
-			RES = CARRYL;
-			CARRYL = 0;
-			muladdhlp (facmid, 10);
-			facmid = RES;
-			fachi = fachi * 10 + CARRYL;
-			if (fachi >= 4194304 ||
-			    (fachi >= 4096 && !(CPU_FLAGS & CPU_SSE2))) {
-				sprintf (buf, "%ld%s factor too big.\n", p, fac);
-				OutputBoth (buf);
-				goto nextp;
-			}
-		}
-
-/* See if p is a prime */
-
-		if (! isPrime (p)) {
-			sprintf (buf, "%ld not a prime.\n", p);
-			OutputBoth (buf);
-			goto nextp;
-		}
-
-/* Setup the factoring program */
-
-		i = (fachi % 120 * 16 + facmid % 120 * 16 + faclo % 120) % 120;
-		if (i == 1) FACPASS = 0;
-		else if (i == 7) FACPASS = 1;
-		else if (i == 17) FACPASS = 2;
-		else if (i == 23) FACPASS = 3;
-		else if (i == 31) FACPASS = 4;
-		else if (i == 41) FACPASS = 5;
-		else if (i == 47) FACPASS = 6;
-		else if (i == 49) FACPASS = 7;
-		else if (i == 71) FACPASS = 8;
-		else if (i == 73) FACPASS = 9;
-		else if (i == 79) FACPASS = 10;
-		else if (i == 89) FACPASS = 11;
-		else if (i == 97) FACPASS = 12;
-		else if (i == 103) FACPASS = 13;
-		else if (i == 113) FACPASS = 14;
-		else if (i == 119) FACPASS = 15;
-		else goto bad;
-		FACHSW = fachi;
-		FACMSW = facmid;
-		factorSetup (p);
-
-/* Factor found, is it a match? */
-
-		do {
-			if (factor64 () != 2 &&
-			    FACHSW == fachi &&
-			    FACMSW == facmid &&
-			    FACLSW == faclo) {
-				sprintf (buf, "%ld%s factored OK.\n", p, fac);
-				OutputSomewhere (buf);
-				goto nextp;
-			}
-		} while (FACMSW == facmid);
-
-/* Uh oh. */
-
-bad:		sprintf (buf, "%ld%s factor not found.\n", p, fac);
-		OutputBoth (buf);
-
-/* If an escape key was hit, write out the results and return */
-
-nextp:		if (stopCheck ()) break;
-		p = 0;
+	if (sleep5) {
+		stop_reason = SleepFive (thread_num);
+		if (stop_reason) return (stop_reason);
 	}
 
-/* All done */
+/* Return so that last continuation file is read in */
 
-	fclose (fd);
-	factorDone ();
-}
-
-/* Do the P-1 factoring step prior to a Lucas-Lehmer test */
-
-int pfactor (
-	struct work_unit *w)
-{
-	unsigned long bound1, bound2, squarings;
-	double	prob;
-	char	buf[120];
-
-/* Deduce the proper P-1 bounds */
-
-	if (w->work_type == WORK_PFACTOR)
-		guess_pminus1_bounds (w->k, w->b, w->n, w->c, w->sieve_depth,
-				      w->tests_saved, &bound1, &bound2,
-				      &squarings, &prob);
-	else
-		guess_pminus1_bounds (w->k, w->b, w->n, w->c, w->bits,
-				      w->work_type == WORK_DBLCHK ? 1.0 : 2.0,
-				      &bound1, &bound2, &squarings, &prob);
-	if (bound1 == 0) {
-		gw_as_string (buf, w->k, w->b, w->n, w->c);
-		strcat (buf, " does not need P-1 factoring.\n");
-		OutputBoth (buf);
-		updateWorkToDo (w->k, w->b, w->n, w->c, WORK_PMINUS1, 0);
-		return (TRUE);
-	}
-
-/* Output a message that P-1 factoring is about to begin */
-
-	sprintf (buf, "Starting P-1 factoring with B1=%ld, B2=%ld\n",
-		 bound1, bound2);
-	OutputStr (buf);
-	sprintf (buf, "Chance of finding a factor is an estimated %.3g%%\n",
-		 prob * 100.0);
-	OutputStr (buf);
-
-/* Set flag indicating we are using a lot of memory.  Actually, we aren't */
-/* in stage 1, but if the memory settings change we want to recompute the */
-/* memory bounds. */
-
-	HIGH_MEMORY_USAGE = TRUE;
-
-/* Call the P-1 factoring code */
-
-	return (pminus1 (w->k, w->b, w->n, w->c, bound1, bound1, bound2, w->bits));
+	gwdone (&gwdata);
+	free (N);
+	goto begin;
 }

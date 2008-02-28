@@ -1,4 +1,4 @@
-; Copyright 1995-2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -27,14 +27,12 @@ INCLUDE mult.mac
 INCLUDE pass1.mac
 INCLUDE fft4.mac
 INCLUDE memory.mac
-INCLUDE normal.mac
 
 EXTRN gw_finish_fft:PROC
 EXTRN gw_carries:PROC
 EXTRN gw_finish_mult:PROC
 
 EXTRNP	pass2_12_levels
-EXTRNP	pass2_12_levels_p
 
 _TEXT SEGMENT
 
@@ -42,7 +40,6 @@ _TEXT SEGMENT
 
 ;; All the FFT routines for each FFT length
 
-PROCP	_gw_ffts4
 	EXPANDING = 2
 
 ;; Distance between two pass 2 data blocks.  Pass 2 does 12 FFT levels.
@@ -89,7 +86,6 @@ INCLUDE pass1scr.mac
 	fftclm	3584K, 2
 	fftclm	4096K, 2
 	fftclm	4096Kp, 2
-ENDPP	_gw_ffts4
 
 _TEXT	ENDS
 END

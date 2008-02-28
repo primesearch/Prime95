@@ -9,32 +9,34 @@
 #define HIDM_TIME                               0x1800A
 #define HIDM_PREFERENCES                        0x1800D
 #define HIDM_CPU                                0x1800E
-#define HID_RANGE_STATUS                        0x1800F
-#define HIDM_PASSWORD                           0x18011
+#define HIDM_STATUS                             0x1800F
 #define HIDM_TRAY                               0x18014
 #define HIDM_HIDE                               0x18015
 #define HIDM_TORTURE                            0x18016
-#define HID_RANGE_USERINFORMATION               0x18017
+#define HIDM_WORKER_THREADS                     0x18017
 #define HIDM_PRIMENET                           0x18018
-#define HIDM_PRIORITY                           0x18019
 #define HIDM_SERVER                             0x1801A
 #define HIDM_QUIT                               0x1801B
-#define HIDM_VACATION                           0x1801C
 #define HIDM_SERVICE                            0x1801D
-#define HID_MANUALCOMM                          0x1801E
+#define HIDM_MANUALCOMM                         0x1801E
 #define HIDM_ECM                                0x1801F
-#define HIDM_AFFINITY                           0x18020
 #define HIDM_PMINUS1                            0x18021
 #define HIDM_UNRESERVE                          0x18025
 #define HIDM_BENCHMARK                          0x18027
 #define HIDM_TRAY_OPEN                          0x18028
 #define HIDM_STOP_CONTINUE                      0x1802A
+#define HIDM_MERGE_MAIN                         0x1802F
+#define HIDM_MERGE_COMM                         0x18030
+#define HIDM_MERGE_ALL                          0x18031
+#define HIDM_HELP_FORUM                         0x18032
+#define HIDM_HELP_WIKI                          0x18033
  
 // Prompts (IDP_*) 
  
 // Resources (IDR_*) 
 #define HIDR_HTML_TORTUREDLG                    0x20067
 #define HIDR_MAINFRAME                          0x20080
+#define HIDR_MDITYPE                            0x20081
 #define HIDR_TRAYMENU                           0x2009C
  
 // Dialogs (IDD_*) 
@@ -43,23 +45,20 @@
 #define HIDD_CPU                                0x20085
 #define HIDD_TIME                               0x20086
 #define HIDD_PREFERENCES                        0x20087
-#define HIDD_PASSWORD                           0x2008B
-#define HIDD_USER                               0x2008F
 #define HIDD_PRIMENET                           0x20091
-#define HIDD_PRIORITY                           0x20092
-#define HIDD_ABOUTSERVER                        0x20093
-#define HIDD_VACATION                           0x20094
 #define HIDD_MANUAL_COMM                        0x20095
 #define HIDD_ECM                                0x20096
-#define HIDD_AFFINITY                           0x20097
 #define HIDD_PMINUS1                            0x20098
 #define HIDD_WELCOME                            0x20099
 #define HIDD_UNRESERVE                          0x2009A
 #define HIDD_TORTURE                            0x2009B
+#define HIDD_WORKER_THREADS                     0x200A0
+#define HIDD_PRIMENET_CONNECTION                0x200A1
+#define HIDD_PRIMENET_V4                        0x200A2
  
 // Frame Controls (IDW_*) 
 // This is a part of the Microsoft Foundation Classes C++ library.
-// Copyright (C) 1992-2001 Microsoft Corporation
+// Copyright (C) Microsoft Corporation
 // All rights reserved.
 //
 // This source code is only intended as a supplement to the

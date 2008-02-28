@@ -1,26 +1,21 @@
 /* Constants */
 
-#define VERSION		"24.14"
-#define VERSION_BIT	14      	/* Bit number in broadcast map */
-/* The list of assigned version bits follows: */
-/* Version 24.0    uses bit #14 */
-/* Version 23.0    uses bit #13 */
-/* Version 22.0    uses bit #12 */
-/* Version 21.0    uses bit #11 */
-/* Version 20.0    uses bit #10 */
-/* Version 19.1    uses bit #9 */
-/* Version 19.0    uses bit #8 */
+#define VERSION		"25.6"
+#define BUILD_NUM	"6"
 /* The list of assigned OS ports follows: */
-/* Win9x (prime95) uses bit #1 */
-/* Linux (mprime)  uses bit #2 */
-/* Solaris	   uses bit #3 */
-/* Win 64-bit	   uses bit #4 */
-/* WinNT (ntprime) uses bit #5 */
-/* FreeBSD(mprime) uses bit #6 */
-/* OS/2		   uses bit #7 */
+/* Win9x (prime95) #1 */
+/* Linux (mprime)  #2 */
+/* Solaris	   #3 (never happened) */
+/* Win 64-bit	   #4 */
+/* WinNT (ntprime) #5 */
+/* FreeBSD(mprime) #6 */
+/* OS/2		   #7 */
+/* Linux x86-64	   #8 */
+/* Mac OS X	   #9 */
 
 #define MIN_PRIME	5L		/* Smallest testable prime */
 #define MAX_FACTOR	2000000000	/* Largest factorable Mersenne number*/
+#define MAX_NUM_WORKER_THREADS 32	/* Number of launchable work threads */
 #define ERROR_RATE	0.018		/* Estimated error rate on clean run */
 
 /* Factoring limits based on complex formulas given the speed of the */
@@ -96,6 +91,11 @@
 
 /* Global variables */
 
+extern int USE_V4;
+extern char V4_USERID[15];
+extern char V4_USERPWD[9];
+extern char V4_USERNAME[80];
+
 extern char INI_FILE[80];		/* Name of the prime INI file */
 extern char LOCALINI_FILE[80];		/* Name of the local INI file */
 extern char WORKTODO_FILE[80];		/* Name of the work-to-do INI file */
@@ -104,33 +104,28 @@ extern char SPOOL_FILE[80];		/* Name of the spool file */
 extern char LOGFILE[80];		/* Name of the server log file */
 extern char EXTENSION[8];		/* Extension for several filenames */
 
-extern char USERID[20];			/* User's ID */
-extern char USER_PWD[20];		/* User's Password */
-extern char OLD_USERID[20];		/* Previous User's ID */
-extern char OLD_USER_PWD[20];		/* Previous User's Password */
-extern char COMPID[20];			/* Computer ID */
-extern char USER_NAME[80];		/* User's real name */
-extern char USER_ADDR[80];		/* User's email address */
-extern int NEWSLETTERS;			/* Send email about newsletters */
+extern char USERID[21];			/* User's ID */
+extern char COMPID[21];			/* Computer name */
+extern char COMPUTER_GUID[33];		/* Global unique computer ID */
 extern int USE_PRIMENET;		/* TRUE if we're using PrimeNet */
 extern int DIAL_UP;			/* TRUE if we're dialing into */
 					/* PrimeNet server */
-extern short WORK_PREFERENCE;		/* Type of work (factoring, testing, */
+extern unsigned int NUM_WORKER_THREADS; /* Number of work threads to launch */
+extern unsigned int WORK_PREFERENCE[MAX_NUM_WORKER_THREADS];
+					/* Type of work (factoring, testing, */
 					/* etc.) to get from the server. */
+extern unsigned int CPU_AFFINITY[MAX_NUM_WORKER_THREADS];
+					/* NT Processor affinity */
+extern unsigned int THREADS_PER_TEST[MAX_NUM_WORKER_THREADS];
+					/* Number of threads gwnum can use */
+					/* in computations. */
 extern unsigned int DAYS_OF_WORK;	/* How much work to retrieve from */
 					/* the primenet server */
-extern time_t VACATION_END;		/* Date vacation is expected to end */
-extern int ON_DURING_VACATION;		/* TRUE if computer is on while */
-					/* vacationing */
-extern int ADVANCED_ENABLED;		/* 1 if advanced menu is enabled */
+extern int STRESS_TESTER;		/* 1 if stress testing */
 extern int volatile ERRCHK;		/* 1 to turn on error checking */
 extern unsigned int PRIORITY;		/* Desired priority level */
-extern unsigned int CPU_AFFINITY;	/* NT Processor affinity */
 extern int MANUAL_COMM;			/* Set on if user explicitly starts */
 					/* all communication with the server */
-extern unsigned int volatile CPU_TYPE;	/* 3=Cyrix, 4=486, 5=Pentium, */
-					/* 6=Pro, 7=K6, 8=Celeron, 9=P-II */
-					/* 10=P-III, 11=K7, 12=P4 */
 extern unsigned int volatile CPU_HOURS;	/* Hours per day program will run */
 extern unsigned int volatile DAY_MEMORY;/* Mem available in megabytes */
 extern unsigned int volatile NIGHT_MEMORY;/* Mem available in megabytes */
@@ -151,8 +146,17 @@ extern unsigned int DAYS_BETWEEN_CHECKINS; /* Days between sending updated */
 extern int TWO_BACKUP_FILES;		/* TRUE for 2 backup files(qXXXXXXX) */
 extern int SILENT_VICTORY;		/* Quiet find of new Mersenne prime */
 extern int RUN_ON_BATTERY;		/* Run program even on battery power */
+extern int BATTERY_PERCENT;		/* Pause if battery below this */
+					/* percent charged */
 extern int TRAY_ICON;			/* Display tiny tray icon */
 extern int HIDE_ICON;			/* Display no icon */
+extern int MERGE_WINDOWS;		/* Flags indicating which MDI */
+					/* windows to merge together */
+#define MERGE_MAIN_WINDOW	0x1	/* Merge main into first worker */
+#define MERGE_COMM_WINDOW	0x2	/* Merge comm into first worker */
+#define MERGE_WORKER_WINDOWS	0x4	/* Merge all workers into one window */
+#define MERGE_NO_PREFIX		0x20	/* Output thread prefix on each line flag */
+
 extern unsigned int ROLLING_AVERAGE;	/* Ratio of this computer's speed */
 					/* compared to the expected speed */
 					/* for this CPU */
@@ -172,131 +176,258 @@ extern int WELL_BEHAVED_WORK;		/* TRUE if undocumented feature */
 					/* and written. */
 extern char **PAUSE_WHILE_RUNNING;	/* An array of program names that, */
 					/* if running, prime95 should pause. */
+extern int PAUSE_WHILE_RUNNING_FREQ;	/* How often prime95 should check */
+					/* the pause-while-running list */
+extern unsigned long INTERIM_FILES;	/* Create save file every N iters */  
+extern unsigned long INTERIM_RESIDUES;	/* Print residue every N iterations */
+extern unsigned long HYPERTHREADING_BACKOFF; /* Pause prime95 if iterations */
+					/* get too slow. */
+extern int THROTTLE_PCT;		/* Percent CPU time prog should run */
 
-extern unsigned long EXP_BEING_WORKED_ON; /* Exponent being tested */
-extern int EXP_BEING_FACTORED;		/* TRUE is exp is being factored */
-extern double EXP_PERCENT_COMPLETE;	/* Percent complete of factoring */
-					/* and/or LL test */
+extern int STARTUP_IN_PROGRESS;		/* TRUE if startup dialogs are up */
 
-extern int SPOOL_FILE_CHANGED;		/* Flag indicating the data in the */
-					/* spool file has been updated. */
-extern int CHECK_WORK_QUEUE;		/* Flag indicating we need to check */
-					/* if our work queue is full. */
+extern unsigned long NUM_CPUS;		/* Number of CPUs/Cores in computer */
+
+extern int LAUNCH_TYPE;			/* Type of worker threads launched */
+extern unsigned int WORKER_THREADS_ACTIVE;/* Num worker threads running */
+extern int WORKER_THREADS_STOPPING;	/* TRUE iff worker threads stopping */
+
+extern unsigned int WORKTODO_COUNT;	/* Count of valid work lines */
+
 extern int GIMPS_QUIT;			/* TRUE if we just successfully */
 					/* quit the GIMPS project */
-extern time_t next_comm_time;		/* Next time to contact server */
 
-extern char READFILEERR[];
+extern gwthread COMMUNICATION_THREAD;	/* Handle for comm thread.  Set when */
+					/* comm thread is active. */
 
 /* Common routines */
 
+void generate_application_string (char *);
 void getCpuInfo (void);
 void getCpuDescription (char *, int);
 
 int isPrime (unsigned long p);
-unsigned int max_mem (void);
 unsigned int strToMinutes (char	*);
 void minutesToStr (unsigned int, char *);
 
-void nameIniFiles (int named_ini_files);
-void readIniFiles (void);
+void nameAndReadIniFiles (int named_ini_files);
+int readIniFiles (void);
 
-void IniGetString (char *, char *, char *, unsigned int, char *);
-long IniGetInt (char *, char *, long);
-void IniWriteString (char *, char *, char *);
-void IniWriteInt (char *, char *, long);
+void IniSectionGetString (const char *, const char *, const char *, char *, unsigned int, const char *);
+long IniSectionGetInt (const char *, const char *, const char *, long);
+void IniSectionWriteString (const char *, const char *, const char *, const char *);
+void IniSectionWriteInt (const char *, const char *, const char *, long);
+void IniGetString (const char *, const char *, char *, unsigned int, const char *);
+long IniGetInt (const char *, const char *, long);
+void IniWriteString (const char *, const char *, const char *);
+void IniWriteInt (const char *, const char *, long);
+void IniFileReread (const char *);
+void processTimedIniFile (const char *);
 
-void IniFileOpen (char *, int);
-void processTimedIniFile (char *);
-void IniFileClose (char *);
-unsigned int IniGetNumLines (char *);
-void IniGetLineAsString (char *, unsigned int, char *, unsigned int,
-			 char *, unsigned int);
-void IniGetLineAsInt (char *, unsigned int, char *, unsigned int, long *);
-void IniReplaceLineAsString (char *, unsigned int, char *, char *);
-void IniReplaceLineAsInt (char *, unsigned int, char *, long);
-void IniInsertLineAsString (char *, unsigned int, char *, char *);
-void IniInsertLineAsInt (char *, unsigned int, char *, long);
-void IniAppendLineAsString (char *, char *, char *);
-void IniAppendLineAsInt (char *, char *, long);
-void IniDeleteLine (char *, unsigned int);
-void IniDeleteAllLines (char *);
+int addFileExists (void);
+void incorporateIniAddFiles (void);
+int incorporateWorkToDoAddFile (void);
+void iniAddFileMerge (char *, char *, char *);
 
-void UpdateEndDates (void);
-void ConditionallyUpdateEndDates (void);
-void spoolMessage (short, void *);
-void readMessage (int, long *, short *, void *);
-int sendMessage (short, void *);
-void spoolExistingResultsFile (void);
-EXTERNC void OutputBoth (char *);
-void OutputSomewhere (char *);
+void PTOGetAll (char *ini_filename, char *keyword, unsigned int *array,
+		unsigned int def_val);
+void PTOSetAll (char *ini_filename, char *keyword, char	*shadow_keyword,
+		unsigned int *array, unsigned int new_val);
+void PTOSetOne (char *ini_filename, char *keyword, char *shadow_keyword,
+		unsigned int *array, int tnum, unsigned int new_val);
+int PTOIsGlobalOption (unsigned int *array);
+int PTOHasOptionChanged (char *shadow_keyword, unsigned int *array, int tnum);
+
+
+#define MAIN_THREAD_NUM		-2
+#define COMM_THREAD_NUM		-1
+void create_window (int);
+void TileViews (void);
+void base_title (int, char *);
+void title (int, char *);
+#define	WORKING_ICON	0
+#define	IDLE_ICON	1
+void ChangeIcon (int, int);
+void BlinkIcon (int, int);
+EXTERNC void OutputBoth (int, char *);
+void OutputStr (int, char *);
+void OutputStrNoTimeStamp (int thread_num, char *buf);
+void RealOutputStr (int, char *);
+void OutputSomewhere (int, char *);
 void LogMsg (char *);
+int OutOfMemory (int);
 
-struct work_unit {
+/* Structures and definitions dealing with the worktodo.ini file */
+
+#define WORK_FACTOR		0
+#define WORK_TEST		1
+#define WORK_DBLCHK		2
+#define WORK_ADVANCEDTEST	3
+#define WORK_ECM		4
+#define WORK_PMINUS1		5
+#define WORK_PFACTOR		6
+#define WORK_PRP		10
+#define WORK_NONE		100	/* Comment line in worktodo.ini */
+#define WORK_DELETED		101	/* Deleted work_unit */
+
+struct work_unit {		/* One line from the worktodo file */
 	int	work_type;	/* Type of work to do */
+	char	assignment_uid[33]; /* Primenet assignment ID */
+	char	extension[9];	/* Optional save file extension */
 	double	k;		/* K in k*b^n+c */
 	unsigned long b;	/* B in k*b^n+c */
 	unsigned long n;	/* N in k*b^n+c */
 	signed long c;		/* C in k*b^n+c */
-	unsigned int bits;	/* How far factored */
+	unsigned long forced_fftlen;/* Forced FFT length to use.  Primarily */
+				/* used for implementing soft FFT */
+				/* crossovers.  Zero means default fftlen */
+	double	sieve_depth;	/* How far it has been trial factored */
+	double	factor_to;	/* How far we should trial factor to */
 	int	pminus1ed;	/* TRUE if has been P-1 factored */
-	unsigned long B1;	/* ECM and P-1 - Stage 1 bound */
-	unsigned long B2_start;	/* ECM and P-1 - Stage #2 start */
-	unsigned long B2_end;	/* ECM and P-1 - Stage #2 end */
+	double	B1;		/* ECM and P-1 - Stage 1 bound */
+	double	B2_start;	/* ECM and P-1 - Stage #2 start */
+	double	B2;		/* ECM and P-1 - Stage #2 end */
 	unsigned int curves_to_do; /* ECM - curves to try */
-	double	curve;		/* ECM - Specific curve to test */
-	double	sieve_depth;	/* Pfactor - how far trial factored */
+	double	curve;		/* ECM - Specific curve to test (debug tool) */
 	double	tests_saved;	/* Pfactor - primality tests saved if */
 				/* a factor is found */
+	char	*known_factors;	/* ECM, P-1, PRP - list of known factors */
+	char	*comment;	/* Comment line in worktodo.ini */
+		/* Runtime variables */
+	struct work_unit *next; /* Next in doubly-linked list */
+	struct work_unit *prev; /* Previous in doubly-linked list */
+	int	in_use_count;	/* Count of threads accessing this work unit */
+	int	high_memory_usage;/* Set if we are using a lot of memory */
+				/* If user changes the available memory */
+				/* settings, then we should stop and */
+				/* restart our computations */
+	char	stage[10];	/* Test stage (e.g. TF,P-1,LL) */
+	double	pct_complete;	/* Percent complete (misnomer as value is */
+				/* between 0.0 and 1.0) */
+	unsigned long fftlen;	/* FFT length in use */
+	int	ra_failed;	/* Set when register assignment fails, tells */
+				/* us not to try registering it again. */
 };
-short default_work_type (void);
-#define WORK_FACTOR		0
-#define WORK_TEST		1
-#define WORK_ADVANCEDTEST	2
-#define WORK_DBLCHK		3
-#define WORK_ECM		4
-#define WORK_PMINUS1		5
-#define WORK_PFACTOR		6
-#define WORK_ADVANCEDFACTOR	7
-int parseWorkToDoLine (unsigned int, struct work_unit *);
-void addWorkToDoLine (struct work_unit *);
-void checkResultsFile (unsigned long, int *, int *);
-void getWorkFromDatabase (unsigned long, unsigned long, int, int);
+struct work_unit_array {	/* All the lines for one worker thread */
+	struct work_unit *first; /* First work unit */
+	struct work_unit *last;	/* Last work unit */
+};
 
-unsigned long secondsUntilVacationEnds (void);
-double pct_complete (int, unsigned long, unsigned long *);
-unsigned long fftlen_from_ini_file (unsigned long);
-unsigned long advanced_map_exponent_to_fftlen (unsigned long);
-double raw_work_estimate (struct work_unit *);
-double work_estimate (struct work_unit *);
-unsigned int factorLimit (unsigned long, int);
+int readWorkToDoFile (void);
+int writeWorkToDoFile (int);
+#define SHORT_TERM_USE		0
+#define LONG_TERM_USE		1
+struct work_unit *getNextWorkToDoLine (int, struct work_unit *, int);
+void decrementWorkUnitUseCount (struct work_unit *, int);
+int addWorkToDoLine (int, struct work_unit *);
+int updateWorkToDoLine (int, struct work_unit *);
+int deleteWorkToDoLine (int, struct work_unit *, int);
+int isWorkUnitActive (struct work_unit *);
+int addToWorkUnitArray (unsigned int, struct work_unit *, int);
+
+void rolling_average_work_unit_complete (int, struct work_unit *);
+void invalidateNextRollingAverageUpdate (void);
+
+/* More miscellaneous routines */
+
+double work_estimate (int thread_num, struct work_unit *);
+unsigned int factorLimit (struct work_unit *);
 void guess_pminus1_bounds (double, unsigned long, unsigned long, signed long,
 			   double, double, unsigned long *,
 			   unsigned long *, unsigned long *, double *);
 
 void strupper (char *);
-void tempFileName (char	*, unsigned long);
+void tempFileName (struct work_unit *, char *);
 int fileExists (char *);
-int readFileHeader (char *, int *, short *, unsigned long *);
+
+int read_array (int fd, char *buf, unsigned long len, unsigned long *sum);
+int write_array (int fd, char *buf, unsigned long len, unsigned long *sum);
+int read_gwnum (int fd, gwhandle *gwdata, gwnum g, unsigned long *sum);
+int write_gwnum (int fd, gwhandle *gwdata, gwnum g, unsigned long *sum);
+int read_short (int fd, short *val);
+int read_long (int fd, unsigned long *val, unsigned long *sum);
+int write_long (int fd, unsigned long val, unsigned long *sum);
+int read_slong (int fd, long *val, unsigned long *sum);
+int write_slong (int fd, long val, unsigned long *sum);
+int read_longlong (int fd, uint64_t *val, unsigned long *sum);
+int write_longlong (int fd, uint64_t val, unsigned long *sum);
+int read_double (int fd, double *val, unsigned long *sum);
+int write_double (int fd, double dbl, unsigned long *sum);
+int read_magicnum (int fd, unsigned long magicnum);
+int read_header (int fd, unsigned long *version,
+		 struct work_unit *w, unsigned long *sum);
+int write_header (int fd, unsigned long magicnum, unsigned long version,
+		  struct work_unit *w);
+int read_checksum (int fd, unsigned long *sum);
+int write_checksum (int fd, unsigned long sum);
+
+void formatMsgForResultsFile (char *, struct work_unit *);
 int writeResults (char	*);
 
-int communicateWithServer (void);
-void unreserve (unsigned long);
-
 /* Routines called by common routines */
+
+unsigned long physical_memory (void);
+unsigned long GetSuggestedMemory (unsigned long nDesiredMemory);
+unsigned long num_cpus (void);
+void getWindowsSerialNumber (char *);
+void getWindowsSID (char *);
+int getDefaultTimeFormat (void);
+
+/******************************************************************************
+*                 Spool File and Server Communication Code                    *
+******************************************************************************/
+
+void init_spool_file_and_comm_code (void);
+void set_comm_timers (void);
+void clear_comm_rate_limits (void);
+void do_manual_comm_now (void);
+void pingServer (void);
+void UpdateEndDates (void);
+void ConditionallyUpdateEndDates (void);
+#define MSG_CHECK_WORK_QUEUE		998
+#define MSG_QUIT_GIMPS			999
+void spoolMessage (short, void *);
+void spoolExistingResultsFile (void);
+int unreserve (unsigned long);
+void salvageCorruptSpoolFile (void);
 
 int LoadPrimeNet (void);
 void UnloadPrimeNet (void);
 int PRIMENET (short, void *);
-void OutputStr (char *);
-unsigned long physical_memory (void);
-unsigned long GetSuggestedMemory (unsigned long nDesiredMemory);
-unsigned long num_cpus (void);
-int getDefaultTimeFormat (void);
-void doMiscTasks (void);
-int escapeCheck (void);
-void BroadcastMessage (char *);
-#define	WORKING_ICON	0
-#define	IDLE_ICON	1
-void ChangeIcon (int);
-void BlinkIcon (int);
+
+/******************************************************************************
+*                           Timed Events Handler                              *
+******************************************************************************/
+
+#define TE_MEM_CHANGE		0	/* Night/day memory change event */
+#define TE_PAUSE_WHILE		1	/* Check pause_while_running event */
+#define TE_WORK_QUEUE_CHECK	2	/* Check work queue event */
+#define TE_COMM_SERVER		3	/* Retry communication with server event */
+#define TE_COMM_KILL		4	/* Kill hung communication thread event */
+#define TE_PRIORITY_WORK	5	/* Check for priority work event */
+#define TE_COMPLETION_DATES	6	/* Send expected completion dates event */
+#define TE_THROTTLE		7	/* Sleep due to Throttle=n event */
+#define TE_TIMED_INI_FILE	8	/* Timed INI file change event */
+#define TE_SAVE_FILES		9	/* Trigger the writing of save files */
+#define TE_BATTERY_CHECK	10	/* Check battery status frequently */
+#define TE_ROLLING_AVERAGE	11	/* Adjust rolling average */
+
+#define MAX_TIMED_EVENTS	12	/* Maximum number of timed events */
+
+void init_timed_event_handler (void);
+
+void add_timed_event (
+	int	event_number,		/* Which event to add */
+	int	time_to_fire);		/* When to start event (seconds from now) */
+
+void delete_timed_event (
+	int	event_number);		/* Which event to delete */
+
+int is_timed_event_active (
+	int	event_number);		/* Which event to test */
+
+#define TE_WORK_QUEUE_CHECK_FREQ 6*60*60 /* Check work queue every 6 hrs. */
+#define TE_PRIORITY_WORK_FREQ	 6*60*60 /* Check priority work every 6 hrs. */
+#define TE_BATTERY_CHECK_FREQ	 15	/* Check battery every 15 sec. */
+#define TE_THROTTLE_FREQ	 5	/* Throttle every 5 sec. */
+#define TE_ROLLING_AVERAGE_FREQ	 12*60*60 /* Adjust rolling every 12 hr. */

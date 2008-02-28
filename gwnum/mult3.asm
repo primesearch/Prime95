@@ -1,4 +1,4 @@
-; Copyright 1995-2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -25,14 +25,12 @@ INCLUDE mult.mac
 INCLUDE pass1.mac
 INCLUDE fft3.mac
 INCLUDE memory.mac
-INCLUDE normal.mac
 
 EXTRN gw_finish_fft:PROC
 EXTRN gw_carries:PROC
 EXTRN gw_finish_mult:PROC
 
 EXTRNP	pass2_10_levels
-EXTRNP	pass2_10_levels_p
 
 _TEXT SEGMENT
 
@@ -45,7 +43,6 @@ blkdst = (4*(4096+64)+64)
 
 ;; All the FFT routines for each FFT length.
 
-PROCP	_gw_ffts3
 	EXPANDING = 2
 IFNDEF PFETCH
 ;	fft	20K
@@ -88,7 +85,6 @@ INCLUDE pass1scr.mac
 	fft	896K
 	fftclm	1024K, 2
 	fft	1024Kp
-ENDPP	_gw_ffts3
 
 _TEXT	ENDS
 END

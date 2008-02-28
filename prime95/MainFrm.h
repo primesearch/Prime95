@@ -3,11 +3,13 @@
 /////////////////////////////////////////////////////////////////////////////
 const int MYWM_TRAYMESSAGE = WM_APP + 100;
 
-class CMainFrame : public CFrameWnd
+#define ID_WINDOW_POSITION              0xE136
+
+class CMainFrame : public CMDIFrameWnd
 {
-protected: // create from serialization only
-	CMainFrame();
 	DECLARE_DYNCREATE(CMainFrame)
+public:
+	CMainFrame();
 
 // Attributes
 public:
@@ -20,6 +22,7 @@ public:
 	//{{AFX_VIRTUAL(CMainFrame)
 	public:
 	virtual BOOL PreCreateWindow(CREATESTRUCT& cs);
+	virtual void OnUpdateFrameTitle(BOOL bAddToTitle);
 	virtual BOOL DestroyWindow();
 	protected:
 	virtual LRESULT WindowProc(UINT message, WPARAM wParam, LPARAM lParam);
@@ -36,8 +39,12 @@ public:
 	virtual void Dump(CDumpContext& dc) const;
 #endif
 
+	CStatusBar  m_wndStatusBar;
+protected:  // control bar embedded members
+
 // Generated message map functions
 protected:
+	afx_msg int OnCreate(LPCREATESTRUCT lpCreateStruct);
 	//{{AFX_MSG(CMainFrame)
 	afx_msg void OnSize(UINT nType, int cx, int cy);
 	afx_msg void OnEndSession(BOOL bEnding);
@@ -45,11 +52,12 @@ protected:
 	afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
 	afx_msg void OnTrayOpenWindow();
 	afx_msg void OnStopContinue();
+	afx_msg void OnTile();
+	afx_msg void OnPosition();
 	afx_msg LRESULT OnServiceStop(WPARAM wParam, LPARAM lParam);
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 public:
-	virtual BOOL Create(LPCTSTR lpszClassName, LPCTSTR lpszWindowName, DWORD dwStyle = WS_OVERLAPPEDWINDOW, const RECT& rect = rectDefault, CWnd* pParentWnd = NULL, LPCTSTR lpszMenuName = NULL, DWORD dwExStyle = 0, CCreateContext* pContext = NULL);
 };
 
 /////////////////////////////////////////////////////////////////////////////

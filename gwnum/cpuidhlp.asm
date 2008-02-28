@@ -1,4 +1,4 @@
-; Copyright 1995-2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -6,7 +6,7 @@
 ; as well as other helper functions
 ;
 
-	TITLE   setup
+	TITLE   cpuidhlp
 
 IFNDEF X86_64
 	.586
@@ -17,34 +17,65 @@ INCLUDE unravel.mac
 
 _TEXT SEGMENT
 
-EXTRN	_CPUID_EAX:DWORD
-EXTRN	_CPUID_EBX:DWORD
-EXTRN	_CPUID_ECX:DWORD
-EXTRN	_CPUID_EDX:DWORD
-
 ;
 ; Utility routine to initialize the FPU
 ;
 
-	PUBLIC	_fpu_init
-_fpu_init PROC
+; fpu_init ()
+;	Initializes the x87 FPU.  Probably no longer necessary, but it was
+;	necessary a long, long, time ago.
+; Windows 32-bit (_fpu_init)
+; Linux 32-bit (fpu_init)
+;	No parameters or return value
+; Windows 64-bit (fpu_init) - leaf routine, no unwind info necessary
+; Linux 64-bit (fpu_init)
+;	No parameters or return value
+
+PROCL	fpu_init
 IFNDEF X86_64
 	fninit
 ENDIF
 	ret
-_fpu_init ENDP
+fpu_init ENDP
 
 ;
 ; Utility routine to read the time stamp counter
 ;
 
-	PUBLIC	_erdtsc
-_erdtsc PROC
+; erdtsc (&hi, &lo)
+;	Read the 64-bit timestamp counter and return it in 32-bit chunks
+; Windows 32-bit (_erdtsc)
+; Linux 32-bit (erdtsc)
+;	Parameter hi = [esp+4]
+;	Parameter lo = [esp+8]
+; Windows 64-bit (erdtsc) - leaf routine, no unwind info necessary
+;	Parameter hi = rcx
+;	Parameter lo = rdx
+; Linux 64-bit (erdtsc)
+;	Parameter hi = rdi
+;	Parameter lo = rsi
+
+PROCL	erdtsc
+IFNDEF X86_64
 	rdtsc
-	mov	_CPUID_EAX, eax		; low 32 bits
-	mov	_CPUID_EDX, edx		; high 32 bits
+	mov	ecx, [esp+4]		; Address to return info
+	mov	[rcx], edx		; store high 32 bits
+	mov	ecx, [esp+8]		; Address to return info
+	mov	[rcx], eax		; store low 32 bits
+ENDIF
+IFDEF WINDOWS64
+	mov	r8, rdx			; Copy return info address
+	rdtsc
+	mov	[rcx], edx		; store high 32 bits
+	mov	[r8], eax		; store low 32 bits
+ENDIF
+IFDEF LINUX64
+	rdtsc
+	mov	[rdi], edx		; store high 32 bits
+	mov	[rsi], eax		; store low 32 bits
+ENDIF
 	ret
-_erdtsc ENDP
+erdtsc	ENDP
 
 
 ;
@@ -52,9 +83,17 @@ _erdtsc ENDP
 ; Returns non-zero if CPUID is supported
 ;
 
-	PUBLIC	_ecpuidsupport
-_ecpuidsupport PROC
-IFNDEF	X86_64
+; ecpuidsupport ()
+;	Return true if CPU supports CPUID
+; Windows 32-bit (_ecpuidsupport)
+; Linux 32-bit (ecpuidsupport)
+;	Return value = eax
+; Windows 64-bit (ecpuidsupport) - leaf routine, no unwind info necessary
+; Linux 64-bit (ecpuidsupport)
+;	Return value = rax
+
+PROCL	ecpuidsupport
+IFNDEF X86_64
         pushfd				; Get original EFLAGS
 	pop	eax
 	mov 	ecx, eax
@@ -68,25 +107,40 @@ ELSE
 	mov	rax, 1			; 64-bit CPUs support CPUID
 ENDIF
 	ret				; Processor supports CPUID if eax != 0
-_ecpuidsupport ENDP
+ecpuidsupport ENDP
 
 ;
 ; Utility routine to execute CPUID
 ;
 
-	PUBLIC	_ecpuid
-_ecpuid PROC
-	push	rbx
-	mov	eax, _CPUID_EAX		; Argument to CPUID
-	cpuid				; Perform the CPUID
-	mov	_CPUID_EAX, eax		; Return the results
-	mov	_CPUID_EBX, ebx		; Return the results
-	mov	_CPUID_ECX, ecx		; Return the results
-	mov	_CPUID_EDX, edx		; Return the results
-	pop	rbx
-	ret
-_ecpuid ENDP
+; ecpuid (resptr)
+;	Call cpuid a fill a structure with the eax, ebx, ecx, edx values
+; Windows 32-bit (_ecpuid)
+; Linux 32-bit (ecpuid)
+;	Parameter resptr = [esp+4]
+; Windows 64-bit (ecpuid)
+;	Parameter resptr = rcx
+; Linux 64-bit (ecpuid)
+;	Parameter res = rdi
 
+PROCFL	ecpuid
+	ah_prolog 1,0,0,rbx,rdi
+IFNDEF X86_64
+	mov	rdi, [esp+push_amt+4]	; Address of data struct to return info
+ENDIF
+IFDEF WINDOWS64
+	mov	rdi, rcx		; Address of data struct to return info
+ENDIF
+	mov	eax, [rdi]		; EAX argument to CPUID
+	mov	ecx, [rdi+8]		; ECX argument to CPUID
+	cpuid				; Perform the CPUID
+	mov	[rdi], eax		; Return the results
+	mov	[rdi+4], ebx		; Return the results
+	mov	[rdi+8], ecx		; Return the results
+	mov	[rdi+12], edx		; Return the results
+	ah_epilog 1,0,0,rbx,rdi
+	ret
+ecpuid	ENDP
 
 _TEXT	ENDS
 END

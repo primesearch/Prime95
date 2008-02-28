@@ -9,6 +9,7 @@
 #include <ras.h>
 #include <winsock.h>
 #include <wininet.h>
+#include <process.h>
 
 int	SOCKETS_INITIALIZED = 0;
 
@@ -37,7 +38,7 @@ static	DWORD (APIENTRY *RAS_STAT)(HRASCONN, LPRASCONNSTATUSA);
 		if (res != 0) {
 			char buf[80];
 			sprintf (buf, "ERROR: Winsock initialization returned %d.\n", res);
-			OutputStr (buf);
+			OutputStr (COMM_THREAD_NUM, buf);
 			return (FALSE);
 		}
 		SOCKETS_INITIALIZED = 1;
@@ -59,8 +60,9 @@ static	DWORD (APIENTRY *RAS_STAT)(HRASCONN, LPRASCONNSTATUSA);
 /* for users to use the prefered wininet.dll method. */
 /* InternetGetConnectedState should return FALSE if the modem is not */
 /* connected to the Internet. */
+/* Starting in version 25.1, this became the default detection method. */
 
-	if (IniGetInt (INI_FILE, "AlternateModemDetection", 0)) {
+	if (IniGetInt (INI_FILE, "AlternateModemDetection", 1)) {
 		DWORD	flags;
 		if (InternetGetConnectedState (&flags, 0)) return (TRUE);
 		goto no_modem_connection;
@@ -108,7 +110,7 @@ static	DWORD (APIENTRY *RAS_STAT)(HRASCONN, LPRASCONNSTATUSA);
 // Print error message if no there are no connections
 
 no_modem_connection:
-	OutputStr ("Dial-up connection not active.\n");
+	OutputStr (COMM_THREAD_NUM, "Dial-up connection not active.\n");
 	return (FALSE);
 }
 
@@ -129,14 +131,259 @@ void UnloadPrimeNet (void)
 	}
 }
 
-/* Return the number of MB of physical memory */
+/* Get Windows Serial Number */
+
+void getWindowsSerialNumber (
+	char	*output)
+{
+	HKEY	hkey = 0;
+	char	buf[256];
+	DWORD	type, disposition;
+	DWORD	bufsize = sizeof (buf);
+
+	*output = 0;
+	if (RegCreateKeyEx (
+			HKEY_LOCAL_MACHINE,
+			"Software\\Microsoft\\Windows\\CurrentVersion",
+			0,
+			NULL,
+			REG_OPTION_NON_VOLATILE,
+			KEY_ALL_ACCESS,
+			NULL,
+			&hkey,
+			&disposition) == ERROR_SUCCESS &&
+	    RegQueryValueEx (hkey, "ProductId", NULL, &type,
+			(BYTE *) buf, &bufsize) == ERROR_SUCCESS &&
+	    type == REG_SZ)
+		strcpy (output, buf);
+	if (hkey) RegCloseKey (hkey);
+}
+
+/* Get Window's SID.  Hopefully this will combined with the Window's */
+/* serial # will generate a unique computer ID.  The SID code */
+/* came courtesy of www.sysinternals.com with this copyright */
+/* and restriction. */
+// Copyright (c) 1997-2002 Mark Russinovich and Bryce Cogswell
+//
+// Changes the computer SID. 
+//
+// This code is protected under copyright law. You do not have 
+// permission to use this code in a commercial SID-changing product.
+
+PSECURITY_DESCRIPTOR GetRegSecDesc (HKEY Root, TCHAR *Path, 
+				    SECURITY_INFORMATION Information)
+{
+	HKEY					hKey;
+	LONG					Status;
+	DWORD					nb = 0;
+	PSECURITY_DESCRIPTOR	SecDesc;
+
+	//
+	// Open the key with no access requests, since we don't need
+	// any.
+	// SECURITY_DESCRIPTOR
+	if (RegOpenKeyEx (Root, Path, 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+		return NULL;
+
+	//
+	// Grab a copy of the security for key
+	//
+	if (RegGetKeySecurity (hKey, Information, NULL, &nb) 
+					!= ERROR_INSUFFICIENT_BUFFER)
+		return NULL;
+
+	SecDesc = malloc (nb);
+	Status = RegGetKeySecurity (hKey, Information, SecDesc, &nb);
+
+	//
+	// Close the key anyway
+	//
+	RegCloseKey (hKey);
+	if (Status != ERROR_SUCCESS) {
+		free (SecDesc);
+		return NULL;
+	}
+	return SecDesc;
+}
+PSECURITY_DESCRIPTOR GetRegAccess (HKEY hKey)
+{
+	DWORD		nb = 0;
+	PSECURITY_DESCRIPTOR SecDesc;
+	//
+	// Get access
+	//
+	if (RegGetKeySecurity (hKey, DACL_SECURITY_INFORMATION, NULL, &nb) != ERROR_INSUFFICIENT_BUFFER)
+		return NULL;
+	SecDesc = (PSECURITY_DESCRIPTOR) malloc (nb);
+	if (RegGetKeySecurity (hKey, DACL_SECURITY_INFORMATION, SecDesc, &nb) != ERROR_SUCCESS) {
+		free (SecDesc);
+		return (NULL);
+	}
+	return (SecDesc);
+}
+LONG SetRegAccess (HKEY hKey, LPCTSTR lpSubKey,
+		   PSECURITY_DESCRIPTOR SecDesc, PHKEY phKey)
+{
+	//
+	// Grant requested access
+	//
+	if (RegSetKeySecurity (*phKey, DACL_SECURITY_INFORMATION, SecDesc) 
+					!= ERROR_SUCCESS)
+		return FALSE;
+
+	//
+	// Re-open the key if requested
+	//
+	if (! hKey) return TRUE;
+
+	RegCloseKey (*phKey);
+	return (RegOpenKey (hKey, lpSubKey, phKey) == ERROR_SUCCESS);
+}
+PBYTE IsSubAuthValid( PBYTE SidData, DWORD SidLength )
+{
+	PBYTE	sidPtr;
+
+	sidPtr = NULL;
+	if ( SidLength % sizeof(DWORD) == 0 )  {
+		for ( sidPtr = SidData + SidLength - 5*sizeof(DWORD); sidPtr >= SidData; sidPtr -= sizeof(DWORD) )
+			if ( ((PDWORD)sidPtr)[1] == 0x05000000  &&  ((PDWORD)sidPtr)[2] == 0x00000015 )
+				break;
+		if ( sidPtr < SidData )
+			sidPtr = NULL;
+	}
+	return sidPtr;
+}
+void GetTextualSid(
+    PSID pSid,            // binary Sid
+    PTCHAR TextualSid)    // buffer for Textual representation of Sid
+{
+    PSID_IDENTIFIER_AUTHORITY psia;
+    DWORD dwSubAuthorities;
+    DWORD dwSidRev=SID_REVISION;
+    DWORD dwCounter;
+    DWORD dwSidSize;
+
+    // Validate the binary SID.
+
+    if(!IsValidSid(pSid)) return;
+
+    // Get the identifier authority value from the SID.
+
+    psia = GetSidIdentifierAuthority(pSid);
+
+    // Get the number of subauthorities in the SID.
+
+    dwSubAuthorities = *GetSidSubAuthorityCount(pSid);
+
+    // Compute the buffer length.
+    // S-SID_REVISION- + IdentifierAuthority- + subauthorities- + NULL
+
+    dwSidSize=(15 + 12 + (12 * dwSubAuthorities) + 1) * sizeof(TCHAR);
+
+    // Add 'S' prefix and revision number to the string.
+
+    dwSidSize= _stprintf(TextualSid, _T("S-%lu-"), dwSidRev );
+
+    // Add SID identifier authority to the string.
+
+    if ( (psia->Value[0] != 0) || (psia->Value[1] != 0) ) {
+
+        dwSidSize += _stprintf(TextualSid + lstrlen(TextualSid),
+                    _T("0x%02hx%02hx%02hx%02hx%02hx%02hx"),
+                    (USHORT)psia->Value[0],
+                    (USHORT)psia->Value[1],
+                    (USHORT)psia->Value[2],
+                    (USHORT)psia->Value[3],
+                    (USHORT)psia->Value[4],
+                    (USHORT)psia->Value[5]);
+
+    } else {
+
+        dwSidSize += _stprintf(TextualSid + lstrlen(TextualSid),
+                     _T("%lu"),
+                    (ULONG)(psia->Value[5]      )   +
+                    (ULONG)(psia->Value[4] <<  8)   +
+                    (ULONG)(psia->Value[3] << 16)   +
+                    (ULONG)(psia->Value[2] << 24)   );
+    }
+
+    // Add SID subauthorities to the string.
+    //
+    for (dwCounter=0 ; dwCounter < dwSubAuthorities ; dwCounter++) {
+        dwSidSize+= _stprintf(TextualSid + dwSidSize, _T("-%lu"),
+                    *GetSidSubAuthority(pSid, dwCounter) );
+    }
+}
+void getWindowsSID (
+	char	*output)
+{
+	PSECURITY_DESCRIPTOR	newSecDesc, oldSecDesc;
+	DWORD					valType;
+	PBYTE					vData;
+	HKEY					hKey;
+	DWORD					nb;
+	PBYTE					sidPtr;
+	DWORD					Status;
+
+	*output = 0;
+	//
+	// Now, get the descriptor of HKLM\SOFTWARE and apply this to SECURITY
+	//
+	newSecDesc = GetRegSecDesc( HKEY_LOCAL_MACHINE, "SOFTWARE",
+					DACL_SECURITY_INFORMATION );
+
+	//
+	// Read the last subauthority of the current computer SID
+	//
+	if( RegOpenKey( HKEY_LOCAL_MACHINE, "SECURITY\\SAM\\Domains\\Account", 
+			&hKey) != ERROR_SUCCESS ) {
+		free (newSecDesc);
+		return;
+	}
+	oldSecDesc = GetRegAccess( hKey );
+	SetRegAccess( HKEY_LOCAL_MACHINE, "SECURITY\\SAM\\Domains\\Account", 
+		newSecDesc, &hKey );
+	nb = 0;
+	vData = NULL;
+	RegQueryValueEx( hKey, "V", NULL, &valType, vData, &nb );
+	vData = (PBYTE) malloc( nb );
+	Status = RegQueryValueEx( hKey, "V", NULL, &valType, vData, &nb );
+	if( Status != ERROR_SUCCESS ) {
+		SetRegAccess( HKEY_LOCAL_MACHINE, "SECURITY\\SAM\\Domains\\Account",
+				oldSecDesc, &hKey );
+		free (vData);
+		free (oldSecDesc);
+		free (newSecDesc);
+		return;
+	}
+	SetRegAccess( NULL, NULL, oldSecDesc, &hKey );
+	RegCloseKey( hKey );
+	free (oldSecDesc);
+	free (newSecDesc);
+
+	//
+	// Make sure that we're dealing with a SID we understand
+	//
+	if( !(sidPtr = IsSubAuthValid( vData, nb ))) {
+		free (vData);
+		return;
+	}
+
+	GetTextualSid( sidPtr, output );
+	free (vData);
+}
+
+
+
+/* Return the number of MB of physical memory.  Windows doesn't return the full amount */
+/* of physical memory - probably shadow ram or some such.  Compensate by rounding up. */
 
 unsigned long physical_memory (void)
 {
 	MEMORYSTATUS mem;
 
 	GlobalMemoryStatus (&mem);
-	return (mem.dwTotalPhys >> 20);
+	return ((unsigned long) ((mem.dwTotalPhys + 1000000) >> 20));
 }
 
 /* Return a better guess for amount of memory to use in a torture test. */
@@ -150,10 +397,10 @@ unsigned long GetSuggestedMemory (unsigned long nDesiredMemory)
 	MEMORYSTATUS ms = {0};
 
 	// In-use Physical RAM in bytes
-	DWORD dwUsedMem			= ms.dwTotalPhys - ms.dwAvailPhys;
+	SIZE_T dwUsedMem	= ms.dwTotalPhys - ms.dwAvailPhys;
 	// Desired memory in bytes
-	DWORD dwDesiredMem		= nDesiredMemory << 20;
-	DWORD dwDesiredMemNew	= dwDesiredMem;
+	SIZE_T dwDesiredMem	= nDesiredMemory << 20;
+	SIZE_T dwDesiredMemNew	= dwDesiredMem;
 
 	GlobalMemoryStatus (&ms);
 
@@ -170,7 +417,7 @@ unsigned long GetSuggestedMemory (unsigned long nDesiredMemory)
 		dwDesiredMemNew = ms.dwAvailPhys;
 	}
 
-	return (dwDesiredMemNew >> 20);
+	return ((unsigned long) (dwDesiredMemNew >> 20));
 }
 
 /* Return the number of CPUs in the system */
@@ -194,3 +441,4 @@ int getDefaultTimeFormat (void)
 		LOCALE_USER_DEFAULT, LOCALE_ITIME, (LPTSTR) buf, sizeof (buf));
 	return (buf[0] == '0' ? 1 : 2);
 }
+

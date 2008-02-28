@@ -5,6 +5,9 @@
 #include "Prime95.h"
 
 #include "MainFrm.h"
+#include "Prime95Doc.h"
+#include "Prime95View.h"
+
 #include <winreg.h>
 #include <pbt.h>
 
@@ -19,27 +22,38 @@ const UINT WM_TASKBARCREATED = ::RegisterWindowMessage(_T("TaskbarCreated"));
 /////////////////////////////////////////////////////////////////////////////
 // CMainFrame
 
-IMPLEMENT_DYNCREATE(CMainFrame, CFrameWnd)
+IMPLEMENT_DYNAMIC(CMainFrame, CMDIFrameWnd)
 
-BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
+BEGIN_MESSAGE_MAP(CMainFrame, CMDIFrameWnd)
 	//{{AFX_MSG_MAP(CMainFrame)
+	ON_WM_CREATE()
 	ON_WM_SIZE()
 	ON_WM_ENDSESSION()
 	ON_WM_ACTIVATEAPP()
 	//}}AFX_MSG_MAP
 	ON_WM_SYSCOMMAND()
 	// Global help commands
-	ON_COMMAND(ID_HELP_FINDER, CFrameWnd::OnHelpFinder)
-	ON_COMMAND(ID_HELP, CFrameWnd::OnHelp)
-	ON_COMMAND(ID_CONTEXT_HELP, CFrameWnd::OnContextHelp)
-	ON_COMMAND(ID_DEFAULT_HELP, CFrameWnd::OnHelpFinder)
+	ON_COMMAND(ID_HELP_FINDER, CMDIFrameWnd::OnHelpFinder)
+	ON_COMMAND(ID_HELP, CMDIFrameWnd::OnHelp)
+	ON_COMMAND(ID_CONTEXT_HELP, CMDIFrameWnd::OnContextHelp)
+	ON_COMMAND(ID_DEFAULT_HELP, CMDIFrameWnd::OnHelpFinder)
 	ON_COMMAND(IDM_TRAY_OPEN, OnTrayOpenWindow)
 	ON_COMMAND(IDM_STOP_CONTINUE, OnStopContinue)
+	ON_COMMAND(ID_WINDOW_TILE_HORZ, OnTile)
+	ON_COMMAND(ID_WINDOW_POSITION, OnPosition)
 	ON_MESSAGE(USR_SERVICE_STOP, OnServiceStop)
 	ON_MESSAGE(WM_POWERBROADCAST, OnPower)
 	ON_MESSAGE(MYWM_TRAYMESSAGE, OnTrayMessage)
 	ON_REGISTERED_MESSAGE(WM_TASKBARCREATED, OnTaskBarCreated)
 END_MESSAGE_MAP()
+
+static UINT indicators[] =
+{
+	ID_SEPARATOR,           // status line indicator
+	ID_INDICATOR_CAPS,
+	ID_INDICATOR_NUM,
+	ID_INDICATOR_SCRL,
+};
 
 /////////////////////////////////////////////////////////////////////////////
 // CMainFrame construction/destruction
@@ -58,7 +72,30 @@ BOOL CMainFrame::PreCreateWindow(CREATESTRUCT& cs)
 	// TODO: Modify the Window class or styles here by modifying
 	//  the CREATESTRUCT cs
 
-	return CFrameWnd::PreCreateWindow(cs);
+//	cs.style &= ~FWS_ADDTOTITLE;	// We'll control window titles!
+	return CMDIFrameWnd::PreCreateWindow(cs);
+}
+
+void CMainFrame::OnUpdateFrameTitle(BOOL bAddToTitle)
+{
+}
+
+int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
+{
+	if (CMDIFrameWnd::OnCreate(lpCreateStruct) == -1)
+		return -1;
+
+	if (!m_wndStatusBar.Create(this) ||
+		!m_wndStatusBar.SetIndicators(indicators,
+		  sizeof(indicators)/sizeof(UINT)))
+	{
+		TRACE0("Failed to create status bar\n");
+		return -1;      // fail to create
+	}
+
+	MAINFRAME_HWND = m_hWnd;
+
+	return 0;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -67,12 +104,12 @@ BOOL CMainFrame::PreCreateWindow(CREATESTRUCT& cs)
 #ifdef _DEBUG
 void CMainFrame::AssertValid() const
 {
-	CFrameWnd::AssertValid();
+	CMDIFrameWnd::AssertValid();
 }
 
 void CMainFrame::Dump(CDumpContext& dc) const
 {
-	CFrameWnd::Dump(dc);
+	CMDIFrameWnd::Dump(dc);
 }
 
 #endif //_DEBUG
@@ -81,12 +118,12 @@ void CMainFrame::Dump(CDumpContext& dc) const
 // CMainFrame message handlers
 LRESULT CMainFrame::OnPower(WPARAM uID, LPARAM uMouseMsg)
 {
+// We used to check battery status only after we got this message.  However,
+// on my laptop prime95 sometimes would not restart when AC power resumed.
+// Now we'll test using a timer as well as this Windows message (so we don't
+// have a delay in shutting threads down when we go on battery)
 	if (uID == PBT_APMPOWERSTATUSCHANGE) {
-		CHECK_BATTERY = 1;
-		if (STOPPED_ON_BATTERY) {
-			STOPPED_ON_BATTERY = 999;
-			PostMessage (WM_COMMAND, IDM_CONTINUE, 0);
-		}
+		if (is_timed_event_active (TE_BATTERY_CHECK)) test_battery ();
 	}
 	return 0;
 }
@@ -116,19 +153,19 @@ LRESULT CMainFrame::OnTrayMessage(WPARAM uID, LPARAM uMouseMsg)
 			m.fMask = MIIM_STRING;
 			m.fType = MFT_STRING;
 			m.dwTypeData = "Minimize Window";
-			m.cch = strlen (m.dwTypeData);
+			m.cch = (UINT) strlen (m.dwTypeData);
 			SetMenuItemInfo (hSubMenu, IDM_TRAY_OPEN, FALSE, &m);
 		}
-		if (!THREAD_ACTIVE) {
+		if (!WORKER_THREADS_ACTIVE) {
 			m.fMask = MIIM_STRING;
 			m.fType = MFT_STRING;
 			m.dwTypeData = "Continue";
-			m.cch = strlen (m.dwTypeData);
+			m.cch = (UINT) strlen (m.dwTypeData);
 			SetMenuItemInfo (hSubMenu, IDM_STOP_CONTINUE, FALSE, &m);
 		}
-		if ((THREAD_ACTIVE && THREAD_STOP) ||
-		    (!THREAD_ACTIVE &&
-		     !USE_PRIMENET && IniGetNumLines (WORKTODO_FILE) == 0)) {
+		if ((WORKER_THREADS_ACTIVE && WORKER_THREADS_STOPPING) ||
+		    (!WORKER_THREADS_ACTIVE &&
+		     !USE_PRIMENET && WORKTODO_COUNT == 0)) {
 			m.fMask = MIIM_STATE;
 			m.fState = MFS_DISABLED;
 			SetMenuItemInfo (hSubMenu, IDM_STOP_CONTINUE, FALSE, &m);
@@ -162,7 +199,7 @@ void CMainFrame::OnTrayOpenWindow()
 
 void CMainFrame::OnStopContinue()
 {
-	if (THREAD_ACTIVE)
+	if (WORKER_THREADS_ACTIVE)
 		PostMessage (WM_COMMAND, IDM_STOP, 0);
 	else
 		PostMessage (WM_COMMAND, IDM_CONTINUE, 0);
@@ -179,22 +216,39 @@ LRESULT CMainFrame::OnServiceStop (WPARAM wParam, LPARAM lParam)
 BOOL CMainFrame::DestroyWindow() 
 {
 	if (TRAY_ICON) ((CPrime95App *)AfxGetApp())->TrayMessage (NIM_DELETE, NULL, 0);
-	return CFrameWnd::DestroyWindow();
+	return CMDIFrameWnd::DestroyWindow();
 }
 
 void CMainFrame::OnSize(UINT nType, int cx, int cy) 
 {
+static	int first_sizing = 0;
+
 	if (nType == SIZE_MINIMIZED) {
 		if (TRAY_ICON) ShowWindow (FALSE);// hide it
 		if (HIDE_ICON) ShowWindow (FALSE);
 	}
-	CFrameWnd::OnSize(nType, cx, cy);
+	CMDIFrameWnd::OnSize(nType, cx, cy);
+
+// On Windows XP, we need to tile on the second message, while on 64-bit
+// windows tiling on the first size message works.  Go figure.
+
+	if (nType != SIZE_MINIMIZED && first_sizing < 2) {
+		int id;
+		char rgch[80];
+
+		rgch[0] = 0;
+		IniGetString (INI_FILE, "W0", rgch, sizeof(rgch), NULL);
+
+		first_sizing++;
+		id = (0 == rgch[0]) ? ID_WINDOW_TILE_HORZ : ID_WINDOW_POSITION;
+		PostMessage (WM_COMMAND, id, 0);
+	}
 }
 
 LRESULT CMainFrame::WindowProc (UINT message, WPARAM wParam, LPARAM lParam)
 {
-	WM_ENDSESSION_LPARAM = lParam;
-	return CFrameWnd::WindowProc(message, wParam, lParam);
+	WM_ENDSESSION_LPARAM = (LONG) lParam;
+	return CMDIFrameWnd::WindowProc(message, wParam, lParam);
 }
 
 
@@ -240,7 +294,7 @@ void CMainFrame::OnEndSession (BOOL bEnding)
 // If we aren't running as a service, just do normal processing
 
 	else
-		CFrameWnd::OnEndSession (bEnding);
+		CMDIFrameWnd::OnEndSession (bEnding);
 }
 
 /* Return true if user has permission to create and delete services */
@@ -253,6 +307,10 @@ int canModifyServices ()
 /* All Windows 9x users have permission */
 
 	if (isWindows95 ()) return (TRUE);
+
+/* Vista won't let services interact with the desktop */
+
+	if (isWindowsVista ()) return (FALSE);
 
 /* See if Windows NT user can open service control manager */
 
@@ -287,20 +345,20 @@ void Service95 ()
 
 		hlib = LoadLibrary ("KERNEL32.DLL");
 		if (!hlib) {
-			OutputStr ("Unable to load KERNEL32.DLL\n");
+			OutputStr (MAIN_THREAD_NUM, "Unable to load KERNEL32.DLL\n");
 			goto done;
 		}
 		proc = (DWORD (__stdcall *)(DWORD, DWORD))
 			GetProcAddress (hlib, "RegisterServiceProcess");
 		if (proc == NULL)
-			OutputStr ("Unable to find RegisterServiceProcess\n");
+			OutputStr (MAIN_THREAD_NUM, "Unable to find RegisterServiceProcess\n");
 		else {
 			if (WINDOWS95_SERVICE)
 				rc = (*proc) (NULL, RSP_SIMPLE_SERVICE);
 			else
 				rc = (*proc) (NULL, RSP_UNREGISTER_SERVICE);
 			if (!rc)
-				OutputStr ("RegisterServiceProcess failed\n");
+				OutputStr (MAIN_THREAD_NUM, "RegisterServiceProcess failed\n");
 		}
 		FreeLibrary (hlib);
 	}
@@ -334,7 +392,7 @@ void Service95 ()
 				NULL,
 				&hkey,
 				&disposition) != ERROR_SUCCESS) {
-			OutputStr ("Can't create registry key.\n");
+			OutputStr (MAIN_THREAD_NUM, "Can't create registry key.\n");
 			goto done;
 		}
 
@@ -347,15 +405,15 @@ void Service95 ()
 				strcat (pathname, append);
 			}
 			rc = RegSetValueEx (hkey, regkey, 0, REG_SZ,
-				(BYTE *) pathname, strlen (pathname) + 1);
+				(BYTE *) pathname, (DWORD) strlen (pathname) + 1);
 			if (rc != ERROR_SUCCESS) {
-				OutputStr ("Can't write registry value.\n");
+				OutputStr (MAIN_THREAD_NUM, "Can't write registry value.\n");
 				goto done;
 			}
 		} else {
 			rc = RegDeleteValue (hkey, regkey);
 			if (rc != ERROR_SUCCESS && rc != ERROR_FILE_NOT_FOUND){
-				OutputStr ("Can't delete registry entry.\n");
+				OutputStr (MAIN_THREAD_NUM, "Can't delete registry entry.\n");
 				goto done;
 			}
 		}
@@ -368,8 +426,11 @@ void Service95 ()
 // the service control manager) then simply create a registry entry to start
 // the program at logon.  So, attempt to open the service control manager on
 // NULL = local machine, NULL = default database, all access required.
+// Also Vista won't let services interact with the desktop, so we can't run
+// as a service.
 
-	else if (! (schSCManager = OpenSCManager (NULL, NULL,
+	else if (isWindowsVista () ||
+		 ! (schSCManager = OpenSCManager (NULL, NULL,
 						  SC_MANAGER_ALL_ACCESS))) {
 		if (RegCreateKeyEx (
 				HKEY_CURRENT_USER,
@@ -381,7 +442,7 @@ void Service95 ()
 				NULL,
 				&hkey,
 				&disposition) != ERROR_SUCCESS) {
-			OutputStr ("Can't create registry key.\n");
+			OutputStr (MAIN_THREAD_NUM, "Can't create registry key.\n");
 			goto done;
 		}
 
@@ -394,15 +455,15 @@ void Service95 ()
 				strcat (pathname, append);
 			}
 			rc = RegSetValueEx (hkey, regkey, 0, REG_SZ,
-				(BYTE *) pathname, strlen (pathname) + 1);
+				(BYTE *) pathname, (DWORD) strlen (pathname) + 1);
 			if (rc != ERROR_SUCCESS) {
-				OutputStr ("Can't write registry value.\n");
+				OutputStr (MAIN_THREAD_NUM, "Can't write registry value.\n");
 				goto done;
 			}
 		} else {
 			rc = RegDeleteValue (hkey, regkey);
 			if (rc != ERROR_SUCCESS && rc != ERROR_FILE_NOT_FOUND){
-				OutputStr ("Can't delete registry entry.\n");
+				OutputStr (MAIN_THREAD_NUM, "Can't delete registry entry.\n");
 				goto done;
 			}
 		}
@@ -451,7 +512,7 @@ void Service95 ()
 				NULL);			// no password
 			if (!schService) {
 				if (GetLastError () != ERROR_SERVICE_EXISTS)
-					OutputStr ("Error creating service.\n");
+					OutputStr (MAIN_THREAD_NUM, "Error creating service.\n");
 				goto done;
 			}
 
@@ -477,11 +538,11 @@ void Service95 ()
 					SERVICE_ALL_ACCESS);
 			if (!schService) {
 				if (GetLastError () != ERROR_SERVICE_DOES_NOT_EXIST)
-					OutputStr ("Error opening service.\n");
+					OutputStr (MAIN_THREAD_NUM, "Error opening service.\n");
 				goto done;
 			}
 			if (! DeleteService (schService)) {
-				OutputStr ("Error deleting service.\n");
+				OutputStr (MAIN_THREAD_NUM, "Error deleting service.\n");
 				goto done;
 			}
 		}
@@ -561,11 +622,7 @@ done:	if (schService) CloseServiceHandle (schService);
 
 void CMainFrame::OnActivateApp(BOOL bActive, DWORD hTask) 
 {
-	if (bActive && BROADCAST_MESSAGE != NULL) {
-		if (HIDE_ICON) BlinkIcon (0);
-		AfxGetApp()->m_pMainWnd->PostMessage (WM_COMMAND, USR_BROADCAST, 0);
-	}
-	CFrameWnd::OnActivateApp(bActive, hTask);
+	CMDIFrameWnd::OnActivateApp(bActive, hTask);
 }
 
 // Override the Upper Right X to do a minimize instead of a close.
@@ -579,13 +636,32 @@ void CMainFrame::OnSysCommand(UINT nID, LPARAM lParam)
 		SendMessage (WM_SYSCOMMAND, SC_MINIMIZE, 0);
 		return;
 	}
-	CFrameWnd::OnSysCommand (nID, lParam);
+	CMDIFrameWnd::OnSysCommand (nID, lParam);
 }
 
-BOOL CMainFrame::Create(LPCTSTR lpszClassName, LPCTSTR lpszWindowName, DWORD dwStyle , const RECT& rect , CWnd* pParentWnd , LPCTSTR lpszMenuName , DWORD dwExStyle , CCreateContext* pContext)
+// Override the MFC implementation of tile MDI windows horizontally.
+
+void CMainFrame::OnTile()
 {
-	BOOL	retval;
-	retval = CFrameWnd::Create(lpszClassName, lpszWindowName, dwStyle, rect, pParentWnd, lpszMenuName, dwExStyle, pContext);
-	MAINFRAME_HWND = m_hWnd;
-	return (retval);
+
+// Call default implementation to de-maximize windows if necessary
+
+	MDITile (MDITILE_HORIZONTAL);
+
+// Now call our implementation of horizontal tiling
+
+	PositionViews (TRUE);
 }
+
+void CMainFrame::OnPosition()
+{
+
+// Call default implementation to de-maximize windows if necessary
+
+	MDITile (MDITILE_HORIZONTAL);
+
+// Now call our implementation of horizontal tiling
+
+	PositionViews (FALSE);
+}
+

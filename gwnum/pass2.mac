@@ -1,4 +1,4 @@
-; Copyright 1998-2004 - Just For Fun Software, Inc., all rights reserved
+; Copyright 1998-2007 - Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -45,6 +45,7 @@ pass2_eight_levels_real MACRO
 
 ;; Type 4 FFTs skip the forward FFT process
 
+	mov	ebx, DIST_TO_FFTSRCARG
 	cmp	ffttype, 4
 	je	type4
 
@@ -68,7 +69,7 @@ pass2_eight_levels_real MACRO
 ;;	do 64 iterations
 
 	sub	al, al
-b1b:	disp four_real_four_semireal_fft, 64*dist1, 128*dist1, 8
+b1b:	disp four_real_four_semireal_first_fft, 64*dist1, 128*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
 	add	al, 256/64		;; Test loop counter
 	jnc	b1b			;; Iterate if necessary
@@ -209,7 +210,8 @@ pf	lea	ecx, [ecx+32]
 	lea	esi, [esi-64*4*dist1+blkdst];; Point to next block
 	jmp	no_unfft
 
-type3:	disp four_real_four_semireal_mult, dist1, 2*dist1, 8
+type3:	mov	ebp, DIST_TO_MULSRCARG
+	disp four_real_four_semireal_mult, dist1, 2*dist1, 8
 	lea	esi, [esi+4*dist1]	;; Next source pointer
 b6b3:	disp four_complex_mult, dist1, 2*dist1, 8
 	lea	esi, [esi+4*dist1]	;; Next source pointer
@@ -220,7 +222,8 @@ pf	lea	ecx, [ecx+32]
 	jnz	b6b3			;; Loop if necessary
 	jmp	unfft
 
-type4:	mov	edi, sincos10		;; Load sin/cos pointer
+type4:	mov	ebp, DIST_TO_MULSRCARG
+	mov	edi, sincos10		;; Load sin/cos pointer
 pf	lea	ecx, [esi+blkdst+65*32]	;; Prefetching pointer
 	mov	al, 63			;; 63 iterations
 	disp four_real_four_semireal_mulf, dist1, 2*dist1, 8
@@ -351,7 +354,6 @@ no_unfft:
 ; complex multiplies can be done faster than the computer can read the
 ; extra 188 multipliers from memory.
 ; esi = Pointer to the FFT data
-; ebx/ebp = Differences to point to second and third operands
 ; edx = Pointer to the group and column pre-multiplier values
 
 pass2_eight_levels_complex MACRO
@@ -365,7 +367,7 @@ pass2_eight_levels_complex MACRO
 
 	IFDEF	PFETCH
 	start_timer 3
-	push	ecx
+	pusher	ecx
 	cmp	ecx, 1			;; Test pass2 counter
 	je	short b0c		;; Skip if this is last data set
 	mov	ecx, [esi]		;; Read data set #1 (loads the TLB)
@@ -378,6 +380,7 @@ b0c:	end_timer 3
 
 ;; Type 4 FFTs skip the forward FFT process
 
+	mov	ebx, DIST_TO_FFTSRCARG
 	cmp	ffttype, 4
 	je	type4
 
@@ -534,7 +537,7 @@ pf	lea	ecx, [ecx+32]
 	lea	esi, [esi-64*4*dist1+blkdst];; Next pass 2 pointer
 	jmp	no_unfft
 
-type3:
+type3:	mov	ebp, DIST_TO_MULSRCARG
 b4b3:	disp four_complex_mult, dist1, 2*dist1, 8
 	lea	esi, [esi+4*dist1]	;; Next source pointer
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
@@ -544,7 +547,8 @@ pf	lea	ecx, [ecx+32]
 	jnc	b4b3			;; Iterate if necessary
 	jmp	unfft
 
-type4:	mov	edi, xsincos_complex	;; Load sine/cosine ptr
+type4:	mov	ebp, DIST_TO_MULSRCARG
+	mov	edi, xsincos_complex	;; Load sine/cosine ptr
 pf	lea	ecx, [esi+blkdst]	;; Prefetching pointer
 	sub	al, al
 b4b4:	disp four_complex_mulf, dist1, 2*dist1, 8
@@ -661,7 +665,7 @@ c1b:	disp four_complex_gpm4_unfft, 8, 64*dist1, 128*dist1
 	lea	esi, [esi-16*4*dist1+blkdst];; Next pass 2 set of data
 	end_timer 10
 no_unfft:
-pf	pop	ecx
+pf	popper	ecx
 	lea	edx, [edx+20*PMD]	;; Next group pre-multipliers
 	ENDM
 
@@ -694,6 +698,7 @@ pass2_ten_levels_real MACRO
 
 ;; Type 4 FFTs skip the forward FFT process
 
+	mov	ebx, DIST_TO_FFTSRCARG
 	cmp	ffttype, 4
 	je	type4
 
@@ -717,7 +722,7 @@ pass2_ten_levels_real MACRO
 ;;	do 256 iterations
 
 	sub	eax, eax
-b1b:	disp four_real_four_semireal_fft, dist256, 2*dist256, 8
+b1b:	disp four_real_four_semireal_first_fft, dist256, 2*dist256, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
 	add	al, 256/256		;; Test loop counter
 	jnc	b1b			;; Iterate if necessary
@@ -932,7 +937,8 @@ pf	lea	ecx, [ecx+32]
 	lea	esi, [esi-4*dist256+blkdst];; Point to next block
 	jmp	no_unfft
 
-type3:	disp four_real_four_semireal_mult, dist1, 2*dist1, 8
+type3:	mov	ebp, DIST_TO_MULSRCARG
+	disp four_real_four_semireal_mult, dist1, 2*dist1, 8
 	lea	esi, [esi+4*dist1]	;; Next source pointer
 b6b3:	disp four_complex_mult, dist1, 2*dist1, 8
 	lea	esi, [esi+4*dist1]	;; Next source pointer
@@ -948,7 +954,8 @@ pf	lea	ecx, [ecx+32]
 	jnz	b6b3			;; Loop if necessary
 	jmp	unfft
 
-type4:	mov	edi, sincos10		;; Load sin/cos pointer
+type4:	mov	ebp, DIST_TO_MULSRCARG
+	mov	edi, sincos10		;; Load sin/cos pointer
 pf	lea	ecx, [esi+blkdst+2*(4096+64)];; Prefetching pointer
 	mov	eax, 256/2+4		;; 4 iters of 32 iters of 1 or 2
 	disp four_real_four_semireal_mulf, dist1, 2*dist1, 8
@@ -1143,7 +1150,6 @@ no_unfft:
 ; complex multiplies can be done faster than the computer can read the
 ; extra 188 multipliers from memory.
 ; esi = Pointer to the FFT data
-; ebx/ebp = Differences to point to second and third operands
 ; edx = Pointer to the group and column pre-multiplier values
 
 pass2_ten_levels_complex MACRO
@@ -1158,7 +1164,7 @@ pass2_ten_levels_complex MACRO
 
 	IFDEF	PFETCH
 	start_timer 3
-	push	ecx
+	pusher	ecx
 	cmp	ecx, 1			;; Test pass2 counter
 	je	short b0c		;; Skip if this is last data set
 	mov	ecx, [esi]		;; Read data set #1 (loads the TLB)
@@ -1179,6 +1185,7 @@ b0c:	end_timer 3
 
 ;; Type 4 FFTs skip the forward FFT process
 
+	mov	ebx, DIST_TO_FFTSRCARG
 	cmp	ffttype, 4
 	je	type4
 
@@ -1385,7 +1392,7 @@ pf	lea	ecx, [ecx+32]
 	lea	esi, [esi-4*dist256+blkdst];; Next pass 2 pointer
 	jmp	no_unfft
 
-type3:
+type3:	mov	ebp, DIST_TO_MULSRCARG
 b4b3:	disp four_complex_mult, dist1, 2*dist1, 8
 	lea	esi, [esi+4*dist1]	;; Next source pointer
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
@@ -1400,7 +1407,8 @@ pf	lea	ecx, [ecx+32]
 	jnc	b4b3			;; Iterate if necessary
 	jmp	unfft
 
-type4:	mov	edi, xsincos_complex	;; Load sine/cosine ptr
+type4:	mov	ebp, DIST_TO_MULSRCARG
+	mov	edi, xsincos_complex	;; Load sine/cosine ptr
 pf	lea	ecx, [esi+blkdst+2*(4096+64)];; Prefetching pointer
 	sub	eax, eax
 b4b4:	disp four_complex_mulf, dist1, 2*dist1, 8
@@ -1564,7 +1572,7 @@ c1b:	disp four_complex_gpm4_unfft, 8, dist256, 2*dist256
 	lea	esi, [esi-64*4*dist1+blkdst];; Next pass 2 set of data
 	end_timer 12
 no_unfft:
-pf	pop	ecx
+pf	popper	ecx
 	lea	edx, [edx+68*PMD]	;; Next group pre-multipliers
 	ENDM
 
@@ -1597,6 +1605,7 @@ b0a:	mov	ecx, [esi]		;; Read data set #1 (loads the TLB)
 
 ;; Type 4 FFTs skip the forward FFT process
 
+	mov	ebx, DIST_TO_FFTSRCARG
 	cmp	ffttype, 4
 	je	type4
 
@@ -1620,7 +1629,7 @@ b0a:	mov	ecx, [esi]		;; Read data set #1 (loads the TLB)
 ;;	do 1024 iterations
 
 	mov	eax, 4*256
-b1b:	disp four_real_four_semireal_fft, 4*dist256, 8*dist256, 8
+b1b:	disp four_real_four_semireal_first_fft, 4*dist256, 8*dist256, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
 	add	al, 256/256		;; Test loop counter
 	jnc	b1b			;; Iterate if necessary
@@ -1900,7 +1909,8 @@ pf	lea	ecx, [ecx-16*(4096+64)+32]
 	lea	esi, [esi-16*dist256+blkdst];; Point to next block
 	jmp	no_unfft
 
-type3:	disp four_real_four_semireal_mult, dist1, 2*dist1, 8
+type3:	mov	ebp, DIST_TO_MULSRCARG
+	disp four_real_four_semireal_mult, dist1, 2*dist1, 8
 	lea	esi, [esi+4*dist1]	;; Next source pointer
 b6b3:	disp four_complex_mult, dist1, 2*dist1, 8
 	lea	esi, [esi+4*dist1]	;; Next source pointer
@@ -1917,7 +1927,8 @@ pf	lea	ecx, [ecx-16*(4096+64)+32]
 	jnz	b6b3			;; Loop if necessary
 	jmp	unfft
 
-type4:	mov	edi, sincos10		;; Load sin/cos pointer
+type4:	mov	ebp, DIST_TO_MULSRCARG
+	mov	edi, sincos10		;; Load sin/cos pointer
 pf	lea	ecx, [esi+blkdst+96*32]	;; Prefetching pointer
 	mov	eax, 256/4+16		;; 16 iterations of 63 or 64
 	disp four_real_four_semireal_mulf, dist1, 2*dist1, 8
@@ -2172,7 +2183,6 @@ no_unfft:
 ; complex multiplies can be done faster than the computer can read the
 ; extra multipliers from memory.
 ; esi = Pointer to the FFT data
-; ebx/ebp = Differences to point to second and third operands
 ; edx = Pointer to the group and column pre-multiplier values
 
 pass2_twelve_levels_complex MACRO
@@ -2187,7 +2197,7 @@ pass2_twelve_levels_complex MACRO
 
 	IFDEF	PFETCH
 	start_timer 3
-	push	ecx
+	pusher	ecx
 	cmp	ecx, 1			;; Test pass2 counter
 	je	short b0c		;; Skip if this is last data set
 	sub	eax, eax
@@ -2209,6 +2219,7 @@ b0c:	end_timer 3
 
 ;; Type 4 FFTs skip the forward FFT process
 
+	mov	ebx, DIST_TO_FFTSRCARG
 	cmp	ffttype, 4
 	je	type4
 
@@ -2463,7 +2474,7 @@ pf	lea	ecx, [ecx-16*(4096+64)+32]
 	lea	esi, [esi-16*dist256+blkdst];; Next pass 2 pointer
 	jmp	no_unfft
 
-type3:
+type3:	mov	ebp, DIST_TO_MULSRCARG
 b4b3:	disp four_complex_mult, dist1, 2*dist1, 8
 	lea	esi, [esi+4*dist1]	;; Next source pointer
 	lea	edi, [edi+SCD]		;; Next sine/cosine pointer
@@ -2479,7 +2490,8 @@ pf	lea	ecx, [ecx-16*(4096+64)+32]
 	jnz	b4b3			;; Iterate if necessary
 	jmp	unfft
 
-type4:	mov	edi, xsincos_complex	;; Load sine/cosine ptr
+type4:	mov	ebp, DIST_TO_MULSRCARG
+	mov	edi, xsincos_complex	;; Load sine/cosine ptr
 pf	lea	ecx, [esi+blkdst+96*32]	;; Prefetching pointer
 	mov	eax, 16
 b4b4:	disp four_complex_mulf, dist1, 2*dist1, 8
@@ -2688,6 +2700,6 @@ c1b:	disp four_complex_gpm4_unfft, 8, 4*dist256, 8*dist256
 	lea	esi, [esi-4*dist256+blkdst];; Next pass 2 set of data
 	end_timer 14
 no_unfft:
-pf	pop	ecx
+pf	popper	ecx
 	lea	edx, [edx+260*PMD]	;; Next group pre-multipliers
 	ENDM

@@ -4,7 +4,7 @@
 | This file contains the headers for the gwnum helper routines that use
 | extended-precision floats.
 | 
-|  Copyright 2005 Just For Fun Software, Inc.
+|  Copyright 2005-2007 Just For Fun Software, Inc.
 |  All Rights Reserved.
 +---------------------------------------------------------------------*/
 
@@ -20,22 +20,23 @@ extern "C" {
 
 /* Include common definitions */
 
-#include "common.h"
+#include "gwcommon.h"
 
 /* Extended precision helper routines */
 
-void gwasm_constants (double, signed long, int, int, unsigned long, unsigned long, double *);
-void gwfft_weight_setup (int, double, unsigned long, signed long, unsigned long);
-double gwfft_weight (unsigned long);
-double gwfft_weight_sloppy (unsigned long);
-double gwfft_weight_inverse (unsigned long);
-double gwfft_weight_inverse_sloppy (unsigned long);
-double gwfft_weight_inverse_over_fftlen (unsigned long);
-void gwfft_weights3 (unsigned long, double *, double *, double *);
-double gwfft_weight_exponent (unsigned long);
-unsigned long gwfft_base (unsigned long);
+void gwasm_constants (double *);
 void gwsincos (unsigned long, unsigned long, double *);
 void gwsincos3 (unsigned long, unsigned long, double *);
+void *gwdbldbl_data_alloc (void);
+void gwfft_weight_setup (void *, int, double, unsigned long, signed long, unsigned long);
+double gwfft_weight (void *, unsigned long);
+double gwfft_weight_sloppy (void *, unsigned long);
+double gwfft_weight_inverse (void *, unsigned long);
+double gwfft_weight_inverse_sloppy (void *, unsigned long);
+double gwfft_weight_inverse_over_fftlen (void *, unsigned long);
+void gwfft_weights3 (void *, unsigned long, double *, double *, double *);
+double gwfft_weight_exponent (void *, unsigned long);
+unsigned long gwfft_base (void *, unsigned long);
 
 #ifdef __cplusplus
 }

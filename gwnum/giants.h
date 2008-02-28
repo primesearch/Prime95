@@ -10,7 +10,7 @@
  *	    20 Apr 97  RDW
  *
  *	c. 1997 Perfectly Scientific, Inc.
- *	c. 1998-2005 Just For Fun Software, Inc.
+ *	c. 1998-2007 Just For Fun Software, Inc.
  *	All Rights Reserved.
  *
  **************************************************************/
@@ -27,7 +27,7 @@ extern "C" {
 
 /* Include common definitions */
 
-#include "common.h"
+#include "gwcommon.h"
 
 /**************************************************************
  *
@@ -49,7 +49,7 @@ extern "C" {
 typedef struct
 {
 	 int	sign;
-	 unsigned long *n;		/* ptr to array of longs */
+	 uint32_t *n;		/* ptr to array of longs */
 #ifdef GDEBUG
 	int	maxsize;
 #endif
@@ -68,9 +68,6 @@ typedef giantstruct *giant;
  * Function Prototypes
  *
  **************************************************************/
-
-/* Cleanup giants allocations, etc. */
-void	term_giants (void);
 
 /* Creates a new giant */
 giant 	newgiant(int numshorts);
@@ -97,7 +94,10 @@ void 	gtog(giant src, giant dest);
 #define setzero(g)	(g)->sign = 0
 #define setone(g)	(g)->sign = (g)->n[0] = 1
 void 	itog(int n, giant g);
-void 	ultog(unsigned long n, giant g);
+void 	ultog(uint32_t n, giant g);
+
+/* Long long -> giant. */
+void 	ulltog(uint64_t n, giant g);
 
 /* Double -> giant. */
 void 	dbltog(double n, giant g);
@@ -130,19 +130,19 @@ void	setmulmode(int mode);
 #define absg(g)		if ((g)->sign < 0) (g)->sign = -(g)->sign
 
 /* g += i, with i an int (for compatability with old giants.h */
-#define	iaddg(i,g)	sladdg ((long)(i), g)
+#define	iaddg(i,g)	sladdg ((int32_t)(i), g)
 
 /* g += i, where i is an unsigned long */
-void 	uladdg (unsigned long i, giant g);
+void 	uladdg (uint32_t i, giant g);
 
 /* g += i, where i is a signed long */
-void 	sladdg (long i, giant g);
+void 	sladdg (int32_t i, giant g);
 
 /* b += a. */
 void 	addg(giant a, giant b);
 
 /* g -= i, where i is an unsigned long */
-void 	ulsubg (unsigned long i, giant g);
+void 	ulsubg (uint32_t i, giant g);
 
 /* b -= a. */
 void 	subg(giant a, giant b);
@@ -154,8 +154,11 @@ void	squareg(giant g);
 void	mulg(giant a, giant b);
 
 /* g *= i, where i is an unsigned long */
-void 	ulmulg (unsigned long i, giant g);
-void 	imulg (long i, giant g);
+void 	ulmulg (uint32_t i, giant g);
+void 	imulg (int32_t i, giant g);
+
+/* g *= i, where i is an unsigned long long */
+void 	ullmulg (uint64_t i, giant g);
 
 /* g *= n, where n is a double */
 void 	dblmulg (double n, giant g);
@@ -180,11 +183,9 @@ void 	gtogshiftright (int bits, giant src, giant dest);
 /* If 1/x exists (mod n), then x := 1/x.  If
  * inverse does not exist, then x := - GCD(n, x). */
 void 	invg(giant n, giant x);
-int 	invgi(giant n, giant x);	/* Interruptable version */
 
 /* General GCD, x:= GCD(n, x). */
 void 	gcdg(giant n, giant x);
-int 	gcdgi(giant n, giant x);	/* Interruptable version */
 
 /* x becomes x^n, NO mod performed. */
 void power (giant x, int n);
@@ -196,49 +197,65 @@ void 	powermod(giant x, int n, giant z);
 /* x := x^n (mod z). */
 void 	powermodg(giant x, giant n, giant z);
 
-/* r becomes the steady-state reciprocal 2^(2b)/d, where
- * b = bit-length of d-1. */
-void	make_recip(giant d, giant r);
 
-/* n := [n/d], d positive, using stored reciprocal directly. */
-void	divg_via_recip(giant d, giant r, giant n);
+/* Alternate memory allocator functions and other global data. */
+/* Prime95 uses these alternate routines to cut down on the amount of */
+/* memory allocated by having giant temporaries and gwnum temporaries */
+/* share the same cached memory pool. */
 
-/* stack handling functions */
-giant	popg(int);	/* Number of longs in data area */
-void	pushg(int);	/* Number of items to return to stack */
+typedef struct {
+	 void	*memblk;		/* Available memory block */
+	 long	offset;			/* Offset into the block */
+	 giant	prev;			/* Last giant allocated by popg */
+} gstacknode;
 
+typedef struct {
+	 unsigned long blksize;		/* Gwnum size */
+	 void*	(*allocate)(void *);	/* Gwnum allocator */
+	 void	(*free)(void *,void *);	/* Gwnum free routine */
+	 void*	handle;			/* Gwdata handle */
+	 int	num_popgs;		/* Number of popg allocations */
+	 gstacknode stack;		/* Linked list of popg allocations */
+	 double	*ooura_sincos;
+	 int	*ooura_ip;
+	 int	ooura_fft_size;
+	 giant	cur_recip;
+	 giant	cur_den;
+} ghandle;
 
+void	init_ghandle (ghandle *);
+void	term_ghandle (ghandle *);
 
-/* Handle the difference between the naming conventions in */
-/* C compilers.  We need to do this for global variables that */
-/* referenced by the assembly routines.  Most non-Windows systems */
-/* should #define ADD_UNDERSCORES before including this file. */
+/* Allocate and free data in a stack-like manner.  These routines have */
+/* funky names for historical reasons. */
 
-#ifdef ADD_UNDERSCORES
-#include "gwrename.h"
-#endif
+giant	popg(ghandle *,int);	/* Number of longs in data area */
+void	pushg(ghandle *,int);/* Number of items to return to stack */
+
+/* Interruptable and alternate memory allocator versions of some routines */
+void	squaregi(ghandle *, giant g);
+void	mulgi(ghandle *, giant a, giant b);
+void 	modgi(ghandle *, giant den, giant num);
+void 	divgi(ghandle *, giant den, giant num);
+int 	invgi(ghandle *, int, giant n, giant x);
+int 	gcdgi(ghandle *, int, giant n, giant x);
+
 
 /* Low-level math routines the caller can use for multi-precision */
 /* arithmetic */
 
-extern unsigned long CARRYH;	/* For multi-precision asm routines */
-extern unsigned long CARRYL;
-extern unsigned long RES;
-
-extern void eaddhlp (void);
-extern void esubhlp (void);
-extern void emuladdhlp (void);
-extern void emuladd2hlp (void);
-extern void emulsubhlp (void);
-#define addhlp(a)	NUMARG=(long)(a), eaddhlp()
-#define subhlp(a)	NUMARG=(long)(a), esubhlp()
-#define muladdhlp(a,b)	{NUMARG=(long)(a); NUM2ARG=(long)(b); emuladdhlp();}
-#define muladd2hlp(a,b)	{NUMARG=(long)(a); NUM2ARG=(long)(b); emuladd2hlp();}
-#define mulsubhlp(a,b)	{NUMARG=(long)(a); NUM2ARG=(long)(b); emulsubhlp();}
+extern void addhlp (uint32_t *res, uint32_t *carry, uint32_t val);
+extern void subhlp (uint32_t *res, uint32_t *carry, uint32_t val);
+extern void muladdhlp (uint32_t *res, uint32_t *carryl,
+		       uint32_t *carryh, uint32_t val1, uint32_t val2);
+extern void muladd2hlp (uint32_t *res, uint32_t *carryl,
+			uint32_t *carryh, uint32_t val1, uint32_t val2);
+extern void mulsubhlp (uint32_t *res, uint32_t *carryl,
+		       uint32_t *carryh, uint32_t val1, uint32_t val2);
 
 /* External routine pointers. */
 
-extern int (*StopCheckRoutine)(void);
+extern int (*StopCheckRoutine)(int);
 
 #ifdef __cplusplus
 }

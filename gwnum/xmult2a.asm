@@ -1,4 +1,4 @@
-; Copyright 2001-2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 2001-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -20,41 +20,14 @@ ENDIF
 INCLUDE	unravel.mac
 INCLUDE extrn.mac
 INCLUDE xmult.mac
-INCLUDE	xlucas.mac
 INCLUDE xpass2.mac
 INCLUDE xnormal.mac
 
 _TEXT SEGMENT
 
-PREFETCHING = 1
-
-;; Routines to do the last 8 levels in a two-pass FFT
-
-PUBLICP	xpass2_8_levels
-PUBLICP	xpass2_8_levels_p
-
-PROCP	xpass2_8_levels
-	start_timer 2
-	xpass2_8_levels_real 0
-	add	rsi, pass1blkdst
-	end_timer 2
-LABELP	xpass2_8_levels_p
-	mov	ecx, count1		; Number of complex iterations
-	mov	rdx, pass2_premults	; Address of the group multipliers
-p8lp:	xpass2_8_levels_complex 0
-	add	rsi, pass1blkdst
-	sub	ecx, 1
-	jnz	p8lp
-	mov	rsi, _DESTARG		; Restore source pointer
-	ret
-ENDPP	xpass2_8_levels
-
 ;;
 ;; Routines to do the normalization after a multiply
 ;;
-
-
-PROCP _xnorm2
 
 ;; When doing zero-padded FFTs, the multiplied 7 words around the halfway point
 ;; must be subtracted from the bottom of the FFT.  This must be done before
@@ -62,54 +35,52 @@ PROCP _xnorm2
 
 xsub_7_words MACRO
 	LOCAL	nozpad, zlp
-	IFDEF X86_64
-	mov	rax, OFFSET XMM_ZPAD6
-	cmp	zpad_addr, rax
-	ELSE
-	cmp	zpad_addr, OFFSET XMM_ZPAD6;; Have we subtracted all 7 words?
-	ENDIF
-	jg	short nozpad		;; Yes, skip this code
+	cmp	THIS_BLOCK, 8		;; Have we subtracted all 7 words?
+	jge	short nozpad		;; Yes, skip this code
 	mov	eax, cache_line_multiplier ;; Load loop counter
-	push	rsi
-	mov	rdi, zpad_addr		;; Addr of next zpad element to process
-zlp:	_movsd	xmm0, [rsi]		;; Load FFT word
-	_movsd	xmm1, [rdi]		;; Load ZPAD data
+	mov	edx, THIS_BLOCK
+	mov	rcx, rsi		;; Copy source ptr (we preserve rsi)
+	mov	rdi, zpad_addr		;; Addr of first zpad element
+zlp:	movsd	xmm0, Q [rcx]		;; Load FFT word
+	movsd	xmm1, Q [rdi][rdx*8]	;; Load ZPAD data
 	mulsd	xmm1, XMM_NORM012_FF	;; Scale by FFTLEN/2
 	subsd	xmm0, xmm1
 	addsd	xmm7, xmm1		;; Adjust sumout
-	_movsd	[rsi], xmm0
-	lea	rsi, [rsi+64]		;; Bump pointers
-	lea	rdi, [rdi+8]
+	movsd	Q [rcx], xmm0		;; Store FFT word
+	lea	rcx, [rcx+64]		;; Bump pointers
+	inc	rdx
 	dec	eax			;; Iterate 2*clm (up to 8) times
 	jnz	short zlp		;; Loop if necessary
-	pop	rsi			;; Restore source ptr
-	mov	zpad_addr, rdi
 nozpad:
 	ENDM
 
 ; Macro to loop through all the FFT values and apply the proper normalization
 ; routine.
 
+saved_rsi	EQU	PPTR [rsp+first_local]
+loopcount1	EQU	DPTR [rsp+first_local+SZPTR]
+loopcount2	EQU	DPTR [rsp+first_local+SZPTR+4]
+loopcount3	EQU	DPTR [rsp+first_local+SZPTR+8]
+
 inorm	MACRO	lab, ttp, zero, echk, const
-	LOCAL	noadd, setlp, ilp0, ilp1, ilexit
-	PUBLICP	lab
-	LABELP	lab
+	LOCAL	noadd, setlp, ilp0, ilp1, ilexit, done
+	PROCFP	lab
+	int_prolog SZPTR+12,0,0
 zero	mov	zero_fft, 1		;; Set flag saying zero upper half
 	movapd	xmm7, XMM_SUMOUT	;; Load SUMOUT
 	movapd	xmm6, XMM_MAXERR	;; Load maximum error
-no zero	cmp	edx, _ADDIN_ROW		;; Is this the time to do our addin?
+no zero	mov	edx, ADDIN_ROW		;; Is this the time to do our addin?
+no zero	cmp	edx, THIS_BLOCK
 no zero	jne	short noadd		;; Jump if addin does not occur now
-no zero	mov	edi, _ADDIN_OFFSET	;; Get address to add value into
-no zero	_movsd	xmm0, [rsi][rdi]	;; Get the value
-no zero	addsd	xmm0, _ADDIN_VALUE	;; Add in the requested value
-no zero	_movsd	[rsi][rdi], xmm0	;; Save the new value
-no zero	subsd	xmm7, _ADDIN_VALUE	;; Do not include addin in sumout
-noadd:	push	rdx
-	push	rsi
-
+no zero	mov	edi, ADDIN_OFFSET	;; Get address to add value into
+no zero	movsd	xmm0, Q [rsi][rdi]	;; Get the value
+no zero	addsd	xmm0, ADDIN_VALUE	;; Add in the requested value
+no zero	movsd	Q [rsi][rdi], xmm0	;; Save the new value
+no zero	subsd	xmm7, ADDIN_VALUE	;; Do not include addin in sumout
+noadd:	mov	saved_rsi, rsi		;; Save for xtop_carry_adjust
 	mov	rbx, norm_ptr2		;; Load column multipliers ptr
 ttp	mov	eax, cache_line_multiplier ;; Load inner loop counter
-	mov	rdi, OFFSET XMM_COL_MULTS ;; Load col mult scratch area
+	lea	rdi, XMM_COL_MULTS	;; Load col mult scratch area
 setlp:	xnorm_2d_setup ttp
 ttp	lea	rdi, [rdi+512]		;; Next scratch area section
 ttp	lea	rbx, [rbx+32]		;; Next column multiplier
@@ -129,7 +100,7 @@ ttp	mov	al, [rdi+0]		;; Load big vs. little flags
 ttp	mov	cl, [rdi+1]		;; Load big vs. little flags
 ilp0:	mov	ebx, cache_line_multiplier ;; Load inner loop counter
 	mov	loopcount1, ebx		;; Save loop counter
-	mov	rbx, OFFSET XMM_COL_MULTS ;; Load col mult scratch area
+	lea	rbx, XMM_COL_MULTS	;; Load col mult scratch area
 	xprefetcht1 [rdx+128]		;; Prefetch group multiplier
 ilp1:	xprefetchw [rsi+64]
 	xnorm_2d ttp, zero, echk, const	;; Normalize 8 values
@@ -150,28 +121,35 @@ ttp	lea	rdx, [rdx+128]		;; Next set of 8 group multipliers
 ilexit:	movapd	XMM_SUMOUT, xmm7	;; Save SUMOUT
 	movapd	XMM_MAXERR, xmm6	;; Save maximum error
 ttp	mov	norm_ptr1, rdi		;; Save big/little flags array ptr
-	pop	rsi
-	pop	rdx
-	sub	rbx, rbx
-	cmp	edx, 65536+256		;; Check for last iteration
-	je	xtop_carry_adjust	;; Top carry may require adjusting
-	ret
+
+	; Handle adjusting the carry out of the topmost FFT word
+
+	mov	eax, THIS_BLOCK		;; Check for processing last block
+	cmp	eax, LAST_PASS1_BLOCK
+	jne	done			;; Jump if not last block
+	mov	rsi, saved_rsi		;; Restore FFT data ptr
+	xnorm_top_carry			;; Adjust carry if k > 1
+
+done:	int_epilog SZPTR+12,0,0
+	ENDPP	lab
 	ENDM
+
+loopcount1z	EQU	DPTR [rsp+first_local]
+loopcount2z	EQU	DPTR [rsp+first_local+4]
+loopcount3z	EQU	DPTR [rsp+first_local+8]
 
 zpnorm	MACRO	lab, ttp, echk, const
 	LOCAL	setlp, ilp0, ilp1, ilexit
-	PUBLICP	lab
-	LABELP	lab
+	PROCFP	lab
+	int_prolog 12,0,0
 const	mov	const_fft, 1		;; Set flag saying mul-by-const
 	movapd	xmm7, XMM_SUMOUT	;; Load SUMOUT
 	movapd	xmm6, XMM_MAXERR	;; Load maximum error
 	xsub_7_words
-	push	rdx
-	push	rsi
 
 	mov	rbx, norm_ptr2		;; Load column multipliers ptr
 ttp	mov	eax, cache_line_multiplier ;; Load inner loop counter
-	mov	rdi, OFFSET XMM_COL_MULTS ;; Load col mult scratch area
+	lea	rdi, XMM_COL_MULTS	;; Load col mult scratch area
 setlp:	xnorm_2d_setup ttp
 ttp	lea	rdi, [rdi+512]		;; Next scratch area section
 ttp	lea	rbx, [rbx+32]		;; Next column multiplier
@@ -183,42 +161,42 @@ ttp	mov	norm_ptr2, rbx		;; Save column multipliers ptr
 	mov	rbp, carries		;; Addr of the carries
 	mov	rdi, norm_ptr1		;; Load big/little flags array ptr
 	mov	eax, addcount1		;; Load loop counter
-	mov	loopcount2, eax		;; Save loop counter
-	mov	loopcount3, 0		;; Clear outermost loop counter
+	mov	loopcount2z, eax	;; Save loop counter
+	mov	loopcount3z, 0		;; Clear outermost loop counter
 	sub	rax, rax		;; Clear big/lit flags
 ttp	mov	al, [rdi+0]		;; Load big vs. little flags
 ilp0:	mov	ebx, cache_line_multiplier ;; Load inner loop counter
-	mov	loopcount1, ebx		;; Save loop counter
-	mov	rbx, OFFSET XMM_COL_MULTS ;; Load col mult scratch area
+	mov	loopcount1z, ebx	;; Save loop counter
+	lea	rbx, XMM_COL_MULTS	;; Load col mult scratch area
 	xprefetcht1 [rdx+128]		;; Prefetch group multiplier
 ilp1:	xprefetchw [rsi+64]
 	xnorm_2d_zpad ttp, echk, const	;; Normalize 8 values
 	lea	rsi, [rsi+64]		;; Next cache line
 ttp	lea	rbx, [rbx+512]		;; Next column multipliers
 ttp	lea	rdi, [rdi+4]		;; Next big/little flags
-	sub	loopcount1, 1		;; Test loop counter
+	sub	loopcount1z, 1		;; Test loop counter
 	jnz	ilp1			;; Loop til done
 	add	rsi, normblkdst		;; Skip gap in blkdst or clmblkdst
 	lea	rbp, [rbp+64]		;; Next set of carries
 ttp	lea	rdx, [rdx+128]		;; Next set of 8 group multipliers
-	sub	loopcount2, 1		;; Test loop counter
+	sub	loopcount2z, 1		;; Test loop counter
 	jz	ilexit			;; Jump when loop complete
-	add	loopcount3, 80000000h/4 ;; 8 iterations
+	add	loopcount3z, 80000000h/4 ;; 8 iterations
 	jnc	ilp0
 	add	rsi, normblkdst8	;; Add 128 every 8 clmblkdsts
 	jmp	ilp0			;; Iterate
 ilexit:	movapd	XMM_SUMOUT, xmm7	;; Save SUMOUT
 	movapd	XMM_MAXERR, xmm6	;; Save maximum error
 ttp	mov	norm_ptr1, rdi		;; Save big/little flags array ptr
-	pop	rsi
-	pop	rdx
-	sub	rbx, rbx
-	ret
+	int_epilog 12,0,0
+	ENDPP	lab
 	ENDM
 
 ; The 16 different normalization routines.  One for each combination of
 ; rational/irrational, zeroing/no zeroing, error check/no error check, and
 ; mul by const/no mul by const.
+
+PREFETCHING = 1
 
 	inorm	xr2, noexec, noexec, noexec, noexec
 	inorm	xr2e, noexec, noexec, exec, noexec
@@ -241,14 +219,6 @@ ttp	mov	norm_ptr1, rdi		;; Save big/little flags array ptr
 	zpnorm	xi2zpe, exec, exec, noexec
 	zpnorm	xi2zpc, exec, noexec, exec
 	zpnorm	xi2zpec, exec, exec, exec
-
-; Special code to handle adjusting the carry out of the topmost FFT word
-
-xtop_carry_adjust:
-	xnorm_top_carry
-	ret
-
-ENDPP _xnorm2
 
 _TEXT	ENDS
 END

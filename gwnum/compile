@@ -1,15 +1,12 @@
 # Assembler command lines, without and with listings
+#
+# objconv comes courtesy of Agner Fog.  Download available at
+# http://www.agner.org/optimize/#objconv
 
 masm=ml /c /coff
 #masm=ml /c /coff /Fl /Sf /Sa
 
-# The MSVC compiler I own does not have an optimizer, so compile critical
-# routines with an older MSVC compiler that can optimize code
-
-cl4=\msdev\bin\cl /I. /I C:\msdev\include\ /O2 /GF /W3 /MT /c
-cl4d=\msdev\bin\cl /I. /I C:\msdev\include\ /DGDEBUG /GF /W3 /MT /Zi /c
-
-# Use the latest C compiler even though it does not optimize code
+# Use the MSVC 8 C compiler
 
 cl=cl /GF /W3 /MT /D_CRT_SECURE_NO_DEPRECATE /O2 /c
 cld=cl /GF /W3 /MT /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Zi /c
@@ -17,17 +14,35 @@ cldo=cl /GF /W3 /MT /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Zi /O2 /c
 
 # List of all buildables in this makefile
 
-all:	gwnum.lib gwnumd.lib
+all:	gwnum.lib gwnumd.lib linux\gwnum.a macosx\gwnum.a release\ecmstag1.obj debug\ecmstag1.obj
 
 # Make libraries out of the object files
 
-gwnum.lib: release\cpuid.obj release\gwnum.obj release\gwutil.obj release\gwdbldbl.obj release\giants.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2ap.obj mult2aux.obj mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj xmult1.obj xmult1ax.obj xmult2.obj xmult2p.obj xmult2a.obj xmult2ap.obj xmult2ax.obj xmult3.obj xmult3p.obj xmult3a.obj xmult3ap.obj xmult4.obj xmult4p.obj xmult5.obj xmult5p.obj xmult6.obj xmult6p.obj timeit.obj timeitp.obj
+gwnum.lib: release\cpuid.obj release\gwnum.obj release\gwthread.obj release\gwutil.obj release\gwdbldbl.obj release\giants.obj mult.obj multutil.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2aux.obj mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj xmult1.obj xmult1ax.obj xmult2.obj xmult2p.obj xmult2a.obj xmult2ap.obj xmult2ax.obj xmult3.obj xmult3p.obj xmult3a.obj xmult3ap.obj xmult4.obj xmult4p.obj xmult5.obj xmult5p.obj xmult6.obj xmult6p.obj timeit.obj timeitp.obj
     del gwnum.lib
     lib /OUT:gwnum.lib release\*.obj *.obj
 
-gwnumd.lib: debug\cpuid.obj debug\gwnum.obj debug\gwutil.obj debug\gwdbldbl.obj debug\giants.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2ap.obj mult2aux.obj mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj xmult1.obj xmult1ax.obj xmult2.obj xmult2p.obj xmult2a.obj xmult2ap.obj xmult2ax.obj xmult3.obj xmult3p.obj xmult3a.obj xmult3ap.obj xmult4.obj xmult4p.obj xmult5.obj xmult5p.obj xmult6.obj xmult6p.obj timeit.obj timeitp.obj
+gwnumd.lib: debug\cpuid.obj debug\gwnum.obj debug\gwthread.obj debug\gwutil.obj debug\gwdbldbl.obj debug\giants.obj mult.obj multutil.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2aux.obj mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj xmult1.obj xmult1ax.obj xmult2.obj xmult2p.obj xmult2a.obj xmult2ap.obj xmult2ax.obj xmult3.obj xmult3p.obj xmult3a.obj xmult3ap.obj xmult4.obj xmult4p.obj xmult5.obj xmult5p.obj xmult6.obj xmult6p.obj timeit.obj timeitp.obj
     del gwnumd.lib
     lib /OUT:gwnumd.lib debug\*.obj *.obj
+
+linux\gwnum.a: mult.obj multutil.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2aux.obj mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj xmult1.obj xmult1ax.obj xmult2.obj xmult2p.obj xmult2a.obj xmult2ap.obj xmult2ax.obj xmult3.obj xmult3p.obj xmult3a.obj xmult3ap.obj xmult4.obj xmult4p.obj xmult5.obj xmult5p.obj xmult6.obj xmult6p.obj timeit.obj timeitp.obj
+    attrib -r linux\gwnum.a
+    del linux\gwnum.a
+    del linux\gwnum.lib
+    lib /OUT:linux\gwnum.lib *.obj
+    /objconv/objconv -felf32 linux\gwnum.lib linux\gwnum.a
+    attrib -r linux\gwnum.a
+    del linux\gwnum.lib
+
+macosx\gwnum.a: mult.obj multutil.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2aux.obj mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj xmult1.obj xmult1ax.obj xmult2.obj xmult2p.obj xmult2a.obj xmult2ap.obj xmult2ax.obj xmult3.obj xmult3p.obj xmult3a.obj xmult3ap.obj xmult4.obj xmult4p.obj xmult5.obj xmult5p.obj xmult6.obj xmult6p.obj timeit.obj timeitp.obj
+    attrib -r macosx\gwnum.a
+    del macosx\gwnum.a
+    del macosx\gwnum.lib
+    lib /OUT:macosx\gwnum.lib *.obj
+    /objconv/objconv-3 -fmac -wd1050 macosx\gwnum.lib macosx\gwnum.a
+    attrib -r macosx\gwnum.a
+    del macosx\gwnum.lib
 
 # Compile C code
 
@@ -43,6 +58,12 @@ release\gwnum.obj: gwnum.c gwnum.h
 debug\gwnum.obj: gwnum.c gwnum.h
     $(cld) /Fodebug\gwnum.obj gwnum.c
 
+release\gwthread.obj: gwthread.c gwthread.h
+    $(cl) /Forelease\gwthread.obj gwthread.c
+
+debug\gwthread.obj: gwthread.c gwthread.h
+    $(cld) /Fodebug\gwthread.obj gwthread.c
+
 release\gwutil.obj: gwutil.c gwutil.h
     $(cl) /Forelease\gwutil.obj gwutil.c
 
@@ -55,18 +76,25 @@ release\gwdbldbl.obj: gwdbldbl.cpp gwdbldbl.h
 debug\gwdbldbl.obj: gwdbldbl.cpp gwdbldbl.h
     $(cldo) /I..\qd /Fodebug\gwdbldbl.obj gwdbldbl.cpp
 
-# Create optimized giants.obj
-
 release\giants.obj: giants.c giants.h
     $(cl) /Forelease\giants.obj giants.c
 
 debug\giants.obj: giants.c giants.h
     $(cld) /Fodebug\giants.obj giants.c
 
+release\ecmstag1.obj: ecmstag1.c gwnum.h
+    $(cl) /Forelease\ecmstag1.obj ecmstag1.c
+
+debug\ecmstag1.obj: ecmstag1.c gwnum.h
+    $(cld) /Fodebug\ecmstag1.obj ecmstag1.c
+
 # Create 32-bit object files
 
 mult.obj: mult.asm
     $(masm) /DPPRO mult.asm
+
+multutil.obj: multutil.asm
+    $(masm) /DPPRO multutil.asm
 
 mult1.obj: mult1.asm mult.mac fft1.mac lucas.mac
     $(masm) /DPPRO mult1.asm
@@ -80,11 +108,8 @@ mult2.obj: mult2.asm mult.mac fft2.mac lucas.mac
 mult2p.obj: mult2.asm mult.mac fft2.mac lucas.mac
     $(masm) /DPPRO /DPFETCH /Fomult2p.obj mult2.asm
 
-mult2a.obj: mult2a.asm mult.mac pass2.mac lucas.mac
-    $(masm) /DPPRO mult2a.asm
-
-mult2ap.obj: mult2a.asm mult.mac pass2.mac lucas.mac
-    $(masm) /DPPRO /DPFETCH /Fomult2ap.obj mult2a.asm
+mult2a.obj: mult2a.asm mult.mac normal.mac
+    $(masm) mult2a.asm
 
 mult2aux.obj: mult2aux.asm mult.mac normal.mac
     $(masm) mult2aux.asm
@@ -125,10 +150,10 @@ xmult2.obj: xmult2.asm xmult.mac xlucas.mac xfft2.mac xnormal.mac
 xmult2p.obj: xmult2.asm xmult.mac xlucas.mac xfft2.mac xnormal.mac
     $(masm) /DAMD /Foxmult2p.obj xmult2.asm
 
-xmult2a.obj: xmult2a.asm xmult.mac xpass2.mac xlucas.mac xnormal.mac
+xmult2a.obj: xmult2a.asm xmult.mac xlucas.mac xnormal.mac
     $(masm) xmult2a.asm
 
-xmult2ap.obj: xmult2a.asm xmult.mac xpass2.mac xlucas.mac xnormal.mac
+xmult2ap.obj: xmult2a.asm xmult.mac xlucas.mac xnormal.mac
     $(masm) /DAMD /Foxmult2ap.obj xmult2a.asm
 
 xmult2ax.obj: xmult2ax.asm xmult.mac xnormal.mac

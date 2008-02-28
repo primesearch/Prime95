@@ -1,4 +1,4 @@
-; Copyright 2001-2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 2001-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -31,12 +31,12 @@ INCLUDE xmult.mac
 INCLUDE xpass1.mac
 INCLUDE xpass1sc.mac
 
+EXTRN	pass1_aux_entry_point_return:PROC
 EXTRN	xgw_finish_fft:PROC
 EXTRN	xgw_carries:PROC
 EXTRN	xgw_finish_mult:PROC
 
 EXTRNP	xpass2_10_levels
-EXTRNP	xpass2_10_levels_p
 
 _TEXT SEGMENT
 
@@ -49,34 +49,20 @@ xpass2_levels = 10
 
 ;; All the FFT routines for each FFT length
 
-PROCP	_xmm_gw_ffts6
 	EXPANDING = 2
-;	xfft	20K
-;	xfft	24K
-;	xfft	24Kp
-;	xfft	28K
-;	xfft	32K
-;	xfft	32Kp
-IFDEF trying_ten_levels_pass2
-	xfft	40K
-	xfft	48K
-	xfft	48Kp
-	xfft	56K
-	xfft	64K
-	xfft	64Kp
-	xfft	80K
-	xfft	96K
-	xfft	96Kp
-	xfft	112K
-	xfft	128K
-	xfft	128Kp
-ENDIF
-;	xfft	160K
-;	xfft	192K
-;	xfft	192Kp
-;	xfft	224K
-;	xfft	256K
-;	xfft	256Kp
+
+allfft	xfft	40K
+allfft	xfft	48K
+allfft	xfft	48Kp
+allfft	xfft	56K
+allfft	xfft	64K
+allfft	xfft	64Kp
+allfft	xfft	80K
+allfft	xfft	96K
+allfft	xfft	96Kp
+allfft	xfft	112K
+allfft	xfft	128K
+allfft	xfft	128Kp
 
 IFDEF AMD
 allfft	xfftclm	160K, 4
@@ -239,8 +225,6 @@ allfft	xfftclm	3584K, 0
 allfft	xfftclm	4096K, 0
 allfft	xfftclm	4096Kp, 0
 ENDIF
-
-ENDPP	_xmm_gw_ffts6
 
 _TEXT	ENDS
 END

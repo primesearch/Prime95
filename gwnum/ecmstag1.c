@@ -1,6 +1,6 @@
 /* GWNUM -- IBDWT FFT package for large numbers.
 
-  Copyright 1996-2005 George Woltman.
+  Copyright 1996-2007 George Woltman.
 
   This program is free software; you can redistribute it and/or modify it
   under the terms of the GNU General Public License as published by the
@@ -16,12 +16,6 @@
   with this program; see the file COPYING.  If not, write to the Free
   Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
   02111-1307, USA.
-*/
-
-/*
-   is sieve tuned properly?  could be even faster.  use assembly?
-	do sieve once and store in a file?
-   handle B1 above 2^32
 */
 
 /**************************************************************
@@ -48,6 +42,7 @@
 giant	N = NULL;		/* Number being factored */
 giant	FAC = NULL;		/* Found factor */
 
+gwhandle gwdata;
 gwnum	Ad4 = NULL;
 
 /* Bit manipulation macros */
@@ -56,15 +51,16 @@ gwnum	Ad4 = NULL;
 #define bitclr(a,i)	{ a[(i) >> 3] &= ~(1 << ((i) & 7)); }
 #define bittst(a,i)	(a[(i) >> 3] & (1 << ((i) & 7)))
 
+
 /* Perform cleanup functions. */
 
-void ecm_cleanup (void)
+void ecm_cleanup ()
 {
 	free (N);
 	N = NULL;
 	free (FAC);
 	FAC = NULL;
-	gwdone ();
+	gwdone (&gwdata);
 }
 
 
@@ -81,7 +77,7 @@ int isPrime (
 
 /* Use a simple sieve to find prime numbers */
 
-#define MAX_PRIMES	6600
+#define MAX_PRIMES	6542
 static	unsigned int *primes = NULL;
 static	struct sieve_info {
 	unsigned long first_number;
@@ -118,7 +114,7 @@ void fill_sieve (void)
 	}
 	si.num_primes = i;
 
-/* Fill the sieve wth ones, then zero out the composites */
+/* Fill the sieve with ones, then zero out the composites */
 
 	memset (si.array, 0xFF, sizeof (si.array));
 	for (i = 0; i < si.num_primes; i += 2) {
@@ -203,22 +199,22 @@ void ell_dbl (
 	gwnum	z2)
 {					/* 10 FFTs */
 	gwnum	t1, t3;
-	t1 = gwalloc ();
-	t3 = gwalloc ();
-	gwaddsub4 (x1, z1, t1, x2);
-	gwsquare (t1);			/* t1 = (x1 + z1)^2 */
-	gwsquare (x2);			/* t2 = (x1 - z1)^2 (store in x2) */
-	gwsub3 (t1, x2, t3);		/* t3 = t1 - t2 = 4 * x1 * z1 */
-	gwfft (t3, t3);
-	gwfft (x2, x2);
-	gwfftadd3 (t3, x2, t1);		/* Compute the fft of t1! */
-	gwfftfftmul (Ad4, x2, x2);	/* x2 = t2 * Ad4 */
-	gwfft (x2, x2);
-	gwfftadd3 (x2, t3, z2);		/* z2 = (t2 * Ad4 + t3) */
-	gwfftfftmul (t3, z2, z2);	/* z2 = z2 * t3 */
-	gwfftfftmul (t1, x2, x2);	/* x2 = x2 * t1 */
-	gwfree (t1);
-	gwfree (t3);
+	t1 = gwalloc (&gwdata);
+	t3 = gwalloc (&gwdata);
+	gwaddsub4 (&gwdata, x1, z1, t1, x2);
+	gwsquare (&gwdata, t1);			/* t1 = (x1 + z1)^2 */
+	gwsquare (&gwdata, x2);			/* t2 = (x1 - z1)^2 (store in x2) */
+	gwsub3 (&gwdata, t1, x2, t3);		/* t3 = t1 - t2 = 4 * x1 * z1 */
+	gwfft (&gwdata, t3, t3);
+	gwfft (&gwdata, x2, x2);
+	gwfftadd3 (&gwdata, t3, x2, t1);	/* Compute the fft of t1! */
+	gwfftfftmul (&gwdata, Ad4, x2, x2);	/* x2 = t2 * Ad4 */
+	gwfft (&gwdata, x2, x2);
+	gwfftadd3 (&gwdata, x2, t3, z2);	/* z2 = (t2 * Ad4 + t3) */
+	gwfftfftmul (&gwdata, t3, z2, z2);	/* z2 = z2 * t3 */
+	gwfftfftmul (&gwdata, t1, x2, x2);	/* x2 = x2 * t1 */
+	gwfree (&gwdata, t1);
+	gwfree (&gwdata, t3);
 }
 
 /* adds Q=(x2:z2) and R=(x1:z1) and puts the result in (x3:z3),
@@ -236,25 +232,25 @@ void ell_add (
 	gwnum	z3)
 {					/* 16 FFTs */
 	gwnum	t1, t2, t3;
-	t1 = gwalloc ();
-	t2 = gwalloc ();
-	t3 = gwalloc ();
-	gwaddsub4 (x1, z1, t1, t2);	/* t1 = (x1 + z1)(x2 - z2) */
-					/* t2 = (x1 - z1)(x2 + z2) */
-	gwsub3 (x2, z2, t3);
-	gwmul (t3, t1);
-	gwadd3 (x2, z2, t3);
-	gwmul (t3, t2);
-	gwaddsub (t2, t1);		/* x3 = (t2 + t1)^2 * zdiff */
-	gwsquare (t2);
-	gwmul (zdiff, t2);
-	gwsquare (t1);			/* z3 = (t2 - t1)^2 * xdiff */
-	gwmul (xdiff, t1);
-	gwcopy (t2, x3);
-	gwcopy (t1, z3);
-	gwfree (t1);
-	gwfree (t2);
-	gwfree (t3);
+	t1 = gwalloc (&gwdata);
+	t2 = gwalloc (&gwdata);
+	t3 = gwalloc (&gwdata);
+	gwaddsub4 (&gwdata, x1, z1, t1, t2);	/* t1 = (x1 + z1)(x2 - z2) */
+						/* t2 = (x1 - z1)(x2 + z2) */
+	gwsub3 (&gwdata, x2, z2, t3);
+	gwmul (&gwdata, t3, t1);
+	gwadd3 (&gwdata, x2, z2, t3);
+	gwmul (&gwdata, t3, t2);
+	gwaddsub (&gwdata, t2, t1);		/* x3 = (t2 + t1)^2 * zdiff */
+	gwsquare (&gwdata, t2);
+	gwmul (&gwdata, zdiff, t2);
+	gwsquare (&gwdata, t1);			/* z3 = (t2 - t1)^2 * xdiff */
+	gwmul (&gwdata, xdiff, t1);
+	gwcopy (&gwdata, t2, x3);
+	gwcopy (&gwdata, t1, z3);
+	gwfree (&gwdata, t1);
+	gwfree (&gwdata, t2);
+	gwfree (&gwdata, t3);
 }
 #endif
 
@@ -272,21 +268,21 @@ void ell_add_special (
 	gwnum	z3)
 {				/* 10 FFTs */
 	gwnum	t1, t2;
-	t1 = gwalloc ();
-	t2 = gwalloc ();
-	gwfftaddsub4 (x1, z1, t1, t2);	/* t1 = (x1 + z1)(x2 - z2) */
-					/* t2 = (x1 - z1)(x2 + z2) */
-	gwfftfftmul (z2, t1, t1);
-	gwfftfftmul (x2, t2, t2);
-	gwaddsub (t2, t1);		/* x3 = (t2 + t1)^2 * zdiff */
-	gwsquare (t2);
-	gwfftmul (zdiff, t2);
-	gwsquare (t1);			/* z3 = (t2 - t1)^2 * xdiff */
-	gwfftmul (xdiff, t1);
-	gwcopy (t2, x3);
-	gwcopy (t1, z3);
-	gwfree (t1);
-	gwfree (t2);
+	t1 = gwalloc (&gwdata);
+	t2 = gwalloc (&gwdata);
+	gwfftaddsub4 (&gwdata, x1, z1, t1, t2);	/* t1 = (x1 + z1)(x2 - z2) */
+						/* t2 = (x1 - z1)(x2 + z2) */
+	gwfftfftmul (&gwdata, z2, t1, t1);
+	gwfftfftmul (&gwdata, x2, t2, t2);
+	gwaddsub (&gwdata, t2, t1);		/* x3 = (t2 + t1)^2 * zdiff */
+	gwsquare (&gwdata, t2);
+	gwfftmul (&gwdata, zdiff, t2);
+	gwsquare (&gwdata, t1);			/* z3 = (t2 - t1)^2 * xdiff */
+	gwfftmul (&gwdata, xdiff, t1);
+	gwcopy (&gwdata, t2, x3);
+	gwcopy (&gwdata, t1, z3);
+	gwfree (&gwdata, t1);
+	gwfree (&gwdata, t2);
 }
 
 /* This routine is called prior to a series of many ell_add_fft and */
@@ -305,9 +301,9 @@ void ell_begin_fft (
 	gwnum	x2,
 	gwnum	z2)
 {
-	gwaddsub4 (x1, z1, x2, z2);	/* x2 = x1 + z1, z2 = x1 - z1 */
-	gwfft (x2, x2);
-	gwfft (z2, z2);
+	gwaddsub4 (&gwdata, x1, z1, x2, z2); /* x2 = x1 + z1, z2 = x1 - z1 */
+	gwfft (&gwdata, x2, x2);
+	gwfft (&gwdata, z2, z2);
 }
 
 /* Like ell_dbl, but the input arguments are FFTs of x1=x1+z1, z1=x1-z1 */
@@ -320,24 +316,24 @@ void ell_dbl_fft (
 	gwnum	z2)
 {					/* 10 FFTs, 4 adds */
 	gwnum	t1, t3;
-	t1 = gwalloc ();
-	t3 = gwalloc ();
-	gwfftfftmul (x1, x1, t1);	/* t1 = (x1 + z1)^2 */
-	gwfftfftmul (z1, z1, x2);	/* t2 = (x1 - z1)^2 (store in x2) */
-	gwsub3 (t1, x2, t3);		/* t3 = t1 - t2 = 4 * x1 * z1 */
-	gwfft (t3, t3);
-	gwfft (x2, x2);
-	gwfftadd3 (t3, x2, t1);		/* Compute fft of t1! */
-	gwfftfftmul (Ad4, x2, x2);	/* x2 = t2 * Ad4 */
-	gwfft (x2, x2);
-	gwfftadd3 (x2, t3, z2);		/* z2 = (t2 * Ad4 + t3) * t3 */
-	gwfftfftmul (t3, z2, z2);
-	gwfftfftmul (t1, x2, x2);	/* x2 = x2 * t1 */
-	gwaddsub (x2, z2);		/* x2 = x2 + z2, z2 = x2 - z2 */
-	gwfft (x2, x2);
-	gwfft (z2, z2);
-	gwfree (t1);
-	gwfree (t3);
+	t1 = gwalloc (&gwdata);
+	t3 = gwalloc (&gwdata);
+	gwfftfftmul (&gwdata, x1, x1, t1);	/* t1 = (x1 + z1)^2 */
+	gwfftfftmul (&gwdata, z1, z1, x2);	/* t2 = (x1 - z1)^2 (store in x2) */
+	gwsub3 (&gwdata, t1, x2, t3);		/* t3 = t1 - t2 = 4 * x1 * z1 */
+	gwfft (&gwdata, t3, t3);
+	gwfft (&gwdata, x2, x2);
+	gwfftadd3 (&gwdata, t3, x2, t1);	/* Compute fft of t1! */
+	gwfftfftmul (&gwdata, Ad4, x2, x2);	/* x2 = t2 * Ad4 */
+	gwfft (&gwdata, x2, x2);
+	gwfftadd3 (&gwdata, x2, t3, z2);	/* z2 = (t2 * Ad4 + t3) * t3 */
+	gwfftfftmul (&gwdata, t3, z2, z2);
+	gwfftfftmul (&gwdata, t1, x2, x2);	/* x2 = x2 * t1 */
+	gwaddsub (&gwdata, x2, z2);		/* x2 = x2 + z2, z2 = x2 - z2 */
+	gwfft (&gwdata, x2, x2);
+	gwfft (&gwdata, z2, z2);
+	gwfree (&gwdata, t1);
+	gwfree (&gwdata, t3);
 }
 
 /* Like ell_add but input arguments are FFTs of x1=x1+z1, z1=x1-z1, */
@@ -355,23 +351,23 @@ void ell_add_fft (
 	gwnum 	z3)
 {				/* 12 FFTs, 6 adds */
 	gwnum	t1, t2;
-	t1 = gwalloc ();
-	t2 = gwalloc ();
-	gwfftfftmul (x1, z2, t1);/* t1 = (x1 + z1)(x2 - z2) */
-	gwfftfftmul (x2, z1, t2);/* t2 = (x1 - z1)(x2 + z2) */
-	gwaddsub (t2, t1);
-	gwsquare (t2);		/* t2 = (t2 + t1)^2 (will become x3) */
-	gwsquare (t1);		/* t1 = (t2 - t1)^2 (will become z3) */
-	gwfftaddsub4 (xdiff, zdiff, x3, z3);
-				/* x3 = xdiff = (xdiff + zdiff) */
-				/* z3 = zdiff = (xdiff - zdiff) */
-	gwfftmul (z3, t2);	/* t2 = t2 * zdiff (new x3) */
-	gwfftmul (x3, t1);	/* t1 = t1 * xdiff (new z3) */
-	gwaddsub (t2, t1);	/* t2 = x3 + z3, t1 = x3 - z3 */
-	gwfft (t2, x3);
-	gwfft (t1, z3);
-	gwfree (t1);
-	gwfree (t2);
+	t1 = gwalloc (&gwdata);
+	t2 = gwalloc (&gwdata);
+	gwfftfftmul (&gwdata, x1, z2, t1);/* t1 = (x1 + z1)(x2 - z2) */
+	gwfftfftmul (&gwdata, x2, z1, t2);/* t2 = (x1 - z1)(x2 + z2) */
+	gwaddsub (&gwdata, t2, t1);
+	gwsquare (&gwdata, t2);		/* t2 = (t2 + t1)^2 (will become x3) */
+	gwsquare (&gwdata, t1);		/* t1 = (t2 - t1)^2 (will become z3) */
+	gwfftaddsub4 (&gwdata, xdiff, zdiff, x3, z3);
+					/* x3 = xdiff = (xdiff + zdiff) */
+					/* z3 = zdiff = (xdiff - zdiff) */
+	gwfftmul (&gwdata, z3, t2);	/* t2 = t2 * zdiff (new x3) */
+	gwfftmul (&gwdata, x3, t1);	/* t1 = t1 * xdiff (new z3) */
+	gwaddsub (&gwdata, t2, t1);	/* t2 = x3 + z3, t1 = x3 - z3 */
+	gwfft (&gwdata, t2, x3);
+	gwfft (&gwdata, t1, z3);
+	gwfree (&gwdata, t1);
+	gwfree (&gwdata, t2);
 }
 
 /* Like ell_add_fft but output arguments are not FFTed. */
@@ -387,29 +383,29 @@ void ell_add_fft_last (
 	gwnum 	z3)
 {				/* 10 FFTs, 6 adds */
 	gwnum	t1, t2;
-	t1 = gwalloc ();
-	t2 = gwalloc ();
-	gwfftfftmul (x1, z2, t1);/* t1 = (x1 + z1)(x2 - z2) */
-	gwfftfftmul (x2, z1, t2);/* t2 = (x1 - z1)(x2 + z2) */
+	t1 = gwalloc (&gwdata);
+	t2 = gwalloc (&gwdata);
+	gwfftfftmul (&gwdata, x1, z2, t1);/* t1 = (x1 + z1)(x2 - z2) */
+	gwfftfftmul (&gwdata, x2, z1, t2);/* t2 = (x1 - z1)(x2 + z2) */
 	if (xdiff != x3) {
-		gwaddsub4 (t2, t1, x3, z3);
-		gwsquare (x3);		/* x3 = (t2 + t1)^2 */
-		gwsquare (z3);		/* z3 = (t2 - t1)^2 */
-		gwfftaddsub4 (xdiff, zdiff, t1, t2);
+		gwaddsub4 (&gwdata, t2, t1, x3, z3);
+		gwsquare (&gwdata, x3);		/* x3 = (t2 + t1)^2 */
+		gwsquare (&gwdata, z3);		/* z3 = (t2 - t1)^2 */
+		gwfftaddsub4 (&gwdata, xdiff, zdiff, t1, t2);
 				/* t1 = xdiff = (xdiff + zdiff) */
 				/* t2 = zdiff = (xdiff - zdiff) */
-		gwfftmul (t2, x3);	/* x3 = x3 * zdiff */
-		gwfftmul (t1, z3);	/* z3 = z3 * xdiff */
+		gwfftmul (&gwdata, t2, x3);	/* x3 = x3 * zdiff */
+		gwfftmul (&gwdata, t1, z3);	/* z3 = z3 * xdiff */
 	} else {
-		gwaddsub (t2, t1);
-		gwsquare (t2); gwfft (t2, t2);
-		gwsquare (t1); gwfft (t1, t1);
-		gwfftaddsub4 (xdiff, zdiff, z3, x3);
-		gwfftfftmul (t2, x3, x3);
-		gwfftfftmul (t1, z3, z3);
+		gwaddsub (&gwdata, t2, t1);
+		gwsquare (&gwdata, t2); gwfft (&gwdata, t2, t2);
+		gwsquare (&gwdata, t1); gwfft (&gwdata, t1, t1);
+		gwfftaddsub4 (&gwdata, xdiff, zdiff, z3, x3);
+		gwfftfftmul (&gwdata, t2, x3, x3);
+		gwfftfftmul (&gwdata, t1, z3, z3);
 	}
-	gwfree (t1);
-	gwfree (t2);
+	gwfree (&gwdata, t1);
+	gwfree (&gwdata, t2);
 }
 
 /* Perform an elliptic multiply using an algorithm developed by */
@@ -494,21 +490,21 @@ void lucas_mul (
 	unsigned long d, e, t, dmod3, emod3;
 	gwnum	xA, zA, xB, zB, xC, zC, xs, zs, xt, zt;
 
-	xA = gwalloc ();
-	zA = gwalloc ();
-	xB = gwalloc ();
-	zB = gwalloc ();
-	xC = gwalloc ();
-	zC = gwalloc ();
+	xA = gwalloc (&gwdata);
+	zA = gwalloc (&gwdata);
+	xB = gwalloc (&gwdata);
+	zB = gwalloc (&gwdata);
+	xC = gwalloc (&gwdata);
+	zC = gwalloc (&gwdata);
 	xs = xx;
 	zs = zz;
-	xt = gwalloc ();
-	zt = gwalloc ();
+	xt = gwalloc (&gwdata);
+	zt = gwalloc (&gwdata);
 
 	while (n != 1) {
 	    ell_begin_fft (xx, zz, xA, zA);			/* A */
 	    ell_dbl_fft (xA, zA, xB, zB);			/* B = 2*A */
-	    gwcopy (xA, xC); gwcopy (zA, zC);			/* C = A */
+	    gwcopy (&gwdata, xA, xC); gwcopy (&gwdata, zA, zC);	/* C = A */
 
 	    d = (unsigned long) (n/v+0.5); e = n - d;
 	    d = d - e;
@@ -579,14 +575,14 @@ void lucas_mul (
 
 	    n = d;
 	}
-	gwfree (xA);
-	gwfree (zA);
-	gwfree (xB);
-	gwfree (zB);
-	gwfree (xC);
-	gwfree (zC);
-	gwfree (xt);
-	gwfree (zt);
+	gwfree (&gwdata, xA);
+	gwfree (&gwdata, zA);
+	gwfree (&gwdata, xB);
+	gwfree (&gwdata, zB);
+	gwfree (&gwdata, xC);
+	gwfree (&gwdata, zC);
+	gwfree (&gwdata, xt);
+	gwfree (&gwdata, zt);
 }
 
 /* Multiplies the point (xx,zz) by n using a combination */
@@ -600,10 +596,10 @@ void bin_ell_mul (
 	unsigned long c, zeros;
 	gwnum	xorg, zorg, xs, zs;
 
-	xorg = gwalloc ();
-	zorg = gwalloc ();
-	xs = gwalloc ();
-	zs = gwalloc ();
+	xorg = gwalloc (&gwdata);
+	zorg = gwalloc (&gwdata);
+	xs = gwalloc (&gwdata);
+	zs = gwalloc (&gwdata);
 
 	for (zeros = 0; (n & 1) == 0; zeros++) n >>= 1;
 
@@ -617,7 +613,7 @@ void bin_ell_mul (
 		/* If the second bit is zero, we can save one ell_dbl call */
 
 		if (c&n) {
-			gwcopy (xorg, xx); gwcopy (zorg, zz);
+			gwcopy (&gwdata, xorg, xx); gwcopy (&gwdata, zorg, zz);
 			ell_dbl_fft (xx, zz, xs, zs);
 		} else {
 			ell_dbl_fft (xorg, zorg, xx, zz);
@@ -646,10 +642,10 @@ void bin_ell_mul (
 		} while (c);
 	}
 
-	gwfree (xorg); 
-	gwfree (zorg); 
-	gwfree (xs); 
-	gwfree (zs); 
+	gwfree (&gwdata, xorg); 
+	gwfree (&gwdata, zorg); 
+	gwfree (&gwdata, xs); 
+	gwfree (&gwdata, zs); 
 
 	while (zeros--) ell_dbl (xx, zz, xx, zz);
 }
@@ -724,20 +720,23 @@ int modinv (
 	gwnum b)
 {
 	giant	v;
-	int	retval;
+	int	stop_reason;
 
 /* Convert input number to binary */
 
-	v = popg ((PARG >> 5) + 10);
-	gwtogiant (b, v);
+	v = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 5) + 5);
+	gwtogiant (&gwdata, b, v);
 
 /* Let the invg code use gwnum b's memory. */
 /* Compute 1/v mod N */
 
-	gwfree_temporarily (b);
-	retval = invgi (N, v);
-	gwrealloc_temporarily (b);
-	if (!retval) return (FALSE);
+	gwfree_temporarily (&gwdata, b);
+	stop_reason = invgi (&gwdata.gdata, 0, N, v);
+	gwrealloc_temporarily (&gwdata, b);
+	if (stop_reason) {
+		pushg (&gwdata.gdata, 1);
+		return (FALSE);
+	}
 
 /* If a factor was found, save it in FAC */
 
@@ -750,9 +749,9 @@ int modinv (
 /* Otherwise, convert the inverse to FFT-ready form */
 
 	else {
-		gianttogw (v, b);
+		gianttogw (&gwdata, v, b);
 	}
-	pushg (1);
+	pushg (&gwdata.gdata, 1);
 
 /* Increment count and return */
 
@@ -765,20 +764,23 @@ int modinv (
 
 int normalize (
 	gwnum	a,
-	gwnum	b,
-	giant	g)
+	gwnum	b)
 {
+	giant	g;
 
 /* Compute the modular inverse and scale up the first input value */
 
 	if (!modinv (b)) return (FALSE);
 	if (FAC != NULL) return (TRUE);
-	gwmul (b, a);
+	gwmul (&gwdata, b, a);
 
 /* Now make sure value is less than N */
 
-	gwtogiant (a, g);
+	g = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 5) + 5);
+	gwtogiant (&gwdata, a, g);
 	modg (N, g);
+	gianttogw (&gwdata, g, a);
+	pushg (&gwdata.gdata, 1);
 
 /* All done */
 
@@ -810,7 +812,7 @@ int gwnum_ecmStage1 (
 	unsigned long *x_array_len,
 	unsigned long *z_array,		/* Z value of point */
 	unsigned long *z_array_len,
-	int	(*stop_check_proc)(void),/* Ptr to proc that returns TRUE */
+	int	(*stop_check_proc)(int),/* Ptr to proc that returns TRUE */
 					/* if user interrupts processing */
 	unsigned long options)
 {
@@ -818,12 +820,6 @@ int gwnum_ecmStage1 (
 	int	res;
 	long	reslong;
 	gwnum	x, z;
-	giantstruct x_array_as_giant;
-
-/* Convert x_array to a giant */
-
-	x_array_as_giant.sign = *x_array_len;
-	x_array_as_giant.n = x_array;
 
 /* Calculate an upper bound on the number of bits in the numbers we will be */
 /* FFTing.  Note: We allocate 60 extra bits to handle any possible k value. */
@@ -837,22 +833,38 @@ int gwnum_ecmStage1 (
 /* Setup the assembly code */
 
 	guessCpuType ();
+	gwinit (&gwdata);
 	if (b)
-		res = gwsetup (k, b, n, c, 0);
+		res = gwsetup (&gwdata, k, b, n, c);
+	else if (sizeof (unsigned long) == sizeof (uint32_t))
+		res = gwsetup_general_mod (
+			&gwdata,
+			(uint32_t *) num_being_factored_array,
+			num_being_factored_array_len);
 	else
 		res = gwsetup_general_mod (
-			num_being_factored_array,
-			num_being_factored_array_len, 0);
+			&gwdata,
+			(uint32_t *) num_being_factored_array,
+			num_being_factored_array_len * 2);
 	if (res == GWERROR_MALLOC) return (ES1_MEMORY);
 	if (res) return (ES1_CANNOT_DO_IT);
 	StopCheckRoutine = stop_check_proc;
 
 /* If we cannot handle this very efficiently, let caller know it */
 
-	if (GENERAL_MOD && ! (options & ES1_DO_SLOW_CASE)) {
+	if (gwdata.GENERAL_MOD && ! (options & ES1_DO_SLOW_CASE)) {
 		ecm_cleanup ();
 		return (ES1_CANNOT_DO_QUICKLY);
 	}
+
+/* Allocate memory */
+
+	Ad4 = gwalloc (&gwdata);
+	if (Ad4 == NULL) goto no_mem;
+	x = gwalloc (&gwdata);
+	if (x == NULL) goto no_mem;
+	z = gwalloc (&gwdata);
+	if (z == NULL) goto no_mem;
 
 /* Turn the input number we are factoring into a giant.  Either use the */
 /* number we were passed in or calculate k*b^n+c */
@@ -861,8 +873,9 @@ int gwnum_ecmStage1 (
 	if (N == NULL) goto no_mem;
 	if (num_being_factored_array != NULL && num_being_factored_array_len) {
 		giantstruct tmp;
-		tmp.sign = num_being_factored_array_len;
-		tmp.n = num_being_factored_array;
+		tmp.sign = num_being_factored_array_len *
+			   sizeof (unsigned long) / sizeof (uint32_t);
+		tmp.n = (uint32_t *) num_being_factored_array;
 		while (tmp.sign && tmp.n[tmp.sign-1] == 0) tmp.sign--;
 		gtog (&tmp, N);
 	} else {
@@ -872,36 +885,29 @@ int gwnum_ecmStage1 (
 		iaddg (c, N);
 	}
 
-/* Allocate memory */
-
-	Ad4 = gwalloc ();
-	if (Ad4 == NULL) goto no_mem;
-	x = gwalloc ();
-	if (x == NULL) goto no_mem;
-	z = gwalloc ();
-	if (z == NULL) goto no_mem;
-
 /* Convert the input A value to a gwnum.  For extra speed we precompute */
 /* A * 4 and FFT that value. */
 
-	binarytogw (A_array, A_array_len, Ad4);
-	gwaddsmall (Ad4, 2);	/* Compute A+2 */
+	binarylongstogw (&gwdata, A_array, A_array_len, Ad4);
+	gwaddsmall (&gwdata, Ad4, 2);	/* Compute A+2 */
 	modinv (Ad4);
-	dbltogw (4.0, x);	/* For extra speed, precompute 4 / (A+2) */
-	gwmul (x, Ad4);
-	gwfft (Ad4, Ad4);	/* Even more speed, save FFT of Ad4 */
+	if (FAC != NULL) goto bingo;
+
+	dbltogw (&gwdata, 4.0, x);	/* For extra speed, precompute 4 / (A+2) */
+	gwmul (&gwdata, x, Ad4);
+	gwfft (&gwdata, Ad4, Ad4);	/* Even more speed, save FFT of Ad4 */
 
 /* Convert the input x value to a gwnum */
 
-	binarytogw (x_array, *x_array_len, x);
+	binarylongstogw (&gwdata, x_array, *x_array_len, x);
 
 /* Convert the input z value to a gwnum.  If the input z value was not */
 /* given, then assume z is one. */
 
 	if (z_array != NULL && z_array_len != NULL && *z_array_len)
-		binarytogw (z_array, *z_array_len, z);
+		binarylongstogw (&gwdata, z_array, *z_array_len, z);
 	else
-		dbltogw (1.0, z);
+		dbltogw (&gwdata, 1.0, z);
 
 /* Set other constants */
 
@@ -940,28 +946,31 @@ int gwnum_ecmStage1 (
 
 /* Check for errors */
 
-		if (gw_test_for_error ()) goto error;
+		if (gw_test_for_error (&gwdata)) goto error;
 
-/* Check for interrupt.  If one occurs return x, z or normalized x. */
+/* Check for interrupt.  If one occurs return normalized x OR x,z pair. */
 
-		if (stop_check_proc != NULL && (*stop_check_proc)()) {
+		if (stop_check_proc != NULL && (*stop_check_proc)(0)) {
 			if (B1_done != NULL)
 				*B1_done = prime;
 
 			if (z_array == NULL) {
 				StopCheckRoutine = NULL;
-				normalize (x, z, &x_array_as_giant);
+				normalize (x, z);
 				if (FAC != NULL) goto bingo;
-				*x_array_len = x_array_as_giant.sign;
+				reslong = gwtobinarylongs (&gwdata,
+						x, x_array, (bits >> 5) + 1);
+				if (reslong < 0) goto error;
+				*x_array_len = reslong;
 			}
 
 			else {
-				reslong = gwtobinary (
+				reslong = gwtobinarylongs (&gwdata,
 						x, x_array, (bits >> 5) + 1);
 				if (reslong < 0) goto error;
 				*x_array_len = reslong;
 
-				reslong = gwtobinary (
+				reslong = gwtobinarylongs (&gwdata,
 						z, z_array, (bits >> 5) + 1);
 				if (reslong < 0) goto error;
 				*z_array_len = reslong;
@@ -973,19 +982,21 @@ int gwnum_ecmStage1 (
 	}
 	*B1_done = B1;
 
-/* Normalize the x value */
+/* Normalize the x value OR return the x,z pair */
 
 	if (z_array == NULL) {
 		StopCheckRoutine = NULL;
-		normalize (x, z, &x_array_as_giant);
+		normalize (x, z);
 		if (FAC != NULL) goto bingo;
-		*x_array_len = x_array_as_giant.sign;
+		reslong = gwtobinarylongs (&gwdata, x, x_array, (bits >> 5) + 1);
+		if (reslong < 0) goto error;
+		*x_array_len = reslong;
 	} else {
-		reslong = gwtobinary (x, x_array, (bits >> 5) + 1);
+		reslong = gwtobinarylongs (&gwdata, x, x_array, (bits >> 5) + 1);
 		if (reslong < 0) goto error;
 		*x_array_len = reslong;
 
-		reslong = gwtobinary (z, z_array, (bits >> 5) + 1);
+		reslong = gwtobinarylongs (&gwdata, z, z_array, (bits >> 5) + 1);
 		if (reslong < 0) goto error;
 		*z_array_len = reslong;
 	}
@@ -999,8 +1010,14 @@ int gwnum_ecmStage1 (
 
 bingo:	//printf ("ECM found a factor\n");
 	if (!testFactor (FAC)) goto error;
-	gtog (FAC, &x_array_as_giant);
-	*x_array_len = x_array_as_giant.sign;
+	gianttogw (&gwdata, FAC, x);
+	reslong = gwtobinarylongs (&gwdata, x, x_array, (bits >> 5) + 1);
+	if (reslong < 0) goto error;
+	*x_array_len = reslong;
+	if (z_array != NULL) {
+		z_array[0] = 1;
+		*z_array_len = 1;
+	}
 	return (ES1_FACTOR_FOUND);
 
 /* Return a hardware error occurred code */

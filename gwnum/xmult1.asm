@@ -1,4 +1,4 @@
-; Copyright 2001-2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 2001-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -32,7 +32,6 @@ INCLUDE xmult.mac
 
 _TEXT SEGMENT
 
-_gw_xffts1 PROC
 	EXPANDING = 1
 	xfft	32
 	xfft	48
@@ -83,7 +82,6 @@ _gw_xffts1 PROC
 	xfft	4096p
 	xfft	6144p
 	xfft	8192p
-_gw_xffts1 ENDP
 
 _TEXT	ENDS
 END

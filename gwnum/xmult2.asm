@@ -1,4 +1,4 @@
-; Copyright 2001-2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 2001-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -36,14 +36,15 @@ IFNDEF AMD
 PUBLIC	xgw_finish_fft
 PUBLIC	xgw_carries
 PUBLIC	xgw_finish_mult
+PUBLIC	pass1_aux_entry_point_return
 ELSE
+EXTRN	pass1_aux_entry_point_return:PROC
 EXTRN	xgw_finish_fft:PROC
 EXTRN	xgw_carries:PROC
 EXTRN	xgw_finish_mult:PROC
 ENDIF
 
 EXTRNP	xpass2_8_levels
-EXTRNP	xpass2_8_levels_p
 
 _TEXT SEGMENT
 
@@ -56,7 +57,6 @@ xpass2_levels = 8
 
 ;; All the FFT routines for each FFT length
 
-PROCP	_xmm_gw_ffts2
 	EXPANDING = 2
 ;	xfft	5K
 ;	xfft	6K
@@ -108,27 +108,43 @@ allfft	xfftclm	1024Kp, 1
 
 IFNDEF AMD
 
-; Common code to finish the FFT by restoring state and returning.
+; pass1_aux_entry_point ()
+; Entry point for auxillary threads to do process blocks in pass 1
+; Windows 32-bit and Linux 32-bit
+;	Parameter asm_data = [esp+4]
+; Windows 64-bit
+;	Parameter asm_data = rcx
+; Linux 64-bit
+;	Parameter asm_data = rdi
 
-xgw_finish_fft:
-	mov	DWORD PTR [rsi-28], 3	; Set has-been-FFTed flags
-	xfft_1_ret
+PROCFL pass1_aux_entry_point
+	ad_prolog 0,1,rbx,rbp,rsi,rdi,xmm6,xmm7,xmm8,xmm9,xmm10,xmm11,xmm12,xmm13,xmm14,xmm15
 
-; Common code to finish up multiplies
+;; Jump to common pass 1 code.  We must jump rather than call because the
+;; pass 1 code operates with a push_amt of zero.
+
+	mov	rax, THREAD_WORK_ROUTINE ; Pass 1 entry point
+	jmp	rax			; Go process data blocks
+pass1_aux_entry_point ENDP
+
 
 ; Split the accumulated carries into two carries - a high carry and a
 ; low carry.  Handle both the with and without two-to-phi array cases.
 ; Add these carries back into the FFT data.
 
-xgw_carries:
-	cmp	_ZERO_PADDED_FFT, 0	; Special case the zero padded FFT case
+loopcount1	EQU	DPTR [rsp+first_local]
+loopcount2	EQU	DPTR [rsp+first_local+4]
+
+PROCF	xgw_carries
+	int_prolog 8,0,0
+	cmp	ZERO_PADDED_FFT, 0	; Special case the zero padded FFT case
 	jne	xgw_carries_zpad
 	mov	rsi, carries		; Addr of the carries
 	mov	ebx, addcount1		; Compute addr after carries
 	shl	rbx, 6
 	add	rbx, rsi
 	xnorm012_2d_part1
-	mov	rbp, _DESTARG		; Addr of the FFT data
+	mov	rbp, DESTARG		; Addr of the FFT data
 	mov	rdi, norm_biglit_array	; Addr of the big/little flags array
 	mov	rdx, norm_grp_mults	; Addr of the group multipliers
 	sub	rcx, rcx		; Clear big/little flag
@@ -150,7 +166,7 @@ ilp1:	mov	rbx, norm_col_mults	; Addr of the column multipliers
 	mov	ebx, cache_line_multiplier; Cache lines in each pass1 loop
 	lea	rsi, [rsi+64]		; Next carries pointer
 	add	rbp, pass1blkdst	; Next FFT data pointer
-	cmp	_RATIONAL_FFT, 0	; Don't bump these two pointers
+	cmp	RATIONAL_FFT, 0		; Don't bump these two pointers
 	jne	short iskip		; for rational FFTs
 	lea	rdx, [rdx+128]		; Next group multiplier
 	lea	rdi, [rdi+rbx*4]	; Next big/little flags pointer
@@ -158,14 +174,14 @@ iskip:	sub	loopcount2, 1		; Test loop counter
 	jnz	ilp1			; Next carry row in section
 	jmp	ilp0			; Next section
 spldn:	mov	zero_fft, 0		; Clear zero-high-words-fft flag
-	ret
+	jmp	cdn			; Jump to common exit code
 
 xgw_carries_zpad:
 	mov	rsi, carries		; Addr of the carries
 	mov	ebx, addcount1		; Compute addr after carries
 	shl	rbx, 6
 	add	rbx, rsi
-	mov	rsi, _DESTARG		; Addr of the FFT data
+	mov	rsi, DESTARG		; Addr of the FFT data
 	mov	rdi, norm_biglit_array	; Addr of the big/little flags array
 	mov	rbp, norm_col_mults	; Addr of the group multipliers
 	cmp	const_fft, 0		; Call correct part1 macro
@@ -174,7 +190,7 @@ xgw_carries_zpad:
 	jmp	c2b
 c2a:	xnorm012_2d_zpad_part1 noexec
 c2b:	mov	rsi, carries		; Addr of the carries
-	mov	rbp, _DESTARG		; Addr of the FFT data
+	mov	rbp, DESTARG		; Addr of the FFT data
 	mov	rdi, norm_biglit_array	; Addr of the big/little flags array
 	mov	rdx, norm_grp_mults	; Addr of the group multipliers
 	mov	eax, count3		; Load 3 section counts
@@ -199,7 +215,7 @@ c2c:	xnorm012_2d_zpad noexec		; Split carries for one cache line
 c2d:	mov	ebx, cache_line_multiplier; Cache lines in each pass1 loop
 	lea	rsi, [rsi+64]		; Next carries pointer
 	add	rbp, pass1blkdst	; Next FFT data pointer
-	cmp	_RATIONAL_FFT, 0	; Don't bump these two pointers
+	cmp	RATIONAL_FFT, 0		; Don't bump these two pointers
 	jne	short zskip		; for rational FFTs
 	lea	rdx, [rdx+128]		; Next group multiplier
 	lea	rdi, [rdi+rbx*4]	; Next big/little flags pointer
@@ -207,7 +223,31 @@ zskip:	sub	loopcount2, 1		; Test loop counter
 	jnz	zlp1			; Next carry row in section
 	jmp	zlp0			; Next section
 zpldn:	mov	const_fft, 0		; Clear mul-by-const-fft flag
-	ret
+
+cdn:	int_epilog 8,0,0
+xgw_carries ENDP
+
+
+; Common code to finish off the two-pass FFTs.  The Windows 64-bit ABI
+; frowns on us jumping from one procedure into another.
+; However, my reading of the spec is that as long as the two procedures have
+; identical prologs then stack unwinding for exception handling will work OK.
+; Of course, this code won't be linked into a 64-bit Windows executable,
+; but we include the dummy prolog to be consistent.
+
+PROCF	__common_2pass_xfft_exit_code
+
+	;; Create a dummy prolog
+	ad_prolog 0,1,rbx,rbp,rsi,rdi,xmm6,xmm7,xmm8,xmm9,xmm10,xmm11,xmm12,xmm13,xmm14,xmm15
+
+; Common code to finish up ffts
+
+xgw_finish_fft:
+	mov	rsi, DESTARG		; Restore source pointer
+	mov	DWORD PTR [rsi-28], 3	; Set has-been-FFTed flags
+	xfft_1_ret
+
+; Common code to finish up multiplies
 
 ; Finish the multiply
 
@@ -215,27 +255,29 @@ xgw_finish_mult:
 
 ; Set FFT-started flag
 
-	mov	rsi, _DESTARG		; Addr of FFT data
-	mov	eax, _POSTFFT		; Set FFT started flag
+	mov	rsi, DESTARG		; Addr of FFT data
+	mov	eax, POSTFFT		; Set FFT started flag
 	mov	DWORD PTR [rsi-28], eax
 
 ; Normalize SUMOUT value by multiplying by 1 / (fftlen/2).
 
-	_movsd	xmm7, XMM_SUMOUT	; Add together the two partial sumouts
+	movsd	xmm7, XMM_SUMOUT	; Add together the two partial sumouts
 	addsd	xmm7, XMM_SUMOUT+8
 	mulsd	xmm7, ttmp_ff_inv
-	_movsd	[rsi-24], xmm7		; Save sum of FFT outputs
-	_movsd	xmm6, XMM_MAXERR	; Compute new maximum error
+	movsd	Q [rsi-24], xmm7	; Save sum of FFT outputs
+	movsd	xmm6, XMM_MAXERR	; Compute new maximum error
 	maxsd	xmm6, XMM_MAXERR+8
-	_movsd	_MAXERR, xmm6
+	movsd	MAXERR, xmm6
+	;; Fall through to return code
 
-; Return
+; Common routine for pass1 auxillary threads to exit
 
-exit:	xrestore_registers
-	ret
+pass1_aux_entry_point_return:
+	ad_epilog 0,1,rbx,rbp,rsi,rdi,xmm6,xmm7,xmm8,xmm9,xmm10,xmm11,xmm12,xmm13,xmm14,xmm15
+
+__common_2pass_xfft_exit_code ENDP
+
 ENDIF
-
-ENDPP	_xmm_gw_ffts2
 
 _TEXT	ENDS
 END

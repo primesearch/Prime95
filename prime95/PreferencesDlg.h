@@ -13,10 +13,12 @@ public:
 // Dialog Data
 	//{{AFX_DATA(CPreferencesDlg)
 	enum { IDD = IDD_PREFERENCES };
-	CEdit	c_modem;
 	CStatic	c_modem_text;
-	CEdit	c_end_dates;
+	CEdit	c_modem;
+	CStatic	c_work_text;
+	CEdit	c_work;
 	CStatic	c_end_dates_text;
+	CEdit	c_end_dates;
 	CStatic	c_network_text;
 	CEdit	c_network;
 	UINT	m_iter;
@@ -25,6 +27,7 @@ public:
 	BOOL	m_noise;
 	UINT	m_retry;
 	UINT	m_r_iter;
+	UINT	m_work;
 	UINT	m_end_dates;
 	UINT	m_modem;
 	BOOL	m_battery;

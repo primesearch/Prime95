@@ -9,7 +9,12 @@
 | Commonc contains information used during setup and execution
 +---------------------------------------------------------------------*/
 
-char JUNK[]="Copyright 1996-2005 Just For Fun Software, All rights reserved";
+char JUNK[]="Copyright 1996-2008 Just For Fun Software, All rights reserved";
+
+int	USE_V4 = 1;
+char	V4_USERID[15] = {0};
+char	V4_USERPWD[9] = {0};
+char	V4_USERNAME[80] = {0};
 
 char	INI_FILE[80] = {0};
 char	LOCALINI_FILE[80] = {0};
@@ -19,26 +24,25 @@ char	SPOOL_FILE[80] = {0};
 char	LOGFILE[80] = {0};
 char	EXTENSION[8] = {0};
 
-char	USERID[20] = {0};
-char	USER_PWD[20] = {0};
-char	OLD_USERID[20] = {0};
-char	OLD_USER_PWD[20] = {0};
-char	COMPID[20] = {0};
-char	USER_NAME[80] = {0};
-char	USER_ADDR[80] = {0};
-int	NEWSLETTERS = 1;
-int	USE_PRIMENET = 1;
+char	USERID[21] = {0};
+char	COMPID[21] = {0};
+char	COMPUTER_GUID[33] = {0};
+char	HARDWARE_GUID[33] = {0};
+char	WINDOWS_GUID[33] = {0};
+int	FIXED_GUIDS = 0;
+int	USE_PRIMENET = 0;
 int	DIAL_UP = 0;
-short	WORK_PREFERENCE = 0;
-unsigned int DAYS_OF_WORK = 20;
-time_t	VACATION_END = 0;
-int	ON_DURING_VACATION = 1;
-int	ADVANCED_ENABLED = 0;
+unsigned int DAYS_OF_WORK = 5;
+int	STRESS_TESTER = 0;
 int volatile ERRCHK = 0;
 unsigned int PRIORITY = 1;
-unsigned int CPU_AFFINITY = 99;
+unsigned int NUM_WORKER_THREADS = 1; /* Number of work threads to launch */
+unsigned int WORK_PREFERENCE[MAX_NUM_WORKER_THREADS] = {0};
+unsigned int CPU_AFFINITY[MAX_NUM_WORKER_THREADS] = {100};
+unsigned int THREADS_PER_TEST[MAX_NUM_WORKER_THREADS] = {1};
+				/* Number of threads gwnum can use in */
+				/* computations. */
 int	MANUAL_COMM = 0;
-EXTERNC unsigned int volatile CPU_TYPE = 0;
 unsigned int volatile CPU_HOURS = 0;
 unsigned int volatile DAY_MEMORY = 0;
 unsigned int volatile NIGHT_MEMORY = 0;
@@ -48,13 +52,16 @@ unsigned long volatile ITER_OUTPUT = 0;
 unsigned long volatile ITER_OUTPUT_RES = 999999999;
 unsigned long volatile DISK_WRITE_TIME = 30;
 unsigned int MODEM_RETRY_TIME = 2;
-unsigned int NETWORK_RETRY_TIME = 60;
-unsigned int DAYS_BETWEEN_CHECKINS = 28;
+unsigned int NETWORK_RETRY_TIME = 70;
+unsigned int DAYS_BETWEEN_CHECKINS = 1;
 int	TWO_BACKUP_FILES = 1;
 int	SILENT_VICTORY = 0;
 int	RUN_ON_BATTERY = 1;
+int	BATTERY_PERCENT = 0;
 int	TRAY_ICON = TRUE;
 int	HIDE_ICON = FALSE;
+int	MERGE_WINDOWS = 0;		/* Flags indicating which MDI */
+					/* windows to merge together */
 unsigned int ROLLING_AVERAGE = 0;
 unsigned int PRECISION = 2;
 time_t	END_TIME = 0;
@@ -64,19 +71,128 @@ int	TIMESTAMPING = 1;
 int	CUMULATIVE_TIMING = 0;
 int	WELL_BEHAVED_WORK = 0;
 char	**PAUSE_WHILE_RUNNING = NULL;
+int	PAUSE_WHILE_RUNNING_FREQ = 10;
+unsigned long INTERIM_FILES = 0;
+unsigned long INTERIM_RESIDUES = 0;
+unsigned long HYPERTHREADING_BACKOFF = 0;
+int	THROTTLE_PCT = 0;
 
-unsigned long EXP_BEING_WORKED_ON = 0;
-int	EXP_BEING_FACTORED = 0;
-double	EXP_PERCENT_COMPLETE = 0.0;
+int	STARTUP_IN_PROGRESS = 0;/* True if displaying startup dialog boxes */
 
-int	SPOOL_FILE_CHANGED = 0;
-int	CHECK_WORK_QUEUE = 0;
-int	GIMPS_QUIT = 0;
-time_t	next_comm_time = 0;	/* Next time we should contact server */
+unsigned long NUM_CPUS = 1;	/* Number of CPUs/Cores in the computer */
 
-char READFILEERR[] = "Error reading intermediate file: %s\n";
-char BLACKMSG1[] = "The PrimeNet Server has temporarily requested your computer not contact the server.\n";
-char BLACKMSG2[] = "The PrimeNet Server has permanently requested your computer not contact the server.\nTry downloading a new version from http://www.mersenne.org/freesoft.htm or contact woltman@alum.mit.edu\n";
+gwmutex	INI_MUTEX;		/* Lock for accessing INI files */
+gwmutex	OUTPUT_MUTEX;		/* Lock for screen and results file access */
+gwmutex	LOG_MUTEX;		/* Lock for prime.log access */
+gwmutex	WORKTODO_MUTEX;		/* Lock for accessing worktodo structure */
+
+int	LAUNCH_TYPE = 0;	/* Type of worker threads launched */
+unsigned int WORKER_THREADS_ACTIVE = 0; /* Number of worker threads running */
+int	WORKER_THREADS_STOPPING = 0; /* TRUE iff worker threads are stopping */
+
+struct work_unit_array WORK_UNITS[MAX_NUM_WORKER_THREADS] = {0};
+				/* An array of work units for each */
+				/* worker thread */
+unsigned int WORKTODO_COUNT = 0;/* Count of valid work lines */
+unsigned int WORKTODO_IN_USE_COUNT = 0;/* Count of work units in use */
+int	WORKTODO_CHANGED = 0;	/* Flag indicating worktodo file needs */
+				/* writing */
+
+#include "md5.c"
+
+/* Generate the application string.  This is sent to the server in a */
+/* UC (Update Computer info) call.  It is also displayed in the */
+/* Help/About dialog box. */
+
+void generate_application_string (
+	char	*app_string)
+{
+#ifdef SECURITY_MODULES_PRESENT
+	sprintf (app_string, "%s,Prime95,v%s,build %s",
+#else
+	sprintf (app_string, "%s,Untrusted Prime95,v%s,build %s",
+#endif
+		 PORT == 1 ? "Windows" :
+		 PORT == 2 ? "Linux" :
+		 PORT == 4 ? "Windows64" :
+		 PORT == 5 ? "WindowsService" :
+		 PORT == 6 ? "FreeBSD" :
+		 PORT == 7 ? "OS/2" :
+		 PORT == 8 ? "Linux64" :
+		 PORT == 9 ? "Mac OS X" : "Unknown",
+		 VERSION, BUILD_NUM);
+}
+
+/* Generate a globally unique ID for this computer.  All Primenet */
+/* communications are based on this value. */
+
+void generate_computer_guid (void)
+{
+	char	buf[500];
+	time_t	current_time;
+
+	time (&current_time);
+	sprintf (buf, "%s%d%f%d",
+		 CPU_BRAND, CPU_SIGNATURE, CPU_SPEED, (int) current_time);
+	md5 (COMPUTER_GUID, buf);
+	IniWriteString (LOCALINI_FILE, "ComputerGUID", COMPUTER_GUID);
+}
+
+/* Calculate the 32-byte hex string for the hardware GUID.  We use the */
+/* output of the CPUID function to generate this.  We don't include the */
+/* cache size information because when a new processor comes out the CPUID */
+/* does not recognize the cache size.  When a new version of prime95 is */
+/* released that does recognize the cache size a different hardware GUID */
+/* would be generated. */
+
+void calc_hardware_guid (void)
+{
+	char	buf[500];
+
+	sprintf (buf, "%s%d", CPU_BRAND, CPU_SIGNATURE);
+	md5 (HARDWARE_GUID, buf);
+
+/* Sometimes a user might want to run the program on several machines. */
+/* Typically this is done by carrying the program and files around on a */
+/* portable media such as floppy or USB memory stick.  In this case, */
+/* we need to defeat the code that automatically detects hardware changes. */
+/* The FixedHardwareUID INI option tells us to get the Windows and */
+/* hardware hashes from the INI file rather than calculating them. */
+
+	if (FIXED_GUIDS) {
+		IniGetString (INI_FILE, "HardwareGUID", HARDWARE_GUID,
+			      sizeof (HARDWARE_GUID), HARDWARE_GUID);
+		IniWriteString (INI_FILE, "HardwareGUID", HARDWARE_GUID);
+	}
+}
+
+/* Calculate the 32-byte hex string for the Windows-only GUID.  For */
+/* non-Windows systems, we set WINDOWS_GUID to "". */
+
+void calc_windows_guid (void)
+{
+#ifdef _WINDOWS_
+	char	buf[500];
+	getWindowsSerialNumber (buf);
+	getWindowsSID (buf + strlen (buf));
+	md5 (WINDOWS_GUID, buf);
+#else
+	WINDOWS_GUID[0] = 0;
+#endif
+
+/* Sometimes a user might want to run the program on several machines. */
+/* Typically this is done by carrying the program and files around on a */
+/* portable media such as floppy or USB memory stick.  In this case, */
+/* we need to defeat the code that automatically detects hardware changes. */
+/* The FixedHardwareUID INI option tells us to get the Windows and */
+/* hardware hashes from the INI file rather than calculating them. */
+
+	if (FIXED_GUIDS) {
+		IniGetString (INI_FILE, "WindowsGUID", WINDOWS_GUID,
+			      sizeof (WINDOWS_GUID), WINDOWS_GUID);
+		IniWriteString (INI_FILE, "WindowsGUID", WINDOWS_GUID);
+	}
+}
 
 /* Determine the CPU speed either empirically or by user overrides. */
 /* getCpuType must be called prior to calling this routine. */
@@ -91,10 +207,8 @@ void getCpuSpeed (void)
 
 /* Now let the user override the cpu speed from the local.ini file */
 
-	if (IniGetInt (LOCALINI_FILE, "CpuOverride", 0)) {
-		temp = IniGetInt (LOCALINI_FILE, "CpuSpeed", 99);
-		if (temp != 99) CPU_SPEED = temp;
-	}
+	temp = IniGetInt (LOCALINI_FILE, "CpuSpeed", 99);
+	if (temp != 99) CPU_SPEED = temp;
 
 /* Make sure the cpu speed is reasonable */
 
@@ -107,14 +221,14 @@ void getCpuSpeed (void)
 /* dialog has been displayed). */
 
 	old_cpu_speed = IniGetInt (LOCALINI_FILE, "OldCpuSpeed", 0);
-	if (CPU_SPEED < (double) old_cpu_speed - 5.0 ||
-	    CPU_SPEED > (double) old_cpu_speed + 5.0) {
+	if (CPU_SPEED < (double) old_cpu_speed * 0.97 ||
+	    CPU_SPEED > (double) old_cpu_speed * 1.03) {
 		IniWriteInt (LOCALINI_FILE, "OldCpuSpeed", (int) (CPU_SPEED + 0.5));
 		if (old_cpu_speed) {
 			ROLLING_AVERAGE = 1000;
 			IniWriteInt (LOCALINI_FILE, "RollingAverage", 1000);
 			IniWriteInt (LOCALINI_FILE, "RollingStartTime", 0);
-			spoolMessage (PRIMENET_SET_COMPUTER_INFO, NULL);
+			spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
 			UpdateEndDates ();
 		}
 	}
@@ -125,40 +239,18 @@ void getCpuSpeed (void)
 
 void getCpuInfo (void)
 {
-	int	temp, old_cpu_type;
+	int	temp;
 
 /* Get the CPU info using CPUID instruction */
 
 	guessCpuType ();
 
-/* Deduce the old-style CPU_TYPE variable given the CPU brand string */
-/* returned by CPUID.  Our code should no longer use CPU_TYPE, but rather */
-/* the individual CPU capability flags in CPU_FLAGS.  However, the old */
-/* CPU_TYPE is still sent to the server for reporting reasons. */
+/* Calculate hardware GUID (global unique identifier) using the CPUID info. */
+/* Well, it isn't unique but it is about as good as we can do and still have */
+/* portable code.  Do this calculation before user overrides values */
+/* derived from CPUID results. */
 
-	if (strstr (CPU_BRAND, "Intel")) {
-		if (strstr (CPU_BRAND, "486")) CPU_TYPE = 4;
-		else if (strstr (CPU_BRAND, "Pro")) CPU_TYPE = 6;
-		else if (strstr (CPU_BRAND, "Celeron")) CPU_TYPE = 8;
-		else if (strstr (CPU_BRAND, "III")) CPU_TYPE = 10;
-		else if (strstr (CPU_BRAND, "II")) CPU_TYPE = 9;
-		else if (CPU_FLAGS & CPU_SSE2) CPU_TYPE = 12;
-		else if (strstr (CPU_BRAND, "Pentium")) CPU_TYPE = 5;
-		else CPU_TYPE = 4;
-	} else if (strstr (CPU_BRAND, "AMD")) {
-		if (strstr (CPU_BRAND, "486")) CPU_TYPE = 3;
-		else if (strstr (CPU_BRAND, "Unknown")) CPU_TYPE = 3;
-		else if (strstr (CPU_BRAND, "K5")) CPU_TYPE = 3;
-		else if (strstr (CPU_BRAND, "K6")) CPU_TYPE = 7;
-		else CPU_TYPE = 11;
-	} else
-		CPU_TYPE = 3;
-
-/* Now let the user override the cpu type and speed from the local.ini file */
-
-	if (IniGetInt (LOCALINI_FILE, "CpuOverride", 0)) {
-		CPU_TYPE = IniGetInt (LOCALINI_FILE, "CpuType", CPU_TYPE);
-	}
+	calc_hardware_guid ();
 
 /* Let the user override the cpu flags from the local.ini file */
 
@@ -178,6 +270,8 @@ void getCpuInfo (void)
 	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsSSE2", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_SSE2;
 	if (temp == 1) CPU_FLAGS |= CPU_SSE2;
+#else
+	CPU_FLAGS |= CPU_SSE2;
 #endif
 	temp = IniGetInt (LOCALINI_FILE, "CpuSupports3DNow", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_3DNOW;
@@ -192,22 +286,11 @@ void getCpuInfo (void)
 	CPU_L2_SET_ASSOCIATIVE =
 		IniGetInt (LOCALINI_FILE, "CpuL2SetAssociative", CPU_L2_SET_ASSOCIATIVE);
 
-/* If CPU has changed greatly since the last time prime95 ran, then */
-/* tell the server, recalculate new completion dates, and reset the */
-/* rolling average.  However, don't do this on the first call where */
-/* the Welcome screen has yet to be displayed. */
+/* Let user override the number of hyperthreads */
 
-	old_cpu_type = IniGetInt (LOCALINI_FILE, "OldCpuType", 0);
-	if ((int) CPU_TYPE != old_cpu_type) {
-		IniWriteInt (LOCALINI_FILE, "OldCpuType", CPU_TYPE);
-		if (old_cpu_type) {
-			ROLLING_AVERAGE = 1000;
-			IniWriteInt (LOCALINI_FILE, "RollingAverage", 1000);
-			IniWriteInt (LOCALINI_FILE, "RollingStartTime", 0);
-			spoolMessage (PRIMENET_SET_COMPUTER_INFO, NULL);
-			UpdateEndDates ();
-		}
-	}
+	CPU_HYPERTHREADS =
+		IniGetInt (LOCALINI_FILE, "CpuNumHyperthreads", CPU_HYPERTHREADS);
+	if (CPU_HYPERTHREADS == 0) CPU_HYPERTHREADS = 1;
 
 /* Now get the CPU speed */
 
@@ -228,7 +311,15 @@ void getCpuDescription (
 
 /* Now format a pretty CPU description */
 
-	sprintf (buf, "%s\nCPU speed: %.2f MHz\n", CPU_BRAND, CPU_SPEED);
+	sprintf (buf, "%s\nCPU speed: %.2f MHz", CPU_BRAND, CPU_SPEED);
+	if (NUM_CPUS > 1 && CPU_HYPERTHREADS > 1)
+		sprintf (buf + strlen (buf),
+			 ", %d hyperthreaded cores", NUM_CPUS);
+	else if (NUM_CPUS > 1)
+		sprintf (buf + strlen (buf), ", %d cores", NUM_CPUS);
+	else if (CPU_HYPERTHREADS > 1)
+		sprintf (buf + strlen (buf), ", with hyperthreading");
+	strcat (buf, "\n");
 	if (CPU_FLAGS) {
 		strcat (buf, "CPU features: ");
 		if (CPU_FLAGS & CPU_RDTSC) strcat (buf, "RDTSC, ");
@@ -270,14 +361,6 @@ int isPrime (
 	for (i = 2; i * i <= p; i = (i + 1) | 1)
 		if (p % i == 0) return (FALSE);
 	return (TRUE);
-}
-
-/* Return maximum available memory */
-
-unsigned int max_mem (void)
-{
-	if (DAY_MEMORY > NIGHT_MEMORY) return (DAY_MEMORY);
-	return (NIGHT_MEMORY);
 }
 
 /* Upper case a string */
@@ -328,13 +411,23 @@ void minutesToStr (
 	}
 }
 
-/* Determine the names of the INI files */
+/* Determine the names of the INI files, then read them.  This is also the */
+/* perfect time to initialize mutexes and do other initializations. */
 
-void nameIniFiles (
+void nameAndReadIniFiles (
 	int	named_ini_files)
 {
 	char	buf[120];
 
+/* Initialize mutexes */
+
+	gwmutex_init (&INI_MUTEX);
+	gwmutex_init (&OUTPUT_MUTEX);
+	gwmutex_init (&LOG_MUTEX);
+	gwmutex_init (&WORKTODO_MUTEX);
+
+/* Figure out the names of the INI files */
+	
 	if (named_ini_files < 0) {
 		strcpy (INI_FILE, "prime.ini");
 		strcpy (LOCALINI_FILE, "local.ini");
@@ -364,48 +457,151 @@ void nameIniFiles (
 	IniGetString (INI_FILE, "prime.ini", INI_FILE, 80, INI_FILE);
 	if (buf[0]) {
 		_chdir (buf);
-		IniFileOpen (INI_FILE, 0);
+		IniFileReread (INI_FILE);
 	}
+
+/* Merge an old primenet.ini file into a special section of prime.ini */
+
+	if (fileExists ("primenet.ini"))
+		iniAddFileMerge (INI_FILE, "primenet.ini", "PrimeNet");
+
+/* Perform other one-time initializations */
+
+	LoadPrimenet ();
+	init_spool_file_and_comm_code ();
+	init_timed_event_handler ();
+
+/* Create and name the main window */
+
+	MERGE_WINDOWS = (int) IniGetInt (INI_FILE, "MergeWindows", 0);
+	create_window (MAIN_THREAD_NUM);
+	base_title (MAIN_THREAD_NUM, "Main thread");
+
+/* Output a startup message */
+
+	sprintf (buf, "Mersenne number primality test program version %s\n", VERSION);
+	OutputStr (MAIN_THREAD_NUM, buf);
+
+/* Now that we have the proper file name, read the ini file into */
+/* global variables. */
+
+	readIniFiles ();
+
+/* Generate the computer's UID if none exists */
+
+	if (!COMPUTER_GUID[0]) generate_computer_guid ();
+
+/* Calculate the hopefully-never-changing Windows GUID */
+
+	calc_windows_guid ();
+
+/* A stress tester ceases to be a stress tester if he ever turns on */
+/* primenet or has work in his worktodo.ini file */
+
+	if (STRESS_TESTER == 1 && (USE_PRIMENET || WORKTODO_COUNT)) {
+		STRESS_TESTER = 0;
+		IniWriteInt (INI_FILE, "StressTester", 0);
+	}
+
+/* Start or stop the communication timers.  This needs to be called */
+/* every time the INI file is read in case there have been changes to */
+/* the USE_PRIMENET or MANUAL_COMM variables. */
+
+//bug - do this on all rereads of prime.ini?  If so, only after comm windows
+//bug - is created (and I'm not sure the comm window should be recreated
+//bug - on every prime.ini reread (and what of the windows bugs where
+//bug - calling create_window from other than the main thread can hang
+	set_comm_timers ();
+
+/* Tell the server about any changed program options */
+
+	spoolMessage (PRIMENET_PROGRAM_OPTIONS, NULL);
+
+/* If we're using primenet and we don't know the userid, then send an */
+/* update computer message to get the userid. */
+
+	if (USE_PRIMENET && USERID[0] == 0)
+		spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
+
+/* Start some initial timers */
+
+	add_timed_event (TE_ROLLING_AVERAGE, 6*60*60);
 }
 
-/* Read the INI files */
+/* Read or re-read the INI files & and do other initialization */
 
-void readIniFiles (void)
+int readIniFiles (void)
 {
-	int	temp;
+	int	rc, temp;
 	char	buf[512];
 
+/* Force the INI files to be reread, just in case they were hand edited. */
+/* Incorporate any additions from .add files */
+
+	IniFileReread (INI_FILE);
+	IniFileReread (LOCALINI_FILE);
+	incorporateIniAddFiles ();
+
+/* Get the CPU type, speed, and capabilities. */
+
+	getCpuInfo ();
+
+/* Get the V4 or V5 primenet server flag.  If using V4, also get the */
+/* options that only V4 needs. */
+
+	USE_V4 = IniGetInt (INI_FILE, "UseV4", 1);
+	if (USE_V4) {
+		IniGetString (INI_FILE, "UserID", V4_USERID,
+			      sizeof (V4_USERID), NULL);
+		V4_USERID[14] = 0;
+		IniGetString (INI_FILE, "UserPWD", V4_USERPWD,
+			      sizeof (V4_USERPWD), NULL);
+		V4_USERPWD[8] = 0;
+		IniGetString (INI_FILE, "UserName", V4_USERNAME,
+			      sizeof (V4_USERNAME), NULL);
+	}
+
+/* Convert V4 work preferences to v5 work preferences */
+
+	if (!IniGetInt (INI_FILE, "V24OptionsConverted", 0)) {
+		IniWriteInt (INI_FILE, "V24OptionsConverted", 1);
+		if (IniGetInt (INI_FILE, "WorkPreference", 0) == 16)
+			IniWriteInt (INI_FILE, "WorkPreference",
+				     PRIMENET_WP_LL_10M);
+		else if (IniGetInt (INI_FILE, "WorkPreference", 0) == 2)
+			IniWriteInt (INI_FILE, "WorkPreference",
+				     PRIMENET_WP_LL_FIRST);
+		else if (IniGetInt (INI_FILE, "WorkPreference", 0) == 4)
+			IniWriteInt (INI_FILE, "WorkPreference",
+				     PRIMENET_WP_LL_DBLCHK);
+		else if (IniGetInt (INI_FILE, "WorkPreference", 0) == 1)
+			IniWriteInt (INI_FILE, "WorkPreference",
+				     PRIMENET_WP_FACTOR);
+/* Default is debug on while we are beta testing */
+		IniSectionWriteInt (INI_FILE, "PrimeNet", "Debug", 1);
+		IniWriteInt (INI_FILE, "SendAllFactorData", 1);
+	}
+
+/* Get the number of physical processors */
+
+	NUM_CPUS = num_cpus ();		/* Physical and logical processors */
+	if (NUM_CPUS >= CPU_HYPERTHREADS) NUM_CPUS /= CPU_HYPERTHREADS;
+	NUM_CPUS = IniGetInt (LOCALINI_FILE, "NumCPUs", NUM_CPUS);
+
+/* Put commonly used options in global variables */
+
 	processTimedIniFile (INI_FILE);
-	IniGetString (INI_FILE, "UserID", USERID, sizeof (USERID), NULL);
-	USERID[PRIMENET_USER_ID_LENGTH] = 0;
-	sanitizeString (USERID);
-	IniGetString (INI_FILE, "UserPWD", USER_PWD, sizeof (USER_PWD), NULL);
-	USER_PWD[PRIMENET_USER_PW_LENGTH] = 0;
-	sanitizeString (USER_PWD);
-	IniGetString (INI_FILE, "OldUserID", OLD_USERID, sizeof (OLD_USERID), NULL);
-	OLD_USERID[PRIMENET_USER_ID_LENGTH] = 0;
-	IniGetString (INI_FILE, "OldUserPWD", OLD_USER_PWD, sizeof (OLD_USER_PWD), NULL);
-	OLD_USER_PWD[PRIMENET_USER_PW_LENGTH] = 0;
-	IniGetString (INI_FILE, "UserName", USER_NAME,
-		      sizeof (USER_NAME), NULL);
-	IniGetString (INI_FILE, "UserEmailAddr", USER_ADDR,
-		      sizeof (USER_ADDR), NULL);
-	IniGetString (LOCALINI_FILE, "ComputerID", COMPID,
-		      sizeof (COMPID), NULL);
-	COMPID[PRIMENET_COMPUTER_ID_LENGTH] = 0;
+	IniGetString (LOCALINI_FILE, "ComputerGUID", COMPUTER_GUID, sizeof (COMPUTER_GUID), NULL);
+	FIXED_GUIDS = IniGetInt (INI_FILE, "FixedHardwareUID", 0);
+
+	IniGetString (INI_FILE, "V5UserID", USERID, sizeof (USERID), NULL);
+	IniGetString (LOCALINI_FILE, "ComputerID", COMPID, sizeof (COMPID), NULL);
 	sanitizeString (COMPID);
-	NEWSLETTERS = (int) IniGetInt (INI_FILE, "Newsletters", 0);
-	USE_PRIMENET = (int) IniGetInt (INI_FILE, "UsePrimenet", 1);
+	USE_PRIMENET = (int) IniGetInt (INI_FILE, "UsePrimenet", 0);
 	DIAL_UP = (int) IniGetInt (INI_FILE, "DialUp", 0);
 	DAYS_OF_WORK = (unsigned int) IniGetInt (INI_FILE, "DaysOfWork", 5);
 	if (DAYS_OF_WORK > 180) DAYS_OF_WORK = 180;
-	WORK_PREFERENCE = (short) IniGetInt (INI_FILE, "WorkPreference", 0);
 
-        VACATION_END = IniGetInt (LOCALINI_FILE, "VacationEnd", 0);
-        ON_DURING_VACATION = (int) IniGetInt (LOCALINI_FILE, "VacationOn", 1);
-
-	CPU_TYPE = (unsigned int) IniGetInt (LOCALINI_FILE, "CPUType", 0);
-	CPU_SPEED = IniGetInt (LOCALINI_FILE, "CPUSpeed", 0);
 	CPU_HOURS = (unsigned int) IniGetInt (LOCALINI_FILE, "CPUHours", 24);
 	if (CPU_HOURS < 1) CPU_HOURS = 1;
 	if (CPU_HOURS > 24) CPU_HOURS = 24;
@@ -441,35 +637,31 @@ void readIniFiles (void)
 	if (MODEM_RETRY_TIME > 300) MODEM_RETRY_TIME = 300;
 	NETWORK_RETRY_TIME = (unsigned int)
 		IniGetInt (INI_FILE, "NetworkRetryTime2",
-			   MODEM_RETRY_TIME > 60 ? MODEM_RETRY_TIME : 60);
+			   MODEM_RETRY_TIME > 70 ? MODEM_RETRY_TIME : 70);
 	if (NETWORK_RETRY_TIME < 1) NETWORK_RETRY_TIME = 1;
 	if (NETWORK_RETRY_TIME > 300) NETWORK_RETRY_TIME = 300;
-	DAYS_BETWEEN_CHECKINS = (unsigned int) IniGetInt (INI_FILE, "DaysBetweenCheckins",28);
+	DAYS_BETWEEN_CHECKINS = (unsigned int) IniGetInt (INI_FILE, "DaysBetweenCheckins", 1);
 	if (DAYS_BETWEEN_CHECKINS > 60) DAYS_BETWEEN_CHECKINS = 60;
 	if (DAYS_BETWEEN_CHECKINS < 1) DAYS_BETWEEN_CHECKINS = 1;
 	TWO_BACKUP_FILES = (int) IniGetInt (INI_FILE, "TwoBackupFiles", 1);
 	SILENT_VICTORY = (int) IniGetInt (INI_FILE, "SilentVictory", 0);
 	RUN_ON_BATTERY = (int) IniGetInt (LOCALINI_FILE, "RunOnBattery", 1);
+	BATTERY_PERCENT = (int) IniGetInt (INI_FILE, "BatteryPercent", 0);
 
-	ADVANCED_ENABLED = (int) IniGetInt (INI_FILE, "Advanced", 0);
+	STRESS_TESTER = (int) IniGetInt (INI_FILE, "StressTester", 99);
 	temp = (int) IniGetInt (INI_FILE, "ErrorCheck", 0);
 	ERRCHK = (temp != 0);
+	NUM_WORKER_THREADS = IniGetInt (LOCALINI_FILE, "WorkerThreads", NUM_CPUS);
+	if (NUM_WORKER_THREADS > MAX_NUM_WORKER_THREADS)
+		NUM_WORKER_THREADS = MAX_NUM_WORKER_THREADS;
 	PRIORITY = (unsigned int) IniGetInt (INI_FILE, "Priority", 1);
-	CPU_AFFINITY = (unsigned int) IniGetInt (INI_FILE, "Affinity", 99);
-	if (CPU_AFFINITY != 99) {
-		IniWriteString (INI_FILE, "Affinity", NULL);
-		IniWriteInt (LOCALINI_FILE, "Affinity", CPU_AFFINITY);
-	} else {
-		CPU_AFFINITY = (unsigned int)
-			IniGetInt (LOCALINI_FILE, "Affinity", 99);
-	}
+	PTOGetAll (INI_FILE, "WorkPreference", WORK_PREFERENCE, 0);
+	PTOGetAll (LOCALINI_FILE, "Affinity", CPU_AFFINITY, 100);
+	PTOGetAll (LOCALINI_FILE, "ThreadsPerTest", THREADS_PER_TEST, CPU_HYPERTHREADS);
 	MANUAL_COMM = (int) IniGetInt (INI_FILE, "ManualComm", 0);
 	HIDE_ICON = (int) IniGetInt (INI_FILE, "HideIcon", 0);
 	TRAY_ICON = (int) IniGetInt (INI_FILE, "TrayIcon", 1);
-
-/* Get the CPU type, speed, and capabilities. */
-
-	getCpuInfo ();
+	MERGE_WINDOWS = (int) IniGetInt (INI_FILE, "MergeWindows", 0);
 
 /* Get the option controlling which timer to use.  If the high resolution */
 /* performance counter is not available on this machine, then add 10 to */
@@ -501,18 +693,51 @@ void readIniFiles (void)
 		PAUSE_WHILE_RUNNING[i] = NULL;
 	} else
 		PAUSE_WHILE_RUNNING = NULL;
+	PAUSE_WHILE_RUNNING_FREQ = IniGetInt (INI_FILE, "PauseCheckInterval", 10);
+
+	INTERIM_FILES = IniGetInt (INI_FILE, "InterimFiles", 0);
+	INTERIM_RESIDUES = IniGetInt (INI_FILE, "InterimResidues", INTERIM_FILES);
+	HYPERTHREADING_BACKOFF =
+		IniGetInt (INI_FILE, "HyperthreadingBackoff",
+0);//bug		   CPU_HYPERTHREADS <= 1 ? 0 : 30);
+
+/* Option to slow down the program by sleeping after every iteration.  You */
+/* might use this on a laptop or a computer running in a hot room to keep */
+/* temperatures down and thus reduce the chance of a hardware error.  */
+
+	THROTTLE_PCT = IniGetInt (INI_FILE, "Throttle", 0);
+
+/* Now read the work-to-do file */
+
+	rc = readWorkToDoFile ();
+	if (rc) {
+		OutputStr (MAIN_THREAD_NUM, "Error reading worktodo.txt file\n");
+		return (rc);
+	}
+
+/* Return success */
+
+	return (0);
 }
 
+/****************************************************************************/
+/*          Portable routines to read and write INI files.                  */
+/****************************************************************************/
+
 /*----------------------------------------------------------------------
-| Portable routines to read and write ini files!  NOTE:  These only
-| work if you open no more than 5 ini files.  Also you must not
-| change the working directory at any time during program execution.
+| NOTE:  These only work if you open no more than 10 ini files.  Also you must
+| not change the working directory at any time during program execution.
 +---------------------------------------------------------------------*/
+
+#define INI_LINE_NORMAL		0	/* A normal keyword=value INI line */
+#define INI_LINE_INACTIVE	1	/* An inactive line due to Time= */
+#define INI_LINE_COMMENT	2	/* A comment line */
+#define INI_LINE_HEADER		3	/* A section header line */
 
 struct IniLine {
 	char	*keyword;
 	char	*value;
-	int	active;
+	int	line_type;
 };
 struct IniCache {
 	char	*filename;
@@ -540,16 +765,41 @@ void growIniLineArray (
 	p->array_size = p->num_lines + 100;
 }
 
+/* We used to name files xxxx.ini.  unfortunately, Windows backup/restore */
+/* thought these files should be restored to there old values when you */
+/* rollback a driver and/or some other reasons.  Now we name our files */
+/* xxxx.txt.  This routine converts an old ini name to a new txt name. */
+
+void mangleIniFileName (
+	const char *inputFileName,
+	char	*outputFileName,
+	int	*mangled)	/* Return TRUE if output name != input name */
+{
+	int	len;
+	strcpy (outputFileName, inputFileName);
+	len = (int) strlen (outputFileName);
+	if (len >= 4 &&
+	    outputFileName[len-4] == '.' &&
+	    (outputFileName[len-3] == 'I' || outputFileName[len-3] == 'i') &&
+	    (outputFileName[len-2] == 'N' || outputFileName[len-2] == 'n') &&
+	    (outputFileName[len-1] == 'I' || outputFileName[len-1] == 'i')) {
+		strcpy (outputFileName+len-3, "txt");
+		*mangled = TRUE;
+	} else
+		*mangled = FALSE;
+}
+
 struct IniCache *openIniFile (
-	char	*filename,
+	const char *filename,
 	int	forced_read)
 {
 static	struct IniCache *cache[10] = {0};
 	struct IniCache *p;
 	FILE	*fd;
 	unsigned int i;
-	char	line[80];
+	char	line[1024], newFileName[80];
 	char	*val;
+	int	mangled;
 
 /* See if file is cached */
 
@@ -587,52 +837,84 @@ static	struct IniCache *cache[10] = {0};
 	p->num_lines = 0;
 
 /* Read the IniFile */
-	
-	fd = fopen (filename, "r");
+
+	mangleIniFileName (filename, newFileName, &mangled);
+	fd = fopen (newFileName, "r");
+	if (fd == NULL && mangled) fd = fopen (filename, "r");
 	if (fd == NULL) return (p);
 
-	while (fgets (line, 80, fd)) {
+	while (fgets (line, sizeof (line), fd)) {
 		if (line[strlen(line)-1] == '\n') line[strlen(line)-1] = 0;
-		if (line[0] == 0) continue;
-		if (line[strlen(line)-1] == '\r') line[strlen(line)-1] = 0;
-		if (line[0] == 0) continue;
+		if (line[0] && line[strlen(line)-1] == '\r') line[strlen(line)-1] = 0;
 
-		if (line[0] == ';') continue;
-		if (line[0] == '#') continue;
-		if (line[0] == '[') continue;
-
-		val = strchr (line, '=');
-		if (val == NULL) {
-			char	buf[130];
-			sprintf (buf, "Illegal line in INI file: %s\n", line);
-			OutputSomewhere (buf);
-			continue;
-		}
-		*val++ = 0;
-
-		growIniLineArray (p);
-		
 /* Allocate and fill in a new line structure */
 
+		growIniLineArray (p);
 		i = p->num_lines++;
 		p->lines[i] = (struct IniLine *) malloc (sizeof (struct IniLine));
-		p->lines[i]->keyword = (char *) malloc (strlen (line) + 1);
-		p->lines[i]->value = (char *) malloc (strlen (val) + 1);
-		p->lines[i]->active = TRUE;
-		strcpy (p->lines[i]->keyword, line);
-		strcpy (p->lines[i]->value, val);
+
+/* Flag section headers */
+
+		if (line[0] == '[') {
+			char	*q;
+
+			p->lines[i]->keyword = (char *) malloc (strlen (line) + 1);
+			p->lines[i]->value = (char *) malloc (strlen (line) + 1);
+			p->lines[i]->line_type = INI_LINE_HEADER;
+			strcpy (p->lines[i]->value, line);
+			strcpy (p->lines[i]->keyword, line+1);
+			for (q = p->lines[i]->keyword; *q; q++)
+				if (*q == ']') {
+					*q = 0;
+					break;
+				}
+		}
+
+/* Save comment lines - any line that doesn't begin with a letter */
+
+		else if ((line[0] < 'A' || line[0] > 'Z') &&
+			 (line[0] < 'a' || line[0] > 'z')) {
+			p->lines[i]->keyword = NULL;
+			p->lines[i]->value = (char *) malloc (strlen (line) + 1);
+			p->lines[i]->line_type = INI_LINE_COMMENT;
+			strcpy (p->lines[i]->value, line);
+		}
+
+/* Otherwise, parse keyword=value lines */
+
+		else {
+			val = strchr (line, '=');
+			if (val == NULL) {
+				char	buf[1200];
+				sprintf (buf, "Illegal line in INI file: %s\n", line);
+				OutputSomewhere (MAIN_THREAD_NUM, buf);
+				p->lines[i]->keyword = NULL;
+				p->lines[i]->value = (char *) malloc (strlen (line) + 1);
+				p->lines[i]->line_type = INI_LINE_COMMENT;
+				strcpy (p->lines[i]->value, line);
+			} else {
+				*val++ = 0;
+				p->lines[i]->keyword = (char *) malloc (strlen (line) + 1);
+				p->lines[i]->value = (char *) malloc (strlen (val) + 1);
+				p->lines[i]->line_type = INI_LINE_NORMAL;
+				strcpy (p->lines[i]->keyword, line);
+				strcpy (p->lines[i]->value, val);
+			}
+		}
 	}
 	fclose (fd);
 
 	return (p);
 }
 
+/* Write a changed INI file to disk */
+
 void writeIniFile (
 	struct IniCache *p)
 {
-	int	fd;
+	int	fd, mangled;
 	unsigned int j;
-	char	buf[100];
+	char	buf[2000], newFileName[80];
 
 /* Delay writing the file unless this INI file is written */
 /* to immediately */
@@ -644,17 +926,25 @@ void writeIniFile (
 
 /* Create and write out the INI file */
 
-	fd = _open (p->filename, _O_CREAT | _O_TRUNC | _O_WRONLY | _O_TEXT, CREATE_FILE_ACCESS);
+	mangleIniFileName (p->filename, newFileName, &mangled);
+	fd = _open (newFileName, _O_CREAT | _O_TRUNC | _O_WRONLY | _O_TEXT, CREATE_FILE_ACCESS);
 	if (fd < 0) return;
 	for (j = 0; j < p->num_lines; j++) {
-		strcpy (buf, p->lines[j]->keyword);
-		strcat (buf, "=");
-		strcat (buf, p->lines[j]->value);
+		if (p->lines[j]->line_type == INI_LINE_COMMENT) {
+			strcpy (buf, p->lines[j]->value);
+		} else if (p->lines[j]->line_type == INI_LINE_HEADER) {
+			strcpy (buf, p->lines[j]->value);
+		} else {
+			strcpy (buf, p->lines[j]->keyword);
+			strcat (buf, "=");
+			strcat (buf, p->lines[j]->value);
+		}
 		strcat (buf, "\n");
-		_write (fd, buf, strlen (buf));
+		_write (fd, buf, (unsigned int) strlen (buf));
 	}
 	p->dirty = 0;
 	_close (fd);
+	if (mangled) _unlink (p->filename);
 }
 
 /* Routines to help analyze a Time= line in an INI file */
@@ -753,7 +1043,7 @@ int analyzeTimeLine (
 
 /* Current time was not in any of the intervals */
 
-	return (FALSE);
+	return (INI_LINE_INACTIVE);
 
 /* Current time is in this interval, then set the END_TIME. */
 
@@ -792,7 +1082,7 @@ winner:	END_TIME = current_t + (day * 24 * 60 + end_time - current_time) * 60;
 
 /* Return indicator that current time was covered by one of the intervals */
 
-	return (TRUE);
+	return (INI_LINE_NORMAL);
 }
 
 /* INI files can contain conditional sections bracketed with Time= lines */
@@ -806,7 +1096,7 @@ winner:	END_TIME = current_t + (day * 24 * 60 + end_time - current_time) * 60;
 /*	Priority=5						*/
 
 void processTimedIniFile (
-	char	*filename)
+	const char *filename)
 {
 	struct IniCache *p;
 	time_t	current_time;
@@ -815,10 +1105,11 @@ void processTimedIniFile (
 
 /* Open ini file */
 
+	gwmutex_lock (&INI_MUTEX);
 	p = openIniFile (filename, 0);
 
 /* Get the current time - to compare to any Time= lines */
-	
+
 	time (&current_time);
 
 /* Assume this will be an untimed run */
@@ -829,16 +1120,18 @@ void processTimedIniFile (
 /* Process lines until we run into next Time= line. */
 /* Mark any lines prior to the first Time= line active. */
 
-	active = TRUE;
+	active = INI_LINE_NORMAL;
 	for (i = 0; i < p->num_lines; i++) {
-		p->lines[i]->active = active;
+		if (p->lines[i]->line_type == INI_LINE_COMMENT ||
+		    p->lines[i]->line_type == INI_LINE_HEADER) continue;
+		p->lines[i]->line_type = active;
 
 /* If this is a Time= line, see if the current time is part of the */
 /* interval described in the Time= line.  If the current time is part */
 /* of the interval then set following lines active, otherwise set the */
 /* following lines inactive. */
-		
-		if (stricmp (p->lines[i]->keyword, "Time")) continue;
+
+		if (_stricmp (p->lines[i]->keyword, "Time")) continue;
 		active = analyzeTimeLine (p->lines[i]->value, current_time);
 	}
 
@@ -846,12 +1139,13 @@ void processTimedIniFile (
 /* time interval, then we won't be sleeping. */
 
 	if (END_TIME) SLEEP_TIME = 0;
+	gwmutex_unlock (&INI_MUTEX);
 }
 
 void truncated_strcpy (
 	char	*buf,
 	unsigned int bufsize,
-	char	*val)
+	const char *val)
 {
 	if (strlen (val) >= bufsize) {
 		memcpy (buf, val, bufsize-1);
@@ -861,72 +1155,136 @@ void truncated_strcpy (
 	}
 }
 
-void IniGetString (
-	char	*filename,
-	char	*keyword,
+void IniSectionGetString (
+	const char *filename,
+	const char *section,
+	const char *keyword,
 	char	*val,
 	unsigned int val_bufsize,
-	char	*default_val)
+	const char *default_val)
 {
 	struct IniCache *p;
 	unsigned int i;
 
 /* Open ini file */
 
+	gwmutex_lock (&INI_MUTEX);
 	p = openIniFile (filename, 0);
 
-/* Look for the keyword */
+/* Skip to the correct section */
 
-	for (i = 0; ; i++) {
-		if (i == p->num_lines) {
+	i = 0;
+	if (section != NULL) {
+		for ( ; i < p->num_lines; i++) {
+			if (p->lines[i]->line_type == INI_LINE_HEADER &&
+			    _stricmp (section, p->lines[i]->keyword) == 0) {
+				i++;
+				break;
+			}
+		}
+	}
+
+/* Look for the keyword within this section */
+
+	for ( ; ; i++) {
+		if (i == p->num_lines ||
+		    p->lines[i]->line_type == INI_LINE_HEADER) {
 			if (default_val == NULL) {
 				val[0] = 0;
 			} else {
 				truncated_strcpy (val, val_bufsize, default_val);
 			}
-			return;
+			goto done;
 		}
-		if (p->lines[i]->active &&
-		    stricmp (keyword, p->lines[i]->keyword) == 0) break;
+		if (p->lines[i]->line_type == INI_LINE_NORMAL &&
+		    _stricmp (keyword, p->lines[i]->keyword) == 0) break;
 	}
 
-/* Copy info from the line structure to the user buffers */
+/* Copy info from the line structure to the caller's buffer */
 
 	truncated_strcpy (val, val_bufsize, p->lines[i]->value);
+
+/* Unlock and return */
+
+done:	gwmutex_unlock (&INI_MUTEX);
 }
 
-long IniGetInt (
-	char	*filename,
-	char	*keyword,
+long IniSectionGetInt (
+	const char *filename,
+	const char *section,
+	const char *keyword,
 	long	default_val)
 {
 	char	buf[20], defval[20];
 	sprintf (defval, "%ld", default_val);
-	IniGetString (filename, keyword, buf, 20, defval);
+	IniSectionGetString (filename, section, keyword, buf, 20, defval);
 	return (atol (buf));
 }
 
-void IniWriteString (
-	char	*filename,
-	char	*keyword,
-	char	*val)
+void IniSectionWriteString (
+	const char *filename,
+	const char *section,
+	const char *keyword,
+	const char *val)
 {
 	struct IniCache *p;
-	unsigned int i, j;
+	unsigned int i, j, insertion_point;
 
 /* Open ini file */
 
-	p = openIniFile (filename, 1);
+	gwmutex_lock (&INI_MUTEX);
+	p = openIniFile (filename, 0);
 
-/* Look for the keyword */
+/* Skip to the correct section.  If the section does not exist, create it */
 
-	for (i = 0; ; i++) {
+	i = 0;
+	if (section != NULL) {
+		for ( ; ; i++) {
+			if (i == p->num_lines) {
+				if (val == NULL) goto done;
+				growIniLineArray (p);
+				p->lines[i] = (struct IniLine *)
+					malloc (sizeof (struct IniLine));
+				p->lines[i]->line_type = INI_LINE_COMMENT;
+				p->lines[i]->keyword = NULL;
+				p->lines[i]->value = (char *) malloc (1);
+				p->lines[i]->value[0] = 0;
+				p->num_lines++;
+				i++;
+				growIniLineArray (p);
+				p->lines[i] = (struct IniLine *)
+					malloc (sizeof (struct IniLine));
+				p->lines[i]->line_type = INI_LINE_HEADER;
+				p->lines[i]->keyword = (char *)
+					malloc (strlen (section) + 1);
+				strcpy (p->lines[i]->keyword, section);
+				p->lines[i]->value = (char *)
+					malloc (strlen (section) + 3);
+				sprintf (p->lines[i]->value, "[%s]", section);
+				p->num_lines++;
+				i++;
+				break;
+			}
+			if (p->lines[i]->line_type == INI_LINE_HEADER &&
+			    _stricmp (section, p->lines[i]->keyword) == 0) {
+				i++;
+				break;
+			}
+		}
+	}
+
+/* Look for the keyword within this section */
+
+	insertion_point = i;
+	for ( ; ; i++) {
 		if (i == p->num_lines ||
-		    stricmp (p->lines[i]->keyword, "Time") == 0) {
+		    p->lines[i]->line_type == INI_LINE_HEADER ||
+		    (p->lines[i]->line_type != INI_LINE_COMMENT &&
+		     _stricmp (p->lines[i]->keyword, "Time") == 0)) {
 
 /* Ignore request if we are deleting line */
 
-			if (val == NULL) return;
+			if (val == NULL) goto done;
 
 /* Make sure the line array has room for the new line */
 
@@ -934,21 +1292,37 @@ void IniWriteString (
 
 /* Shuffle entries down to make room for this entry */
 
+			i = insertion_point;
 			for (j = p->num_lines; j > i; j--)
 				p->lines[j] = p->lines[j-1];
 
 /* Allocate and fill in a new line structure */
 
 			p->lines[i] = (struct IniLine *) malloc (sizeof (struct IniLine));
+			p->lines[i]->line_type = INI_LINE_NORMAL;
 			p->lines[i]->keyword = (char *) malloc (strlen (keyword) + 1);
 			strcpy (p->lines[i]->keyword, keyword);
 			p->lines[i]->value = NULL;
 			p->num_lines++;
 			break;
 		}
-		if (p->lines[i]->active &&
-		    stricmp (keyword, p->lines[i]->keyword) == 0) {
-			if (val != NULL && strcmp (val, p->lines[i]->value) == 0) return;
+
+/* If this is not a blank line, then if we need to insert a new line, */
+/* insert it after this line.  In other words, insert new entries before */
+/* any blank lines at the end of a section */
+
+		if (p->lines[i]->line_type != INI_LINE_COMMENT ||
+		    p->lines[i]->value[0]) {
+			insertion_point = i + 1;
+		}
+
+/* If this is the keyword we are looking for, then we will replace the */
+/* value if it has changed. */
+
+		if (p->lines[i]->line_type == INI_LINE_NORMAL &&
+		    _stricmp (keyword, p->lines[i]->keyword) == 0) {
+			if (val != NULL &&
+			    strcmp (val, p->lines[i]->value) == 0) goto done;
 			break;
 		}
 	}
@@ -956,859 +1330,628 @@ void IniWriteString (
 /* Delete the line if requested */
 
 	if (val == NULL) {
-		IniDeleteLine (filename, i+1);
-		return;
+
+/* Free the data associated with the given line */
+
+		free (p->lines[i]->keyword);
+		free (p->lines[i]->value);
+		free (p->lines[i]);
+
+/* Delete the line from the lines array */
+
+		for (i++; i < p->num_lines; i++) p->lines[i-1] = p->lines[i];
+		p->num_lines--;
 	}
 
 /* Replace the value associated with the keyword */
 
-	free (p->lines[i]->value);
-	p->lines[i]->value = (char *) malloc (strlen (val) + 1);
-	strcpy (p->lines[i]->value, val);
+	else {
+		free (p->lines[i]->value);
+		p->lines[i]->value = (char *) malloc (strlen (val) + 1);
+		strcpy (p->lines[i]->value, val);
+	}
 
 /* Write the INI file back to disk */
 
 	writeIniFile (p);
+
+/* Unlock and return */
+
+done:	gwmutex_unlock (&INI_MUTEX);
 }
 
-void IniWriteInt (
-	char	*filename,
-	char	*keyword,
+void IniSectionWriteInt (
+	const char *filename,
+	const char *section,
+	const char *keyword,
 	long	val)
 {
 	char	buf[20];
 	sprintf (buf, "%ld", val);
-	IniWriteString (filename, keyword, buf);
+	IniSectionWriteString (filename, section, keyword, buf);
 }
 
-void IniFileOpen (
-	char	*filename,
-	int	immediate_writes)
+/* Shorthand routines for reading and writing from the global section */
+
+void IniGetString (
+	const char *filename,
+	const char *keyword,
+	char	*val,
+	unsigned int val_bufsize,
+	const char *default_val)
+{
+	IniSectionGetString (filename, NULL, keyword, val, val_bufsize, default_val);
+}
+
+long IniGetInt (
+	const char *filename,
+	const char *keyword,
+	long	default_val)
+{
+	return (IniSectionGetInt (filename, NULL, keyword, default_val));
+}
+
+/* Write a string to the INI file. */
+
+void IniWriteString (
+	const char *filename,
+	const char *keyword,
+	const char *val)
+{
+	IniSectionWriteString (filename, NULL, keyword, val);
+}
+
+/* Write an integer to the INI file. */
+
+void IniWriteInt (
+	const char *filename,
+	const char *keyword,
+	long	val)
+{
+	IniSectionWriteInt (filename, NULL, keyword, val);
+}
+
+/* Reread the INI file. */
+
+void IniFileReread (
+	const char *filename)
 {
 	struct IniCache *p;
+	gwmutex_lock (&INI_MUTEX);
 	p = openIniFile (filename, 1);
-	p->immediate_writes = immediate_writes;
+	gwmutex_unlock (&INI_MUTEX);
 }
 
-void IniFileClose (
-	char	*filename)
+//
+//bug - do we want to offer two new routines:  immediate_writes_on and
+// immediate_writes_off?  This would speed up bulk changes to the INI file.
+//
+
+/****************************************************************************/
+/*               Utility routines to work with ".add" files                 */
+/****************************************************************************/
+
+/* See if an "add file" file exists.  An add file lets the user create a */
+/* prime.add, local.add, or worktodo.add file to overwrite/append options */
+/* or append work while the program is running.  This is especially handy */
+/* for workstations that are not physically accessible but there file */
+/* systems are by network.  If this feature was not available, the only */
+/* safe method for updating would be to stop the program, edit the .ini */
+/* file, and restart the program. */
+
+int addFileExists (void)
 {
-	struct IniCache *p;
-	p = openIniFile (filename, 0);
-	if (p->dirty) {
-		p->immediate_writes = 1;
-		writeIniFile (p);
-		p->immediate_writes = 0;
+	char	filename[80];
+	char	*dot;
+
+	strcpy (filename, INI_FILE);
+	dot = strrchr (filename, '.');
+	if (dot != NULL) {
+		strcpy (dot, ".add");
+		if (fileExists (filename)) return (TRUE);
 	}
+	strcpy (filename, LOCALINI_FILE);
+	dot = strrchr (filename, '.');
+	if (dot != NULL) {
+		strcpy (dot, ".add");
+		if (fileExists (filename)) return (TRUE);
+	}
+	strcpy (filename, WORKTODO_FILE);
+	dot = strrchr (filename, '.');
+	if (dot != NULL) {
+		strcpy (dot, ".add");
+		if (fileExists (filename)) return (TRUE);
+	}
+	return (FALSE);
 }
 
-int IniFileWritable (
-	char	*filename)
+/* Merge one "add file" into an ini file.  Assumes the ini file has been */
+/* freshly re-read from disk.  This also is used to copy an old primenet.ini */
+/* to a [PrimeNet] section of prime.ini */
+
+void iniAddFileMerge (
+	char	*ini_filename,
+	char	*add_filename,
+	char	*section_to_copy_to)
 {
-	struct IniCache *p;
-	int	fd;
+	struct IniCache *p, *q;
+	char	*section;
 	unsigned int j;
-	char	buf[100];
 
-/* Create and write out the INI file */
+/* Open ini files */
 
-	p = openIniFile (filename, 0);
-	fd = _open (p->filename, _O_CREAT | _O_TRUNC | _O_WRONLY | _O_TEXT, CREATE_FILE_ACCESS);
-	if (fd < 0) return (FALSE);
-	for (j = 0; j < p->num_lines; j++) {
-		strcpy (buf, p->lines[j]->keyword);
-		strcat (buf, "=");
-		strcat (buf, p->lines[j]->value);
-		strcat (buf, "\n");
-		if (_write (fd, buf, strlen (buf)) != (int) strlen (buf)) {
-			_close (fd);
-			return (FALSE);
+	gwmutex_lock (&INI_MUTEX);
+	p = openIniFile (ini_filename, 0);
+	q = openIniFile (add_filename, 1);
+
+/* Save up all the writes */
+
+	p->immediate_writes = FALSE;
+
+/* Loop through all the lines in the add file, adding them to the */
+/* base ini file */
+
+	section = section_to_copy_to;
+	for (j = 0; j < q->num_lines; j++) {
+		if (q->lines[j]->line_type == INI_LINE_HEADER) {
+			if (section_to_copy_to == NULL)
+				section = q->lines[j]->keyword;
+		}
+		else if (q->lines[j]->line_type != INI_LINE_COMMENT)
+			IniSectionWriteString (ini_filename, section,
+						q->lines[j]->keyword,
+						q->lines[j]->value);
+	}
+
+/* Output all the saved up writes */
+
+	p->immediate_writes = TRUE;
+	writeIniFile (p);
+	
+/* Delete the add file */
+
+	_unlink (add_filename);
+
+/* Unlock and return */
+
+	gwmutex_unlock (&INI_MUTEX);
+}
+
+/* Merge all INI ".add files" into their corresponding base files */
+
+void incorporateIniAddFiles (void)
+{
+	char	filename[80];
+	char	*dot;
+
+/* Merge additions to prime.ini */
+
+	strcpy (filename, INI_FILE);
+	dot = strrchr (filename, '.');
+	if (dot != NULL) {
+		strcpy (dot, ".add");
+		if (fileExists (filename))
+			iniAddFileMerge (INI_FILE, filename, NULL);
+	}
+
+/* Merge additions to local.ini */
+
+	strcpy (filename, LOCALINI_FILE);
+	dot = strrchr (filename, '.');
+	if (dot != NULL) {
+		strcpy (dot, ".add");
+		if (fileExists (filename))
+			iniAddFileMerge (LOCALINI_FILE, filename, NULL);
+	}
+}
+
+/* Merge optional worktodo.add file into their worktodo.ini file */
+
+int incorporateWorkToDoAddFile (void)
+{
+static	int	worktodo_add_disabled = FALSE;
+	char	filename[80];
+	char	*dot;
+	int	rc;
+	FILE	*fd;
+	unsigned int tnum;
+	char	line[2048];
+
+/* If add files have been disabled (see below) then we're all done */
+
+	if (worktodo_add_disabled) return (0);
+
+/* Merge additions to worktodo.ini */
+
+	strcpy (filename, WORKTODO_FILE);
+	dot = strrchr (filename, '.');
+	if (dot == NULL) return (0);
+	strcpy (dot, ".add");
+
+/* Open the worktodo.add file, it is OK if this file does not exist. */
+/* does not exist. */
+
+	fd = fopen (filename, "r");
+	if (fd == NULL) return (0);
+
+/* As an ugly kludge, we append lines from worktodo.add as comments in the */
+/* in-memory version of worktodo.ini.  Later we will write worktodo.ini to */
+/* disk and reprocess it entirely.  Loop processing each worktodo.add line */
+
+	gwmutex_lock (&WORKTODO_MUTEX);
+	tnum = 0;
+	while (fgets (line, sizeof (line), fd)) {
+		struct work_unit *w;
+
+/* Remove trailing CRLFs */
+
+		if (line[strlen(line)-1] == '\n')
+			line[strlen(line)-1] = 0;
+		if (line[0] && line[strlen(line)-1] == '\r')
+			line[strlen(line)-1] = 0;
+		if (line[0] == 0) continue;
+
+/* If this is a section header find the matching section header in */
+/* worktodo.ini.  If no match is found, add this to the first empty thread */
+/* or the very last thread */
+
+		if (line[0] == '[') {
+			struct work_unit *w;
+			for (tnum = 0; ; tnum++) {
+				w = WORK_UNITS[tnum].first;
+				if (w == NULL) {
+					if (tnum) break;
+				} else {
+					if (w->work_type == WORK_NONE &&
+					    _stricmp (w->comment, line) == 0)
+						break;
+				}
+				if (tnum == NUM_WORKER_THREADS - 1) {
+					w = NULL;
+					break;
+				}
+			}
+			if (w != NULL) continue;
+		}
+
+/* Allocate a work unit structure */
+
+		w = (struct work_unit *) malloc (sizeof (struct work_unit));
+		if (w == NULL) goto nomem;
+		memset (w, 0, sizeof (struct work_unit));
+
+/* Save new line as a comment.  It will be properly parsed when we re-read */
+/* the worktodo.ini file. */
+
+		w->work_type = WORK_NONE;
+		w->comment = (char *) malloc (strlen (line) + 1);
+		if (w->comment == NULL) goto nomem;
+		strcpy (w->comment, line);
+
+/* Grow the work_unit array if necessary and add this entry */
+
+		rc = addToWorkUnitArray (tnum, w, FALSE);
+		if (rc) goto retrc;
+	}
+
+/* Close the file, free the lock and return success */
+
+	fclose (fd);
+	gwmutex_unlock (&WORKTODO_MUTEX);
+
+/* Write the combined worktodo.ini file */
+
+	WORKTODO_CHANGED = TRUE;
+	rc = writeWorkToDoFile (TRUE);
+	if (rc) return (rc);
+
+/* Delete the worktodo.add file.  If file exists after we tried to delete it */
+/* then permanently disable worktodo.add processing (to avoid an infinite */
+/* loop growing and growing the worktodo file with redundant work! */
+
+	_unlink (filename);
+	if (fileExists (filename)) {
+		OutputBoth (MAIN_THREAD_NUM,
+			    "ERROR:  Can't delete worktodo.add file\n");
+		worktodo_add_disabled = TRUE;
+	}
+
+/* Now reprocess the combined and freshly written worktodo.ini file */
+
+	return (readWorkToDoFile ());
+
+/* Handle an error during the reading of the add file */
+
+nomem:	rc = OutOfMemory (MAIN_THREAD_NUM);
+retrc:	fclose (fd);
+	gwmutex_unlock (&WORKTODO_MUTEX);
+	return (rc);
+}
+
+/****************************************************************************/
+/*          Utility routines to work with per-thread options (PTO)          */
+/****************************************************************************/
+
+void PTOGetAll (
+	char	*ini_filename,		/* Ini file containing the options */
+	char	*keyword,		/* Ini file keyword */
+	unsigned int *array,		/* Options array */
+	unsigned int def_val)		/* Default value */
+{
+	int	i, global_val;
+	char	section_name[32];
+
+/* Copy the global option setting to the entire array */
+
+	global_val = IniGetInt (ini_filename, keyword, -1);
+	for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+		if (global_val == -1) array[i] = def_val;
+		else array[i] = global_val;
+	}
+
+/* Now look for any section specific overrides */
+
+	for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+		sprintf (section_name, "Worker #%d", i+1);
+		array[i] = IniSectionGetInt (ini_filename, section_name,
+					     keyword, array[i]);
+	}
+}
+
+void PTOSetAll (
+	char	*ini_filename,		/* Ini file containing the options */
+	char	*keyword,		/* Ini file keyword */
+	char	*shadow_keyword,	/* Ini file keyword for value the */
+					/* server has stored for this option */
+	unsigned int *array,		/* Options array */
+	unsigned int new_val)		/* New option value */
+{
+	int	i;
+	char	section_name[32];
+
+/* Copy the global option setting to the entire array */
+
+	IniWriteInt (ini_filename, keyword, new_val);
+	for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+		array[i] = new_val;
+	}
+	if (shadow_keyword != NULL)
+		IniWriteInt (LOCALINI_FILE, shadow_keyword, new_val);
+
+/* Now clear all section specific overrides */
+
+	for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+		sprintf (section_name, "Worker #%d", i+1);
+		IniSectionWriteString (ini_filename, section_name, keyword, NULL);
+		if (shadow_keyword != NULL)
+			IniSectionWriteString (LOCALINI_FILE, section_name,
+					       shadow_keyword, NULL);
+	}
+}
+
+void PTOSetOne (
+	char	*ini_filename,		/* Ini file containing the options */
+	char	*keyword,		/* Ini file keyword */
+	char	*shadow_keyword,	/* Ini file keyword for value the */
+					/* server has stored for this option */
+	unsigned int *array,		/* Options array */
+	int	tnum,			/* Thread number */
+	unsigned int new_val)		/* New option value */
+{
+	char	section_name[32];
+
+/* Will changing this option cause us to switch from one global setting */
+/* to individual settings on each thread? */
+
+	if (PTOIsGlobalOption (array)) {
+		int	i;
+
+/* If option has not changed, then do nothing */
+
+		if (array[tnum] == new_val) return;
+
+/* Delete the global option and set the thread specific option for */
+/* each thread. */
+
+		IniWriteString (ini_filename, keyword, NULL);
+		if (shadow_keyword != NULL)
+			IniWriteString (LOCALINI_FILE, shadow_keyword, NULL);
+		for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+			sprintf (section_name, "Worker #%d", i+1);
+			IniSectionWriteInt (ini_filename, section_name,
+					    keyword, array[i]);
+			if (shadow_keyword != NULL)
+				IniSectionWriteInt (LOCALINI_FILE, section_name,
+						    shadow_keyword, array[i]);
 		}
 	}
-	if (p->num_lines == 0) {
-		if (_write (fd, "DummyLine=XXX\n", 14) != 14) {
-			_close (fd);
-			return (FALSE);
-		}
-		p->dirty = 1;
-	}
-	_close (fd);
+
+/* Set the option for just this one thread */
+
+	array[tnum] = new_val;
+	sprintf (section_name, "Worker #%d", tnum+1);
+	IniSectionWriteInt (ini_filename, section_name, keyword, new_val);
+	if (shadow_keyword != NULL)
+		IniSectionWriteInt (LOCALINI_FILE, section_name,
+				    shadow_keyword, new_val);
+}
+
+int PTOIsGlobalOption (
+	unsigned int *array)		/* Options array */
+{
+	int	i;
+
+	for (i = 1; i < (int) NUM_WORKER_THREADS; i++)
+		if (array[i-1] != array[i]) return (FALSE);
 	return (TRUE);
 }
 
-unsigned int IniGetNumLines (
-	char	*filename)
+int PTOHasOptionChanged (
+	char	*shadow_keyword,	/* Ini file keyword for value the */
+					/* server has stored for this option */
+	unsigned int *array,		/* Options array */
+	int	tnum)			/* Thread number */
 {
-	struct IniCache *p;
-	p = openIniFile (filename, 0);
-	return (p->num_lines);
-}
+	char	section_name[32];
 
-void IniGetLineAsString (
-	char	*filename,
-	unsigned int line,
-	char	*keyword,
-	unsigned int keyword_bufsize,
-	char	*val,
-	unsigned int val_bufsize)
-{
-	struct IniCache *p;
+/* If this is the thread number that tells us we are dealing global options */
+/* then return TRUE if this is a globally set option and it has changed. */
 
-/* Open ini file */
+	if (tnum == -1)
+		return (PTOIsGlobalOption (array) &&
+			array[0] != IniGetInt (LOCALINI_FILE, shadow_keyword, -1));
 
-	p = openIniFile (filename, 0);
+/* Otherwise, return TRUE if this is not a globally set option and it has changed. */
 
-/* Copy info from the line structure to the user buffers */
-
-	truncated_strcpy (keyword, keyword_bufsize, p->lines[line-1]->keyword);
-	truncated_strcpy (val, val_bufsize, p->lines[line-1]->value);
-}
-
-void IniGetLineAsInt (
-	char	*filename,
-	unsigned int line,
-	char	*keyword,
-	unsigned int keyword_bufsize,
-	long	*val)
-{
-	char	buf[20];
-	IniGetLineAsString (filename, line, keyword, keyword_bufsize, buf, 20);
-	*val = atol (buf);
-}
-
-void IniReplaceLineAsString (
-	char	*filename,
-	unsigned int line,
-	char	*keyword,
-	char	*val)
-{
-	IniDeleteLine (filename, line);
-	IniInsertLineAsString (filename, line, keyword, val);
-}
-
-void IniReplaceLineAsInt (
-	char	*filename,
-	unsigned int line,
-	char	*keyword,
-	long	val)
-{
-	char	buf[20];
-	sprintf (buf, "%ld", val);
-	IniReplaceLineAsString (filename, line, keyword, buf);
-}
-
-void IniInsertLineAsString (
-	char	*filename,
-	unsigned int line,
-	char	*keyword,
-	char	*val)
-{
-	struct IniCache *p;
-	unsigned int i;
-
-/* Open ini file, do not reread it as that could change the line numbers! */
-
-	p = openIniFile (filename, 0);
-
-/* Adjust line number if it doesn't make sense */
-
-	if (line == 0) line = 1;
-	if (line > p->num_lines+1) line = p->num_lines+1;
-
-/* Make sure the line array has room for the new line */
-
-	growIniLineArray (p);
-
-/* Shuffle lines down in the array to make room for the new line */
-
-	for (i = p->num_lines; i >= line; i--) p->lines[i] = p->lines[i-1];
-	p->num_lines++;
-
-/* Allocate and fill in a new line structure */
-
-	p->lines[line-1] = (struct IniLine *) malloc (sizeof (struct IniLine));
-	p->lines[line-1]->keyword = (char *) malloc (strlen (keyword) + 1);
-	p->lines[line-1]->value = (char *) malloc (strlen (val) + 1);
-	p->lines[line-1]->active = TRUE;
-	strcpy (p->lines[line-1]->keyword, keyword);
-	strcpy (p->lines[line-1]->value, val);
-
-/* Write the INI file back to disk */
-
-	writeIniFile (p);
-}
-
-void IniInsertLineAsInt (
-	char	*filename,
-	unsigned int line,
-	char	*keyword,
-	long	val)
-{
-	char	buf[20];
-	sprintf (buf, "%ld", val);
-	IniInsertLineAsString (filename, line, keyword, buf);
-}
-
-void IniAppendLineAsString (
-	char	*filename,
-	char	*keyword,
-	char	*val)
-{
-	struct IniCache *p;
-	p = openIniFile (filename, 0);
-	IniInsertLineAsString (filename, p->num_lines+1, keyword, val);
-}
-
-void IniAppendLineAsInt (
-	char	*filename,
-	char	*keyword,
-	long	val)
-{
-	char	buf[20];
-	sprintf (buf, "%ld", val);
-	IniAppendLineAsString (filename, keyword, buf);
-}
-
-void IniDeleteLine (
-	char	*filename,
-	unsigned int line)
-{
-	struct IniCache *p;
-	unsigned int i;
-
-/* Open ini file, do not reread it as that could change the line numbers! */
-
-	p = openIniFile (filename, 0);
-	if (line == 0 || line > p->num_lines) return;
-
-/* Free the data associated with the given line */
-
-	free (p->lines[line-1]->keyword);
-	free (p->lines[line-1]->value);
-	free (p->lines[line-1]);
-
-/* Delete the line from the lines array */
-
-	for (i = line; i < p->num_lines; i++) p->lines[i-1] = p->lines[i];
-	p->num_lines--;
-
-/* Write the INI file back to disk */
-
-	writeIniFile (p);
-}
-
-void IniDeleteAllLines (
-	char	*filename)
-{
-	struct IniCache *p;
-	unsigned int i;
-
-/* Open ini file! */
-
-	p = openIniFile (filename, 0);
-
-/* Free the data associated with the given line */
-
-	for (i = 0; i < p->num_lines; i++) {
-		free (p->lines[i]->keyword);
-		free (p->lines[i]->value);
-		free (p->lines[i]);
-	}
-	p->num_lines = 0;
-
-/* Write the INI file back to disk */
-
-	writeIniFile (p);
-}
-
-/*----------------------------------------------------------------------+
-| Portable routines to read and write messages in the spool file.	|
-+----------------------------------------------------------------------*/
-
-#include "security.c"
-#ifndef IPSHASH
-void hash_packet (short operation, void *pkt)
-{
-	struct primenetUserInfo *z = (struct primenetUserInfo *) pkt;
-	if (operation == PRIMENET_PING_SERVER_INFO) return;
-	z->salt = 0;
-	z->hash = 0;
-}
-#endif
-
-/* Update completion dates on the server.  Set a flag in */
-/* the spool file saying this is necessary. */
-
-void UpdateEndDates (void)
-{
-	spoolMessage (PRIMENET_COMPLETION_DATE, NULL);
-}
-
-/* Update completion dates on the server if it has been a */
-/* month since we last updated the server. */
-
-void ConditionallyUpdateEndDates (void)
-{
-#ifndef SERVER_TESTING
-	time_t	start_time, current_time;
-
-/* Get the current time and when the completion dates were last sent */
-
-	time (&current_time);
-	start_time = IniGetInt (LOCALINI_FILE, "LastEndDatesSent", 0);
-
-/* If it's been the correct number of days, then update the end dates */
-
-	if (current_time < start_time ||
-	    current_time > (time_t) (start_time + DAYS_BETWEEN_CHECKINS * 86400))
-		UpdateEndDates ();
-#endif
-}
-
-/* Write a message to the spool file */
-
-void spoolMessage (
-	short	msgType,
-	void	*msg)
-{
-	int	fd;
-	char	header_byte;
-
-/* If we're not using primenet, ignore this call */
-
-	if (!USE_PRIMENET) goto leave;
-
-/* Open the spool file */
-
-	fd = _open (SPOOL_FILE, _O_RDWR | _O_BINARY | _O_CREAT, CREATE_FILE_ACCESS);
-	if (fd < 0) {
-		LogMsg ("ERROR: Unable to open spool file.\n");
-		goto leave;
-	}
-
-/* Get the current header byte */
-
-	header_byte = 0;
-	_read (fd, &header_byte, 1);
-
-/* If this is a maintain user info message, then set the header */
-/* byte appropriately.  The 0x80 bit is the "Create a team" flag. */
-
-	if ((msgType & 0x7F) == PRIMENET_MAINTAIN_USER_INFO) {
-		header_byte |= 0x4;
-		if (msgType & 0x80) header_byte |= 0x80;
-		msgType = PRIMENET_MAINTAIN_USER_INFO;
-	}
-
-/* If this is a set computer info message, then set */
-/* the header byte appropriately */
-
-	else if (msgType == PRIMENET_SET_COMPUTER_INFO)
-		header_byte |= 0x20;
-
-/* If this is an update completion dates message, then set */
-/* the header byte appropriately */
-
-	else if (msgType == PRIMENET_COMPLETION_DATE)
-		header_byte |= 0x8;
-
-/* Ugly little hack when quitting GIMPS */
-
-	else if (msgType == 999)
-		header_byte |= 0x10;
-
-/* See if this is an important message */
-
-	else if (msgType == PRIMENET_ASSIGNMENT_RESULT)
-		header_byte |= 0x2;
-	else
-		header_byte |= 0x1;
-
-/* Write the new header byte */
-
-	_lseek (fd, 0, SEEK_SET);
-	_write (fd, &header_byte, 1);
-
-/* Write out a full message */
-
-	if (msgType == PRIMENET_RESULT_MESSAGE ||
-	    msgType == PRIMENET_ASSIGNMENT_RESULT) {
-		char	buf[1024];
-		short	datalen;
-		union {
-			struct primenetResultMessage msg;
-			struct primenetAssignmentResult res;
-		} x;
-
-/* Skip the remaining messages */
-
-		while (_read (fd, buf, sizeof (buf)));
-
-/* Append the latest message */
-
-		if (msgType == PRIMENET_RESULT_MESSAGE) {
-			memset (&x.msg, 0, sizeof (x.msg));
-			if (strlen ((char *) msg) >= sizeof (x.msg.message)) {
-				memcpy (x.msg.message, msg, sizeof (x.msg.message));
-				x.msg.message[sizeof(x.msg.message)-1] = 0;
-			} else
-				strcpy (x.msg.message, (char *) msg);
-			datalen = sizeof (struct primenetResultMessage);
-		} else {
-			datalen = sizeof (struct primenetAssignmentResult);
-			memcpy (&x, msg, datalen);
-		}
-		_write (fd, &msgType, sizeof (short));
-		_write (fd, &datalen, sizeof (short));
-		_write (fd, &x, datalen);
-	}
-
-/* Set flag that the spool file has changed */
-
-	SPOOL_FILE_CHANGED = 1;
-
-/* Close the spool file */
-
-	_close (fd);
-
-/* If this is a maintain user info message, then also */
-/* write a message to the results file */
-
-leave:	if (msgType == PRIMENET_MAINTAIN_USER_INFO &&
-	    (USER_NAME[0] != 0 || USER_ADDR[0] != 0)) {
-		char	buf[200];
-		if (USERID[0])
-			sprintf (buf, "UID: %s, User: %s, %s\n",
-				 USERID, USER_NAME, USER_ADDR);
-		else
-			sprintf (buf, "User: %s, %s\n", USER_NAME, USER_ADDR);
-		writeResults (buf);
-		spoolMessage (PRIMENET_RESULT_MESSAGE, buf);
-		if (OLD_USERID[0]) {
-			sprintf (buf, "Change UID from %s to %s\n",
-				 OLD_USERID, USERID);
-			writeResults (buf);
-			spoolMessage (PRIMENET_RESULT_MESSAGE, buf);
-		}
+	else {
+		sprintf (section_name, "Worker #%d", tnum+1);
+		return (!PTOIsGlobalOption (array) &&
+			array[tnum] != IniSectionGetInt (LOCALINI_FILE, section_name, shadow_keyword, -1));
 	}
 }
 
-/* Read a spooled message */
 
-void readMessage (
-	int	fd,
-	long	*offset,	/* Offset of the message */
-	short	*msgType,	/* 0 = no message */
-	void	*msg)
-{
-	short	datalen;
-
-/* Loop until a message that hasn't already been sent is found */
-
-	for ( ; ; ) {
-		*offset = _lseek (fd, 0, SEEK_CUR);
-		if (_read (fd, msgType, sizeof (short)) != sizeof (short))
-			goto err;
-		if (_read (fd, &datalen, sizeof (short)) != sizeof (short))
-			goto err;
-
-/* Upgrade old style spooled messages */
-
-		if (*msgType == PRIMENET_RESULT_MESSAGE &&
-		    datalen == sizeof (struct primenet2ResultMessage)) {
-			struct primenet2ResultMessage v2msg;
-			struct primenetResultMessage *v3msg;
-			v3msg = (struct primenetResultMessage *) msg;
-			if (_read (fd, &v2msg, datalen) != datalen) goto err;
-			memset (msg, 0, sizeof (struct primenetResultMessage));
-			strcpy (v3msg->message, v2msg.message);
-		} else if (*msgType == PRIMENET_ASSIGNMENT_RESULT &&
-			   datalen==sizeof (struct primenet2AssignmentResult)){
-			struct primenet2AssignmentResult v2msg;
-			struct primenetAssignmentResult *v3msg;
-			v3msg = (struct primenetAssignmentResult *) msg;
-			if (_read (fd, &v2msg, datalen) != datalen) goto err;
-			memset (msg, 0,
-				sizeof (struct primenetAssignmentResult));
-			v3msg->exponent = v2msg.exponent;
-			v3msg->resultType = v2msg.resultType;
-			memcpy (&v3msg->resultInfo, &v2msg.resultInfo,
-				sizeof (v2msg.resultInfo));
-		}
-
-/* Read the body of the message */
-
-		else
-			if (_read (fd, msg, datalen) != datalen) goto err;
-
-/* Loop if message has already been sent */
-
-		if (*msgType != -1) break;
-	}
-	return;
-err:	*msgType = 0;
-}
-
-
-/* Send a message that was read from the spool file */
-
-int sendMessage (
-	short	msgType,
-	void	*msg)
-{
-static	int	error_3_countdown = 72;  // 3 day countdown to ignore error 3
-	struct primenetResultMessage *pkt;
-	struct primenetResultMessage local_pkt;
-	short	structSize;
-	int	return_code;
-	char	buf[200];
-
-/* Load the primenet library and do any special handling */
-/* required prior to calling primenet */
-
-	if (!LoadPrimeNet ()) return (PRIMENET_ERROR_MODEM_OFF);
-
-/* Prepend all messages with the userid and computer id */
-
-	pkt = (struct primenetResultMessage *) msg;
-	if (msgType == PRIMENET_RESULT_MESSAGE) {
-		memcpy (&local_pkt, pkt, sizeof(struct primenetResultMessage));
-		if (USERID[0] == 0) 
-			sprintf (local_pkt.message, "%s", pkt->message);
-		else if (COMPID[0] == 0)
-			sprintf (local_pkt.message, "UID: %s, %s",
-				 USERID, pkt->message);
-		else
-			sprintf (local_pkt.message, "UID: %s/%s, %s",
-				 USERID, COMPID, pkt->message);
-		pkt = &local_pkt;
-	}
-
-/* Print a message on the screen and in the log file */
-
-	switch (msgType) {
-	case PRIMENET_PING_SERVER_INFO:
-		OutputStr ("Contacting PrimeNet Server.\n");
-		structSize = sizeof (struct primenetPingServerInfo);
-		break;
-	case PRIMENET_MAINTAIN_USER_INFO:
-		LogMsg ("Updating user information on the server\n");
-		structSize = sizeof (struct primenetUserInfo);
-		break;
-	case PRIMENET_SET_COMPUTER_INFO:
-		LogMsg ("Updating computer information on the server\n");
-		structSize = sizeof (struct primenetComputerInfo);
-		break;
-	case PRIMENET_GET_ASSIGNMENT:
-		LogMsg ("Getting exponents from server\n");
-		structSize = sizeof (struct primenetGetAssignment);
-		break;
-	case PRIMENET_COMPLETION_DATE:
-		{
-			time_t	this_time;
-			char	timebuf[30];
-			time (&this_time);
-			this_time += ((struct primenetCompletionDate *)pkt)->days * 86400;
-			strcpy (timebuf, ctime (&this_time)+4);
-			strcpy (timebuf+6, timebuf+15);
-			sprintf (buf, "Sending expected completion date for M%ld: %s",
-				((struct primenetCompletionDate *)pkt)->exponent, timebuf);
-			LogMsg (buf);
-		}
-		structSize = sizeof (struct primenetCompletionDate);
-		break;
-	case PRIMENET_RESULT_MESSAGE:
-		LogMsg ("Sending text message to server:\n");
-		LogMsg (pkt->message);
-		structSize = sizeof (struct primenetResultMessage) - 200 +
-			strlen (pkt->message) + 1;
-		break;
-	case PRIMENET_ASSIGNMENT_RESULT:
-		if (((struct primenetAssignmentResult *)pkt)->resultType == PRIMENET_RESULT_UNRESERVE)
-			sprintf (buf, "Unreserving exponent %ld\n",
-				 ((struct primenetAssignmentResult *)pkt)->exponent);
-		else
-			sprintf (buf, "Sending result to server for exponent %ld\n",
-				 ((struct primenetAssignmentResult *)pkt)->exponent);
-		LogMsg (buf);
-		structSize = sizeof (struct primenetAssignmentResult);
-		break;
-	}
-
-/* Fill in the common header fields */
-
-	pkt->structSize = structSize;
-	if (msgType != PRIMENET_PING_SERVER_INFO) {
-		pkt->versionNumber = PRIMENET_VERSION;
-		strcpy (pkt->userID, USERID);
-		strcpy (pkt->userPW, USER_PWD);
-		strcpy (pkt->computerID, COMPID);
-		pkt->hashFunction = PRIMENET_HASHFUNC_WOLTMAN_1;
-	}
-	hash_packet (msgType, pkt);
-
-/* Send the message and for safety's sake re-init the FPU */
-
-	return_code = PRIMENET (msgType, pkt);
-	fpu_init ();
-
-/* Check for the special do-not-talk-to-server-anymore return codes */
-
-	if (return_code == PRIMENET_ERROR_KILL_CLIENT ||
-	    (return_code >= PRIMENET_ERROR_SLEEP_CLIENT_1 &&
-	     return_code <= PRIMENET_ERROR_SLEEP_CLIENT_200)) {
-		time_t	end_time;
-		time (&end_time);
-		if (return_code == PRIMENET_ERROR_KILL_CLIENT)
-			end_time = 1999999999L;
-		else
-			end_time += 3600 *
-				(return_code - PRIMENET_ERROR_SLEEP_CLIENT_1 + 1);
-		IniWriteInt (LOCALINI_FILE, "BlackoutEnd", (long) end_time);
-		IniWriteString (LOCALINI_FILE, "BlackoutVersion", VERSION);
-		sprintf (buf, "ERROR %d: PrimeNet Blackout!!\n", return_code);
-		LogMsg (buf);
-		return (PRIMENET_ERROR_BLACKOUT);
-	}
-
-/* Check for a broadcast message! */
-
-	if (return_code == PRIMENET_ERROR_OK &&
-	    msgType == PRIMENET_PING_SERVER_INFO &&
-	    pkt->versionNumber >= PRIMENET_PING_INFO_MESSAGE) {
-		struct primenetPingServerInfo *p;
-		p = (struct primenetPingServerInfo *) pkt;
-		if (p->u.messageInfo.targetMap & (1L << PORT) &&
-		    p->u.messageInfo.targetMap & (1L << VERSION_BIT) &&
-		    p->u.messageInfo.msgID > IniGetInt (LOCALINI_FILE, "BroadcastID", 0)) {
-			IniWriteInt (LOCALINI_FILE, "BroadcastID", p->u.messageInfo.msgID);
-			strcat (p->u.messageInfo.szMsgText, "\n");
-			LogMsg (p->u.messageInfo.szMsgText);
-			writeResults (p->u.messageInfo.szMsgText);
-			BroadcastMessage (p->u.messageInfo.szMsgText);
-		}
-	}
-
-/* Print message based on return code */
-
-	switch (return_code) {
-	case PRIMENET_ERROR_OK:
-		if (msgType == PRIMENET_ASSIGNMENT_RESULT)
-			error_3_countdown = 72;
-		break;
-	case 12029:
-		sprintf (buf, "ERROR %d: Cannot find server.  See http://www.mersenne.org/ips/faq.html\n", return_code);
-		if (msgType == PRIMENET_PING_SERVER_INFO)
-			OutputStr (buf);
-		else
-			LogMsg (buf);
-		break;
-	case PRIMENET_ERROR_CONNECT_FAILED:
-		sprintf (buf, "ERROR %d: Server unavailable\n", return_code);
-		if (msgType == PRIMENET_PING_SERVER_INFO)
-			OutputStr (buf);
-		else
-			LogMsg (buf);
-		break;
-	case PRIMENET_ERROR_SERVER_BUSY:
-		sprintf (buf, "ERROR %d: Server busy\n", return_code);
-		if (msgType == PRIMENET_PING_SERVER_INFO)
-			OutputStr (buf);
-		else
-			LogMsg (buf);
-		return_code = PRIMENET_ERROR_CONNECT_FAILED;
-		break;
-	case PRIMENET_ERROR_NO_ASSIGNMENT:
-		sprintf (buf, "ERROR %d: Server has run out of exponents to assign.\n", return_code);
-		LogMsg (buf);
-		break;
-	case PRIMENET_ERROR_ACCESS_DENIED:
-		sprintf (buf, "ERROR %d: UserID/Password error.\n", return_code);
-		LogMsg (buf);
-		if (OLD_USERID[0]) {
-			LogMsg ("Old userID and password will be used.\n");
-			strcpy (USERID, OLD_USERID);
-			strcpy (USER_PWD, OLD_USER_PWD);
-			OLD_USERID[0] = 0;
-			OLD_USER_PWD[0] = 0;
-		} else {
-			LogMsg ("A new userID and password will be generated.\n");
-			USERID[0] = 0;
-			USER_PWD[0] = 0;
-		}
-		spoolMessage (PRIMENET_MAINTAIN_USER_INFO, NULL);
-		break;
-	case PRIMENET_ERROR_ALREADY_TESTED:
-		sprintf (buf, "ERROR %d: Exponent already tested.\n", return_code);
-		LogMsg (buf);
-		if (msgType == PRIMENET_ASSIGNMENT_RESULT) return_code = 0;
-		break;
-	case PRIMENET_ERROR_UNASSIGNED:
-		sprintf (buf, "ERROR %d: Server database crashed or exponent not assigned to this computer.\n", return_code);
-		LogMsg (buf);
-		if (msgType == PRIMENET_ASSIGNMENT_RESULT) {
-			if (error_3_countdown == 0) return_code = 0;
-			else error_3_countdown--;
-		}
-		break;
-	case PRIMENET_ERROR_NOT_PERMITTED:
-		sprintf (buf, "ERROR %d: Operation not permitted on this exponent.\n", return_code);
-		LogMsg (buf);
-		if (msgType == PRIMENET_ASSIGNMENT_RESULT) return_code = 0;
-		break;
-	default:
-		sprintf (buf, "ERROR: Primenet error %d\n", return_code);
-		LogMsg (buf);
-		break;
-	}
-
-/* Print out message saying where more help may be found. */
-
-	if (return_code)
-		OutputStr ("The FAQ at http://www.mersenne.org/ips/faq.html may have more information.\n");
-
-/* Return the return code */
-
-	return (return_code);
-}
-
-
-/* Copy an existing results file to the spool file */
-/* This is used when converting from manual to automatic mode */
-/* It provides an extra chance that the existing results file */
-/* will get sent to us. */
-
-void spoolExistingResultsFile (void)
-{
-	int	i;
-	char	*filename;
-	char	line[256];
-	FILE	*fd;
-
-	for (i = 0; i <= 2; i++) {
-		if (i == 0) filename = "results";
-		if (i == 1) filename = "results.txt";
-		if (i == 2) {
-			if (!strcmp (RESFILE, "results")) continue;
-			if (!strcmp (RESFILE, "results.txt")) continue;
-			filename = RESFILE;
-		}
-		fd = fopen (filename, "r");
-		if (fd == NULL) continue;
-		while (fgets (line, sizeof (line) - 1, fd)) {
-			if (line[0] == '[') continue;
-			if (strstr (line, "Res64") == NULL &&
-			    strstr (line, "factor:") == NULL &&
-			    strstr (line, "completed P-1") == NULL &&
-			    strstr (line, "no factor") == NULL) continue;
-			if (line[0] == 'U' && strchr (line, ',') != NULL)
-				strcpy (line, strchr (line, ',') + 2);
-			spoolMessage (PRIMENET_RESULT_MESSAGE, line);
-		}
-		fclose (fd);
-	}
-}
+/****************************************************************************/
+/*                Utility routines to output messages                       */
+/****************************************************************************/
 
 /* Output string to screen or results file */
 
 void OutputSomewhere (
+	int	thread_num,
 	char	*buf)
 {
 	if (NO_GUI) writeResults (buf);
-	else OutputStr (buf);
+	else OutputStr (thread_num, buf);
 }
 
 /* Output string to both the screen and results file */
 
 EXTERNC
 void OutputBoth (
+	int	thread_num,
 	char	*buf)
 {
-	OutputStr (buf);
+	OutputStr (thread_num, buf);
 	writeResults (buf);
 }
 
-/* Output message to screen and prime.log file */
+/* Output string to screen.  Prefix it with an optional timestamp. */
 
-void LogMsg (
-	char	*str)
+void OutputStr (
+	int	thread_num,
+	char	*buf)
 {
-	int	fd;
-	unsigned long filelen;
-static	time_t	last_time = 0;
-	time_t	this_time;
 
-/* Output it to the screen */
+/* Grab a lock so that multiple threads cannot output at the same time. */
+/* Simultaneous output would be real bad on OS's that output all this data */
+/* to a single screen/window (such as a Linux command line implementation). */
 
-	OutputStr (str);
+	gwmutex_lock (&OUTPUT_MUTEX);
 
-/* Open the log file and position to the end */
+/* Format a timestamp.  Prefix every line in the input buffer with */
+/* the timestamp. */
 
-	fd = _open (LOGFILE, _O_TEXT | _O_RDWR | _O_CREAT, CREATE_FILE_ACCESS);
-	if (fd < 0) {
-		OutputStr ("Unable to open log file.\n");
-		return;
-	}
-	filelen = _lseek (fd, 0L, SEEK_END);
-
-/* Output to the log file only if it hasn't grown too big */
-
-	if (filelen < (unsigned long) IniGetInt (INI_FILE, "MaxLogFileSize", 2000000)) {
-
-/* If it has been at least 5 minutes since the last time stamp */
-/* was output, then output a new timestamp */
+	if (TIMESTAMPING) {
+		time_t	this_time;
+		char	tmpbuf[200], fmtbuf[40];
 
 		time (&this_time);
-		if (this_time - last_time > 300) {
-			char	buf[48];
-			last_time = this_time;
-			buf[0] = '[';
-			strcpy (buf+1, ctime (&this_time));
-			sprintf (buf+25, " - ver %s]\n", VERSION);
-			_write (fd, buf, strlen (buf));
-		}
+		strcpy (tmpbuf, ctime (&this_time)+4);
 
-/* Output the message */
+		/* Eliminate seconds and year or just year */
+		if (TIMESTAMPING & 1) tmpbuf[12] = 0;
+		else tmpbuf[15] = 0;
 
-		_write (fd, str, strlen (str));
+		/* Eliminate date or zero-suppress day */
+		if (TIMESTAMPING >= 3)
+			strcpy (tmpbuf, tmpbuf+7);
+		else if (tmpbuf[4] == '0' || tmpbuf[4] == ' ')
+			strcpy (tmpbuf+4, tmpbuf+5);
+
+		sprintf (fmtbuf, "[%s] ", tmpbuf);
+
+/* Output the prefix for every line in the buffer */ 
+
+		do {
+			char	*eol;
+
+			eol = strchr (buf, '\n');
+			if (eol != NULL) eol++;
+			else eol = buf + strlen (buf);
+			RealOutputStr (thread_num, fmtbuf);
+			while (buf != eol) {
+				int	len;
+				len = (int) (eol - buf);
+				if (len >= sizeof (tmpbuf))
+					len = sizeof (tmpbuf) - 1;
+				memcpy (tmpbuf, buf, len);
+				tmpbuf[len] = 0;
+				RealOutputStr (thread_num, tmpbuf);
+				buf += len;
+			}
+		} while (*buf);
 	}
 
-/* Display message about full log file */
-	
-	else {
-		char	*fullmsg = "Prime.log file full.  Please delete it.\n";
-		OutputStr (fullmsg);
-		if (filelen < 251000)
-			_write (fd, fullmsg, strlen (fullmsg));
-	}
-	_close (fd);
+/* No timestamp - just output the possibly multi-line buffer. */
+
+	else
+		RealOutputStr (thread_num, buf);
+
+/* Free the lock and return */
+
+	gwmutex_unlock (&OUTPUT_MUTEX);
 }
 
+/* Output string to screen without prefixing a timestamp.  Only used when */
+/* outputting a line in chunks (we do this when benchmarking). */
 
-/* Determine the preferred work type (based on CPU speed) */
-/* Slower machines will be relegated to just factoring.  Medium speed */
-/* machines will be given double-checking assignments.  Faster machines */
-/* get first time LL tests. */
-
-short default_work_type (void)
+void OutputStrNoTimeStamp (
+	int	thread_num,
+	char	*buf)
 {
-	double	speed;
-
-/* Get estimated iteration time for a 512K length FFT */
-
-	speed = gwmap_to_timing (1.0, 2, 9500000, -1, CPU_TYPE) *
-			24.0 / CPU_HOURS * 1000.0 / ROLLING_AVERAGE;
-
-/* P4-1400 and faster with decent sized L2 caches get first-time LL tests */
-/* P-400 and faster get double-checking work */
-/* All slower machines get factoring work */
-
-	if (speed < 0.034 &&
-	    (CPU_L2_CACHE_SIZE < 0 || CPU_L2_CACHE_SIZE > 128))
-		return (PRIMENET_ASSIGN_TEST);
-	if (speed < 0.325) return (PRIMENET_ASSIGN_DBLCHK);
-	return (PRIMENET_ASSIGN_FACTOR);
+	gwmutex_lock (&OUTPUT_MUTEX);
+	RealOutputStr (thread_num, buf);
+	gwmutex_unlock (&OUTPUT_MUTEX);
 }
+
+/* Output an out-of-memory error */
+
+int OutOfMemory (
+	int thread_num)
+{
+	OutputStr (thread_num, "Out of memory!\n");
+	return (STOP_OUT_OF_MEM);
+}
+
+/****************************************************************************/
+/*               Routines to process worktodo.ini files                     */
+/****************************************************************************/
+
+/* The worktodo structures are accessed by worker threds, the communication */
+/* thread, the timer threads, and the GUI thread.  We must be VERY CAREFUL */
+/* with our locking scheme to make sure there are no crashes or hangs. */
+
+/* The simplest scheme just locks on entry to each of these routines. */
+/* This solves some basic problems such as two threads writing the worktodo */
+/* file at the same time.  However, more difficult problems still exist. */
+/* For example, a worker thread could delete the work unit while the */
+/* GUI (Test/Status) or comm thread (sending completion dates) try to */
+/* has a pointer to the work unit structure.  A dereference after the */
+/* delete will crash. */
+
+/* The scheme I came up with increments a per work unit counter that */
+/* indicates the work unit is in use.  Deletes are not allowed while the */
+/* work unit is in use. */
+
+/* We complicate this scheme by differentiating between in-use by a worker */
+/* thread (it could take a very long time to decrement the counter) and */
+/* access by the comm or GUI threads (these should be very quick accesses). */
+
+/* Finally, the comm thread has a work-unit in use when it sends a message */
+/* to the server.  If this hangs, the timer code must decrement the in-use */
+/* counter and kill the thread (or leave it in a hung state). */
+
 
 /* Count commas in a string */
 
@@ -1824,535 +1967,1273 @@ unsigned int countCommas (
 	return (cnt);
 }
 
-/* Parse a line from the work-to-do file */
+/* Do some more initialization of work_unit fields.  These values do */
+/* not appear in the worktodo.ini file, but need initializing in a */
+/* common place. */
 
-int parseWorkToDoLine (
-	unsigned int line,	/* Line number to parse */
-	struct work_unit *w)	/* Returned type of work */
+void auxillaryWorkUnitInit (
+	struct work_unit *w)
 {
-	char	keyword[20];
-	char	value[80];
-	char	*comma;
+
+/* Compute factor_to if not set already */
+
+	if ((w->work_type == WORK_FACTOR ||
+	     w->work_type == WORK_TEST ||
+	     w->work_type == WORK_DBLCHK) &&
+	    w->factor_to == 0.0)
+		w->factor_to = factorLimit (w);
+
+/* Initialize the number of LL tests saved */
+
+	if (w->work_type == WORK_TEST) w->tests_saved = 2.0;
+	if (w->work_type == WORK_DBLCHK) w->tests_saved = 1.0;
+}
+
+/* Fill in a work unit's stage and percentage complete based on any */
+/* save files. */
+
+void pct_complete_from_savefile (
+	struct work_unit *w)
+{
+	int	fd, res;
+	unsigned long version;
+	char	filename[32];
+
+/* Generate the save file name */
+
+	tempFileName (w, filename);
+
+/* See if there is an intermediate file.  If there is read it to get our */
+/* stage and percent complete.  This is a little tricky for LL and PRP tests */
+/* which could have 3 different types of save files (LL/PRP, P-1, or trial */
+/* factoring). */
+
+	for ( ; ; ) {
+		fd = _open (filename, _O_BINARY | _O_RDONLY);
+		if (fd <= 0) {
+			if ((w->work_type == WORK_TEST ||
+			     w->work_type == WORK_DBLCHK ||
+			     w->work_type == WORK_PRP) && filename[0] == 'p') {
+				filename[0] = 'm';
+				continue;
+			}
+			if ((w->work_type == WORK_TEST ||
+			     w->work_type == WORK_DBLCHK) && filename[0] == 'm') {
+				filename[0] = 'f';
+				continue;
+			}
+			break;
+		}
+
+/* Read the header */
+
+		res = read_header (fd, &version, w, NULL);
+		_close (fd);
+		if (!res) break;
+
+/* We've successfully read a save file header, return now that the work */
+/* unit's stage and pct_complete fields have been filled in. */
+
+		return;
+	}
+
+/* We have not started working on this item */
+
+	w->stage[0] = 0;
+	w->pct_complete = 0.0;
+}
+
+/* Add a work_unit to the work_unit array.  Grow the work_unit */
+/* array if necessary */
+
+int addToWorkUnitArray (
+	unsigned int tnum,	/* Thread number that will run work unit */
+	struct work_unit *w,	/* Work unit to add to array */
+	int	add_to_end)	/* TRUE if we are to add to end of array */
+{
+	struct work_unit *insertion_point;
+
+/* If add_to_end is set, then we are reading the worktodo.ini file. */
+/* Add the entry to the end of the array */
+
+	if (add_to_end)
+		insertion_point = WORK_UNITS[tnum].last;
+
+/* Otherwise, add ADVANCEDTEST work units to the front of the array after */
+/* any comment lines. */
+
+	else if (w->work_type == WORK_ADVANCEDTEST) {
+		if (WORK_UNITS[tnum].first != NULL &&
+		    WORK_UNITS[tnum].first->work_type == WORK_NONE)
+			for (insertion_point = WORK_UNITS[tnum].first;
+			     insertion_point->next != NULL;
+			     insertion_point = insertion_point->next) {
+				if (insertion_point->next->work_type != WORK_NONE)
+					break;
+			}
+		else
+			insertion_point = NULL;
+	}
+
+/* Add all other work units before the last blank line. */
+
+	else {
+		for (insertion_point = WORK_UNITS[tnum].last;
+		     insertion_point != NULL;
+		     insertion_point = insertion_point->prev) {
+			if (insertion_point->work_type != WORK_NONE ||
+			    insertion_point->comment[0]) break;
+		}
+	}
+
+/* Now insert the work unit after the insertion point */
+
+	w->prev = insertion_point;
+	if (insertion_point == NULL) {
+		w->next = WORK_UNITS[tnum].first;
+		WORK_UNITS[tnum].first = w;
+	} else {
+		w->next = insertion_point->next;
+		insertion_point->next = w;
+	}
+	if (w->next == NULL)
+		WORK_UNITS[tnum].last = w;
+	else
+		w->next->prev = w;
+
+/* Bump count of valid work lines and wake up thread if it is waiting */
+/* for work to do. */
+
+	if (w->work_type != WORK_NONE) {
+		WORKTODO_COUNT++;
+		restart_waiting_workers ();
+	}
+
+/* Return success */
+
+	return (0);
+}
+
+/* Read the entire worktodo.ini file into memory.  Return error_code */
+/* if we have a memory or file I/O error. */
+
+int readWorkToDoFile (void)
+{
+	FILE	*fd;
+	unsigned int tnum, i, linenum;
+	int	rc, mangled, first_real_work_line;
+	char	line[2048], newFileName[80];
+
+/* Grab the lock so that comm thread cannot try to add work units while */
+/* file is being read in. */
+
+	for (i = 1; ; i++) {
+		gwmutex_lock (&WORKTODO_MUTEX);
+
+/* Make sure no other threads are accessing work units right now. */
+/* There should be no worker threads active so any use will be very */
+/* short-lived.  Output a message if this takes too long - so that we */
+/* can diagnose locking problems that shouldn't be happening. */
+
+		if (WORKTODO_IN_USE_COUNT == 0) break;
+		gwmutex_unlock (&WORKTODO_MUTEX);
+		Sleep (1);
+		if (i % 10000 == 0)
+			OutputStr (MAIN_THREAD_NUM,
+				   "Use count locking problem in reading worktodo file.\n"); 
+	}
+
+/* Clear file needs writing flag and count of worktodo lines */
+
+	WORKTODO_CHANGED = FALSE;
+	WORKTODO_COUNT = 0;
+
+/* Free old work_units for each worker thread. */
+/* We sometimes reread the worktodo.ini file in case the user */
+/* manually edits the file while the program is running. */
+
+	for (tnum = 0; tnum < MAX_NUM_WORKER_THREADS; tnum++) {
+		struct work_unit *w, *next_w;
+		for (w = WORK_UNITS[tnum].first; w != NULL; w = next_w) {
+			next_w = w->next;
+			free (w->known_factors);
+			free (w->comment);
+			free (w);
+		}
+		WORK_UNITS[tnum].first = NULL;
+		WORK_UNITS[tnum].last = NULL;
+	}
+
+/* Read the lines of the work file.  It is OK if the worktodo.ini file */
+/* does not exist. */
+
+	mangleIniFileName (WORKTODO_FILE, newFileName, &mangled);
+	fd = fopen (newFileName, "r");
+	if (fd == NULL && mangled) fd = fopen (WORKTODO_FILE, "r");
+	if (fd == NULL) goto done;
+
+	tnum = 0;
+	linenum = 0;
+	first_real_work_line = TRUE;
+	while (fgets (line, sizeof (line), fd)) {
+	    struct work_unit *w;
+	    char keyword[20];
+	    char *value;
+
+/* Remove trailing CRLFs */
+
+	    if (line[strlen(line)-1] == '\n') line[strlen(line)-1] = 0;
+	    if (line[0] && line[strlen(line)-1] == '\r') line[strlen(line)-1] = 0;
+	    linenum++;
+
+/* Allocate a work unit structure */
+
+	    w = (struct work_unit *) malloc (sizeof (struct work_unit));
+	    if (w == NULL) goto nomem;
+	    memset (w, 0, sizeof (struct work_unit));
+
+/* A section header precedes each worker thread's work units.  The first */
+/* section need not be preceeded by a section header. */
+
+	    if (line[0] == '[' && linenum > 1) {
+		tnum++;
+		first_real_work_line = TRUE;
+		if (tnum == NUM_WORKER_THREADS) {
+		    char	buf[100];
+		    sprintf (buf,
+			     "Too many sections in worktodo.txt.  Line #%d\n",
+			     linenum);
+		    OutputSomewhere (MAIN_THREAD_NUM, buf);
+		}
+		if (tnum >= MAX_NUM_WORKER_THREADS)
+			tnum = MAX_NUM_WORKER_THREADS - 1;
+	    }
+
+/* All lines other than keyword=value are saved as comment lines. */
+
+	    if (((line[0] < 'A' || line[0] > 'Z') &&
+		 (line[0] < 'a' || line[0] > 'z'))) {
+comment:	w->work_type = WORK_NONE;
+		w->comment = (char *) malloc (strlen (line) + 1);
+		if (w->comment == NULL) goto nomem;
+		strcpy (w->comment, line);
+		goto wdone;
+	    }
+
+/* Otherwise, parse keyword=value lines */
+
+	    value = strchr (line, '=');
+	    if (value == NULL || (int) (value - (char *) line) >= sizeof (keyword) - 1) {
+		char	buf[2100];
+illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
+		OutputSomewhere (MAIN_THREAD_NUM, buf);
+		goto comment;
+	    }
+	    *value = 0;
+	    strcpy (keyword, line);
+	    *value++ = '=';
 
 /* Set some default values.  Historically, this program worked on */
-/* Mersenne numbers only. */
+/* Mersenne numbers only.  Default to an FFT length chosen by gwnum library. */
 
-	w->k = 1.0;
-	w->b = 2;
-	w->c = -1;
+	    w->k = 1.0;
+	    w->b = 2;
+	    w->c = -1;
+	    w->forced_fftlen = 0;
+	    w->extension[0] = 0;
 
-/* Get the line from work-to-do file */
+/* Parse the optional assignment_uid */
 
-loop:	if (line > IniGetNumLines (WORKTODO_FILE)) return (FALSE);
-	IniGetLineAsString (WORKTODO_FILE, line, keyword, sizeof (keyword),
-			    value, sizeof (value));
+	    if ((value[0] == 'N' || value[0] == 'n') &&
+		(value[1] == '/') &&
+		(value[2] == 'A' || value[2] == 'a') &&
+		(value[3] == ',')) {
+		w->ra_failed = TRUE;
+		strcpy (value, value+4);
+	    }
+	    for (i = 0; ; i++) {
+		if (!(value[i] >= '0' && value[i] <= '9') &&
+		    !(value[i] >= 'A' && value[i] <= 'F') &&
+		    !(value[i] >= 'a' && value[i] <= 'f')) break;
+		if (i == 31) {
+			if (value[32] != ',') break;
+			value[32] = 0;
+			strcpy (w->assignment_uid, value);
+			strcpy (value, value+33);
+			break;
+		}
+	    }
 
-/* Parse the keyword */
+/* Parse the FFT length to use.  The syntax is FFT_length for x87 cpus and */
+/* FFT2_length for SSE2 machines.  We support two syntaxes so that an */
+/* assignment moved from an x87 to-or-from an SSE2 machine will recalculate */
+/* the soft FFT crossover. */
 
-	if (stricmp (keyword, "Factor") == 0)
-		w->work_type = WORK_FACTOR;
-	else if (stricmp (keyword, "Test") == 0)
+	    if ((value[0] == 'F' || value[0] == 'f') &&
+	        (value[1] == 'F' || value[1] == 'f') &&
+	        (value[2] == 'T' || value[2] == 't')) {
+		int	sse2;
+		unsigned long fftlen;
+		char	*p;
+
+		if (value[3] == '2') {
+			sse2 = TRUE;
+			p = value+5;
+		} else {
+			sse2 = FALSE;
+			p = value+4;
+		}
+		fftlen = atoi (p);
+		while (isdigit (*p)) p++;
+		if (*p == 'K' || *p == 'k') fftlen <<= 10, p++;
+		if (*p == 'M' || *p == 'm') fftlen <<= 20, p++;
+		if (*p == ',') p++;
+		strcpy (value, p);
+		if ((sse2 && (CPU_FLAGS & CPU_SSE2)) ||
+		    (!sse2 && ! (CPU_FLAGS & CPU_SSE2)))
+			w->forced_fftlen = fftlen;
+	    }
+
+/* Parse the optional file extension to use on ECM save files.  This lets */
+/* us run ECM on the same number in different threads yet avoid conflicting */
+/* save file names.  I could also use this technique to allow trial */
+/* factoring the same number in two different threads. */
+
+	    if ((value[0] == 'E' || value[0] == 'e') &&
+	        (value[1] == 'X' || value[1] == 'x') &&
+	        (value[2] == 'T' || value[2] == 't') &&
+		value[3] == '=') {
+		char	*comma, *p;
+
+		p = value+4;
+		comma = strchr (p, ',');
+		if (comma != NULL) {
+			*comma = 0;
+			if (strlen (p) > 8) p[8] = 0;
+			strcpy (w->extension, p);
+			strcpy (value, comma+1);
+		}
+	    }
+
+/* Handle Test= and DoubleCheck= lines.					*/
+/*	Test=exponent,how_far_factored,has_been_pminus1ed		*/
+/*	DoubleCheck=exponent,how_far_factored,has_been_pminus1ed	*/
+
+	    if (_stricmp (keyword, "Test") == 0) {
+		float	sieve_depth;
 		w->work_type = WORK_TEST;
-	else if (stricmp (keyword, "AdvancedTest") == 0)
-		w->work_type = WORK_ADVANCEDTEST;
-	else if (stricmp (keyword, "DoubleCheck") == 0)
+		sieve_depth = 0.0;
+		sscanf (value, "%lu,%f,%ld",
+				&w->n, &sieve_depth, &w->pminus1ed);
+		w->sieve_depth = sieve_depth;
+		w->tests_saved = 2.0;
+	    }
+	    else if (_stricmp (keyword, "DoubleCheck") == 0) {
+		float	sieve_depth;
 		w->work_type = WORK_DBLCHK;
+		sieve_depth = 0.0;
+		sscanf (value, "%lu,%f,%ld",
+				&w->n, &sieve_depth, &w->pminus1ed);
+		w->sieve_depth = sieve_depth;
+		w->tests_saved = 1.0;
+	    }
 
-// Handle Pfactor= lines.  Old style is:
-//	Pfactor=exponent,how_far_factored,double_check_flag
-// New style is:
-//	Pfactor=k,b,n,c,how_far_factored,ll_tests_saved_if_factor_found
+/* Handle AdvancedTest= lines. */
+/*	AdvancedTest=exponent */
 
-	else if (stricmp (keyword, "PFactor") == 0) {
+	    else if (_stricmp (keyword, "AdvancedTest") == 0) {
+		w->work_type = WORK_ADVANCEDTEST;
+		sscanf (value, "%lu", &w->n);
+	    }
+
+/* Handle Factor= lines.  Old style is:					*/
+/*	Factor=exponent,how_far_factored				*/
+/* New style is:							*/
+/*	Factor=exponent,how_far_factored,how_far_to_factor_to		*/
+
+	    else if (_stricmp (keyword, "Factor") == 0) {
+		float	sieve_depth, factor_to;
+		w->work_type = WORK_FACTOR;
+		sieve_depth = 0.0;
+		factor_to = 0.0;
+		sscanf (value, "%lu,%f,%f",
+				&w->n, &sieve_depth, &factor_to);
+		w->sieve_depth = sieve_depth;
+		w->factor_to = factor_to;
+	    }
+
+/* Handle Pfactor= lines.  Old style is:				*/
+/*	Pfactor=exponent,how_far_factored,double_check_flag		*/
+/* New style is:							*/
+/*	Pfactor=k,b,n,c,how_far_factored,ll_tests_saved_if_factor_found	*/
+
+	    else if (_stricmp (keyword, "PFactor") == 0) {
+		float	sieve_depth;
 		w->work_type = WORK_PFACTOR;
-		if (countCommas (value) > 3) {		// New style
+		sieve_depth = 0.0;
+		if (countCommas (value) > 3) {		/* New style */
 			char	*q;
-			float	sieve_depth;
 			float	tests_saved;
+			tests_saved = 0.0;
 			q = strchr (value, ','); *q = 0; w->k = atof (value);
 			sscanf (q+1, "%lu,%lu,%ld,%f,%f",
 				&w->b, &w->n, &w->c, &sieve_depth,
 				&tests_saved);
 			w->sieve_depth = sieve_depth;
 			w->tests_saved = tests_saved;
-			w->bits = (unsigned long) sieve_depth;
-			return (TRUE);
-		} else {				// Old style
+		} else {				/* Old style */
 			int	dblchk;
-			sscanf (value, "%lu,%lu,%ld",
-				&w->n, &w->bits, &dblchk);
-			w->sieve_depth = (double) w->bits;
+			sscanf (value, "%lu,%f,%ld",
+				&w->n, &sieve_depth, &dblchk);
+			w->sieve_depth = sieve_depth;
 			w->tests_saved = dblchk ? 1.0 : 2.0;
-			return (TRUE);
 		}
-	}
+	    }
 
-// Handle ECM= lines.  Old style is:
-//	ECM=exponent,B1,B2,curves_to_do,unused[,specific_sigma,plus1,B2_start]
-// New style is:
-//	ECM2=k,b,n,c,B1,B2,curves_to_do[,specific_sigma,B2_start]
+/* Handle ECM= lines.  Old style is: */
+/*   ECM=exponent,B1,B2,curves_to_do,unused[,specific_sigma,plus1,B2_start] */
+/* New style is: */
+/*   ECM2=k,b,n,c,B1,B2,curves_to_do[,specific_sigma,B2_start][,"factors"] */
 
-	else if (stricmp (keyword, "ECM") == 0) {
-		int	i;
-		unsigned long j;
+	    else if (_stricmp (keyword, "ECM") == 0) {
 		char	*q;
 		w->work_type = WORK_ECM;
-		sscanf (value, "%ld,%lu,%lu,%ld",
-			 &w->n, &w->B1, &w->B2_end, &w->curves_to_do);
-		w->B2_start = w->B1;
+		sscanf (value, "%ld", &w->n);
+		if ((q = strchr (value, ',')) == NULL) goto illegal_line;
+		w->B1 = atof (q+1);
+		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+		w->B2 = atof (q+1);
+		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+		w->curves_to_do = atoi (q+1);
+		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+		q = strchr (q+1, ',');
 		w->curve = 0;
-		for (i = 1, q = value; i <= 5; i++, q++)
-			if ((q = strchr (q, ',')) == NULL) return (TRUE);
-		w->curve = atof (q);
-		if ((q = strchr (q, ',')) == NULL) return (TRUE);
-		w->c = atoi (q+1);
-		if (w->c == 0) w->c = -1; // Compatibility with old plus1 arg
-		if ((q = strchr (q+1, ',')) == NULL) return (TRUE);
-		j = atoi (q+1);
-		if (j > w->B1) w->B2_start = j;
-		return (TRUE);
-	} else if (stricmp (keyword, "ECM2") == 0) {
+		if (q != NULL) {
+			w->curve = atof (q+1);
+			q = strchr (q+1, ',');
+		}
+		if (q != NULL) {
+			w->c = atoi (q+1);
+			if (w->c == 0) w->c = -1; /* old plus1 arg */
+			q = strchr (q+1, ',');
+		}
+		w->B2_start = w->B1;
+		if (q != NULL) {
+			double j;
+			j = atof (q+1);
+			if (j > w->B1) w->B2_start = j;
+		}
+	    } else if (_stricmp (keyword, "ECM2") == 0) {
 		int	i;
-		unsigned long j;
 		char	*q;
 		w->work_type = WORK_ECM;
-		if ((q = strchr (value, ',')) != NULL) {
-			*q = 0;
-			w->k = atof (value);
-			strcpy (value, q+1);
-		}
-		sscanf (value, "%lu,%lu,%ld,%lu,%lu,%lu",
-			 &w->b, &w->n, &w->c, &w->B1, &w->B2_end,
-			 &w->curves_to_do);
-		w->B2_start = w->B1;
+		w->k = atof (value);
+		if ((q = strchr (value, ',')) == NULL) goto illegal_line;
+		sscanf (q+1, "%lu,%lu,%ld", &w->b, &w->n, &w->c);
+		for (i = 1; i <= 3; i++)
+			if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+		w->B1 = atof (q+1);
+		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+		w->B2 = atof (q+1);
+		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+		w->curves_to_do = atoi (q+1);
+		q = strchr (q+1, ',');
 		w->curve = 0;
-		for (i = 1, q = value; i <= 6; i++, q++)
-			if ((q = strchr (q, ',')) == NULL) return (TRUE);
-		w->curve = atof (q);
-		if ((q = strchr (q, ',')) == NULL) return (TRUE);
-		j = atoi (q+1);
-		if (j > w->B1) w->B2_start = j;
-		return (TRUE);
-	}
+		if (q != NULL && q[1] != '"') {
+			w->curve = atof (q+1);
+			q = strchr (q+1, ',');
+		}
+		w->B2_start = w->B1;
+		if (q != NULL && q[1] != '"') {
+			double j;
+			j = atof (q+1);
+			if (j > w->B1) w->B2_start = j;
+			q = strchr (q+1, ',');
+		}
+		if (q != NULL && q[1] == '"') {
+			w->known_factors = (char *) malloc (strlen (q));
+			if (w->known_factors == NULL) goto nomem;
+			strcpy (w->known_factors, q+2);
+		}
+	    }
 
-// Handle Pminus1 lines:  Old style:
-//	Pminus1=exponent,B1,B2,plus1,B2_start
-// New style is:
-//	Pminus1=k,b,n,c,B1,B2[,B2_start]
+/* Handle Pminus1 lines:  Old style:				*/
+/*	Pminus1=exponent,B1,B2,plus1[,B2_start]			*/
+/* New style is:						*/
+/*	Pminus1=k,b,n,c,B1,B2[,B2_start][,"factors"]		*/
 
-	else if (stricmp (keyword, "Pminus1") == 0) {
+	    else if (_stricmp (keyword, "Pminus1") == 0) {
+		char	*q;
 		w->work_type = WORK_PMINUS1;
-		w->B2_start = 0;
 		if (countCommas (value) <= 4) {
-			sscanf (value, "%ld,%lu,%lu,%ld,%ld",
-				&w->n, &w->B1, &w->B2_end, &w->c, &w->B2_start);
-			if (w->c == 0) w->c = -1; // Compatibility with old plus1 arg
-			if (w->B2_start < w->B1) w->B2_start = w->B1;
-			return (TRUE);
+			sscanf (value, "%ld", &w->n);
+			if ((q = strchr (value, ',')) == NULL)
+				goto illegal_line;
+			w->B1 = atof (q+1);
+			if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+			w->B2 = atof (q+1);
+			if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+			sscanf (q+1, "%ld", &w->c);
+			q = strchr (q+1, ',');
+			if (w->c == 0) w->c = -1; /* old plus1 arg */
+			if (q != NULL) {
+				double j;
+				j = atof (q+1);
+				if (j > w->B1) w->B2_start = j;
+			}
 		} else {
-			char	*q;
-			q = strchr (value, ','); *q = 0; w->k = atof (value);
-			sscanf (q+1, "%lu,%lu,%ld,%lu,%lu,%lu",
-				&w->b, &w->n, &w->c, &w->B1, &w->B2_end,
-				&w->B2_start);
-			if (w->B2_start < w->B1) w->B2_start = w->B1;
-			return (TRUE);
+			w->k = atof (value);
+			if ((q = strchr (value, ',')) == NULL)
+				goto illegal_line;
+			sscanf (q+1, "%lu,%lu,%ld", &w->b, &w->n, &w->c);
+			for (i = 1; i <= 3; i++)
+				if ((q = strchr (q+1, ',')) == NULL)
+					goto illegal_line;
+			w->B1 = atof (q+1);
+			if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+			w->B2 = atof (q+1);
+			q = strchr (q+1, ',');
+			w->B2_start = 0;
+			if (q != NULL && q[1] != '"') {
+				double	j;
+				j = atof (q+1);
+				if (j > w->B1) w->B2_start = j;
+				q = strchr (q+1, ',');
+			}
+			if (q != NULL && q[1] == '"') {
+				w->known_factors = (char *) malloc (strlen (q));
+				if (w->known_factors == NULL) goto nomem;
+				strcpy (w->known_factors, q+2);
+			}
 		}
-	}
+	    }
 
-	else if (stricmp (keyword, "AdvancedFactor") == 0) {
-		w->work_type = WORK_ADVANCEDFACTOR;
-		w->n = 0;
-		sscanf (value, "%d,%d,%d,%d",
-			&w->bits, &w->B1, &w->B2_start, &w->B2_end);
-		return (TRUE);
-	} else {
-		char	buf[130];
-		sprintf (buf, "Illegal line in INI file: %s=%s\n", keyword, value);
-		OutputSomewhere (buf);
-		IniDeleteLine (WORKTODO_FILE, line);
-		goto loop;
-	}
+/* Handle PRP= lines.							*/
+/*	PRP=k,b,n,c[,how_far_factored,tests_saved][,known_factors]	*/
+/* A tests_saved value of 0.0 will bypass any P-1 factoring		*/
 
-/* If work type involves factoring, get the number of bits factored */
+	    else if (_stricmp (keyword, "PRP") == 0) {
+		char	*q;
 
-	comma = strchr (value, ',');
-	if (comma == NULL) w->bits = 0;
-	else {
-		*comma++ = 0;
-		w->bits = (unsigned int) atol (comma);
-		w->pminus1ed = 0;
+		w->work_type = WORK_PRP;
+		w->k = atof (value);
+		if ((q = strchr (value, ',')) == NULL) goto illegal_line;
+		sscanf (q+1, "%lu,%lu,%ld", &w->b, &w->n, &w->c);
+		for (i = 1; i <= 2; i++)
+			if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+		q = strchr (q+1, ',');
 
-/* And get the "has been P-1 factored" bit too. */
-
-		comma = strchr (comma, ',');
-		if (comma != NULL) {
-			*comma++ = 0;
-			w->pminus1ed = (int) atol (comma);
+		if (q != NULL && q[1] != '"') {
+			w->sieve_depth = atof (q+1);
+			if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+			w->tests_saved = atof (q+1);
+			q = strchr (q+1, ',');
+		} else {
+			w->sieve_depth = 0.0;
+			w->tests_saved = 0.0;
 		}
+		w->pminus1ed = (w->tests_saved <= 0.0);
+		if (q != NULL && q[1] == '"') {
+			w->known_factors = (char *) malloc (strlen (q));
+			if (w->known_factors == NULL) goto nomem;
+			strcpy (w->known_factors, q+2);
+		}
+	    }
+
+/* Uh oh.  We have a worktodo.ini line we cannot process. */
+
+	    else if (_stricmp (keyword, "AdvancedFactor") == 0) {
+		OutputSomewhere (MAIN_THREAD_NUM, "Worktodo error: AdvancedFactor no longer supported\n");
+		goto comment;
+	    } else {
+		goto illegal_line;
+	    }
+
+/* Trim trailing non-digit characters from known factors list */
+
+	    if (w->known_factors != NULL) {
+		for (i = (unsigned int) strlen (w->known_factors);
+		     i > 0 && !isdigit (w->known_factors[i-1]);
+		     i--);
+		w->known_factors[i] = 0;
+	    }
+
+/* Make sure this line of work from the file makes sense. The exponent */
+/* should be a prime number, bounded by values we can handle, and we */
+/* should never be asked to factor a number more than we are capable of. */
+
+	    if (w->k == 1.0 && w->b == 2 && !isPrime (w->n) && w->c == -1 &&
+	        w->work_type != WORK_ECM && w->work_type != WORK_PMINUS1) {
+		char	buf[80];
+		sprintf (buf, "Error: Worktodo.txt file contained composite exponent: %ld\n", w->n);
+		OutputBoth (MAIN_THREAD_NUM, buf);
+		goto illegal_line;
+	    }
+	    if ((w->work_type == WORK_TEST ||
+	         w->work_type == WORK_DBLCHK ||
+	         w->work_type == WORK_ADVANCEDTEST) &&
+	        (w->n < MIN_PRIME ||
+	         w->n > (unsigned long) (CPU_FLAGS & CPU_SSE2 ? MAX_PRIME_SSE2 : MAX_PRIME))) {
+		char	buf[80];
+		sprintf (buf, "Error: Worktodo.txt file contained bad LL exponent: %ld\n", w->n);
+		OutputBoth (MAIN_THREAD_NUM, buf);
+		goto illegal_line;
+	    }
+	    if (w->work_type == WORK_FACTOR && w->n < 20000) {
+		char	buf[100];
+		sprintf (buf, "Error: Use ECM instead of trial factoring for exponent: %ld\n", w->n);
+		OutputBoth (MAIN_THREAD_NUM, buf);
+		goto illegal_line;
+	    }
+	    if (w->work_type == WORK_FACTOR && w->n > MAX_FACTOR) {
+		char	buf[100];
+		sprintf (buf, "Error: Worktodo.txt file contained bad factoring assignment: %ld\n", w->n);
+		OutputBoth (MAIN_THREAD_NUM, buf);
+		goto illegal_line;
+	    }
+
+/* Do more initialization of the work_unit structure */
+
+	    auxillaryWorkUnitInit (w);
+
+/* Set stage and pct_complete for work units that have already begun */
+/* based on data in the save files. */
+
+	    if (WELL_BEHAVED_WORK && !first_real_work_line) {
+		    w->stage[0] = 0;
+		    w->pct_complete = 0.0;
+	    } else
+		    pct_complete_from_savefile (w);
+	    first_real_work_line = FALSE;
+
+/* Grow the work_unit array if necessary and add this entry */
+
+wdone:	    rc = addToWorkUnitArray (tnum, w, TRUE);
+	    if (rc) goto retrc;
 	}
 
-/* Get the exponent being tested */
+/* Close the file, free the lock and return success */
 
-	w->n = atol (value);
-	return (TRUE);
+	fclose (fd);
+done:	gwmutex_unlock (&WORKTODO_MUTEX);
+
+/* Almost done.  Incorporate the optional worktodo.add file. */
+
+	return (incorporateWorkToDoAddFile ());
+	
+/* Close the file, free the lock and return error from routine we called */
+
+retrc:	fclose (fd);
+	gwmutex_unlock (&WORKTODO_MUTEX);
+	return (rc);
+
+/* Free the lock and return out of memory error code */
+
+nomem:	fclose (fd);
+	gwmutex_unlock (&WORKTODO_MUTEX);
+	return (OutOfMemory (MAIN_THREAD_NUM));
 }
 
-/* Add a line of work to the work-to-do INI file.  */
-/* This assumes the caller will open and close the ini file. */
+/* Write the updated worktodo.ini to disk */
 
-void addWorkToDoLine (
-	struct work_unit *w)	/* Type of work */
+int writeWorkToDoFile (
+	int	force)		/* Force writing file even if WELL_BEHAVED */
 {
-	char	buf[80];
-	unsigned int i;
+	char	newFileName[80];
+	int	fd, mangled, last_line_was_blank;
+	unsigned int tnum;
 
-/* Add Advanced/Factor work to end of the file */
+/* If work to do hasn't changed, then don't write the file */
 
-	if (w->work_type == WORK_ADVANCEDFACTOR) {
-		sprintf (buf, "%d,%d,%d,%d", w->bits, w->B1, w->B2_start, w->B2_end);
-		IniAppendLineAsString (WORKTODO_FILE, "AdvancedFactor", buf);
+	if (!WORKTODO_CHANGED) return (0);
+
+/* If the well-behaved-work-option is on, then only write the file every */
+/* half hour.  The user should set this option when the worktodo file is */
+/* long and the work units complete quickly.  This commonly happens when */
+/* trial factoring a large number of exponents to a low limit. */
+
+	if (WELL_BEHAVED_WORK && !force) {
+		static time_t last_time_written = 0;
+		time_t	current_time;
+		time (&current_time);
+		if (current_time < last_time_written + 1800) return (0);
+		last_time_written = current_time;
 	}
 
-/* Add new ECM and P-1 work after all other ECM and P-1 work, but before */
-/* any other type of work */
+/* Grab the lock so that comm thread cannot try to add work units while */
+/* file is being written. */
 
-	if (w->work_type == WORK_ECM || w->work_type == WORK_PMINUS1) {
-		for (i = 1; ; i++) {
-			struct work_unit temp;
-			if (! parseWorkToDoLine (i, &temp)) break;
-			if (temp.work_type != WORK_ECM &&
-			    temp.work_type != WORK_PMINUS1) break;
+	gwmutex_lock (&WORKTODO_MUTEX);
+
+/* Create the WORKTODO.INI file */
+
+	mangleIniFileName (WORKTODO_FILE, newFileName, &mangled);
+	fd = _open (newFileName, _O_CREAT | _O_TRUNC | _O_WRONLY | _O_TEXT, CREATE_FILE_ACCESS);
+	if (fd < 0) {
+		OutputBoth (MAIN_THREAD_NUM, "Error creating worktodo.txt file\n");
+		return (STOP_FILE_IO_ERROR);
+	}
+
+/* Loop over all worker threads */
+
+	last_line_was_blank = FALSE;
+	for (tnum = 0; tnum < MAX_NUM_WORKER_THREADS; tnum++) {
+	    struct work_unit *w;
+	    unsigned int len;
+
+/* If we've processed all the worker threads and there is nothing left */
+/* to output, then we are done. */
+
+	    if (tnum >= NUM_WORKER_THREADS &&
+		WORK_UNITS[tnum].first == NULL) break;
+
+/* Output a standardized section header */
+
+	    if (tnum || NUM_WORKER_THREADS > 0) {
+		char	buf[40];
+		if (tnum && !last_line_was_blank && _write (fd, "\n", 1) != 1)
+			goto write_error;
+		sprintf (buf, "[Worker #%d]\n", tnum+1);
+		len = (unsigned int) strlen (buf);
+		if (_write (fd, buf, len) != len) goto write_error;
+		last_line_was_blank = FALSE;
+	    }
+
+/* Loop over each assignment for this worker thread */
+
+	    for (w = WORK_UNITS[tnum].first; w != NULL; w = w->next) {
+		char	idbuf[100];
+		char	buf[4096];
+
+/* Do not output deleted lines */
+
+		if (w->work_type == WORK_DELETED) continue;
+		
+/* Do not output section header */
+
+		if (w == WORK_UNITS[tnum].first &&
+		    w->work_type == WORK_NONE &&
+		    w->comment[0] == '[') continue;
+		
+/* Format the optional assignment id */
+
+		idbuf[0] = 0;
+		if (w->assignment_uid[0])
+			sprintf (idbuf, "%s,", w->assignment_uid);
+		else if (w->ra_failed)
+			sprintf (idbuf, "%s,", "N/A");
+
+/* Format the FFT length */
+
+		if (w->forced_fftlen) {
+			strcat (idbuf, "FFT");
+			if (CPU_FLAGS & CPU_SSE2) strcat (idbuf, "2");
+			if ((w->forced_fftlen & 0xFFFFF) == 0)
+				sprintf (idbuf+strlen(idbuf), "=%luM,", w->forced_fftlen >> 20);
+			else if ((w->forced_fftlen & 0x3FF) == 0)
+				sprintf (idbuf+strlen(idbuf), "=%luK,", w->forced_fftlen >> 10);
+			else
+				sprintf (idbuf+strlen(idbuf), "=%lu,", w->forced_fftlen);
 		}
 
-/* Format and insert line into ini file */
+/* Output the optional file name extension (primarily for ECM) */
 
-		if (w->work_type == WORK_ECM) {
-			sprintf (buf, "%.0f,%lu,%lu,%ld,%lu,%lu,%lu,%.0f,%lu",
-				 w->k, w->b, w->n, w->c, w->B1, w->B2_end,
-				 w->curves_to_do, w->curve, w->B2_start);
-			IniAppendLineAsString (WORKTODO_FILE, "ECM2", buf);
-		} else {
-			sprintf (buf, "%.0f,%lu,%lu,%ld,%lu,%lu,%lu",
-				 w->k, w->b, w->n, w->c, w->B1, w->B2_end,
-				 w->B2_start);
-			IniAppendLineAsString (WORKTODO_FILE, "Pminus1", buf);
+		if (w->extension[0]) {
+			sprintf (idbuf+strlen(idbuf), "EXT=%s,", w->extension);
 		}
-		return;
-	}
 
-/* See if this exponent is already in the worktodo file. */
+/* Write out comment lines just as we read them in */
+/* Format normal work unit lines */
 
-	for (i = 1; ; i++) {
-		struct work_unit temp;
+		switch (w->work_type) {
 
-/* Read the line of the work file */
+		case WORK_NONE:
+			strcpy (buf, w->comment);
+			break;
 
-		if (! parseWorkToDoLine (i, &temp)) break;
+		case WORK_TEST:
+			sprintf (buf, "Test=%s%lu,%.0f,%ld",
+				 idbuf, w->n, w->sieve_depth, w->pminus1ed);
+			break;
 
-/* Skip the line if p is not in the range */
+		case WORK_DBLCHK:
+			sprintf (buf, "DoubleCheck=%s%lu,%.0f,%ld",
+				 idbuf, w->n, w->sieve_depth, w->pminus1ed);
+			break;
 
-		if (w->n != temp.n) continue;
+		case WORK_ADVANCEDTEST:
+			sprintf (buf, "AdvancedTest=%lu", w->n);
+			break;
 
-/* Ignore this add request if it is a subset of the */
-/* entry that is already in the work-to-do file */
+		case WORK_FACTOR:
+			sprintf (buf, "Factor=%s%ld,%.0f,%.0f",
+				 idbuf, w->n, w->sieve_depth, w->factor_to);
+			break;
 
-		if (w->work_type == temp.work_type) return;
-		if (w->work_type == WORK_FACTOR) return;
+		case WORK_PFACTOR:
+			sprintf (buf, "Pfactor=%s%.0f,%lu,%lu,%ld,%g,%g",
+				 idbuf, w->k, w->b, w->n, w->c, w->sieve_depth,
+				 w->tests_saved);
+			break;
 
-/* Delete the line */
+		case WORK_ECM:
+			sprintf (buf,
+				 "ECM2=%s%.0f,%lu,%lu,%ld,%.0f,%.0f,%lu",
+				 idbuf, w->k, w->b, w->n, w->c, w->B1, w->B2,
+				 w->curves_to_do);
+			if (w->B2_start > w->B1)
+				sprintf (buf + strlen (buf),
+					 ",%.0f,%.0f",
+					 w->curve, w->B2_start);
+			else if (w->curve)
+				sprintf (buf + strlen (buf),
+					 ",%.0f",
+					 w->curve);
+			if (w->known_factors != NULL)
+				sprintf (buf + strlen (buf),
+					 ",\"%s\"",
+					 w->known_factors);
+			break;
 
-		IniDeleteLine (WORKTODO_FILE, i);
-		break;
-	}
+		case WORK_PMINUS1:
+			sprintf (buf, "Pminus1=%s%.0f,%lu,%lu,%ld,%.0f,%.0f",
+				 idbuf, w->k, w->b, w->n, w->c, w->B1, w->B2);
+			if (w->B2_start > w->B1)
+				sprintf (buf + strlen (buf),
+					 ",%.0f",
+					 w->B2_start);
+			if (w->known_factors != NULL)
+				sprintf (buf + strlen (buf),
+					 ",\"%s\"",
+					 w->known_factors);
+			break;
 
-/* Format aand add a Pfactor line */
-
-	if (w->work_type == WORK_PFACTOR) {
-		sprintf (buf, "%.0f,%lu,%lu,%ld,%f,%f",
-			 w->k, w->b, w->n, w->c, w->sieve_depth,
-			 w->tests_saved);
-		IniAppendLineAsString (WORKTODO_FILE, "Pfactor", buf);
-		return;
-	}
-
-/* Format the number, how far factored, and P-1 factoring flag */
-
-	if (w->work_type == WORK_FACTOR)
-		sprintf (buf, "%ld,%d", w->n, w->bits);
-	else
-		sprintf (buf, "%ld,%d,%d", w->n, w->bits, w->pminus1ed);
-
-/* Append a line */
-
-	if (w->work_type == WORK_FACTOR)
-		IniAppendLineAsString (WORKTODO_FILE, "Factor", buf);
-	if (w->work_type == WORK_TEST)
-		IniAppendLineAsString (WORKTODO_FILE, "Test", buf);
-	if (w->work_type == WORK_DBLCHK)
-		IniAppendLineAsString (WORKTODO_FILE, "DoubleCheck", buf);
-}
-
-/* Open the results file and see if a given exponent has */
-/* already been worked on. */ 
-
-void checkResultsFile (
-	unsigned long p,
-	int	*tested,
-	int	*factored)
-{
-	int	fd;
-	char	buf[80];
-	long	offset = 0;
-
-/* Assume prime has not been lucas tested or factored. */
-
-	*tested = FALSE;
-	*factored = FALSE;
-
-/* Loop until entire file has been processed */
-
-	fd = _open (RESFILE, _O_BINARY | _O_RDONLY);
-	if (fd < 0) return;
-	for ( ; ; ) {
-		unsigned long file_p = 0;
-		int	i = 0;
-		_lseek (fd, offset, SEEK_SET);
-		buf[_read (fd, buf, sizeof (buf) - 1)] = 0;
-		while (buf[i]) if (buf[i++] == 'M') break;
-		if (buf[i] == 0) break;
-		for (file_p = 0; isdigit(buf[i]); i++)
-			file_p = file_p * 10 + buf[i] - '0';
-		while (isspace(buf[i])) i++;
-		if (file_p == p) {
-			if (buf[i] == 'h') *tested = TRUE;
-			if (buf[i] == 'n') *factored = TRUE;
-			if (buf[i] == 'i') *tested = TRUE;
+		case WORK_PRP:
+			if (w->pminus1ed)
+				sprintf (buf,
+					 "PRP=%s%.0f,%lu,%lu,%ld",
+					 idbuf, w->k, w->b, w->n, w->c);
+			else
+				sprintf (buf,
+					 "PRP=%s%.0f,%lu,%lu,%ld,%g,%g",
+					 idbuf, w->k, w->b, w->n, w->c,
+					 w->sieve_depth, w->tests_saved);
+			if (w->known_factors != NULL)
+				sprintf (buf + strlen (buf),
+					 ",\"%s\"",
+					 w->known_factors);
+			break;
 		}
-		while (buf[i] && buf[i] != '\n') i++;
-		offset += i;
+
+/* Write out the formatted line */
+
+		strcat (buf, "\n");
+		len = (unsigned int) strlen (buf);
+		if (_write (fd, buf, len) != len) {
+write_error:		OutputBoth (MAIN_THREAD_NUM,
+				    "Error writing worktodo.txt file\n");
+			_close (fd);
+			return (STOP_FILE_IO_ERROR);
+		}
+		last_line_was_blank = (len == 1);
+	    }
 	}
+
+/* Close file, unlock, and return success */
+
 	_close (fd);
-}
-
-/* Return the number of seconds until vacation is over */
-
-unsigned long secondsUntilVacationEnds (void)
-{
-	time_t	current_time;
-
-	if (VACATION_END == 0) return (0);
-	time (&current_time);
-	if (current_time >= VACATION_END) {
-		VACATION_END = 0;
-		IniWriteInt (LOCALINI_FILE, "VacationEnd", 0);
-		return (0);
-	}
-	return ((unsigned long) (VACATION_END - current_time));
-}
-
-/* Return a double estimating current exponent's percentage complete. */
-
-double pct_complete (
-	int	work_type,
-	unsigned long p,
-	unsigned long *iteration)
-{
-	unsigned long counter;
-	short	type;
-	int	fd;
-	char	filename[20];
-
-/* If we are working on this exponent now, then global variables are */
-/* set every now and then which tell us our percent completion. */
-
-	if (p == EXP_BEING_WORKED_ON) {
-		if (EXP_PERCENT_COMPLETE == 999.0) {
-			*iteration = p;
-			return (0.999);
-		}
-		if (work_type == WORK_FACTOR && EXP_BEING_FACTORED) {
-			*iteration = (unsigned long) (EXP_PERCENT_COMPLETE * 16 + 1);
-			return (EXP_PERCENT_COMPLETE);
-		}
-		if (work_type != WORK_FACTOR && !EXP_BEING_FACTORED) {
-			*iteration = (unsigned long) (EXP_PERCENT_COMPLETE * p);
-			return (EXP_PERCENT_COMPLETE);
-		}
-	}
-
-/* Otherwise, lets see if there is a intermediate file.  If there is */
-/* read it to try and figure out our percent completion */
-
-	tempFileName (filename, p);
-	if (fileExists (filename) &&
-	    readFileHeader (filename, &fd, &type, &counter)) {
-
-/* A LL test save file.  The counter field will tell us how much */
-/* is already done. */
-
-		if (type >= 4) {
-			_close (fd);
-			*iteration = counter;
-			return ((double) counter / (double) p);
-		}
-
-/* A factoring intermediate file */
-
-		if (type == 2) {
-			short	pass, result, old_style, bits, limit;
-			double	pct;
-
-/* If this is an LL assignment, then the factoring work is pretty */
-/* much negligible. */
-
-			if (work_type != WORK_FACTOR) {
-				_close (fd);
-				*iteration = 1;
-				return (0.001);
-			}
-
-/* Read the rest of the intermediate file and ignore any old-style */
-/* factoring files. */
-
-			if (_read (fd, &pass, sizeof (short)) != sizeof (short))
-				goto no_est;
-			if (pass != 999)
-				goto no_est;
-			if (_read (fd, &result, sizeof (short)) != sizeof (short))
-				goto no_est;
-			if (_read (fd, &old_style, sizeof (short)) != sizeof (short))
-				goto no_est;
-			if (old_style)
-				goto no_est;
-			if (_read (fd, &bits, sizeof (short)) != sizeof (short))
-				goto no_est;
-			if (_read (fd, &pass, sizeof (short)) != sizeof (short))
-				goto no_est;
-			_close (fd);
-
-/* Now return the percent complete.  We assume that the how_far_factored */
-/* value in worktodo.ini is not close to the factorLimit value. */
-
-			*iteration = pass;
-			if (result) return ((double) pass / 16.0);
-			limit = factorLimit (p, work_type);
-			pct = pow (2.0, bits - limit);
-			return (pct * (1.0 + (double) pass / 16.0));
-
-/* An error or intermediate file that we do not recognize. */
-/* Return a special code indicating an unknown percent complete. */
-
-no_est:			_close (fd);
-			*iteration = 1;
-			return (999.0);
-		}
-	}
-
-/* We have not started working on this item */
-
-	*iteration = 0;
-	return (0.0);
-}
-
-/* Given an exponent, return the fft length from the local.ini file. */
-/* Used in implementing the "soft" FFT crossover points in version 22.8 */
-
-unsigned long fftlen_from_ini_file (
-	unsigned long p)
-{
-	char	buf[80];
-
-	IniGetString (LOCALINI_FILE, "SoftCrossoverData",
-		      buf, sizeof (buf), "0");
-	if (p == (unsigned long) atol (buf)) {
-		char	*comma;
-		unsigned long fftlen;
-		comma = strchr (buf, ',');
-		if (comma != NULL) {
-			*comma++ = 0;
-			fftlen = atol (comma);
-			comma = strchr (comma, ',');
-			if (comma != NULL) {
-				unsigned long sse2;
-				*comma++ = 0;
-				sse2 = atol (comma);
-				if ((sse2 && (CPU_FLAGS & CPU_SSE2)) ||
-				    (!sse2 && !(CPU_FLAGS & CPU_SSE2)))
-					return (fftlen);
-			}
-		}
-	}
+	if (mangled) _unlink (WORKTODO_FILE);
+	WORKTODO_CHANGED = FALSE;
+	gwmutex_unlock (&WORKTODO_MUTEX);
 	return (0);
 }
 
-/* Given an exponent, determine the fft length.  Handles the "soft" */
-/* FFT crossover points implemented in version 22.8 */
+/* Return a worktodo.ini entry for the given worker thread */
 
-unsigned long advanced_map_exponent_to_fftlen (
-	unsigned long p)
+struct work_unit *getNextWorkToDoLine (
+	int	thread_num,		/* Thread number starting from 0 */
+	struct work_unit *w,		/* Current WorkToDo entry (or NULL) */
+	int	usage)			/* Short vs. long term usage */
 {
-	unsigned long fftlen = fftlen_from_ini_file (p);
-	return (fftlen ? fftlen : gwmap_to_fftlen (1.0, 2, p, -1));
+	struct work_unit *next;		/* Next WorkToDo entry (or NULL) */
+
+	ASSERTG (thread_num < (int) NUM_WORKER_THREADS);
+
+/* Grab the lock so that other threads do not add or delete lines */
+/* while we are finding the next entry. */
+
+	gwmutex_lock (&WORKTODO_MUTEX);
+
+/* Get pointer to the first or next work unit */
+
+	next = (w == NULL) ? WORK_UNITS[thread_num].first : w->next;
+	while (next != NULL && next->work_type == WORK_DELETED)
+		next = next->next;
+
+/* Decrement the use count */
+
+	if (w != NULL) {
+		w->in_use_count--;
+		WORKTODO_IN_USE_COUNT--;
+		if (usage == LONG_TERM_USE) w->in_use_count &= ~0x80000000;
+
+/* Free the work unit if it has been deleted and use count is now zero */
+
+		if (w->work_type == WORK_DELETED && w->in_use_count == 0) {
+
+/* Unlink the work unit from the list */
+
+			if (w->prev == NULL)
+				WORK_UNITS[thread_num].first = w->next;
+			else
+				w->prev->next = w->next;
+			if (w->next == NULL)
+				WORK_UNITS[thread_num].last = w->prev;
+			else
+				w->next->prev = w->prev;
+
+/* Free memory allocated for this work unit */
+
+			free (w->known_factors);
+			free (w->comment);
+			free (w);
+		}
+	}
+
+/* Increment the in-use count.  If this is a long-term usage, remember */
+/* the fact so that deleting the work unit can be prohibited. */
+
+	if (next != NULL) {
+		next->in_use_count++;
+		WORKTODO_IN_USE_COUNT++;
+		if (usage == LONG_TERM_USE) next->in_use_count |= 0x80000000;
+	}
+
+/* Unlock and return */
+
+	gwmutex_unlock (&WORKTODO_MUTEX);
+	return (next);
 }
 
-/* Make a guess as to how long a chore should take. */
+/* Return a worktodo.ini entry for the given worker thread */
 
-double raw_work_estimate (
+void decrementWorkUnitUseCount (
+	struct work_unit *w,		/* WorkToDo entry */
+	int	usage)			/* Short vs. long term usage */
+{
+	ASSERTG (w->in_use_count != 0);
+
+/* Grab the lock */
+
+	gwmutex_lock (&WORKTODO_MUTEX);
+
+/* Decrement the reader count before getting the next entry */
+
+	w->in_use_count--;
+	WORKTODO_IN_USE_COUNT--;
+	if (usage == LONG_TERM_USE) w->in_use_count &= ~0x80000000;
+
+/* Unlock and return */
+
+	gwmutex_unlock (&WORKTODO_MUTEX);
+}
+
+/* Add a line of work to the work-to-do INI file. */
+
+int addWorkToDoLine (
+	int	tnum,		/* Worker thread to process this work unit */
+	struct work_unit *w)	/* Type of work */
+{
+	struct work_unit *malloc_w;
+	int	rc;
+
+/* Do more initialization of the work_unit structure */
+
+	auxillaryWorkUnitInit (w);
+
+/* Copy work unit from stack to malloc'ed area */
+
+	malloc_w = (struct work_unit *) malloc (sizeof (struct work_unit));
+	if (malloc_w == NULL) return (OutOfMemory (MAIN_THREAD_NUM));
+	memcpy (malloc_w, w, sizeof (struct work_unit));
+
+/* If this is an ECM assignment, check to see if any other work unit is */
+/* ECMing the same number.  If so, generate a unique file extension so */
+/* that there are no save file conflicts. */
+
+	if (malloc_w->work_type == WORK_ECM) {
+		unsigned int tnum, ext;
+
+		ext = 0;
+		for (tnum = 0; tnum < NUM_WORKER_THREADS; tnum++) {
+			w = NULL;
+			for ( ; ; ) {
+				w = getNextWorkToDoLine (tnum, w, SHORT_TERM_USE);
+				if (w == NULL) break;
+				if (w->work_type == WORK_NONE) continue;
+
+/* Skip the line if this is not an ECM of the same number */
+
+				if (w->work_type != WORK_ECM ||
+				    w->k != malloc_w->k ||
+				    w->b != malloc_w->b ||
+				    w->n != malloc_w->n ||
+				    w->c != malloc_w->c) continue;
+
+/* Make sure we generate a file extension larger than this other work unit's */
+/* This will insure that a unique file extension is generated */
+
+				if (w->extension[0] == 0)
+					ext = 1;
+				else if (w->extension[0] == 'x' &&
+					 (unsigned int) atoi (w->extension+1) >= ext)
+					ext = atoi (w->extension+1) + 1;
+			}
+		}
+
+/* Now generate a file extension if we ran into 2 or more ECM assignments */
+/* of this number */
+
+		if (ext) sprintf (malloc_w->extension, "x%d", ext % 10000000);
+	}
+
+/* Grab the lock so that comm thread and/or worker threads do not */
+/* access structure while the other is adding/deleting lines. */
+
+	gwmutex_lock (&WORKTODO_MUTEX);
+
+/* Add the work unit to the end of the array.  Well, actually before the */
+/* last set of blank lines. */
+
+	rc = addToWorkUnitArray (tnum, malloc_w, FALSE);
+	if (rc) goto retrc;
+
+/* Set flag indicating worktodo needs writing */
+
+	WORKTODO_CHANGED = TRUE;
+
+/* Unlock and write the worktodo.ini file to disk */
+
+	gwmutex_unlock (&WORKTODO_MUTEX);
+	return (writeWorkToDoFile (FALSE));
+
+/* Unlock and return error code from called routine */
+
+retrc:	gwmutex_unlock (&WORKTODO_MUTEX);
+	return (rc);
+}
+
+/* Caller has updated a work unit structure such that the work-to-do */
+/* INI file needs to be written.  */
+
+int updateWorkToDoLine (
+	int	tnum,		/* Worker thread to process this work unit */
+	struct work_unit *w)	/* Type of work */
+{
+
+/* Set flag indicating worktodo needs writing */
+
+	WORKTODO_CHANGED = TRUE;
+
+/* Write the worktodo.ini file to disk */
+
+	return (writeWorkToDoFile (FALSE));
+}
+
+/* Delete a line of work from the work-to-do INI file.  Even if an error */
+/* occurs the work unit has been deleted and the use_count decremented. */
+/* The work_unit pointer (w) will be set to the previous work unit so that */
+/* getNextWorkToDoLine works properly. */
+
+int deleteWorkToDoLine (
+	int	tnum,		/* Worker thread to process this work unit */
+	struct work_unit *w,	/* Work unit pointer */
+	int	stop_if_in_progress) /* Stop thread processing work unit */
+{
+
+/* If this work unit has already been deleted, then ignore this delete */
+/* request.  This should only happen in a bizarre race condition. */
+
+	if (w->work_type == WORK_DELETED) return (0);
+
+/* Grab the lock so that comm thread and/or worker threads do not */
+/* access structure while the other is adding/deleting lines. */
+
+	gwmutex_lock (&WORKTODO_MUTEX);
+
+// If we are deleting a work unit that is currently being worked on */
+/* then set a flag so that the worker thread will abort the work unit */
+/* at its first opportunity.  There is a race condition whereby the worker */
+/* thread may move on to a different work unit before testing the */
+/* abort-work-unit flag.  This is harmless as the new work unit will be */
+/* aborted and then restarted. */
+
+	if ((w->in_use_count & 0x80000000) && stop_if_in_progress)
+		stop_worker_for_abort (tnum);
+
+/* Decrement count of valid work lines */
+
+	if (w->work_type != WORK_NONE) WORKTODO_COUNT--;
+
+/* Mark this work unit deleted */
+
+	w->work_type = WORK_DELETED;
+
+/* Set flag indicating worktodo needs writing */
+
+	WORKTODO_CHANGED = TRUE;
+
+/* Unlock and write the worktodo.ini file to disk */
+
+	gwmutex_unlock (&WORKTODO_MUTEX);
+	return (writeWorkToDoFile (FALSE));
+}
+
+/* Return TRUE if a work unit is currently being worked on. */
+
+int isWorkUnitActive (
+	struct work_unit *w)	/* work_unit pointer */
+{
+
+/* At the present time only a worker thread actively working on a work unit */
+/* sets the LONG_TERM_USE flag of in_use_count.  Use that fact, to decide */
+/* if the work unit is active. */
+
+	if (w->in_use_count & 0x80000000) return (TRUE);
+	return (FALSE);
+}
+
+/* Make a guess as to how much longer a chore should take. */
+
+double work_estimate (
+	int	thread_num,		/* Thread number doing the work */
 	struct work_unit *w)
 {
 	double	timing;
 	double	est;
+	int	can_use_multiple_threads;
+	unsigned int i, total_threads;
 
-/* Not very accurate estimates for ECM and P-1! */
+/* I suppose there are race conditions where a deleted work unit could */
+/* get here.  Return an estimate of 0.0. */
 
-	if (w->work_type == WORK_ECM ||
-	    w->work_type == WORK_PMINUS1 ||
-	    w->work_type == WORK_ADVANCEDFACTOR)
-		est = 86400.0;
+	est = 0.0;
 
-/* If factoring, guess how long that will take.  Timings are based on */
-/* how long it takes my PII-400 to process the exponent 12,000,017. */
-/* Below 2^60, prime95 runs through 0.004093*2^58 factors in 3.198 seconds. */
-/* Below 2^62, prime95 runs through 0.004093*2^58 factors in 3.204 seconds. */
-/* Below 2^64, prime95 runs through 0.004093*2^58 factors in 5.949 seconds. */
-/* Above 2^64, prime95 runs through 0.004093*2^58 factors in 13.511 seconds. */
-/* Compute timing * 2^limit / (0.004093 * 2^58) * (12,000,017 / p) */
-/* Which simplifies to: timing * 2^(limit-44) * 178945.25 / p */
+/* Only large SSE2 FFTs can use multiple threads. */
 
-	if (w->work_type == WORK_FACTOR) {
-		unsigned int limit;
-		limit = factorLimit (w->n, w->work_type);
-		timing = (limit > 64) ? 13.511 :
-			 (limit > 62) ? 5.949 :
-			 (limit > 60) ? 3.204 : 3.198;
-		est = timing * 178945.25 * (1L << (limit - 44)) / w->n;
-		est = est * 400.0 / CPU_SPEED;
-		if (CPU_TYPE <= 4) est *= REL_486_SPEED;
-		if (CPU_TYPE == 7) est *= REL_K6_SPEED;
-		if (CPU_TYPE == 11) est *= REL_K7_SPEED;
-		if (CPU_TYPE == 12) est *= REL_P4_SPEED;
-		if (w->bits >= limit) est = 0.0;
-		else if (w->bits == limit-1) est *= 0.5;
-		else if (w->bits == limit-2) est *= 0.75;
-		else if (w->bits == limit-3) est *= 0.875;
+	can_use_multiple_threads = (CPU_FLAGS & CPU_SSE2 && w->n > 172700);
+
+/* For ECM, estimate about 13 * B1 squarings in stage 1 and 5 * B2 squarings */
+/* in stage 2.  The stage text is C<curve#>S<stage#>. */
+
+	if (w->work_type == WORK_ECM) {
+		int	full_curves_to_do, stage;
+		double	stage1_time, stage2_time;
+
+		full_curves_to_do = w->curves_to_do;
+		stage = 0;
+		if (w->stage[0]) {
+			full_curves_to_do -= atoi (&w->stage[1]);
+			stage = atoi (&w->stage[strlen(w->stage)-1]);
+		}
+
+		timing = gwmap_to_timing (w->k, w->b, w->n, w->c);
+		stage1_time = timing * (13.0 * w->B1);
+		if (w->B2)
+			stage2_time = timing * (0.06 * w->B2);
+		else
+			stage2_time = timing * (0.06 * 100.0 * w->B1);
+
+		est = (double) full_curves_to_do * (stage1_time + stage2_time);
+		if (stage == 1)
+			est += stage1_time * (1.0 - w->pct_complete) + stage2_time;
+		if (stage == 2)
+			est += stage2_time * (1.0 - w->pct_complete);
 	}
 
-/* If P-1 factoring, then estimate the time. */
+/* For P-1, estimate about 1.5 * B1 squarings in stage 1 and 0.05 * B2 */
+/* squarings in stage 2.  Note that the stage 2 estimate is quite */
+/* optimistic for large numbers as fewer temporaries will result in nearly */
+/* double the number of squarings */
 
-	if (w->work_type == WORK_PFACTOR) {
-		double	bits;
-		unsigned long bound1, bound2, squarings;
-		double	prob;
-		if (w->k == 1.0 && w->b == 2 && w->c == -1)
-			bits = factorLimit (w->n, w->work_type);
+	if (w->work_type == WORK_PMINUS1 || w->work_type == WORK_PFACTOR) {
+		int	stage;
+		double	B1, B2;
+		double	stage1_time, stage2_time;
+
+		if (w->work_type == WORK_PFACTOR) {
+			unsigned long guess_B1, guess_B2;
+			unsigned long squarings;
+			double	prob;
+			guess_pminus1_bounds (w->k, w->b, w->n, w->c,
+					      w->sieve_depth, w->tests_saved,
+					      &guess_B1, &guess_B2,
+					      &squarings, &prob);
+			B1 = guess_B1;
+			B2 = guess_B2;
+		} else {
+			B1 = w->B1;
+			B2 = w->B2;
+		}
+
+		if (w->stage[0]) stage = atoi (&w->stage[1]);
+		else stage = 0;
+
+		timing = gwmap_to_timing (w->k, w->b, w->n, w->c);
+		stage1_time = timing * (1.5 * B1);
+		if (B2)
+			stage2_time = timing * (0.05 * B2);
 		else
-			bits = 0.0;
-		if (w->sieve_depth > bits) bits = w->sieve_depth;
-		guess_pminus1_bounds (w->k, w->b, w->n, w->c, bits,
-				      w->tests_saved, &bound1, &bound2,
-				      &squarings, &prob);
-		est = squarings * gwmap_to_timing (w->k, w->b, w->n, w->c, CPU_TYPE);
+			stage2_time = timing * (0.05 * 100.0 * B1);
+
+		if (stage == 0)
+			est = stage1_time + stage2_time;
+		if (stage == 1)
+			est = stage1_time * (1.0 - w->pct_complete) + stage2_time;
+		if (stage == 2)
+			est = stage2_time * (1.0 - w->pct_complete);
+	}
+
+/* If factoring, guess how long that will take.  Timings are based on */
+/* the factoring benchmark for my 2 GHz P4. */
+/*	Best time for 58 bit trial factors: 15.065 ms. */
+/*	Best time for 59 bit trial factors: 15.123 ms. */
+/*	Best time for 60 bit trial factors: 15.021 ms. */
+/*	Best time for 61 bit trial factors: 15.080 ms. */
+/*	Best time for 62 bit trial factors: 16.127 ms. */
+/*	Best time for 63 bit trial factors: 16.143 ms. */
+/*	Best time for 64 bit trial factors: 20.230 ms. */
+/*	Best time for 65 bit trial factors: 20.212 ms. */
+/*	Best time for 66 bit trial factors: 20.244 ms. */
+/*	Best time for 67 bit trial factors: 20.205 ms. */
+/* Factoring M35000011 from 2^60 to 2^61 takes 513 seconds.  Solve for */
+/* constant C in this formula:  15.1 ms * 2^61 * C = 513 seconds */
+/*	C = 513 sec / 2^61 / 15.1 ms */
+/*	C = 513000 ms / 2^61 / 15.1 ms = 33974 / 2^61 */
+/* Our estimate for factoring Mp to 2^i is then: */
+/*	time_in_ms = benchmark_in_ms * 2^i * C * (35,000,011 / p) */
+/* Which simplifies to: */
+/*	time_in_seconds = benchmark_in_ms * 2^(i-48) * 145000 / p */
+
+	if (w->work_type == WORK_FACTOR) {
+		int	i, tf_level;
+
+		can_use_multiple_threads = FALSE;
+
+		if (w->stage[0]) tf_level = atoi (&w->stage[2]);
+		else tf_level = 0;
+
+		est = 0.0;
+		for (i = (int) w->sieve_depth+1; i <= (int) w->factor_to; i++) {
+			if (i < 48) continue;
+			timing = (i > 64) ? 20.2 : (i > 62) ? 16.1 : 15.1;
+			timing *= 145000.0 * (1L << (i - 48)) / w->n;
+			if (i == tf_level)
+				est += timing * (1.0 - w->pct_complete);
+			else
+				est += timing;
+		}
+		est = est * 2000.0 / CPU_SPEED;
 	}
 
 /* If testing add in the Lucas-Lehmer testing time */
@@ -2360,8 +3241,48 @@ double raw_work_estimate (
 	if (w->work_type == WORK_TEST ||
 	    w->work_type == WORK_ADVANCEDTEST ||
 	    w->work_type == WORK_DBLCHK) {
-		est = w->n * gwmap_to_timing (w->k, w->b, w->n, w->c, CPU_TYPE);
+		est = w->n * gwmap_to_timing (w->k, w->b, w->n, w->c);
+		if (w->stage[0] == 'L') est *= (1.0 - w->pct_complete);
 	}
+
+/* If PRPing add in the PRP testing time */
+
+	if (w->work_type == WORK_PRP) {
+		est = w->n * gwmap_to_timing (w->k, w->b, w->n, w->c);
+		if (w->stage[0] == 'P') est *= (1.0 - w->pct_complete);
+	}
+
+/* Factor in the hours per day the computer is running and the */
+/* rolling average */
+
+	est *= (24.0 / CPU_HOURS) * (1000.0 / ROLLING_AVERAGE);
+
+/* If the worker uses multiple CPUs to execute the FFT, then adjust the */
+/* time estimate.  As a rough estimate, assume the first additional CPU */
+/* reduces the time by a factor of 1.7.  Also assume each additional CPU */
+/* is less beneficial. */
+
+	if (can_use_multiple_threads &&
+	    THREADS_PER_TEST[thread_num] > CPU_HYPERTHREADS) {
+		double	effective_num_cpus, cpu_value;
+		effective_num_cpus = 0.0;
+		cpu_value = 1.0;
+		for (i = 0; i < THREADS_PER_TEST[thread_num]; i += CPU_HYPERTHREADS) {
+			effective_num_cpus += cpu_value;
+			cpu_value *= 0.7;
+		}
+		est = est / effective_num_cpus;
+	}
+
+/* If the user is unwisely running more threads than there are logical */
+/* CPUs, then increase the time estimate */
+
+	total_threads = 0;
+	for (i = 0; i < NUM_WORKER_THREADS; i++)
+		total_threads += THREADS_PER_TEST[i];
+	if (total_threads > NUM_CPUS * CPU_HYPERTHREADS)
+		est *= (double) total_threads /
+		       (double) (NUM_CPUS * CPU_HYPERTHREADS);
 
 /* Return the total estimated time in seconds */
 
@@ -2369,26 +3290,23 @@ double raw_work_estimate (
 }
 
 
-/* Make a guess as to how long a chore should take. */
-
-double work_estimate (
-	struct work_unit *w)
-{
-	return (raw_work_estimate (w) *
-		24.0 / CPU_HOURS * 1000.0 / ROLLING_AVERAGE);
-}
-
-
 /* Determine how much we should factor (in bits) */
-/* Don't let feeble 486 any Cyrix machines factor higher than 2^62 */
-/* as this would execute some really slow floating point code */
 
 unsigned int factorLimit (
-	unsigned long p,
-	int	work_type)
+	struct work_unit *w)
 {
-	unsigned int test, override;
+	unsigned long p;
+	unsigned int test;
 
+/* If this is trial factoring work with a specified end point, then */
+/* return that end_point. */
+
+	if (w->factor_to != 0.0) return ((unsigned int) w->factor_to);
+
+/* For LL tests, determine the optimal trial factoring end point. */
+/* This is based on timings from my 2GHz P4. */
+
+	p = w->n;
 	if (p > FAC80) test = 80;	/* Test all 80 bit factors */
 	else if (p > FAC79) test = 79;	/* Test all 79 bit factors */
 	else if (p > FAC78) test = 78;	/* Test all 78 bit factors */
@@ -2415,31 +3333,273 @@ unsigned int factorLimit (
 	else if (p > FAC57) test = 57;	/* Test all 57 bit factors */
 	else if (p > FAC56) test = 56;	/* Test all 56 bit factors */
 	else test = 40;			/* Test all 40 bit factors */
-	if (work_type == WORK_FACTOR && !USE_PRIMENET) {
-		override = (unsigned int)
-			IniGetInt (INI_FILE, "FactorOverride", 99);
-		if (override != 99) test = override;
-	}
-	if (work_type == WORK_DBLCHK) test--;
+
+/* If double-checking, then trial factor to one less bit depth because */
+/* a found factor will only save one LL test, not two. */
+
+	if (w->work_type == WORK_DBLCHK) test--;
+
+/* Return the computed end point. */
+
 	return (test);
 }
+
+/**************************************************************/
+/*            Routines to compute the rolling average         */
+/**************************************************************/
+
+//bug - someway to avoid local.ini updates (to disk) if well_behaved_work
+// is set!!
+
+/* Build the hash value as we go */
+
+unsigned long build_rolling_hash (
+	struct work_unit *w)		/* Work unit to add in to hash */
+{
+	char	buf[80];
+	char	md5val[33];
+	int	i, j;
+	char	*p;
+	unsigned long hash, val;
+
+/* Use md5 on a character rep of the number */
+
+	gw_as_string (buf, w->k, w->b, w->n, w->c);
+	md5 (md5val, buf);
+	for (i = 0, p = md5val, hash = 0; i < 4; i++) {
+		for (j = 0, val = 0; j < 8; j++, p++) {
+			val = (val << 4) +
+			      (*p < 'A' ? *p - '0' : *p - 'A' + 10);
+		}
+		hash += val;
+	}
+	return (hash);
+}
+
+/* Adjust rolling average computation variables when a work unit completes */
+
+void rolling_average_work_unit_complete (
+	int	thread_num,		/* Thread number that completed work */
+	struct work_unit *completed_w)
+{
+	unsigned long hash, time_to_complete;
+	struct work_unit *first_w, *second_w;
+
+/* Get current rolling average computation variables */
+
+	hash = IniGetInt (LOCALINI_FILE, "RollingHash", 0);
+	time_to_complete = IniGetInt (LOCALINI_FILE, "RollingCompleteTime", 0);
+
+/* Grab the lock so that other threads do not add or delete lines */
+/* while we are making this calculation. */
+
+	gwmutex_lock (&WORKTODO_MUTEX);
+
+/* Get first and second work unit pointers */
+
+	for (first_w = WORK_UNITS[thread_num].first;
+	     first_w != NULL && first_w->work_type == WORK_NONE;
+	     first_w = first_w->next);
+	for (second_w = first_w->next;
+	     second_w != NULL && second_w->work_type == WORK_NONE;
+	     second_w = second_w->next);
+
+/* Only modify the values if we completed the first work_unit and there */
+/* is a second work_unit */
+
+	if (first_w == completed_w && second_w != NULL) {
+
+/* Adjust the hash value.  Subtract out the completed work unit and add in */
+/* the next work unit. */
+
+		hash -= build_rolling_hash (first_w);
+		hash += build_rolling_hash (second_w);
+
+/* Adjust the estimated time to complete the first work unit */
+
+		time_to_complete += (unsigned long)
+			work_estimate (thread_num, second_w);
+	}
+
+/* Unlock access to the worktodo.ini structures */
+
+	gwmutex_unlock (&WORKTODO_MUTEX);
+
+/* Update the changed rolling average computation values */
+
+	IniWriteInt (LOCALINI_FILE, "RollingHash", hash);
+	IniWriteInt (LOCALINI_FILE, "RollingCompleteTime", time_to_complete);
+}
+
+/* Adjust the rolling average */
+
+void adjust_rolling_average (void)
+{
+	unsigned int tnum;
+	unsigned long time_to_complete, starting_time_to_complete;
+	time_t	current_time, starting_time;
+	unsigned long hash, time_in_this_period;
+	double	rolling_average_this_period, pct;
+
+/* Grab the lock so that other threads do not add or delete lines */
+/* while we are making this calculation. */
+
+	gwmutex_lock (&WORKTODO_MUTEX);
+
+/* Look at the first work unit in each thread */
+
+	hash = 0;
+	time_to_complete = 0;
+	for (tnum = 0; tnum < NUM_WORKER_THREADS; tnum++) {
+		struct work_unit *w;
+
+		for (w = WORK_UNITS[tnum].first; w != NULL; w = w->next)
+			if (w->work_type != WORK_NONE &&
+			    w->work_type != WORK_DELETED) break;
+		if (w == NULL) continue;
+	   
+/* Build the hash value */
+
+		hash += build_rolling_hash (w);
+
+/* Get the new estimated time to complete this work unit */
+
+		time_to_complete += (unsigned long) work_estimate (tnum, w);
+	}
+
+/* Unlock access to the worktodo.ini structures */
+
+	gwmutex_unlock (&WORKTODO_MUTEX);
+
+/* Get the current time and starting time */
+
+	starting_time = IniGetInt (LOCALINI_FILE, "RollingStartTime", 0);
+	time (&current_time);
+
+/* Make sure hash codes match.  This protects us against making incorrect */
+/* rolling average adjustments when user manually edits worktodo.ini. */
+
+	if (hash != IniGetInt (LOCALINI_FILE, "RollingHash", 0))
+		goto no_update;
+
+/* Now compute the rolling average for this time period.  For example, if */
+/* the time-to-complete decreased 5 hours over the last 6 hours of elapsed */
+/* time, then the rolling average for the last 6 hours was 5/6 of the */
+/* current rolling average. */
+
+	time_in_this_period = (unsigned long) (current_time - starting_time);
+	starting_time_to_complete =
+		IniGetInt (LOCALINI_FILE, "RollingCompleteTime", 0);
+
+	/* Sanity checks for bogus time periods and completion estimates*/
+
+	if (starting_time == 0 ||
+	    current_time <= starting_time ||
+	    time_in_this_period > 30 * 86400 ||
+	    starting_time_to_complete <= time_to_complete)
+		goto no_update;
+
+	rolling_average_this_period =
+		(double) (starting_time_to_complete - time_to_complete) /
+		(double) NUM_WORKER_THREADS /
+		(double) time_in_this_period *
+		(double) ROLLING_AVERAGE;
+
+	/* If the user is running more worker threads than there are */
+	/* CPUs, then adjust the rolling average upward accordingly. */
+
+	if (NUM_WORKER_THREADS > NUM_CPUS)
+		rolling_average_this_period *=
+			(double) NUM_WORKER_THREADS / (double) NUM_CPUS;
+
+	/* More safeguard against bogus or abruptly changing data */
+
+	if (rolling_average_this_period > 50000.0) goto no_update;
+	if (rolling_average_this_period < 0.5 * ROLLING_AVERAGE)
+		rolling_average_this_period = 0.5 * ROLLING_AVERAGE;
+	if (rolling_average_this_period > 2.0 * ROLLING_AVERAGE)
+		rolling_average_this_period = 2.0 * ROLLING_AVERAGE;
+
+/* Calculate the new rolling average - we use a 30-day rolling average */
+
+	pct = (double) time_in_this_period / (30.0 * 86400.0);
+	ROLLING_AVERAGE = (unsigned long)
+		((1.0 - pct) * ROLLING_AVERAGE +
+		 pct * rolling_average_this_period + 0.5);
+
+	/* Safeguards against excessive rolling average values */
+
+	if (ROLLING_AVERAGE < 20) ROLLING_AVERAGE = 20;
+	if (ROLLING_AVERAGE > 4000) ROLLING_AVERAGE = 4000;
+
+/* Update rolling average data in the local.ini file */
+
+no_update:
+	IniWriteInt (LOCALINI_FILE, "RollingHash", hash);
+	IniWriteInt (LOCALINI_FILE, "RollingStartTime", (unsigned long) current_time);
+	IniWriteInt (LOCALINI_FILE, "RollingCompleteTime", time_to_complete);
+	IniWriteInt (LOCALINI_FILE, "RollingAverage", ROLLING_AVERAGE);
+}
+
+/* If a work_unit performed less work than estimated (say by unexpectedly */
+/* finding a factor) then do not update the rolling average this period. */
+
+void invalidateNextRollingAverageUpdate (void)
+{
+	IniWriteInt (LOCALINI_FILE, "RollingStartTime", 0);
+	adjust_rolling_average ();
+}
+
+/**************************************************************/
+/*      Routines to aid in reading and writing save files     */
+/**************************************************************/
 
 /* Generate temporary file name */
 
 void tempFileName (
-	char	*buf,
-	unsigned long p)
+	struct work_unit *w,
+	char	*buf)
 {
 	char	c;
-	if (p == 0)
-		IniGetString (INI_FILE, "AdvFacFileName", buf, 10, "p0000000");
-	else if (p < 80000000) {
+	unsigned long p;
+
+/* WARNING:  Version 24 had a bug where exponents between 61 million and */
+/* 70 million used funky characters in the file name.  I've fixed the bug */
+/* here, but users will have to rename some intermediate files. */
+
+	p = w->n;
+	if (p < 80000000) {
 		sprintf (buf, "p%07li", p % 10000000);
-		if (p >= 10000000) buf[1] = (char) ('A' + (p / 1000000) - 10);
-		if (p >= 35000000) c=buf[1], buf[1]=buf[2], buf[2]=(char)(c - 25);
-		if (p >= 70000000) c=buf[2], buf[2]=buf[3], buf[3]=(char)(c - 25);
+		if (p >= 10000000)	/* buf[1] ranges from A-Y */
+			buf[1] = (char) ('A' + (p / 1000000) - 10);
+		if (p >= 35000000)	/* buf[2] ranges from A-Z */
+			c = buf[1], buf[1] = buf[2], buf[2] = (char)(c - 25);
+		if (p >= 61000000)	/* buf[3] ranges from B-T */
+			c = buf[2], buf[2] = buf[3], buf[3] = (char)(c - 25);
 	} else
 		sprintf (buf, "p%ld", p);
+
+/* Append extension to allow different worker threads to ECM the same number */
+/* without getting conflicting save file names */
+
+	if (w->extension[0]) {
+		strcat (buf, ".");
+		strcat (buf, w->extension);
+	}
+
+/* For compatibility with v24, append extension for -An command line */
+/* argument.  Also, change the first letter for c = +1 (this does not */
+/* completely eliminate save file conflicts, but does handle the most */
+/* common case of simultaneous ECM on 2^n-1 and 2^n+1). */
+
+	if (w->work_type == WORK_ECM) {
+		strcat (buf, EXTENSION);
+		buf[0] = (w->c == 1) ? 'd' : 'e';
+	}
+	if (w->work_type == WORK_PMINUS1) {
+		strcat (buf, EXTENSION);
+		buf[0] = (w->c == 1) ? 'l' : 'm';
+	}
 }
 
 /* See if the given file exists */
@@ -2454,21 +3614,375 @@ int fileExists (
 	return (1);
 }
 
-/* Read the header of an intermediate Lucas-Lehmer results file */
+/* Routines to read and write a byte array from and to a save file */
 
-int readFileHeader (
-	char	*filename,
-	int	*fd,
-	short	*type,
-	unsigned long *counter)
+int read_array (
+	int	fd,
+	char	*buf,
+	unsigned long len,
+	unsigned long *sum)
 {
-	*fd = _open (filename, _O_BINARY | _O_RDONLY);
-	if (*fd <= 0) return (FALSE);
-	if (_read (*fd, type, sizeof (short)) != sizeof (short)) goto readerr;
-	if (_read (*fd, counter, sizeof (long)) != sizeof (long)) goto readerr;
+	unsigned long i;
+	unsigned char *ubuf;
+
+	if (_read (fd, buf, len) != len) return (FALSE);
+	ubuf = (unsigned char *) buf;
+	if (sum != NULL)
+		for (i = 0; i < len; i++)
+			*sum = (uint32_t) (*sum + ubuf[i]);
 	return (TRUE);
-readerr:_close (*fd);
-	return (FALSE);
+}
+
+int write_array (
+	int	fd,
+	char	*buf,
+	unsigned long len,
+	unsigned long *sum)
+{
+	unsigned long i;
+	unsigned char *ubuf;
+
+	if (len == 0) return (TRUE);
+	if (_write (fd, buf, len) != len) return (FALSE);
+	ubuf = (unsigned char *) buf;
+	if (sum != NULL)
+		for (i = 0; i < len; i++)
+			*sum = (uint32_t) (*sum + ubuf[i]);
+	return (TRUE);
+}
+
+/* Routines to read and write a gwnum from and to a save file */
+
+int read_gwnum (
+	int	fd,
+	gwhandle *gwdata,
+	gwnum	g,
+	unsigned long *sum)
+{
+	giant	tmp;
+	unsigned long i, len, bytes;
+
+	if (!read_long (fd, &len, sum)) return (FALSE);
+	if (len == 0) return (FALSE);
+	tmp = popg (&gwdata->gdata, (gwdata->n >> 5) + 10);
+	if (tmp == NULL) return (FALSE);	// BUG - we should return some other error code
+						// otherwise caller will likely delete save file.
+	bytes = len * sizeof (uint32_t);
+	if (_read (fd, tmp->n, bytes) != bytes) return (FALSE);
+	if (len && tmp->n[len-1] == 0) return (FALSE);
+	tmp->sign = len;
+	*sum = (uint32_t) (*sum + len);
+	for (i = 0; i < len; i++) *sum = (uint32_t) (*sum + tmp->n[i]);
+	gianttogw (gwdata, tmp, g);
+	pushg (&gwdata->gdata, 1);
+	return (TRUE);
+}
+
+int write_gwnum (
+	int	fd,
+	gwhandle *gwdata,
+	gwnum	g,
+	unsigned long *sum)
+{
+	giant	tmp;
+	unsigned long i, len, bytes;
+
+	tmp = popg (&gwdata->gdata, (gwdata->n >> 5) + 10);
+	if (tmp == NULL) return (FALSE);
+	gwtogiant (gwdata, g, tmp);
+	len = tmp->sign;
+	if (len == 0) return (FALSE);
+	if (!write_long (fd, len, sum)) return (FALSE);
+	bytes = len * sizeof (uint32_t);
+	if (_write (fd, tmp->n, bytes) != bytes) return (FALSE);
+	*sum = (uint32_t) (*sum + len);
+	for (i = 0; i < len; i++) *sum = (uint32_t) (*sum + tmp->n[i]);
+	pushg (&gwdata->gdata, 1);
+	return (TRUE);
+}
+
+/* Routines to read and write values from and to a save file */
+
+int read_short (			/* Used for old-style save files */
+	int	fd,
+	short	*val)
+{
+	if (_read (fd, val, sizeof (short)) != sizeof (short)) return (FALSE);
+	return (TRUE);
+}
+
+int read_long (
+	int	fd,
+	unsigned long *val,
+	unsigned long *sum)
+{
+	uint32_t tmp;
+
+	if (_read (fd, &tmp, sizeof (uint32_t)) != sizeof (uint32_t))
+		return (FALSE);
+	if (sum != NULL) *sum = (uint32_t) (*sum + tmp);
+	*val = tmp;
+	return (TRUE);
+}
+
+int write_long (
+	int	fd,
+	unsigned long val,
+	unsigned long *sum)
+{
+	uint32_t tmp;
+
+	tmp = (uint32_t) val;
+	if (_write (fd, &tmp, sizeof (uint32_t)) != sizeof (uint32_t))
+		return (FALSE);
+	if (sum != NULL) *sum = (uint32_t) (*sum + tmp);
+	return (TRUE);
+}
+
+int read_slong (
+	int	fd,
+	long	*val,
+	unsigned long *sum)
+{
+	int32_t tmp;
+
+	if (_read (fd, &tmp, sizeof (int32_t)) != sizeof (int32_t))
+		return (FALSE);
+	if (sum != NULL) *sum = (uint32_t) (*sum + (uint32_t) tmp);
+	*val = tmp;
+	return (TRUE);
+}
+
+int write_slong (
+	int	fd,
+	long	val,
+	unsigned long *sum)
+{
+	int32_t tmp;
+
+	tmp = (int32_t) val;
+	if (_write (fd, &tmp, sizeof (int32_t)) != sizeof (int32_t))
+		return (FALSE);
+	if (sum != NULL) *sum = (uint32_t) (*sum + (uint32_t) tmp);
+	return (TRUE);
+}
+
+int read_longlong (
+	int	fd,
+	uint64_t *val,
+	unsigned long *sum)
+{
+	if (_read (fd, val, sizeof (uint64_t)) != sizeof (uint64_t))
+		return (FALSE);
+	if (sum != NULL) *sum = (uint32_t) (*sum + (*val >> 32) + *val);
+	return (TRUE);
+}
+
+int write_longlong (
+	int	fd,
+	uint64_t val,
+	unsigned long *sum)
+{
+	if (_write (fd, &val, sizeof (uint64_t)) != sizeof (uint64_t))
+		return (FALSE);
+	if (sum != NULL) *sum = (uint32_t) (*sum + (val >> 32) + val);
+	return (TRUE);
+}
+
+int read_double (
+	int	fd,
+	double	*val,
+	unsigned long *sum)
+{
+	if (_read (fd, val, sizeof (double)) != sizeof (double))
+		return (FALSE);
+	if (sum != NULL) *sum = (uint32_t) (*sum + (uint32_t) *val);
+	return (TRUE);
+}
+
+int write_double (
+	int	fd,
+	double	val,
+	unsigned long *sum)
+{
+	if (_write (fd, &val, sizeof (double)) != sizeof (double))
+		return (FALSE);
+	if (sum != NULL) *sum += (uint32_t) (*sum + (uint32_t) val);
+	return (TRUE);
+}
+
+/* Routines to read and write the common header portion of all save files */
+/* The save file format is: */
+/*	u32		magic number  (different for ll, p-1, prp, tf, ecm) */
+/*	u32		version number */
+/*	double		k in k*b^n+c */
+/*	u32		b in k*b^n+c */
+/*	u32		n in k*b^n+c */
+/*	s32		c in k*b^n+c */
+/*	double		pct complete */
+/*	char(11)	stage */
+/*	char(1)		pad */
+/*	u32		checksum of all following data */
+
+/* Read and test the "magic number" in the first 4 bytes of the file. */
+/* We use this to detect save files created by this program prior to the */
+/* common header format. */
+
+int read_magicnum (
+	int	fd,
+	unsigned long magicnum)
+{
+	unsigned long filenum;
+
+/* Read the magic number from the first 4 bytes */
+
+	_lseek (fd, 0, SEEK_SET);
+	if (!read_long (fd, &filenum, NULL)) return (FALSE);
+
+/* Return TRUE if the magic number matches the caller's desired magic number */
+
+	return (filenum == magicnum);
+}
+
+/* Read the rest of the common header */
+
+int read_header (
+	int	fd,
+	unsigned long *version,
+	struct work_unit *w,
+	unsigned long *sum)
+{
+	double	k;
+	unsigned long b, n;
+	long	c;
+	char	pad;
+	char	stage[11];
+	double	pct_complete;
+	unsigned long trash_sum;
+
+/* Skip past the magic number in the first 4 bytes */
+
+	_lseek (fd, sizeof (uint32_t), SEEK_SET);
+
+/* Read the header */
+
+	if (!read_long (fd, version, NULL)) return (FALSE);
+	if (!read_double (fd, &k, NULL)) return (FALSE);
+	if (!read_long (fd, &b, NULL)) return (FALSE);
+	if (!read_long (fd, &n, NULL)) return (FALSE);
+	if (!read_slong (fd, &c, NULL)) return (FALSE);
+	if (!read_array (fd, stage, 11, NULL)) return (FALSE);
+	if (!read_array (fd, &pad, 1, NULL)) return (FALSE);
+	if (!read_double (fd, &pct_complete, NULL)) return (FALSE);
+	if (sum == NULL) sum = &trash_sum;
+	if (!read_long (fd, sum, NULL)) return (FALSE);
+
+/* Validate the k,b,n,c values */
+
+	if (k != w->k || b != w->b || n != w->n || c != w->c) return (FALSE);
+
+/* Set the work unit's stage and pct_complete fields */
+
+	stage[10] = 0;
+	strcpy (w->stage, stage);
+	if (pct_complete < 0.0) pct_complete = 0.0;
+	if (pct_complete > 1.0) pct_complete = 1.0;
+	w->pct_complete = pct_complete;
+
+/* Return success */
+
+	return (TRUE);
+}
+
+int write_header (
+	int	fd,
+	unsigned long magicnum,
+	unsigned long version,
+	struct work_unit *w)
+{
+	char	pad = 0;
+	uint32_t sum = 0;
+
+	if (!write_long (fd, magicnum, NULL)) return (FALSE);
+	if (!write_long (fd, version, NULL)) return (FALSE);
+	if (!write_double (fd, w->k, NULL)) return (FALSE);
+	if (!write_long (fd, w->b, NULL)) return (FALSE);
+	if (!write_long (fd, w->n, NULL)) return (FALSE);
+	if (!write_slong (fd, w->c, NULL)) return (FALSE);
+	if (!write_array (fd, w->stage, 11, NULL)) return (FALSE);
+	if (!write_array (fd, &pad, 1, NULL)) return (FALSE);
+	if (!write_double (fd, w->pct_complete, NULL)) return (FALSE);
+	if (!write_long (fd, sum, NULL)) return (FALSE);
+	return (TRUE);
+}
+
+#define CHECKSUM_OFFSET	48
+
+int read_checksum (
+	int	fd,
+	unsigned long *sum)
+{
+	_lseek (fd, CHECKSUM_OFFSET, SEEK_SET);
+	if (!read_long (fd, sum, NULL)) return (FALSE);
+	return (TRUE);
+}
+
+int write_checksum (
+	int	fd,
+	unsigned long sum)
+{
+	_lseek (fd, CHECKSUM_OFFSET, SEEK_SET);
+	if (!write_long (fd, sum, NULL)) return (FALSE);
+	return (TRUE);
+}
+
+
+
+/* Format a message for writing to the results file and sending to the */
+/* server.  We prepend the assignment ID to the message.  If operating */
+/* offline, then prepend other information. */
+
+void formatMsgForResultsFile (
+	char	*buf,		/* Msg to prepend to, 200 characters max */
+	struct work_unit *w)
+{
+	char	newbuf[2000];
+
+/* Output the V4 user id and computer id */
+
+if (USE_V4) {
+	if (!V4_USERID[0])
+		strcpy (newbuf, buf);
+	else if (!COMPID[0])
+		sprintf (newbuf, "UID: %s, %s", V4_USERID, buf);
+	else
+		sprintf (newbuf, "UID: %s/%s, %s", V4_USERID, COMPID, buf);
+	newbuf[200] = 0;
+	strcpy (buf, newbuf);
+	return;
+}
+
+/* Output a USERID/COMPID prefix for result messages */
+
+	if (!USERID[0])
+		strcpy (newbuf, buf);
+	else if (!COMPID[0])
+		sprintf (newbuf, "UID: %s, %s", USERID, buf);
+	else
+		sprintf (newbuf, "UID: %s/%s, %s", USERID, COMPID, buf);
+
+/* Output the assignment ID too.  That alone should be enough info to */
+/* credit the correct userID.  However, we still output the user ID as it */
+/* is far more human friendly than an assignment ID. */
+
+	if (w->assignment_uid[0])
+		sprintf (newbuf + strlen (newbuf) - 1,
+			 ", AID: %s\n", w->assignment_uid);
+
+/* Now truncate the message to 200 characters */
+
+	newbuf[200] = 0;
+	strcpy (buf, newbuf);
 }
 
 /* Open the results file and write a line to the end of it. */
@@ -2482,8 +3996,10 @@ static	time_t	last_time = 0;
 
 /* Open file, position to end */
 
+	gwmutex_lock (&OUTPUT_MUTEX);
 	fd = _open (RESFILE, _O_TEXT | _O_RDWR | _O_CREAT | _O_APPEND, CREATE_FILE_ACCESS);
 	if (fd < 0) {
+		gwmutex_unlock (&OUTPUT_MUTEX);
 		LogMsg ("Error opening results file to output this message:\n");
 		LogMsg (msg);
 		return (FALSE);
@@ -2503,959 +4019,2005 @@ static	time_t	last_time = 0;
 		_write (fd, buf, 27);
 	}
 
-/* Output a USERID prefix for result messages */
-
-	if ((msg[0] == 'M' || msg[0] == 'P') &&
-	    isdigit (msg[1]) && USERID[0]) {
-		if (_write (fd, "UID: ", 5) < 0) goto fail;
-		if (_write (fd, USERID, strlen (USERID)) < 0) goto fail;
-		if (COMPID[0]) {
-			if (_write (fd, "/", 1) < 0) goto fail;
-			if (_write (fd, COMPID, strlen(COMPID)) < 0) goto fail;
-		}
-		if (_write (fd, ", ", 2) < 0) goto fail;
-	}
-
 /* Output the message */
 
-	if (_write (fd, msg, strlen (msg)) < 0) goto fail;
+	if (_write (fd, msg, (unsigned int) strlen (msg)) < 0) goto fail;
 	_close (fd);
+	gwmutex_unlock (&OUTPUT_MUTEX);
 	return (TRUE);
 
 /* On a write error, close file and return error flag */
 
 fail:	_close (fd);
+	gwmutex_unlock (&OUTPUT_MUTEX);
 	LogMsg ("Error writing message to results file:\n");
 	LogMsg (msg);
 	return (FALSE);
 }
 
 
+/****************************************************************************/
+/*               Spool File and Server Communication Code                   */
+/****************************************************************************/
+
+#define	SPOOL_FILE_MAGICNUM	0x73d392ac
+#define SPOOL_FILE_VERSION	1
+/* Offset to the header words (just past the magicnum and version num) */
+#define SPOOL_FILE_HEADER_OFFSET (2 * sizeof (uint32_t))
+/* Offset to messages (past magicnum, version num, and two header words) */
+#define SPOOL_FILE_MSG_OFFSET (4 * sizeof (uint32_t))
+
+gwthread COMMUNICATION_THREAD = 0;	/* Handle for comm thread */
+gwmutex	SPOOL_FILE_MUTEX;		/* Lock governing spool file access */
+int	GET_PING_INFO = 0;		/* Flag to get ping info */
+int	GLOBAL_SEND_MSG_COUNT = 0;	/* Used to detect hung comm threads */
+struct work_unit *LOCKED_WORK_UNIT = NULL; /* Work unit to unlock if comm */
+					/* thread hangs. */
+
+/* Spool file header word flags */
+
+#define HEADER_FLAG_MSGS	0x0001	/* informational msgs in file */
+#define HEADER_FLAG_PO		0x0004	/* exchange program options */
+#define HEADER_FLAG_END_DATES	0x0008	/* completion dates need sending */
+#define HEADER_FLAG_QUIT_GIMPS	0x0010	/* return all work (quit gimps) */
+#define HEADER_FLAG_UC		0x0020	/* computer info has changed */
+#define HEADER_FLAG_WORK_QUEUE	0x0040	/* check if enough work is queued */
+
+void communicateWithServer (void *arg);
+
+/* Init the spool file and communication code */
+
+void init_spool_file_and_comm_code (void)
+{
+	gwmutex_init (&SPOOL_FILE_MUTEX);
+	GET_PING_INFO = 0;
+}
+
+/* Add or delete the comm timers based on the communication global */
+/* variables.  This is called at start up and whenever the user toggles */
+/* the USE_PRIMENET or MANUAL_COMM global variables. */
+
+void set_comm_timers (void)
+{
+	time_t	last_time, current_time;
+
+/* If we are not doing automatic server communications, then make sure */
+/* no communication timers are active.  If, by chance, we are in the */
+/* middle of communicating with the server, then let the thread complete. */
+
+//bug - should we destroy the comm window if !USE_PRIMENET??? User may
+//have interesting data there, however it is in prime.log too.
+//Maybe just change the window title.
+// or do we need to leave it active until a Quit GIMPS succeeds??
+	if (!USE_PRIMENET) {
+		delete_timed_event (TE_COMM_SERVER);
+		delete_timed_event (TE_COMPLETION_DATES);
+		delete_timed_event (TE_WORK_QUEUE_CHECK);
+		return;
+	}
+	if (MANUAL_COMM)
+		delete_timed_event (TE_COMM_SERVER);
+
+/* Create and name all the communication window. */
+
+	create_window (COMM_THREAD_NUM);
+	base_title (COMM_THREAD_NUM, "Communication thread");
+	ChangeIcon (COMM_THREAD_NUM, IDLE_ICON);
+	title (COMM_THREAD_NUM, "Inactive");
+
+/* Update completion dates on the server if it has been a month since we */
+/* last updated the server.  Otherwise, start a timer to make this happen */
+/* at the appropriate time. */
+
+/* Get the current time and when the completion dates were last sent */
+
+	time (&current_time);
+	last_time = IniGetInt (LOCALINI_FILE, "LastEndDatesSent", 0);
+
+/* If it's been the correct number of days, then update the end dates */
+
+	if (current_time < last_time ||
+	    current_time > (time_t)(last_time + DAYS_BETWEEN_CHECKINS * 86400))
+		UpdateEndDates ();
+	else
+		add_timed_event (TE_COMPLETION_DATES,
+				 (int) (last_time +
+					DAYS_BETWEEN_CHECKINS * 86400 -
+					current_time));
+
+/* Add the event that checks if the work queue has enough work every 6 */
+/* hours.  As a side effect, this will also start the comm thread in case */
+/* there is an old spool file hanging around. */
+
+	add_timed_event (TE_WORK_QUEUE_CHECK, 5);  /* Start in 5 seconds */
+}
+
+/* Routine to fire up the communication thread in response to a user */
+/* request to communicate with the server now. */
+
+void do_manual_comm_now (void)
+{
+	gwmutex_lock (&SPOOL_FILE_MUTEX);
+	if (!COMMUNICATION_THREAD)
+		gwthread_create (&COMMUNICATION_THREAD,
+				 &communicateWithServer, NULL);
+	gwmutex_unlock (&SPOOL_FILE_MUTEX);
+}
+
+/* Clear rate-limiting counters and timers.  Any time the user explicitly */
+/* chooses Test/Continue, we reset the rate limits.  We do this so that */
+/* if there is an explicit need to communicate with the server frequently */
+/* in the short term, the user has a way to do it.  The rate limits are */
+/* here to guard against runaway clients from pummeling the server. */
+
+void clear_comm_rate_limits (void)
+{
+//bug - clear other rate limiters here....
+
+/* If we are paused for an hour because of a failed connection attempt, */
+/* then kill the timer and comm now.  The user may have edited the proxy */
+/* info in the INI file so that comm will now work. */
+
+	gwmutex_lock (&SPOOL_FILE_MUTEX);
+	if (!MANUAL_COMM &&
+	    !COMMUNICATION_THREAD &&
+	    is_timed_event_active (TE_COMM_SERVER)) {
+		delete_timed_event (TE_COMM_SERVER);
+		gwthread_create (&COMMUNICATION_THREAD,
+				 &communicateWithServer, NULL);
+	}
+	gwmutex_unlock (&SPOOL_FILE_MUTEX);
+}
+
+/* Ping the server and retrieve info for an About box. */
+/* The communication thread will call pingServerResponse with the results. */
+
+void pingServer (void)
+{
+
+/* Set global variable indicating we want to get ping information. */
+/* Then fire up the communication thread. */
+
+	gwmutex_lock (&SPOOL_FILE_MUTEX);
+	GET_PING_INFO = 1;
+	if (!COMMUNICATION_THREAD)
+		gwthread_create (&COMMUNICATION_THREAD,
+				 &communicateWithServer, NULL);
+	gwmutex_unlock (&SPOOL_FILE_MUTEX);
+}
+
+/* Update completion dates on the server.  Set a flag in */
+/* the spool file saying this is necessary. */
+
+void UpdateEndDates (void)
+{
+	spoolMessage (PRIMENET_ASSIGNMENT_PROGRESS, NULL);
+}
+
+/* Write a message to the spool file */
+
+void spoolMessage (
+	short	msgType,
+	void	*msg)
+{
+	int	fd;
+	unsigned long magicnum, version;
+	unsigned long header_word;
+
+/* If we're not using primenet, ignore this call */
+
+	if (!USE_PRIMENET) return;
+
+/* Obtain mutex before accessing spool file */
+
+	gwmutex_lock (&SPOOL_FILE_MUTEX);
+
+/* Open the spool file */
+
+	fd = _open (SPOOL_FILE, _O_RDWR | _O_BINARY | _O_CREAT, CREATE_FILE_ACCESS);
+	if (fd < 0) {
+		LogMsg ("ERROR: Unable to open spool file.\n");
+		gwmutex_unlock (&SPOOL_FILE_MUTEX);
+		return;
+	}
+
+/* If the file is empty, write the spool file header */
+
+	if (!read_long (fd, &magicnum, NULL)) {
+		write_long (fd, SPOOL_FILE_MAGICNUM, NULL);
+		write_long (fd, SPOOL_FILE_VERSION, NULL);
+		write_long (fd, 0, NULL);
+		write_long (fd, 0, NULL);
+		header_word = 0;
+	}
+
+/* Otherwise, read and validate header.  If it is bad try to salvage */
+/* the spool file data. */
+
+	else if (magicnum != SPOOL_FILE_MAGICNUM ||
+		 !read_long (fd, &version, NULL) ||
+		 version != SPOOL_FILE_VERSION ||
+		 !read_long (fd, &header_word, NULL)) {
+		_close (fd);
+		gwmutex_unlock (&SPOOL_FILE_MUTEX);
+		salvageCorruptSpoolFile ();
+		spoolMessage (msgType, msg);
+		return;
+	}
+
+/* If this is a message telling us to check if enough work is queued up, */
+/* then set the proper bit in the header word. */
+
+	if (msgType == MSG_CHECK_WORK_QUEUE)
+		header_word |= HEADER_FLAG_WORK_QUEUE;
+
+/* If this is a maintain user info message, then set the header */
+/* word appropriately.  At Scott's request also send computer info. */
+
+	else if (msgType == PRIMENET_UPDATE_COMPUTER_INFO) {
+		header_word |= HEADER_FLAG_UC;
+	}
+
+/* If this is a exchange program options message, then set the header */
+/* word appropriately. */
+
+	else if (msgType == PRIMENET_PROGRAM_OPTIONS) {
+		header_word |= HEADER_FLAG_PO;
+	}
+
+/* If this is an update completion dates message, then set the header word */
+/* appropriately.  At Scott's request also send computer info. */
+
+	else if (msgType == PRIMENET_ASSIGNMENT_PROGRESS)
+		header_word |= HEADER_FLAG_END_DATES + HEADER_FLAG_UC;
+
+/* Ugly little hack when quitting GIMPS */
+
+	else if (msgType == MSG_QUIT_GIMPS)
+		header_word |= HEADER_FLAG_QUIT_GIMPS;
+
+/* Otherwise this is a result, unreserve, or benchmark data */
+
+	else
+		header_word |= HEADER_FLAG_MSGS;
+
+/* Write the new header word */
+
+	_lseek (fd, SPOOL_FILE_HEADER_OFFSET, SEEK_SET);
+	write_long (fd, header_word, NULL);
+
+/* Write out a full message */
+
+	if (msgType == PRIMENET_ASSIGNMENT_RESULT ||
+	    msgType == PRIMENET_ASSIGNMENT_UNRESERVE ||
+	    msgType == PRIMENET_BENCHMARK_DATA) {
+		char	buf[1024];
+		short	datalen;
+
+/* Skip the remaining messages */
+
+		while (_read (fd, buf, sizeof (buf)));
+
+/* Append the latest message */
+
+		datalen = (msgType == PRIMENET_ASSIGNMENT_RESULT) ?
+			sizeof (struct primenetAssignmentResult) :
+			(msgType == PRIMENET_ASSIGNMENT_UNRESERVE) ?
+			sizeof (struct primenetAssignmentUnreserve) :
+			sizeof (struct primenetBenchmarkData);
+		_write (fd, &msgType, sizeof (short));
+		_write (fd, &datalen, sizeof (short));
+		_write (fd, msg, datalen);
+	}
+
+/* Close the spool file */
+
+	_close (fd);
+
+/* Fire up the communication thread if we are not waiting for the user to */
+/* complete the initial startup dialog boxes and we are not doing manual */
+/* communication and the communication thread is not already active and we */
+/* are not waiting some time to retry after a failed communication attempt. */
+
+	if (!STARTUP_IN_PROGRESS &&
+	    !MANUAL_COMM &&
+	    !COMMUNICATION_THREAD &&
+	    !is_timed_event_active (TE_COMM_SERVER))
+		gwthread_create (&COMMUNICATION_THREAD,
+				 &communicateWithServer, NULL);
+
+/* Release mutex before accessing spool file */
+
+	gwmutex_unlock (&SPOOL_FILE_MUTEX);
+}
+
+/* Copy an existing results file to the spool file */
+/* This is used when converting from manual to automatic mode */
+/* It provides an extra chance that the existing results file */
+/* will get sent to us. */
+
+void spoolExistingResultsFile (void)
+{
+	int	i;
+	char	*filename;
+	char	line[256];
+	FILE	*fd;
+
+	for (i = 1; i <= 2; i++) {
+		if (i == 1) filename = "results.txt";
+		if (i == 2) {
+			if (!strcmp (RESFILE, "results.txt")) continue;
+			filename = RESFILE;
+		}
+		fd = fopen (filename, "r");
+		if (fd == NULL) continue;
+		while (fgets (line, sizeof (line) - 1, fd)) {
+			if (line[0] == '[') continue;
+			if (strstr (line, "Res64") == NULL &&
+			    strstr (line, "factor:") == NULL &&
+			    strstr (line, "completed P-1") == NULL &&
+			    strstr (line, "no factor") == NULL) continue;
+			if (line[0] == 'U' && strchr (line, ',') != NULL)
+				strcpy (line, strchr (line, ',') + 2);
+//BUG - what to do with this??? Pass an unknown result type which
+//forces it to be treated like a manual result?  Does v5 understand
+//v4 result strings?
+//			spoolMessage (PRIMENET_RESULT_MESSAGE, line);
+		}
+		fclose (fd);
+	}
+}
+
 /* Unreserve an exponent */
 
-void unreserve (
+int unreserve (
 	unsigned long p)
 {
-	struct primenetAssignmentResult pkt;
-	unsigned int i;
-
-/* Build a packet and spool message */
-
-	memset (&pkt, 0, sizeof (pkt));
-	pkt.exponent = p;
-	pkt.resultType = PRIMENET_RESULT_UNRESERVE;
-	spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
+	unsigned int tnum;
+	int	rc, found_one;
 
 /* Find exponent in worktodo.ini and delete it if present */
 
-	IniFileOpen (WORKTODO_FILE, 0);
-	for (i = 1; ; i++) {
-		struct work_unit temp;
+	found_one = FALSE;
+	for (tnum = 0; tnum < NUM_WORKER_THREADS; tnum++) {
+	    struct work_unit *w;
+
+	    w = NULL;
+	    for ( ; ; ) {
 
 /* Read the line of the work file */
 
-		if (! parseWorkToDoLine (i, &temp)) break;
+		w = getNextWorkToDoLine (tnum, w, SHORT_TERM_USE);
+		if (w == NULL) break;
+		if (w->work_type == WORK_NONE) continue;
 
 /* Skip the line if exponent is not a match */
 
-		if (p != temp.n) continue;
+		if (w->n != p) continue;
+		found_one = TRUE;
 
-/* Delete the line */
+/* Build a packet and spool message */
 
-		IniDeleteLine (WORKTODO_FILE, i);
+		if (w->assignment_uid[0]) {
+			struct primenetAssignmentUnreserve pkt;
+			memset (&pkt, 0, sizeof (pkt));
+			strcpy (pkt.computer_guid, COMPUTER_GUID);
+			strcpy (pkt.assignment_uid, w->assignment_uid);
+			spoolMessage (PRIMENET_ASSIGNMENT_UNRESERVE, &pkt);
+		}
+
+/* Delete the line.  The work unit will immediately be removed from the */
+/* worktodo.ini file and will be deleted from the in-memory structures */
+/* once the last in-use lock is released. */
+
+		rc = deleteWorkToDoLine (tnum, w, TRUE);
+		if (rc) return (rc);
+	    }
+	}
+
+/* If we didn't find a match then output a message to the main window */
+
+	if (!found_one) {
+		char	buf[90];
+		sprintf (buf, "Error unreserving exponent: %d not found in worktodo.txt\n", p);
+		OutputStr (MAIN_THREAD_NUM, buf);
+	}
+
+/* Return successfully */
+
+	return (0);
+}
+
+/* Output message to screen and prime.log file */
+
+void LogMsg (
+	char	*str)
+{
+	int	fd;
+	unsigned long filelen;
+static	time_t	last_time = 0;
+	time_t	this_time;
+
+/* Output it to the screen */
+
+	OutputStr (COMM_THREAD_NUM, str);
+
+/* Open the log file and position to the end */
+
+	gwmutex_lock (&LOG_MUTEX);
+	fd = _open (LOGFILE, _O_TEXT | _O_RDWR | _O_CREAT, CREATE_FILE_ACCESS);
+	if (fd < 0) {
+		gwmutex_unlock (&LOG_MUTEX);
+		OutputStr (COMM_THREAD_NUM, "Unable to open log file.\n");
+		return;
+	}
+	filelen = _lseek (fd, 0L, SEEK_END);
+
+/* If the log file has grown too big, lose the first 100,000 bytes */
+
+	if (filelen > (unsigned long) IniGetInt (INI_FILE, "MaxLogFileSize", 2000000)) {
+		char	*buf, *p;
+		int	bytes_read;
+
+		buf = (char *) malloc (filelen);
+		if (buf != NULL) {
+			_lseek (fd, 100000L, SEEK_SET);
+			strcpy (buf, "Prior log file entries removed.\n");
+			for (p = buf + strlen (buf); (bytes_read = _read (fd, p, 50000)) != 0; p += bytes_read);
+		       	_close (fd);
+			fd = _open (LOGFILE, _O_TEXT | _O_RDWR | _O_TRUNC, CREATE_FILE_ACCESS);
+			if (fd < 0) {
+				free (buf);
+				gwmutex_unlock (&LOG_MUTEX);
+				OutputStr (COMM_THREAD_NUM, "Unable to truncate log file.\n");
+				return;
+			}
+			_write (fd, buf, (unsigned int) (p - buf));
+			free (buf);
+		}
+	}
+
+/* If it has been at least 5 minutes since the last time stamp */
+/* was output, then output a new timestamp */
+
+	time (&this_time);
+	if (this_time - last_time > 300) {
+		char	buf[48];
+		last_time = this_time;
+		buf[0] = '[';
+		strcpy (buf+1, ctime (&this_time));
+		sprintf (buf+25, " - ver %s]\n", VERSION);
+		_write (fd, buf, (unsigned int) strlen (buf));
+	}
+
+/* Output the message */
+
+	_write (fd, str, (unsigned int) strlen (str));
+	_close (fd);
+	gwmutex_unlock (&LOG_MUTEX);
+}
+
+/* Format text for prime.log */
+
+void kbnc_to_text (
+	char	*buf,
+	int	primenet_work_type,
+	double	k,
+	unsigned long b,
+	unsigned long n,
+	long	c)
+{
+	char	num[80], *work_type_str;
+
+	switch (primenet_work_type) {
+	case PRIMENET_WORK_TYPE_FACTOR:
+		work_type_str = "Trial factor";
+		k = 1.0; b = 2; c = -1;
+		break;
+	case PRIMENET_WORK_TYPE_FIRST_LL:
+		work_type_str = "LL";
+		k = 1.0; b = 2; c = -1;
+		break;
+	case PRIMENET_WORK_TYPE_DBLCHK:
+		work_type_str = "Double check";
+		k = 1.0; b = 2; c = -1;
+		break;
+	case PRIMENET_WORK_TYPE_ECM:
+		work_type_str = "ECM";
+		break;
+	case PRIMENET_WORK_TYPE_PFACTOR:
+		work_type_str = "P-1";
+		k = 1.0; b = 2; c = -1;
+		break;
+	case PRIMENET_WORK_TYPE_PMINUS1:
+		work_type_str = "P-1";
+		break;
+	case PRIMENET_WORK_TYPE_PRP:
+		work_type_str = "PRP";
+		break;
+	default:
+		work_type_str = "Unknown work type";
 		break;
 	}
-	IniFileClose (WORKTODO_FILE);
+	gw_as_string (num, k, b, n, c);
+	sprintf (buf, "%s %s", work_type_str, num);
 }
+
+void aid_to_text (
+	char	*buf,
+	char	*aid)
+{
+	unsigned int tnum;
+	struct work_unit *w;
+
+/* Scan all work units until we find a matching assignment id */
+
+	for (tnum = 0; tnum < NUM_WORKER_THREADS; tnum++) {
+	    w = NULL;
+	    for ( ; ; ) {
+		w = getNextWorkToDoLine (tnum, w, SHORT_TERM_USE);
+		if (w == NULL) break;
+		if (w->work_type == WORK_NONE) continue;
+		if (strcmp (aid, w->assignment_uid)) continue;
+		gw_as_string (buf, w->k, w->b, w->n, w->c);
+		decrementWorkUnitUseCount (w, SHORT_TERM_USE);
+		return;
+	    }
+	}
+	sprintf (buf, "assignment %s", aid);
+}
+
+
+/* Read a spooled message */
+
+void readMessage (
+	int	fd,
+	long	*offset,	/* Offset of the message */
+	short	*msgType,	/* 0 = no message */
+	void	*msg)
+{
+	short	datalen;
+
+/* Loop until a message that hasn't already been sent is found */
+
+	for ( ; ; ) {
+		*offset = _lseek (fd, 0, SEEK_CUR);
+		if (_read (fd, msgType, sizeof (short)) != sizeof (short))
+			break;
+		if (_read (fd, &datalen, sizeof (short)) != sizeof (short))
+			break;
+
+/* Read the body of the message */
+
+		if (_read (fd, msg, datalen) != datalen) break;
+
+/* Loop if message has already been sent */
+
+		if (*msgType == -1) continue;
+
+/* Return if msgType is one we expected. */
+
+		if (*msgType == PRIMENET_ASSIGNMENT_RESULT ||
+		    *msgType == PRIMENET_ASSIGNMENT_UNRESERVE ||
+		    *msgType == PRIMENET_BENCHMARK_DATA)
+			return;
+
+/* MsgType was unexpected.  This indicates a corrupt spool file. */
+
+		LogMsg ("Corrupt spool file.  Message ignored.\n");
+	}
+
+/* On file read errors (or EOF), return code indicating we're done reading */
+/* the spool file. */
+	
+	*msgType = 0;
+}
+
+
+/* Send a message that was read from the spool file */
+
+int sendMessage (
+	short	msgType,
+	void	*msg)
+{
+	struct primenetAssignmentResult *pkt;
+	int	local_send_msg_count;
+	int	return_code;
+	char	buf[400], info[200];
+
+/* Load the primenet library and do any special handling */
+/* required prior to calling primenet */
+
+	if (!LoadPrimeNet ()) return (PRIMENET_ERROR_MODEM_OFF);
+
+/* Prepend all messages with the userid and computer id */
+
+	pkt = (struct primenetAssignmentResult *) msg;
+
+/* Print a message on the screen and in the log file */
+
+	switch (msgType) {
+	case PRIMENET_UPDATE_COMPUTER_INFO:
+		LogMsg ("Updating computer information on the server\n");
+		break;
+	case PRIMENET_PROGRAM_OPTIONS:
+		LogMsg ("Exchanging program options with server\n");
+		break;
+	case PRIMENET_PING_SERVER:
+		OutputStr (COMM_THREAD_NUM, "Contacting PrimeNet Server.\n");
+		break;
+	case PRIMENET_GET_ASSIGNMENT:
+		LogMsg ("Getting assignment from server\n");
+		break;
+	case PRIMENET_REGISTER_ASSIGNMENT:
+		kbnc_to_text (info,
+			      ((struct primenetRegisterAssignment *)pkt)->work_type,
+			      ((struct primenetRegisterAssignment *)pkt)->k,
+			      ((struct primenetRegisterAssignment *)pkt)->b,
+			      ((struct primenetRegisterAssignment *)pkt)->n,
+			      ((struct primenetRegisterAssignment *)pkt)->c);
+		sprintf (buf, "Registering assignment: %s\n", info);
+		LogMsg (buf);
+		break;
+	case PRIMENET_ASSIGNMENT_PROGRESS:
+		{
+			time_t	this_time;
+			char	timebuf[30];
+			time (&this_time);
+			this_time += ((struct primenetAssignmentProgress *)pkt)->end_date;
+			strcpy (timebuf, ctime (&this_time)+4);
+			strcpy (timebuf+6, timebuf+15);
+			aid_to_text (info, ((struct primenetAssignmentProgress *)pkt)->assignment_uid);
+			sprintf (buf, "Sending expected completion date for %s: %s",
+				 info, timebuf);
+			LogMsg (buf);
+		}
+		break;
+	case PRIMENET_ASSIGNMENT_UNRESERVE:
+		aid_to_text (info, ((struct primenetAssignmentUnreserve *)pkt)->assignment_uid);
+		sprintf (buf, "Unreserving %s\n", info);
+		LogMsg (buf);
+		break;
+	case PRIMENET_ASSIGNMENT_RESULT:
+		sprintf (buf, "Sending result to server: %s\n",
+			 ((struct primenetAssignmentResult *)pkt)->message);
+		LogMsg (buf);
+		break;
+	case PRIMENET_BENCHMARK_DATA:
+		LogMsg ("Sending benchmark data to server\n");
+		break;
+	}
+
+/* Fill in the common header fields */
+
+	pkt->versionNumber = PRIMENET_VERSION;
+
+/* Send the message.  Kill the comm thread if server hasn't responded */
+/* in 15 minutes. */
+
+	local_send_msg_count = ++GLOBAL_SEND_MSG_COUNT;
+	add_timed_event (TE_COMM_KILL, 15*60);
+	return_code = PRIMENET (msgType, pkt);
+	delete_timed_event (TE_COMM_KILL);
+
+/* If the kill thread timer fired because our communication with the */
+/* server hung, yet somehow the thread magically got unstuck, then return */
+/* a dummy error code.  This is necessary because we have decremented the */
+/* use count of the work_unit we are sending a completion date on. */
+
+	if (GLOBAL_SEND_MSG_COUNT != local_send_msg_count) return (9999);
+
+/* Print a result message on the screen and in the log file */
+
+	if (return_code == 0)
+	switch (msgType) {
+	case PRIMENET_GET_ASSIGNMENT:
+		kbnc_to_text (info,
+			      ((struct primenetGetAssignment *)pkt)->work_type,
+			      ((struct primenetGetAssignment *)pkt)->k,
+			      ((struct primenetGetAssignment *)pkt)->b,
+			      ((struct primenetGetAssignment *)pkt)->n,
+			      ((struct primenetGetAssignment *)pkt)->c);
+		sprintf (buf, "Got assignment %s: %s\n",
+			 ((struct primenetGetAssignment *)pkt)->assignment_uid,
+			 info);
+		LogMsg (buf);
+		break;
+	case PRIMENET_REGISTER_ASSIGNMENT:
+		sprintf (buf, "Assignment registered as: %s\n",
+			 ((struct primenetRegisterAssignment *)pkt)->assignment_uid);
+		LogMsg (buf);
+		break;
+	}
+
+/* Return the return code */
+
+	return (return_code);
+}
+
+
+/* Get program options from the server. */
+
+int getProgramOptions (void)
+{
+	struct primenetProgramOptions pkt;
+	int	rc, tnum, mem_changed, restart, original_rob;
+
+/* Loop once for global options (tnum = -1) and once for each worker */
+/* thread (to get from the server the thread-specific options). */
+
+	restart = FALSE;
+	mem_changed = FALSE;
+	original_rob = RUN_ON_BATTERY;
+	for (tnum = -1; tnum < (int) NUM_WORKER_THREADS; tnum++) {
+
+/* Init the packet.  A packet where no options are sent to the server tells */
+/* the server to send us all the options saved on the server. */
+
+		memset (&pkt, 0, sizeof (pkt));
+		strcpy (pkt.computer_guid, COMPUTER_GUID);
+		pkt.cpu_num = tnum;
+		pkt.work_preference = -1;
+		pkt.priority = -1;
+		pkt.daysOfWork = -1;
+		pkt.dayMemory = -1;
+		pkt.nightMemory = -1;
+		pkt.dayStartTime = -1;
+		pkt.nightStartTime = -1;
+		pkt.runOnBattery = -1;
+		pkt.num_workers = -1;
+
+/* Get the options from the server */
+
+		LOCKED_WORK_UNIT = NULL;
+		rc = sendMessage (PRIMENET_PROGRAM_OPTIONS, &pkt);
+		if (rc) return (rc);
+
+/* The server will send all the options it has stored in its database. */
+/* Copy these to our global variables and INI files. */
+
+		if (pkt.work_preference != -1) {
+			if (tnum == -1) {
+				PTOSetAll (INI_FILE, "WorkPreference", "SrvrPO1", WORK_PREFERENCE, pkt.work_preference);
+			} else {
+				PTOSetOne (INI_FILE, "WorkPreference", "SrvrPO1", WORK_PREFERENCE, tnum, pkt.work_preference);
+			}
+		}
+
+/* These options cannot be set for each thread.  In theory, the server */
+/* should only send these options when tnum is -1 (i.e. a global option). */
+/* However, for robustness, we accept the option even if the server sends */
+/* as only for this thread. */
+
+		if (pkt.priority != -1) {
+			PRIORITY = pkt.priority;
+			IniWriteInt (INI_FILE, "Priority", PRIORITY);
+			IniWriteInt (LOCALINI_FILE, "SrvrPO2", PRIORITY);
+			restart = TRUE;
+		}
+
+		if (pkt.daysOfWork != -1) {
+			DAYS_OF_WORK = pkt.daysOfWork;
+			IniWriteInt (INI_FILE, "DaysOfWork", DAYS_OF_WORK);
+			IniWriteInt (LOCALINI_FILE, "SrvrPO3", DAYS_OF_WORK);
+		}
+
+		if (pkt.dayMemory != -1) {
+			if (DAY_MEMORY != pkt.dayMemory) {
+				DAY_MEMORY = pkt.dayMemory;
+				IniWriteInt (INI_FILE, "DayMemory", DAY_MEMORY);
+				mem_changed = TRUE;
+			}
+			IniWriteInt (LOCALINI_FILE, "SrvrPO4", DAY_MEMORY);
+		}
+
+		if (pkt.nightMemory != -1) {
+			if (NIGHT_MEMORY != pkt.nightMemory) {
+				NIGHT_MEMORY = pkt.nightMemory;
+				IniWriteInt (INI_FILE, "NightMemory", NIGHT_MEMORY);
+				mem_changed = TRUE;
+			}
+			IniWriteInt (LOCALINI_FILE, "SrvrPO5", NIGHT_MEMORY);
+		}
+
+		if (pkt.dayStartTime != -1) {
+			if (DAY_START_TIME != pkt.dayStartTime) {
+				DAY_START_TIME = pkt.dayStartTime;
+				IniWriteInt (INI_FILE, "DayStartTime", DAY_START_TIME);
+				mem_changed = TRUE;
+			}
+			IniWriteInt (LOCALINI_FILE, "SrvrPO6", DAY_START_TIME);
+		}
+
+		if (pkt.nightStartTime != -1) {
+			if (DAY_END_TIME != pkt.nightStartTime) {
+				DAY_END_TIME = pkt.nightStartTime;
+				IniWriteInt (INI_FILE, "DayEndTime", DAY_END_TIME);
+				mem_changed = TRUE;
+			}
+			IniWriteInt (LOCALINI_FILE, "SrvrPO7", DAY_END_TIME);
+		}
+
+		if (pkt.runOnBattery != -1) {
+			RUN_ON_BATTERY = pkt.runOnBattery;
+			IniWriteInt (INI_FILE, "RunOnBattery", RUN_ON_BATTERY);
+			IniWriteInt (LOCALINI_FILE, "SrvrPO8", RUN_ON_BATTERY);
+		}
+
+		if (pkt.num_workers != -1) {
+			if (pkt.num_workers > (int) (NUM_CPUS * CPU_HYPERTHREADS))
+				pkt.num_workers = NUM_CPUS * CPU_HYPERTHREADS;
+			NUM_WORKER_THREADS = pkt.num_workers;
+			IniWriteInt (LOCALINI_FILE, "WorkerThreads", NUM_WORKER_THREADS);
+			IniWriteInt (LOCALINI_FILE, "SrvrPO9", NUM_WORKER_THREADS);
+			restart = TRUE;
+		}
+	}
+
+/* When we have finished getting the options for every CPU, then update */
+/* the counter in the INI file that tracks the options counter.  The server */
+/* increments the counter whenever the options are edited on the server. */
+/* This updated count is sent in a uc pkt and compared to the value saved */
+/* in the INI file.  If it is different we know we need to get the program */
+/* options from the server. */
+
+	IniWriteInt (LOCALINI_FILE, "SrvrP00", pkt.options_counter);
+
+/* If memory settings, priority, num_workers, or run-on-battery changed, */
+/* then restart threads that may be affected by the change. */
+
+	if (mem_changed) mem_settings_have_changed ();
+	if (restart) stop_workers_for_restart ();
+	if (original_rob != RUN_ON_BATTERY) run_on_battery_changed ();
+	return (0);
+}
+
+
+/* Send program options to the server if they've been changed locally. */
+
+int sendProgramOptions (
+	int	*talked_to_server)
+{
+	struct primenetProgramOptions pkt;
+	int	rc, tnum, options_changed, work_pref_changed;
+	unsigned int local_od;
+
+/* Loop once for global options (tnum = -1) and once for each thread */
+/* to send thread-specific options. */
+
+	for (tnum = -1; tnum < (int) NUM_WORKER_THREADS; tnum++) {
+
+		memset (&pkt, 0, sizeof (pkt));
+		strcpy (pkt.computer_guid, COMPUTER_GUID);
+		pkt.cpu_num = tnum;
+
+		work_pref_changed = FALSE;
+		options_changed = FALSE;
+
+		pkt.work_preference = -1;
+		if (PTOHasOptionChanged ("SrvrPO1", WORK_PREFERENCE, tnum)) {
+			if (tnum == -1)
+				pkt.work_preference = WORK_PREFERENCE[0];
+			else
+				pkt.work_preference = WORK_PREFERENCE[tnum];
+			work_pref_changed = TRUE;
+			options_changed = TRUE;
+		}
+
+		pkt.priority = -1;
+		if (tnum == -1 &&
+		    PRIORITY != IniGetInt (LOCALINI_FILE, "SrvrPO2", -1)) {
+			pkt.priority = PRIORITY;
+			options_changed = TRUE;
+		}
+
+		pkt.daysOfWork = -1;
+		if (tnum == -1 &&
+		    DAYS_OF_WORK != IniGetInt (LOCALINI_FILE, "SrvrPO3", -1)) {
+			pkt.daysOfWork = DAYS_OF_WORK;
+			options_changed = TRUE;
+		}
+
+		pkt.dayMemory = -1;
+		if (tnum == -1 &&
+		    DAY_MEMORY != IniGetInt (LOCALINI_FILE, "SrvrPO4", -1)) {
+			pkt.dayMemory = DAY_MEMORY;
+			options_changed = TRUE;
+		}
+
+		pkt.nightMemory = -1;
+		if (tnum == -1 &&
+		    NIGHT_MEMORY != IniGetInt (LOCALINI_FILE, "SrvrPO5", -1)) {
+			pkt.nightMemory = NIGHT_MEMORY;
+			options_changed = TRUE;
+		}
+
+		pkt.dayStartTime = -1;
+		if (tnum == -1 &&
+		    DAY_START_TIME != IniGetInt (LOCALINI_FILE, "SrvrPO6", -1)) {
+			pkt.dayStartTime = DAY_START_TIME;
+			options_changed = TRUE;
+		}
+
+		pkt.nightStartTime = -1;
+		if (tnum == -1 &&
+		    DAY_END_TIME != IniGetInt (LOCALINI_FILE, "SrvrPO7", -1)) {
+			pkt.nightStartTime = DAY_END_TIME;
+			options_changed = TRUE;
+		}
+
+		pkt.runOnBattery = -1;
+		if (tnum == -1 &&
+		    RUN_ON_BATTERY != IniGetInt (LOCALINI_FILE, "SrvrPO8", -1)) {
+			pkt.runOnBattery = RUN_ON_BATTERY;
+			options_changed = TRUE;
+		}
+
+		pkt.num_workers = -1;
+		if (tnum == -1 &&
+		    NUM_WORKER_THREADS != IniGetInt (LOCALINI_FILE, "SrvrPO9", -1)) {
+			pkt.num_workers = NUM_WORKER_THREADS;
+			options_changed = TRUE;
+		}
+
+/* If options haven't changed, we're done */
+
+		if (!options_changed) continue;
+
+/* Send the changed options */
+	
+		LOCKED_WORK_UNIT = NULL;
+		rc = sendMessage (PRIMENET_PROGRAM_OPTIONS, &pkt);
+		if (rc) return (rc);
+		*talked_to_server = TRUE;
+
+/* Now save the shadow copy of the changed options in our LOCALINI file */
+/* so we can detect future changes to the program options (even if user */
+/* hand edits prime.ini!) */
+
+//bug - should we clear the SrvrPOn INI settings when cpuid detects changes?
+
+		if (work_pref_changed)
+			if (tnum == -1)
+				PTOSetAll (INI_FILE, "WorkPreference", "SrvrPO1", WORK_PREFERENCE, WORK_PREFERENCE[0]);
+			else
+				PTOSetOne (INI_FILE, "WorkPreference", "SrvrPO1", WORK_PREFERENCE, tnum, WORK_PREFERENCE[tnum]);
+		if (tnum == -1) {
+			IniWriteInt (LOCALINI_FILE, "SrvrPO2", PRIORITY);
+			IniWriteInt (LOCALINI_FILE, "SrvrPO3", DAYS_OF_WORK);
+			IniWriteInt (LOCALINI_FILE, "SrvrPO4", DAY_MEMORY);
+			IniWriteInt (LOCALINI_FILE, "SrvrPO5", NIGHT_MEMORY);
+			IniWriteInt (LOCALINI_FILE, "SrvrPO6", DAY_START_TIME);
+			IniWriteInt (LOCALINI_FILE, "SrvrPO7", DAY_END_TIME);
+			IniWriteInt (LOCALINI_FILE, "SrvrPO8", RUN_ON_BATTERY);
+			IniWriteInt (LOCALINI_FILE, "SrvrPO9", NUM_WORKER_THREADS);
+		}
+
+/* Increment the options counter so that we can detect when the options */
+/* are changed on the server.  The update we just did incremented the */
+/* server's option counter.  We don't want to simply replace the options */
+/* counter with the one in the pkt because of this scenario:  All synced at */
+/* od=25, web page options change makes od=26, local change causes us to */
+/* send new option above, the od value returned in the pkt is now 27. */
+/* If we write 27 to our ini file then we will miss downloading the web */
+/* change that caused the counter to become 26.  We blend the packet od */
+/* value with the INI file value for maximum robustness (provides some */
+/* protection from the INI file value somehow getting larger than the */
+/* returned od value (causing us to miss future web page updates). */
+
+		local_od = IniGetInt (LOCALINI_FILE, "SrvrP00", -1) + 1;
+		if (local_od > pkt.options_counter)
+			local_od = pkt.options_counter;
+		IniWriteInt (LOCALINI_FILE, "SrvrP00", local_od);
+	}
+	return (0);
+}
+
+
+/* Clear cached program options.  This is done when the server requests */
+/* all program options to be resent.  This is a fail-safe that lets the */
+/* client and server resync if the server detects an inconsistency (like */
+/* getting an assignment for worker #2 with num_workers = 1 */
+
+void clearCachedProgramOptions (void)
+{
+	int	tnum;
+	char	section_name[32];
+
+	IniWriteString (LOCALINI_FILE, "SrvrPO1", NULL);
+	for (tnum = 0; tnum < MAX_NUM_WORKER_THREADS; tnum++) {
+		sprintf (section_name, "Worker #%d", tnum+1);
+		IniSectionWriteString (LOCALINI_FILE, section_name, "SrvrPO1", NULL);
+	}
+	IniWriteString (LOCALINI_FILE, "SrvrPO2", NULL);
+	IniWriteString (LOCALINI_FILE, "SrvrPO3", NULL);
+	IniWriteString (LOCALINI_FILE, "SrvrPO4", NULL);
+	IniWriteString (LOCALINI_FILE, "SrvrPO5", NULL);
+	IniWriteString (LOCALINI_FILE, "SrvrPO6", NULL);
+	IniWriteString (LOCALINI_FILE, "SrvrPO7", NULL);
+	IniWriteString (LOCALINI_FILE, "SrvrPO8", NULL);
+	IniWriteString (LOCALINI_FILE, "SrvrPO9", NULL);
+}
+
 
 /* Send any queued up messages to the server.  See if we have enough */
 /* work queued up.  If we have too much work, give some back */
 
-int communicateWithServer (void)
+void communicateWithServer (void *arg)
 {
-static	int	msgs_to_send = 0;/* 0 = no messages, 0x1 = messages */
-				/* 0x2 = critical messages */
-	char	header_byte;	/* Cached flag byte from spool file */
-				/* 0 = no spool file */
-				/* 0x1 = informational msgs in file */
-				/* 0x2 = important msgs in file */
-				/* 0x4 = user info has changed */
-				/* 0x8 = completion dates need updating */
-				/* 0x10 = return all work */
-				/* 0x20 = computer info has changed */
+static	int	obsolete_client = FALSE;
+static	int	send_message_retry_count = 0;
+	unsigned long magicnum, version;
+	unsigned long header_words[2];/* Flag words from spool file */
+				/* We copy the header word to detect */
+				/* any changes to the header word while */
+				/* we are communicating with the server */
 	int	fd;		/* Spool file handle */
-	time_t	this_time, blackout_end_time;
-	unsigned int i;
-	int	have_enough_work, retries, est_is_accurate;
+	long	msg_offset;	/* File offset of current message */
+	unsigned int tnum;
 	double	est, work_to_get, unreserve_threshold;
-	unsigned long vacation_time;
-	int	rc;
-	int	talked_to_server = 0;
-	int	manual_comm = 0;
-static	int	work_queue_counter = 0;
+	int	rc, stop_reason;
+	int	talked_to_server = FALSE;
+	int	server_options_counter;
+	char	buf[1000];
 
-/* Use this opportunity to perform other miscellaneous tasks that may */
-/* be required by this particular OS port */
+/* If we got an obsolete client error code earlier, then do not attempt */
+/* any more communication with the server. */
 
-	doMiscTasks ();
+	if (obsolete_client) goto leave;
 
-/* If we are operating manually, return */
+/* Change title to show comm thread is active */
 
-	if (!USE_PRIMENET) return (TRUE);
+	ChangeIcon (COMM_THREAD_NUM, WORKING_ICON);
+	title (COMM_THREAD_NUM, "Active");
 
-/* Every now and then (remember this routine is called frequently), see */
-/* if we need to update server completion dates or check the work queue. */
-
-	if (++work_queue_counter > 1000) {
-		ConditionallyUpdateEndDates ();
-		CHECK_WORK_QUEUE = 1;
-		work_queue_counter = 0;
-	}
-
-/* If all communication with the server is manually initiated, */
-/* then handle that case here */
-
-	if (MANUAL_COMM & 0x2) {
-		MANUAL_COMM &= 0xFD;
-		manual_comm = 1;
-		next_comm_time = 0;
-		talked_to_server = 1;
-	} else if (MANUAL_COMM & 0x1) {
-		return (TRUE);
-	}
-
-/* If a computer ID has not been given, then generate one here. */
-/* There have been reports of computers spontaneously renaming themselves. */
+/* There have been reports of computers losing their names. */
 /* I can only see this happening if COMPID gets clobbered.  To combat this */
 /* possibility, reread the computer name from the INI file. */
 
 	if (COMPID[0] == 0) {
 		IniGetString (LOCALINI_FILE, "ComputerID", COMPID,
 			      sizeof (COMPID), NULL);
-		COMPID[PRIMENET_COMPUTER_ID_LENGTH] = 0;
 		sanitizeString (COMPID);
 	}
-	if (COMPID[0] == 0) {
-		unsigned long id, hi, lo;
-		srand ((unsigned) time (NULL));
-		id = ((unsigned long) rand () << 16) + rand ();
-		if (CPU_FLAGS & CPU_RDTSC) { rdtsc (&hi,&lo); id += lo; }
-		sprintf (COMPID, "C%08X", id);
-		IniWriteString (LOCALINI_FILE, "ComputerID", COMPID);
-		spoolMessage (PRIMENET_SET_COMPUTER_INFO, NULL);
+
+/* This is the retry entry point.  Used when an error causes us to go back */
+/* and start reprocessing from the header words.  Also used when we get all */
+/* done and find that someone wrote to the spool file while this thread was */
+/* running. */
+
+retry:
+
+/* Ping the server if so requested. */
+
+	if (GET_PING_INFO == 1) {
+		struct primenetPingServer pkt;
+		memset (&pkt, 0, sizeof (pkt));
+//bug		pkt.versionNumber = PRIMENET_VERSION;
+		pkt.ping_type = 0;
+		LOCKED_WORK_UNIT = NULL;
+		rc = sendMessage (PRIMENET_PING_SERVER, &pkt);
+		OutputStr (MAIN_THREAD_NUM, "\n");
+		if (rc)
+			OutputStr (MAIN_THREAD_NUM, "Failure pinging server");
+		else
+			OutputStr (MAIN_THREAD_NUM, pkt.ping_response);
+		OutputStr (MAIN_THREAD_NUM, "\n");
+		GET_PING_INFO = 0;
 	}
 
-/* Open and read the spool file to set msgs_to_send correctly */
+/* Obtain the lock controlling spool file access.  Open the spool file. */
 
-	if (SPOOL_FILE_CHANGED) {
-		SPOOL_FILE_CHANGED = 0;
-		fd = _open (SPOOL_FILE, _O_RDONLY | _O_BINARY);
-		if (fd >= 0) {
+	gwmutex_lock (&SPOOL_FILE_MUTEX);
+	fd = _open (SPOOL_FILE, _O_RDWR | _O_BINARY);
+	if (fd < 0) goto locked_leave;
 
-/* Read the first byte.  This indicates if there are */
-/* "important" messages queued up.  Important messages */
-/* will cause us to try and contact the server every */
-/* few minutes until we get through. */
+/* Read and validate the spool file header */
 
-			_read (fd, &header_byte, 1);
-			if (header_byte > 1) msgs_to_send |= 0x1;
-			if (header_byte & 0x10) msgs_to_send |= 0x2;
-			_close (fd);
-		}
+	if (!read_long (fd, &magicnum, NULL) ||
+	    magicnum != SPOOL_FILE_MAGICNUM ||
+	    !read_long (fd, &version, NULL) ||
+	    version != SPOOL_FILE_VERSION ||
+	    !read_long (fd, &header_words[0], NULL) ||
+	    !read_long (fd, &header_words[1], NULL)) {
+		_close (fd);
+		gwmutex_unlock (&SPOOL_FILE_MUTEX);
+		salvageCorruptSpoolFile ();
+		goto retry;
 	}
 
-/* If no important messages queued up AND we're not */
-/* checking to see if we have enough work to do, then return */
+/* We must perform some complicated shenanigans to detect any changes to */
+/* header word while this thread is running.  The header word is copied */
+/* to the second word and the first word cleared.  That way any new calls */
+/* to spoolMessage will set the first header word.  If we happen to */
+/* crash then we must be careful not to lose the unprocessed bits in */
+/* the second header word. */
 
-	if (!msgs_to_send && !CHECK_WORK_QUEUE) return (TRUE);
+	header_words[1] |= header_words[0];
+	header_words[0] = 0;
+	_lseek (fd, SPOOL_FILE_HEADER_OFFSET, SEEK_SET);
+	write_long (fd, header_words[0], NULL);
+	write_long (fd, header_words[1], NULL);
 
-/* Make sure MODEM_RETRY_TIME or NETWORK_RETRY_TIME minutes have */
-/* passed since our last attempt to communicate with the server. */
+/* Close and unlock the spool file.  This allows worker threads to write */
+/* messages to the spool file while we are sending messages. */
 
-loop:	time (&this_time);
-#ifndef SERVER_TESTING
-	if (this_time < next_comm_time) goto exit_or_loop_nomsg;
-#endif
-
+	_close (fd);
+	gwmutex_unlock (&SPOOL_FILE_MUTEX);
+	
 /* Make sure we don't pummel the server with data.  Suppose user uses */
 /* Advanced/Factor to find tiny factors again.  At least, make sure */
 /* he only sends the data once every 5 minutes. */
 
-	next_comm_time = this_time + 300;
+//bug	next_comm_time = this_time + 300;  //bug - manual_comm overrides this
+// move this test to SendMessage?  It could spawn add_timed_event
+// rather than creating this thread.  However, does spreading out these
+// messages help?  No.  It only helps if prime95 is buggy (like the spool file
+// can't be deleted or modified so it just keeps being resent?)
 
-/* If server has requested that we do not contact it for the next N hours */
-/* then obey the server's request. */
+//bug - check this global before each message is sent... in case ping is requested while
+// a comm is in progress
 
-	blackout_end_time = IniGetInt (LOCALINI_FILE, "BlackoutEnd", 0);
-	if (blackout_end_time) {
-		char	blackout_version[9];
-		IniGetString (LOCALINI_FILE, "BlackoutVersion",
-			      (char *) blackout_version, 8, "99.9");
-		if (this_time < blackout_end_time &&
-		    strcmp (VERSION, blackout_version) <= 0) {
-			OutputStr (blackout_end_time == 1999999999L ? BLACKMSG2 : BLACKMSG1);
-			goto exit_or_loop_nomsg;
-		}
-		IniWriteString (LOCALINI_FILE, "BlackoutEnd", NULL);
-		IniWriteString (LOCALINI_FILE, "BlackoutVersion", NULL);
-	}
+/* Send computer info first */
 
-/* If we have messages to send, see if the server is available */
-/* Use Ping so that we don't write to the log file every few minutes */
-/* when the server is unavailable */
+	server_options_counter = -1;
+	if (header_words[1] & HEADER_FLAG_UC) {
+		struct primenetUpdateComputerInfo pkt;
+		char	server_uid[21];
+		char	server_computer_name[21];
 
-	if (msgs_to_send) {
-		struct primenetPingServerInfo pkt;
 		memset (&pkt, 0, sizeof (pkt));
-		pkt.u.serverInfo.versionNumber = PRIMENET_PING_INFO_MESSAGE + PRIMENET_VERSION;
-		rc = sendMessage (PRIMENET_PING_SERVER_INFO, &pkt);
-		if (rc) goto exit_or_loop;
-		talked_to_server = 1;
+		strcpy (pkt.computer_guid, COMPUTER_GUID);
+		strcpy (pkt.hardware_guid, HARDWARE_GUID);
+		strcpy (pkt.windows_guid, WINDOWS_GUID);
+		generate_application_string (pkt.application);
+		strcpy (pkt.cpu_model, CPU_BRAND);
+		pkt.cpu_features[0] = 0;
+		if (CPU_FLAGS & CPU_RDTSC) strcat (pkt.cpu_features, "RDTSC,");
+		if (CPU_FLAGS & CPU_CMOV) strcat (pkt.cpu_features, "CMOV,");
+		if (CPU_FLAGS & CPU_PREFETCH) strcat (pkt.cpu_features, "Prefetch,");
+		if (CPU_FLAGS & CPU_3DNOW) strcat (pkt.cpu_features, "3DNow!,");
+		if (CPU_FLAGS & CPU_MMX) strcat (pkt.cpu_features, "MMX,");
+		if (CPU_FLAGS & CPU_SSE) strcat (pkt.cpu_features, "SSE,");
+		if (CPU_FLAGS & CPU_SSE2) strcat (pkt.cpu_features, "SSE2,");
+		if (pkt.cpu_features[0])
+			pkt.cpu_features[strlen (pkt.cpu_features) - 1] = 0;
+		pkt.L1_cache_size = CPU_L1_CACHE_SIZE;
+		pkt.L2_cache_size = CPU_L2_CACHE_SIZE;
+		pkt.num_cpus = NUM_CPUS;
+		pkt.num_hyperthread = CPU_HYPERTHREADS;
+		pkt.mem_installed = physical_memory ();
+		pkt.cpu_speed = (int) CPU_SPEED;
+		pkt.hours_per_day = CPU_HOURS;
+		pkt.rolling_average = ROLLING_AVERAGE;
+		/* The spec says only send the UserID if it has changed */
+		IniGetString (LOCALINI_FILE, "SrvrUID",
+			      server_uid, sizeof (server_uid), NULL);
+		if (USE_V4 || _stricmp (USERID, server_uid))
+			strcpy (pkt.user_id, USERID);
+		/* The spec says only send the computer name if it changed */
+		IniGetString (LOCALINI_FILE, "SrvrComputerName",
+			      server_computer_name,
+			      sizeof (server_computer_name), NULL);
+		if (USE_V4 || _stricmp (COMPID, server_computer_name))
+			strcpy (pkt.computer_name, COMPID);
+		LOCKED_WORK_UNIT = NULL;
+		rc = sendMessage (PRIMENET_UPDATE_COMPUTER_INFO, &pkt);
+		if (rc) goto error_exit;
+		talked_to_server = TRUE;
+//bug - Whenever we generate a new computer ID, clear all the SrvrPxx values from Ini file!
+//this is needed so that we send all the client's po options for this new computer.
+		strcpy (USERID, pkt.user_id);
+		if (!USE_V4) {
+			IniWriteString (INI_FILE, "V5UserID", USERID);
+			IniWriteString (LOCALINI_FILE, "SrvrUID", USERID);
+			strcpy (COMPID, pkt.computer_name);
+			IniWriteString (LOCALINI_FILE, "ComputerID", COMPID);
+			IniWriteString (LOCALINI_FILE, "SrvrComputerName", COMPID);
+		}
+		server_options_counter = pkt.options_counter;
 	}
 
-/* Send all the queued up messages */
+/* When we first register a computer, the server may have initialized */
+/* some default program options for us to download.  Get them before */
+/* we overwrite them with our default option values. */
 
-	header_byte = 0;
-	fd = _open (SPOOL_FILE, _O_RDWR | _O_BINARY);
-	if (fd >= 0) {
+//bug - who wins when user has also set some options locally during the
+//startup_in_progress code path?  What about options that came from a
+// copied prime.ini file - which take precedence?
+	if (server_options_counter == 1 &&
+	    server_options_counter > IniGetInt (LOCALINI_FILE, "SrvrP00", 0)) {
+		rc = getProgramOptions ();
+		if (rc) goto error_exit;
+		talked_to_server = TRUE;
+	}
 
-/* Read the first byte.  This indicates if there are */
-/* "important" messages queued up.  Important messages */
-/* will cause us to try and contact the server every */
-/* few minutes until we get through. */
+/* Send our changed program options.  Do this before they could get */
+/* overwritten by downloading changed options on the server (since the */
+/* server sends all options, not just the changed options). */
 
-		_read (fd, &header_byte, 1);
+	rc = sendProgramOptions (&talked_to_server);
+	if (rc) goto error_exit;
 
-/* Send any changes to the user info first */
+/* Finally get program options if they've been changed on the server. */
 
-		if (header_byte & 0x4) {
-			struct primenetUserInfo pkt;
-
-			memset (&pkt, 0, sizeof (pkt));
-			strcpy (pkt.userName, USER_NAME);
-			strcpy (pkt.userEmailAddr, USER_ADDR);
-			strcpy (pkt.oldUserID, OLD_USERID);
-			strcpy (pkt.oldUserPW, OLD_USER_PWD);
-			if (NEWSLETTERS)
-				pkt.bUserOptions |= PRIMENET_USER_OPTION_SENDEMAIL;
-			if (header_byte & 0x80)
-				pkt.bUserOptions |= PRIMENET_USER_OPTION_TEAMACCT;
-			rc = sendMessage (PRIMENET_MAINTAIN_USER_INFO, &pkt);
-			if (rc) {
-				_close (fd);
-				goto exit_or_loop;
-			}
-			talked_to_server = 1;
-
-/* Delete old User id info */
-
-			OLD_USERID[0] = 0;
-			OLD_USER_PWD[0] = 0;
-			IniWriteString (INI_FILE, "OldUserID", OLD_USERID);
-			IniWriteString (INI_FILE, "OldUserPWD", OLD_USER_PWD);
-
-/* If a user ID has just been assigned to us, then write it the INI file */
-
-			if (strcmp (USERID, pkt.userID)) {
-				strcpy (USERID, pkt.userID);
-				IniWriteString (INI_FILE, "UserID", USERID);
-			}
-			if (strcmp (USER_PWD, pkt.userPW)) {
-				strcpy (USER_PWD, pkt.userPW);
-				IniWriteString (INI_FILE, "UserPWD", USER_PWD);
-			}
-		}
-
-/* Send any changes to the computer info next. */
-/* Do this whenever the computer info changes, the user info changes */
-/* or at Scott's request whenever new end dates are sent. */
-
-		if (header_byte & 0x2C) {
-			struct primenetComputerInfo pkt;
-
-			memset (&pkt, 0, sizeof (pkt));
-			pkt.cpu_type = CPU_TYPE;
-			pkt.speed = (short) CPU_SPEED;
-			pkt.hours_per_day = CPU_HOURS;
-			rc = sendMessage (PRIMENET_SET_COMPUTER_INFO, &pkt);
-			if (rc) {
-				_close (fd);
-				goto exit_or_loop;
-			}
-			talked_to_server = 1;
-
-/* Flag the message as successfully sent */
-
-			header_byte &= 0xDB;
-			_lseek (fd, 0, SEEK_SET);
-			_write (fd, &header_byte, 1);
-		}
+	if (server_options_counter > IniGetInt (LOCALINI_FILE, "SrvrP00", 0)) {
+		rc = getProgramOptions ();
+		if (rc) goto error_exit;
+		talked_to_server = TRUE;
+	}
 
 /* Send the messages */
 
-		for ( ; ; ) {
-			short	msgType;
-			union {
-				struct primenetResultMessage msg;
-				struct primenetAssignmentResult res;
-			} msg;
-			long	old_offset, new_offset;
+	msg_offset = SPOOL_FILE_MSG_OFFSET;
+	for ( ; ; ) {
+		short	msgType;
+		union {
+			struct primenetAssignmentResult ar;
+			struct primenetAssignmentUnreserve au;
+			struct primenetBenchmarkData bd;
+		} msg;
+		long	new_offset;
 
-			readMessage (fd, &old_offset, &msgType, &msg);
-			if (msgType == 0) break;
-			rc = sendMessage (msgType, &msg);
-			if (rc) {
-				_close (fd);
-				goto exit_or_loop;
-			}
-			talked_to_server = 1;
+/* Read a message */
 
-/* Flag the message as successfully sent */
-
-			new_offset = _lseek (fd, 0, SEEK_CUR);
-			_lseek (fd, old_offset, SEEK_SET);
-			msgType = -1;
-			_write (fd, &msgType, sizeof (short));
-			_lseek (fd, new_offset, SEEK_SET);
-
-/* Stop sending to server if so requested */
-
-			if (escapeCheck ()) {
-				_close (fd);
-				return (FALSE);
-			}
-		}
-		header_byte &= 0x7C;
-
-/* Close the spool file */
-
+		gwmutex_lock (&SPOOL_FILE_MUTEX);
+		fd = _open (SPOOL_FILE, _O_RDONLY | _O_BINARY);
+		if (fd < 0) goto locked_leave;
+		_lseek (fd, msg_offset, SEEK_SET);
+		readMessage (fd, &msg_offset, &msgType, &msg);
+		new_offset = _lseek (fd, 0, SEEK_CUR);
 		_close (fd);
+		gwmutex_unlock (&SPOOL_FILE_MUTEX);
+
+/* If there was a message, send it now.  Ignore most errors.  We do this */
+/* so that a corrupt spool file will not "get stuck" trying to send the */
+/* same corrupt message over and over again. */
+
+		if (msgType == 0) break;
+		LOCKED_WORK_UNIT = NULL;
+		rc = sendMessage (msgType, &msg);
+//bug - carefully examine all possible error codes.  Both server generated
+// and internally generated by primenet.c
+		if (rc >= PRIMENET_FIRST_INTERNAL_ERROR ||
+		    rc == PRIMENET_ERROR_SERVER_BUSY ||
+		    rc == PRIMENET_ERROR_OBSOLETE_CLIENT ||
+		    rc == PRIMENET_ERROR_UNREGISTERED_CPU ||
+		    rc == PRIMENET_ERROR_CPU_CONFIGURATION_MISMATCH ||
+		    rc == PRIMENET_ERROR_STALE_CPU_INFO)
+			goto error_exit;
+		talked_to_server = TRUE;
+
+/* Handle errors that show the server processed the message properly. */
+/* These errors can happen with unwanted results (retesting known primes, */
+/* PRP results, ECM or P-1 on non-Mersennes, etc.) */ 
+
+		if (rc == PRIMENET_ERROR_INVALID_ASSIGNMENT_KEY ||
+		    rc == PRIMENET_ERROR_INVALID_RESULT_TYPE ||
+		    rc == PRIMENET_ERROR_NO_ASSIGNMENT ||
+		    rc == PRIMENET_ERROR_WORK_NO_LONGER_NEEDED)
+			rc = 0;
+
+/* Just in case the error was casued by some kind of unexpected */
+/* and unrepeatable server problem, retry sending the message 5 times */
+/* before giving up and moving on to the next one. */
+
+		if (rc) {
+			if (send_message_retry_count++ < 5) {
+				rc = PRIMENET_ERROR_SERVER_BUSY;
+				goto error_exit;
+			}
+			LogMsg ("Deleting unprocessed message from spool file.\n");
+		}
+		send_message_retry_count = 0;
+
+/* Flag the message as successfully sent.  Even if there was an error, the */
+/* error code is such that resending the message will not be helpful. */
+
+		gwmutex_lock (&SPOOL_FILE_MUTEX);
+		fd = _open (SPOOL_FILE, _O_RDWR | _O_BINARY);
+		if (fd < 0) goto locked_leave;
+		_lseek (fd, msg_offset, SEEK_SET);
+		msgType = -1;
+		_write (fd, &msgType, sizeof (short));
+		_close (fd);
+		gwmutex_unlock (&SPOOL_FILE_MUTEX);
+		msg_offset = new_offset;
 	}
 
-/* At this point, we can usually delete the spool file */
+/* Loop over all worker threads to get enough work for each thread */
 
-	if (header_byte == 0) _unlink (SPOOL_FILE);
-
-/* Clear flag indicating work queue needs checking */
-/* We will set msgs_to_send if we find we need to return */
-/* or request exponents.  NOTE: We must be extra careful here */
-/* to avoid opening the work-to-do file every few minutes when */
-/* the server is unavailable. */
-
-	CHECK_WORK_QUEUE = 0;
-
-/* Get work to do until we've accumulated enough to keep */
-/* us busy for a while (DAYS_OF_WORK or the length of a vacation). */
-/* If we have too much work to do, lets give some back. */
-
-	have_enough_work = 0;
 	unreserve_threshold = IniGetInt (INI_FILE, "UnreserveDays", 30) * 86400.0;
-	est = 0.0; est_is_accurate = TRUE;
-	vacation_time = secondsUntilVacationEnds ();
 	work_to_get = DAYS_OF_WORK * 86400.0;
-	if (ON_DURING_VACATION && work_to_get < vacation_time)
-		work_to_get = vacation_time;
-	IniFileOpen (WORKTODO_FILE, 0);
-	for (i = 1; ; i++) {
-		struct work_unit w;
-		unsigned long iteration;
-		double	work, pct;
+	for (tnum = 0; tnum < NUM_WORKER_THREADS; tnum++) {
+	    struct work_unit *w;
+	    int	num_work_units;
+
+/* Get work to do until we've accumulated enough to keep us busy for */
+/* a while.  If we have too much work to do, lets give some back. */
+
+	    num_work_units = 0;
+	    est = 0.0;
+	    for (w = NULL; ; ) {
 
 /* Read the line of the work file */
 
-		if (! parseWorkToDoLine (i, &w)) break;
+		w = getNextWorkToDoLine (tnum, w, SHORT_TERM_USE);
+		if (w == NULL) break;
+		if (w->work_type == WORK_NONE) continue;
+
+/* If we are quitting GIMPS or we have too much work queued up, */
+/* then return the assignment. */
+
+		if (header_words[1] & HEADER_FLAG_QUIT_GIMPS ||
+		    (est >= work_to_get + unreserve_threshold &&
+		     ! isWorkUnitActive (w) &&
+		     w->pct_complete == 0.0)) {
+			if (w->assignment_uid[0]) {
+				struct primenetAssignmentUnreserve pkt;
+				memset (&pkt, 0, sizeof (pkt));
+				strcpy (pkt.computer_guid, COMPUTER_GUID);
+				strcpy (pkt.assignment_uid, w->assignment_uid);
+				LOCKED_WORK_UNIT = w;
+				rc = sendMessage (PRIMENET_ASSIGNMENT_UNRESERVE, &pkt);
+				if (rc && rc != PRIMENET_ERROR_INVALID_ASSIGNMENT_KEY) {
+					decrementWorkUnitUseCount (w, SHORT_TERM_USE);
+					goto error_exit;
+				}
+				talked_to_server = TRUE;
+			}
+			stop_reason = deleteWorkToDoLine (tnum, w, TRUE);
+			if (stop_reason) goto error_exit;
+			continue;
+		}
 
 /* Adjust our time estimate */
 
-		work = work_estimate (&w);
-		pct = pct_complete (w.work_type, w.n, &iteration);
-		if (pct == 999.0) est_is_accurate = FALSE;
-		else work *= (1.0 - pct);
-		est += work;
+		num_work_units++;
+		est += work_estimate (tnum, w);
 
-/* Don't trouble server with work types that it does not keep track of */
+/* Register assignments that were not issued by the server */
 
-		if (w.work_type != WORK_FACTOR &&
-		    w.work_type != WORK_PFACTOR &&
-		    w.work_type != WORK_TEST &&
-		    w.work_type != WORK_DBLCHK);
-
-/* If we have too much work queued, give it back */
-
-		else if (header_byte & 0x10 ||
-			 (have_enough_work &&
-			  est_is_accurate &&
-			  est - work >= work_to_get + unreserve_threshold &&
-			  pct == 0.0)) {
-			struct primenetAssignmentResult pkt;
+		if (!w->assignment_uid[0] && !w->ra_failed) {
+			struct primenetRegisterAssignment pkt;
 			memset (&pkt, 0, sizeof (pkt));
-			pkt.exponent = w.n;
-			pkt.resultType = PRIMENET_RESULT_UNRESERVE;
-			msgs_to_send |= 0x1;
-			rc = sendMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
-			if (rc) {
-				IniFileClose (WORKTODO_FILE);
-				goto exit_or_loop;
+			strcpy (pkt.computer_guid, COMPUTER_GUID);
+			pkt.cpu_num = tnum;
+			if (w->work_type == WORK_FACTOR)
+				pkt.work_type = PRIMENET_WORK_TYPE_FACTOR;
+			if (w->work_type == WORK_PMINUS1)
+				pkt.work_type = PRIMENET_WORK_TYPE_PMINUS1;
+			if (w->work_type == WORK_PFACTOR)
+				pkt.work_type = PRIMENET_WORK_TYPE_PFACTOR;
+			if (w->work_type == WORK_ECM)
+				pkt.work_type = PRIMENET_WORK_TYPE_ECM;
+			if (w->work_type == WORK_TEST ||
+			    w->work_type == WORK_ADVANCEDTEST)
+				pkt.work_type = PRIMENET_WORK_TYPE_FIRST_LL;
+			if (w->work_type == WORK_DBLCHK)
+				pkt.work_type = PRIMENET_WORK_TYPE_DBLCHK;
+			if (w->work_type == WORK_PRP)
+				pkt.work_type = PRIMENET_WORK_TYPE_PRP;
+			pkt.k = w->k;
+			pkt.b = w->b;
+			pkt.n = w->n;
+			pkt.c = w->c;
+			pkt.how_far_factored = w->sieve_depth;
+			pkt.factor_to = w->factor_to;
+			pkt.has_been_pminus1ed = w->pminus1ed;
+			pkt.B1 = w->B1;
+			pkt.B2 = w->B2;
+			pkt.curves = w->curves_to_do;
+			pkt.tests_saved = w->tests_saved;
+			LOCKED_WORK_UNIT = w;
+			rc = sendMessage (PRIMENET_REGISTER_ASSIGNMENT, &pkt);
+			if (rc &&
+			    rc != PRIMENET_ERROR_NO_ASSIGNMENT &&
+			    rc != PRIMENET_ERROR_INVALID_ASSIGNMENT_TYPE) {
+				decrementWorkUnitUseCount (w, SHORT_TERM_USE);
+				goto error_exit;
 			}
-			talked_to_server = 1;
-			IniDeleteLine (WORKTODO_FILE, i);
-			i--;
+			talked_to_server = TRUE;
+			if (rc == 0)
+				strcpy (w->assignment_uid, pkt.assignment_uid);
+			else
+				w->ra_failed = TRUE;
+			updateWorkToDoLine (tnum, w);
 		}
 
-/* Acknowledge the exponent by sending a projected completion date */
-/* If an unexpected error occurs, ignore it.  We can get "not-assigned" */
-/* errors when testing manually reserved exponents and we've just */
-/* enabled primenet. */
+/* Update the server on the work unit's projected completion date */
+/* If we get an invalid assignment key, then the user probably unreserved */
+/* the exponent using the web forms - delete it our work to do file. */
 
-		else if (header_byte & 0x8) {
-			struct primenetCompletionDate pkt2;
-			double	comp_date;
+		if (header_words[1] & HEADER_FLAG_END_DATES &&
+		    w->assignment_uid[0]) {
+			struct primenetAssignmentProgress pkt2;
 			memset (&pkt2, 0, sizeof (pkt2));
-			pkt2.exponent = w.n;
-			if (!ON_DURING_VACATION)
-				comp_date = est + vacation_time;
-			else if (est < vacation_time)
-				comp_date = vacation_time;
-			else
-				comp_date = est;
-			pkt2.days = (unsigned long) (comp_date / 86400.0) + 1;
-			pkt2.requestType =
-				(w.work_type == WORK_FACTOR) ? PRIMENET_ASSIGN_FACTOR :
-				(w.work_type == WORK_PFACTOR) ? PRIMENET_ASSIGN_PFACTOR :
-				(w.work_type == WORK_TEST) ? PRIMENET_ASSIGN_TEST :
-					PRIMENET_ASSIGN_DBLCHK;
-			pkt2.programType = PRIMENET_PROGRAM_WOLTMAN;
-			pkt2.iteration = iteration;
-			if (ON_DURING_VACATION &&
-			    vacation_time > (unsigned long)
-						DAYS_BETWEEN_CHECKINS * 86400)
-				pkt2.nextMsg = vacation_time / 86400;
-			else
-				pkt2.nextMsg = DAYS_BETWEEN_CHECKINS;
-			rc = sendMessage (PRIMENET_COMPLETION_DATE, &pkt2);
-			if (rc == PRIMENET_ERROR_CONNECT_FAILED ||
-			    rc == PRIMENET_ERROR_ACCESS_DENIED) {
-				IniFileClose (WORKTODO_FILE);
-				goto exit_or_loop;
+			strcpy (pkt2.computer_guid, COMPUTER_GUID);
+			pkt2.cpu_num = tnum;
+			strcpy (pkt2.assignment_uid, w->assignment_uid);
+			strcpy (pkt2.stage, w->stage);
+			pkt2.pct_complete = w->pct_complete * 100.0;
+			pkt2.end_date = (unsigned long) est;
+			pkt2.next_update = DAYS_BETWEEN_CHECKINS * 86400;
+			pkt2.fftlen = w->fftlen;
+			LOCKED_WORK_UNIT = w;
+			rc = sendMessage (PRIMENET_ASSIGNMENT_PROGRESS, &pkt2);
+			if (rc == PRIMENET_ERROR_INVALID_ASSIGNMENT_KEY ||
+			    rc == PRIMENET_ERROR_WORK_NO_LONGER_NEEDED) {
+				est -= work_estimate (tnum, w);
+				rc = deleteWorkToDoLine (tnum, w, TRUE);
+			} else if (rc) {
+				decrementWorkUnitUseCount (w, SHORT_TERM_USE);
+				goto error_exit;
 			}
-			if (i > 1 &&
-			    (rc == PRIMENET_ERROR_ALREADY_TESTED ||
-			     rc == PRIMENET_ERROR_NOT_PERMITTED)) {
-				est -= work;
-				IniDeleteLine (WORKTODO_FILE, i);
-				i--;
-			}
-			talked_to_server = 1;
+			talked_to_server = TRUE;
 		}
+	    }
 
-/* Set flag if we have enough work */
+/* If we are quitting gimps, do not get more work.  Note that there is a */
+/* race condition when quitting gimps that makes it possible to get here */
+/* with a request to get exponents and USE_PRIMENET not set. */
 
-		if (est >= work_to_get)
-			have_enough_work = 1;
-	}
-
-/* Delete the spool file. */
-
-	if (header_byte) _unlink (SPOOL_FILE);
-
-/* If we just returned all work to the server, enter manual mode */
-/* and exit - the user is quitting GIMPS */
-
-	if (header_byte & 0x10 ||
-	    (IniGetInt (INI_FILE, "NoMoreWork", 0) &&
-	     IniGetNumLines (WORKTODO_FILE) == 0)) {
-		USE_PRIMENET = 0;
-		IniWriteInt (INI_FILE, "UsePrimenet", 0);
-		IniWriteInt (INI_FILE, "NoMoreWork", 0);
-		GIMPS_QUIT = 1;
-		OutputSomewhere ("Successfully quit GIMPS.\n");
-		goto exit;
-	}
-
-/* After sending new completion dates remember the current time */
-/* so that we can send new completion dates in a month. */
-
-	if (header_byte & 0x8) {
-		time_t current_time;
-		time (&current_time);
-		IniWriteInt (LOCALINI_FILE, "LastEndDatesSent", (long) current_time);
-	}
-
-/* Before we get work from the server, make absolutely sure that we */
-/* have write access to the worktodo.ini file. */
-
-	if (!have_enough_work && !IniFileWritable (WORKTODO_FILE)) {
-		char	buf[80];
-		sprintf (buf, "Cannot write to file %s.\n", WORKTODO_FILE);
-		OutputBoth (buf);
-		IniFileClose (WORKTODO_FILE);
-		goto exit_or_loop;
-	}
+	    if (header_words[1] & HEADER_FLAG_QUIT_GIMPS ||
+		IniGetInt (INI_FILE, "NoMoreWork", 0) ||
+		!USE_PRIMENET)
+		    continue;
 
 /* If we don't have enough work to do, get more work from the server. */
 
-	retries = 0;
-	while (!have_enough_work &&
-	       est_is_accurate &&
-	       ! IniGetInt (INI_FILE, "NoMoreWork", 0) &&
-	       IniGetNumLines (WORKTODO_FILE) < (unsigned int)
-			IniGetInt (INI_FILE, "MaxExponents", 20)) {
+	    while (est < work_to_get &&
+		   ! IniGetInt (INI_FILE, "NoMoreWork", 0) &&
+		   num_work_units < IniGetInt (INI_FILE, "MaxExponents", 15)) {
 		struct primenetGetAssignment pkt1;
-		struct primenetCompletionDate pkt2;
+		struct primenetAssignmentProgress pkt2;
 		struct work_unit w;
-		double	new_est, comp_date;
 
-/* Check for ESC */
-
-		if (escapeCheck ()) {
-			IniFileClose (WORKTODO_FILE);
-			return (FALSE);
-		}
-
-/* Get an exponent to work on */
+/* Get a work unit to process */
 
 		memset (&pkt1, 0, sizeof (pkt1));
-		if (WORK_PREFERENCE)
-			pkt1.requestType = WORK_PREFERENCE;
-		else
-			pkt1.requestType = default_work_type ();
-		if (pkt1.requestType & PRIMENET_ASSIGN_BIGONES)
-			pkt1.requestType =
-				PRIMENET_ASSIGN_BIGONES | PRIMENET_ASSIGN_TEST;
-		pkt1.programType = PRIMENET_PROGRAM_WOLTMAN;
-		pkt1.how_far_factored = (CPU_TYPE < 5) ? 486.0 : 64.0;
-		msgs_to_send |= 0x1;
+		strcpy (pkt1.computer_guid, COMPUTER_GUID);
+		pkt1.cpu_num = tnum;
+		LOCKED_WORK_UNIT = NULL;
 		rc = sendMessage (PRIMENET_GET_ASSIGNMENT, &pkt1);
-		if (rc) {
-			IniFileClose (WORKTODO_FILE);
-			goto exit_or_loop;
-		}
-		talked_to_server = 1;
+		if (rc) goto error_exit;
+		talked_to_server = TRUE;
 
-/* For some strange reason the server has been known to send us */
-/* bogus exponents (zero) to test */
+/* Sanity check that the server hasn't sent us bogus (too small) exponents to test */
 
-		if (pkt1.exponent < 1000000) {
-			char	buf[80];
-			sprintf (buf, "Server sent bad exponent: %ld.\n",
-				 pkt1.exponent);
+		if (pkt1.n < 10000000 &&
+		    (pkt1.work_type == PRIMENET_WORK_TYPE_FACTOR ||
+		     pkt1.work_type == PRIMENET_WORK_TYPE_PFACTOR ||
+		     pkt1.work_type == PRIMENET_WORK_TYPE_FIRST_LL ||
+		     pkt1.work_type == PRIMENET_WORK_TYPE_DBLCHK)) {
+			sprintf (buf, "Server sent bad exponent: %ld.\n", pkt1.n);
 			LogMsg (buf);
-			if (++retries < 3) continue;
-			IniFileClose (WORKTODO_FILE);
-			goto exit_or_loop;
+			goto error_exit;
 		}
 
-/* Add the exponent to our time estimate */
+/* Format the work_unit structure based on the work_type */
 
-		w.work_type = (pkt1.requestType == PRIMENET_ASSIGN_FACTOR) ?
-						WORK_FACTOR :
-			      (pkt1.requestType == PRIMENET_ASSIGN_PFACTOR) ?
-						WORK_PFACTOR :
-			      (pkt1.requestType == PRIMENET_ASSIGN_TEST) ?
-						WORK_TEST : WORK_DBLCHK;
-		w.k = 1.0;
+		memset (&w, 0, sizeof (w));
+		strcpy (w.assignment_uid, pkt1.assignment_uid);
+		w.k = 1.0;	/* Set some default values */
 		w.b = 2;
-		w.n = pkt1.exponent;
+		w.n = pkt1.n;
 		w.c = -1;
-		w.bits = (unsigned int) pkt1.how_far_factored;
-		/* Kludge that uses 0.5 to indicate P-1 factoring has been done */
-		w.pminus1ed = (pkt1.how_far_factored - (double) w.bits) == 0.5;
-		new_est = est + work_estimate (&w);
+		switch (pkt1.work_type) {
+		case PRIMENET_WORK_TYPE_FACTOR:
+			w.work_type = WORK_FACTOR;
+			w.sieve_depth = pkt1.how_far_factored;
+			w.factor_to = pkt1.factor_to;
+			break;
+		case PRIMENET_WORK_TYPE_PFACTOR:
+			w.work_type = WORK_PFACTOR;
+			w.sieve_depth = pkt1.how_far_factored;
+			w.pminus1ed = pkt1.has_been_pminus1ed;
+			w.tests_saved = pkt1.tests_saved;
+			break;
+		case PRIMENET_WORK_TYPE_FIRST_LL:
+			w.work_type = WORK_TEST;
+			w.sieve_depth = pkt1.how_far_factored;
+			w.pminus1ed = pkt1.has_been_pminus1ed;
+			break;
+		case PRIMENET_WORK_TYPE_DBLCHK:
+			w.work_type = WORK_DBLCHK;
+			w.sieve_depth = pkt1.how_far_factored;
+			w.pminus1ed = pkt1.has_been_pminus1ed;
+			break;
+		case PRIMENET_WORK_TYPE_PMINUS1:
+			w.work_type = WORK_PMINUS1;
+			w.k = pkt1.k;
+			w.b = pkt1.b;
+			w.c = pkt1.c;
+			w.B1 = pkt1.B1;
+			w.B2 = pkt1.B2;
+			break;
+		case PRIMENET_WORK_TYPE_ECM:
+			w.work_type = WORK_ECM;
+			w.k = pkt1.k;
+			w.b = pkt1.b;
+			w.c = pkt1.c;
+			w.B1 = pkt1.B1;
+			w.B2 = pkt1.B2;
+			w.curves_to_do = pkt1.curves;
+			break;
+		case PRIMENET_WORK_TYPE_PRP:
+			w.work_type = WORK_PRP;
+			w.k = pkt1.k;
+			w.b = pkt1.b;
+			w.c = pkt1.c;
+			w.sieve_depth = pkt1.how_far_factored;
+			w.tests_saved = pkt1.tests_saved;
+			break;
+		default:
+			sprintf (buf, "Received unknown work type: %ld.\n",
+				 pkt1.work_type);
+			LogMsg (buf);
+			goto error_exit;
+		}
+		if (pkt1.known_factors[0]) { /* ECM, P-1, PRP may have this */
+			w.known_factors = (char *)
+				malloc (strlen (pkt1.known_factors) + 1);
+			if (w.known_factors == NULL) {
+				LogMsg ("Memory allocation error\n");
+				goto error_exit;
+			}
+			strcpy (w.known_factors, pkt1.known_factors);
+		}
+
+/* Write the exponent to our worktodo file, before acknowledging the */
+/* assignment with a projected completion date. */
+
+		stop_reason = addWorkToDoLine (tnum, &w);
+		if (stop_reason) goto error_exit;
+
+//bug Can we somehow verify that the worktodo.ini line got written???
+//bug (The rogue 'cat' problem)  If not, turn off USE_PRIMENET.
+//bug Or rate limit get assignments to N per day (where N takes into account unreserves?)
+//bug or have uc return the number of active assignments and ga the capability
+//bug to retrieve them
+
+/* Add work unit to our time estimate */
+
+		num_work_units++;
+		est = est + work_estimate (tnum, &w);
 
 /* Acknowledge the exponent by sending a projected completion date */
 
 		memset (&pkt2, 0, sizeof (pkt2));
-		pkt2.exponent = pkt1.exponent;
-		if (!ON_DURING_VACATION)
-			comp_date = new_est + vacation_time;
-		else if (new_est < vacation_time)
-			comp_date = vacation_time;
-		else
-			comp_date = new_est;
-		pkt2.days = (unsigned long) (comp_date / 86400.0) + 1;
-		pkt2.requestType =
-			(w.work_type == WORK_FACTOR) ? PRIMENET_ASSIGN_FACTOR :
-			(w.work_type == WORK_PFACTOR) ? PRIMENET_ASSIGN_PFACTOR :
-			(w.work_type == WORK_TEST) ? PRIMENET_ASSIGN_TEST :
-				PRIMENET_ASSIGN_DBLCHK;
-		pkt2.programType = PRIMENET_PROGRAM_WOLTMAN;
-		pkt2.iteration = 0;
-		if (ON_DURING_VACATION &&
-		    vacation_time > (unsigned long)
-					DAYS_BETWEEN_CHECKINS * 86400)
-			pkt2.nextMsg = vacation_time / 86400;
-		else
-			pkt2.nextMsg = DAYS_BETWEEN_CHECKINS;
-		rc = sendMessage (PRIMENET_COMPLETION_DATE, &pkt2);
-		if (rc) {
-			if (rc != PRIMENET_ERROR_BLACKOUT && ++retries < 3)
-				continue;
-			IniFileClose (WORKTODO_FILE);
-			goto exit_or_loop;
+		strcpy (pkt2.computer_guid, COMPUTER_GUID);
+		pkt2.cpu_num = tnum;
+		strcpy (pkt2.assignment_uid, pkt1.assignment_uid);
+		pkt2.pct_complete = 0.0;
+		pkt2.end_date = (unsigned long) est;
+		pkt2.next_update = DAYS_BETWEEN_CHECKINS * 86400;
+		LOCKED_WORK_UNIT = NULL;
+		rc = sendMessage (PRIMENET_ASSIGNMENT_PROGRESS, &pkt2);
+		if (rc == PRIMENET_ERROR_INVALID_ASSIGNMENT_KEY) {
+			w.assignment_uid[0] = 0;
+			updateWorkToDoLine (tnum, &w);
+		} else if (rc) {
+			goto error_exit;
 		}
-		talked_to_server = 1;
-
-/* Once the server accepts our acknowledgement, write the exponent */
-/* to our worktodo file */
-
-		addWorkToDoLine (&w);
-
-/* Set flag if we have enough work */
-
-		est = new_est;
-		if (est >= work_to_get)
-			have_enough_work = 1;
+		talked_to_server = TRUE;
+	    }
 	}
 
-/* Close the work-to-do file */
+/* Set some ini flags after we've successfully quit gimps */
 
-exit:	IniFileClose (WORKTODO_FILE);
+	if ((header_words[1] & HEADER_FLAG_QUIT_GIMPS && USE_PRIMENET) ||
+	    (IniGetInt (INI_FILE, "NoMoreWork", 0) && WORKTODO_COUNT == 0)) {
+		USE_PRIMENET = 0;
+		IniWriteInt (INI_FILE, "UsePrimenet", 0);
+		IniWriteInt (INI_FILE, "NoMoreWork", 0);
+		OutputSomewhere (COMM_THREAD_NUM, "Successfully quit GIMPS.\n");
+	}
 
-/* Tell user we're done communicating */
+/* After sending new completion dates remember the current time */
+/* so that we can send new completion dates in a month.  Set a timer */
+/* to send them again. */
+
+	else if (header_words[1] & HEADER_FLAG_END_DATES) {
+		time_t current_time;
+		time (&current_time);
+		IniWriteInt (LOCALINI_FILE, "LastEndDatesSent", (long) current_time);
+		if (!MANUAL_COMM)
+			add_timed_event (TE_COMPLETION_DATES,
+					 DAYS_BETWEEN_CHECKINS * 86400);
+	}
+
+/* Delete the spool file. However, we don't delete the file if any writes */
+/* took place after we read the header words.  We detect writes by examining */
+/* the first header word. */
+
+	gwmutex_lock (&SPOOL_FILE_MUTEX);
+	fd = _open (SPOOL_FILE, _O_RDWR | _O_BINARY);
+	if (fd < 0) goto locked_leave;
+	_lseek (fd, SPOOL_FILE_HEADER_OFFSET, SEEK_SET);
+	read_long (fd, &header_words[0], NULL);
+	read_long (fd, &header_words[1], NULL);
+	if (header_words[0]) {
+		if (header_words[1] & HEADER_FLAG_QUIT_GIMPS)
+			header_words[0] |= HEADER_FLAG_QUIT_GIMPS;
+		header_words[1] = 0;
+		_lseek (fd, SPOOL_FILE_HEADER_OFFSET, SEEK_SET);
+		write_long (fd, header_words[0], NULL);
+		write_long (fd, header_words[1], NULL);
+		_close (fd);
+		gwmutex_unlock (&SPOOL_FILE_MUTEX);
+		goto retry;
+	}
+	_close (fd);
+	_unlink (SPOOL_FILE);
+
+/* Tell user we're done communicating, then exit this communication thread */
 
 	if (talked_to_server)
-		OutputStr ("Done communicating with server.\n");
+		OutputStr (COMM_THREAD_NUM, "Done communicating with server.\n");
+	goto locked_leave;
 
-/* Clear flag indicating msgs need to be sent to primenet server */
+/* We got an error communicating with the server.  Check for error codes */
+/* that require special handling. */
 
-	msgs_to_send = 0;
-	return (TRUE);
+error_exit:
 
-/* We could not contact server, either exit or loop */
-/* We loop when we are quitting GIMPS */
+/* If an UPDATE_COMPUTER_INFO command gets an invalid user error, then */
+/* the user entered a non-existant userid.  Reset the userid field to the */
+/* last value sent to or sent by the server.  This will cause the next uc */
+/* command to get the current userid value from the server. */
 
-exit_or_loop:
-	if (!manual_comm) {
-		char	buf[80];
+	if (rc == PRIMENET_ERROR_INVALID_USER) {
+		IniGetString (LOCALINI_FILE, "SrvrUID",
+			      USERID, sizeof (USERID), NULL);
+		spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
+		goto retry;
+	}
+
+/* If an UPDATE_COMPUTER_INFO command gets an cpu identity mismatch error */
+/* then the previously registered hardware and windows hashes for this */
+/* computer id don't match.  Either the machine hardware has been upgraded */
+/* or Windows reinstalled OR the user moved the entire directory to another */
+/* machine (a very common way that users install on multiple machines). */
+/* First, as a safety measure, reget the computer UID from the INI file in */
+/* case it became corrupted in memory.  If no corruption detected then */
+/* generate a new computer uid and do an update computer info command again. */
+
+	if (rc == PRIMENET_ERROR_CPU_IDENTITY_MISMATCH) {
+//bug - ask user before changing uid?  Delete worktodo? Manipulate computer
+// name?
+//bug - log a useful message describing error and our remedial action?
+		spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
+		goto retry;
+	}
+
+/* If the error is STALE_CPU_INFO, then the server is simply */
+/* requesting us to do an update computer info again.  Spool the message */
+/* then loop to send that message. */
+
+	if (rc == PRIMENET_ERROR_STALE_CPU_INFO) {
+//bug - log a useful message describing error and our remedial action?
+		spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
+		goto retry;
+	}
+
+/* If the error is UNREGISTERED_CPU, then the server is COMPUTER_GUID */
+/* value is corrupt.  Reget it from the INI file just in case the value */
+/* became corrupt in memory.  Otherwise, do something....bug */
+
+	if (rc == PRIMENET_ERROR_UNREGISTERED_CPU) {
+		// bug
+//bug - log a useful message describing error and our remedial action?
+		spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
+		goto retry;
+	}
+
+/* If the error is CPU_CONFIGURATION_MISMATCH, then the server has */
+/* detected an inconsistency in the program options.  Resend them all. */
+
+	if (rc == PRIMENET_ERROR_CPU_CONFIGURATION_MISMATCH) {
+		clearCachedProgramOptions ();
+		spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
+		goto retry;
+	}
+
+/* If the error indicates this client is too old, then turn off the */
+/* "use primenet" setting until the user upgrades. */
+
+	if (rc == PRIMENET_ERROR_OBSOLETE_CLIENT) {
+//bug - delete spool file?NO  write a messsage to screen/log/etc???
+//bug - log a useful message describing error and our remedial action?
+		OutputStr (MAIN_THREAD_NUM, "Client is obsolete.  Please upgrage.\n");
+		obsolete_client = TRUE;
+	}
+
+/* If an invalid work preference error is generated (can happen if user */
+/* hand edits the prime.ini file) then set the work preference to zero */
+/* (get work that makes the most sense) and resend the program options. */
+/* As usual, reget the work preference from the ini file just in case */
+/* the in-memory copy was inexplicably corrupted. */
+
+	if (rc == PRIMENET_ERROR_INVALID_WORK_TYPE) {
+//bug		short	ini_work_preference;
+//bug - log a useful message describing error and our remedial action?
+//bug		ini_work_preference = (short)
+//bug			IniGetInt (INI_FILE, "WorkPreference", 0);
+//bug		if (WORK_PREFERENCE != ini_work_preference)
+//bug			WORK_PREFERENCE = ini_work_preference;
+//bug		else
+//bug			WORK_PREFERENCE = 0;
+//bug		IniWriteInt (INI_FILE, "WorkPreference", WORK_PREFERENCE);
+		spoolMessage (PRIMENET_PROGRAM_OPTIONS, NULL);
+		goto retry;
+	}
+
+/* Otherwise, print out message saying where more help may be found. */
+
+	OutputStr (COMM_THREAD_NUM, "Visit http://mersenneforum.org for help.\n");
+
+/* We could not contact the server.  Set up a timer to relaunch the */
+/* communication thread. */
+
+	if (!MANUAL_COMM) {
 		unsigned int retry_time;
 		retry_time = (rc == PRIMENET_ERROR_MODEM_OFF) ?
 			MODEM_RETRY_TIME : NETWORK_RETRY_TIME;
 		sprintf (buf, "Will try contacting server again in %d %s.\n",
 			 retry_time, retry_time == 1 ? "minute" : "minutes");
-		OutputStr (buf);
-		next_comm_time = this_time + 60 * retry_time;
+		OutputStr (COMM_THREAD_NUM, buf);
+		ChangeIcon (COMM_THREAD_NUM, IDLE_ICON);
+		sprintf (buf, "Waiting %d %s",
+			 retry_time, retry_time == 1 ? "minute" : "minutes");
+		title (COMM_THREAD_NUM, buf);
+		add_timed_event (TE_COMM_SERVER, retry_time * 60);
 	}
-exit_or_loop_nomsg:
-	if (msgs_to_send & 0x2) {
-		Sleep (5000);
-		if (escapeCheck ()) return (FALSE);
-		next_comm_time = 0;
-		goto loop;
+
+/* Clear handle indicating communication thread is active.  Return.  This */
+/* will end the communication thread. */
+
+leave:
+	gwmutex_lock (&SPOOL_FILE_MUTEX);
+locked_leave:
+	COMMUNICATION_THREAD = 0;
+	gwmutex_unlock (&SPOOL_FILE_MUTEX);
+	if (!is_timed_event_active (TE_COMM_SERVER)) {
+		ChangeIcon (COMM_THREAD_NUM, IDLE_ICON);
+		title (COMM_THREAD_NUM, "Inactive");
 	}
-	return (TRUE);
 }
 
-/**************************************************************/
-/*             The All New (v20) P-1 factoring stage!         */
-/**************************************************************/
+/* This routine tries to salvage information from a corrupt spool file */
 
-/* This table gives the values of Dickman's function given an input */
-/* between 0.000 and 0.500.  These values came from a different program */
-/* that did a numerical integration. */
+void salvageCorruptSpoolFile (void)
+{
+	int	fd;
+	char	filename[128];
+	char	inbuf[1000];
+	struct primenetAssignmentResult pkt;
+	char	*in, *out;
+	int	i, j, len, pkts_sent;
 
-static double savedF[501] = {
-	0, 0, 0, 0, 0, 0, 3.3513e-215, 5.63754e-208, 4.00865e-201,
-	1.65407e-194, 4.53598e-188, 8.93587e-182, 1.33115e-175,
-	1.55557e-169, 1.46609e-163, 1.13896e-157, 7.42296e-152,
-	3.80812e-146, 1.56963e-140, 5.32886e-135, 1.51923e-129,
-	3.69424e-124, 7.76066e-119, 1.42371e-113, 2.30187e-108,
-	3.30619e-103, 4.24793e-098, 4.80671e-093, 4.78516e-088,
-	4.22768e-083, 3.33979e-078, 2.37455e-073, 1.52822e-068,
-	8.94846e-064, 4.78909e-059, 4.65696e-057, 4.49802e-055, 4.31695e-053,
-	4.07311e-051, 3.81596e-049, 3.61043e-047, 1.73046e-045, 8.26375e-044,
-	3.9325e-042, 1.86471e-040, 8.8102e-039, 4.14402e-037, 1.99497e-035,
-	1.83001e-034, 1.59023e-033, 1.45505e-032, 1.24603e-031, 1.15674e-030,
-	9.70832e-030, 9.23876e-029, 4.20763e-028, 4.24611e-027, 1.61371e-026,
-	6.59556e-026, 3.17069e-025, 1.12205e-024, 4.65874e-024, 2.01267e-023,
-	6.2941e-023, 3.02604e-022, 7.84622e-022, 2.3526e-021, 6.7049e-021,
-	1.88634e-020, 4.59378e-020, 1.37233e-019, 4.00682e-019, 8.34209e-019,
-	2.21612e-018, 4.84252e-018, 1.02457e-017, 2.03289e-017, 4.07704e-017,
-	1.33778e-016, 2.4263e-016, 4.14981e-016, 7.0383e-016, 1.20511e-015,
-	3.85644e-015, 6.52861e-015, 1.06563e-014, 1.67897e-014, 2.79916e-014,
-	4.54319e-014, 9.83296e-014, 1.66278e-013, 2.61858e-013, 4.03872e-013,
-	5.98967e-013, 1.09674e-012, 1.70553e-012, 2.56573e-012, 3.72723e-012,
-	6.14029e-012, 9.33636e-012, 1.36469e-011, 1.89881e-011, 2.68391e-011,
-	4.12016e-011, 5.94394e-011, 8.43746e-011, 1.12903e-010, 1.66987e-010,
-	2.36959e-010, 3.11726e-010, 4.28713e-010, 5.90781e-010, 7.79892e-010,
-	1.05264e-009, 1.4016e-009, 1.87506e-009, 2.42521e-009, 3.14508e-009,
-	4.38605e-009, 5.43307e-009, 6.96737e-009, 8.84136e-009, 1.16286e-008,
-	1.42343e-008, 1.79697e-008, 2.30867e-008, 2.88832e-008, 3.52583e-008,
-	4.31032e-008, 5.46444e-008, 6.66625e-008, 8.06132e-008, 1.00085e-007,
-	1.20952e-007, 1.4816e-007, 1.80608e-007, 2.13125e-007, 2.5324e-007,
-	3.094e-007, 3.64545e-007, 4.31692e-007, 5.19078e-007, 6.03409e-007,
-	7.21811e-007, 8.53856e-007, 9.71749e-007, 1.13949e-006, 1.37042e-006,
-	1.53831e-006, 1.79066e-006, 2.15143e-006, 2.40216e-006, 2.76872e-006,
-	3.20825e-006, 3.61263e-006, 4.21315e-006, 4.76404e-006, 5.43261e-006,
-	6.2041e-006, 6.96243e-006, 7.94979e-006, 8.89079e-006, 1.01387e-005,
-	1.13376e-005, 1.2901e-005, 1.44183e-005, 1.59912e-005, 1.79752e-005,
-	1.99171e-005, 2.22665e-005, 2.47802e-005, 2.7678e-005, 3.0492e-005,
-	3.34189e-005, 3.71902e-005, 4.12605e-005, 4.54706e-005, 4.98411e-005,
-	5.48979e-005, 6.06015e-005, 6.61278e-005, 7.22258e-005, 7.97193e-005,
-	8.66574e-005, 9.48075e-005, 0.00010321, 0.000112479, 0.000121776,
-	0.000133344, 0.000144023, 0.000156667, 0.000168318, 0.000183192,
-	0.000196527, 0.00021395, 0.000228389, 0.000249223, 0.000264372,
-	0.000289384, 0.000305707, 0.000333992, 0.000353287, 0.000379868,
-	0.000408274, 0.00043638, 0.000465319, 0.000496504, 0.000530376,
-	0.000566008, 0.000602621, 0.000642286, 0.000684543, 0.000723853,
-	0.000772655, 0.000819418, 0.000868533, 0.000920399, 0.000975529,
-	0.00103188, 0.00109478, 0.00115777, 0.00122087, 0.00128857,
-	0.00136288, 0.00143557, 0.00151714, 0.00159747, 0.00167572,
-	0.00176556, 0.00186199, 0.00195063, 0.00205239, 0.00216102,
-	0.00225698, 0.00236962, 0.00249145, 0.00259636, 0.00272455,
-	0.00287006, 0.00297545, 0.00312346, 0.0032634, 0.00340298,
-	0.00355827, 0.00371195, 0.00387288, 0.00404725, 0.00420016,
-	0.00439746, 0.00456332, 0.00475936, 0.00495702, 0.00514683,
-	0.00535284, 0.00557904, 0.00578084, 0.00601028, 0.00623082,
-	0.00647765, 0.00673499, 0.00696553, 0.00722529, 0.00748878,
-	0.00775537, 0.00803271, 0.00832199, 0.00861612, 0.00889863,
-	0.00919876, 0.00953343, 0.00985465, 0.0101993, 0.0105042, 0.0108325,
-	0.0112019, 0.0115901, 0.0119295, 0.0123009, 0.0127191, 0.0130652,
-	0.0134855, 0.0139187, 0.0142929, 0.0147541, 0.0151354, 0.0156087,
-	0.0160572, 0.0165382, 0.0169669, 0.0174693, 0.017946, 0.0184202,
-	0.0189555, 0.0194336, 0.0200107, 0.0204863, 0.0210242, 0.0216053,
-	0.0221361, 0.0226858, 0.0232693, 0.0239027, 0.0244779, 0.025081,
-	0.0257169, 0.0263059, 0.0269213, 0.0275533, 0.0282065, 0.0289028,
-	0.029567, 0.0302268, 0.0309193, 0.0316619, 0.0323147, 0.0330398,
-	0.0338124, 0.0345267, 0.0353038, 0.0360947, 0.0368288, 0.0376202,
-	0.0383784, 0.0391894, 0.0399684, 0.0408148, 0.0416403, 0.042545,
-	0.0433662, 0.0442498, 0.0451003, 0.046035, 0.0468801, 0.0478059,
-	0.0487442, 0.0496647, 0.0505752, 0.0515123, 0.0524792, 0.0534474,
-	0.0544682, 0.0554579, 0.0565024, 0.0574619, 0.0584757, 0.0595123,
-	0.0605988, 0.0615874, 0.062719, 0.0637876, 0.064883, 0.0659551,
-	0.0670567, 0.0681256, 0.0692764, 0.0704584, 0.0715399, 0.0727237,
-	0.0738803, 0.0750377, 0.0762275, 0.0773855, 0.0785934, 0.0797802,
-	0.0810061, 0.0822205, 0.0834827, 0.084714, 0.0858734, 0.0871999,
-	0.0884137, 0.0896948, 0.090982, 0.0922797, 0.093635, 0.0948243,
-	0.0961283, 0.0974718, 0.0988291, 0.100097, 0.101433, 0.102847,
-	0.104222, 0.105492, 0.106885, 0.10833, 0.109672, 0.111048, 0.112438,
-	0.113857, 0.115311, 0.11673, 0.118133, 0.119519, 0.12099, 0.122452,
-	0.123905, 0.125445, 0.126852, 0.128326, 0.129793, 0.131277, 0.132817,
-	0.134305, 0.135772, 0.137284, 0.138882, 0.140372, 0.14192, 0.143445,
-	0.14494, 0.146515, 0.148145, 0.149653, 0.151199, 0.152879, 0.154368,
-	0.155958, 0.157674, 0.159211, 0.160787, 0.16241, 0.164043, 0.165693,
-	0.167281, 0.168956, 0.170589, 0.172252, 0.173884, 0.175575, 0.177208,
-	0.178873, 0.180599, 0.18224, 0.183975, 0.185654, 0.187363, 0.189106,
-	0.190729, 0.19252, 0.194158, 0.195879, 0.197697, 0.199391, 0.201164,
-	0.202879, 0.204602, 0.206413, 0.20818, 0.209911, 0.211753, 0.213484,
-	0.215263, 0.21705, 0.218869, 0.220677, 0.222384, 0.224253, 0.226071,
-	0.227886, 0.229726, 0.231529, 0.233373, 0.235234, 0.237081, 0.238853,
-	0.240735, 0.242606, 0.244465, 0.246371, 0.248218, 0.250135, 0.251944,
-	0.253836, 0.255708, 0.257578, 0.259568, 0.261424, 0.263308, 0.265313,
-	0.26716, 0.269073, 0.271046, 0.272921, 0.274841, 0.276819, 0.278735,
-	0.280616, 0.282653, 0.284613, 0.286558, 0.288478, 0.290472, 0.292474,
-	0.294459, 0.296379, 0.298382, 0.300357, 0.302378, 0.30434, 0.306853
-};
+/* Output a message */
 
-/* This evaluates Dickman's function for any value.  See Knuth vol. 2 */
-/* for a description of this function and its use. */
+	OutputBoth (MAIN_THREAD_NUM,
+		    "Spool file is corrupt.  Attempting to salvage data.\n");
 
-double F (double x)
+/* Rename corrupt spool file before extracting data from it */
+
+	strcpy (filename, SPOOL_FILE);
+	filename[strlen(filename)-1]++;
+	gwmutex_lock (&SPOOL_FILE_MUTEX);
+	rename (SPOOL_FILE, filename);
+	gwmutex_unlock (&SPOOL_FILE_MUTEX);
+
+/* Read corrupt file.  Find ASCII characters and send them to the server */
+/* in primenetAssignmentResult packets.  Process up to 100000 bytes of */
+/* the spool file or 100 lines of output. */
+
+	fd = _open (filename, _O_RDWR | _O_BINARY);
+	if (fd >= 0) {
+		memset (&pkt, 0, sizeof (pkt));
+		strcpy (pkt.computer_guid, COMPUTER_GUID);
+		pkt.result_type = PRIMENET_AR_NO_RESULT;
+		pkts_sent = 0;
+		strcpy (pkt.message, "RECOVERY: ");
+		out = pkt.message + 10;
+		for (i = 0; i < 100 && pkts_sent < 100; i++) {
+			len = _read (fd, &inbuf, sizeof (inbuf));
+			if (len <= 0) break;
+			for (j = 0, in = inbuf; j < len; j++, in++) {
+				if (! isprint (*in) && *in != '\n') continue;
+				*out++ = *in;
+				if (*in == '\n');
+				else if ((int) (out - pkt.message) < sizeof (pkt.message) - 1) continue;
+				else *out++ = '\n';
+				*out++ = 0;
+				if ((int) (out - pkt.message) > 20) {
+					spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
+					pkts_sent++;
+				}
+				out = pkt.message + 10;
+			}
+		}
+		_close (fd);
+		*out++ = '\n';
+		*out++ = 0;
+		if ((int) (out - pkt.message) > 20)
+			spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
+	}
+
+/* Delete the corrupt spool file */
+
+	_unlink (filename);
+}
+
+/****************************************************************************/
+/*                        Timed Events Handler                              */
+/****************************************************************************/
+
+gwmutex	TIMED_EVENTS_MUTEX;		/* Lock for timed events data */
+gwevent TIMED_EVENTS_CHANGED;		/* Signal for telling the scheuler */
+					/* there has been a change in the */
+					/* array of timed events */
+gwthread TIMED_EVENTS_THREAD = 0;	/* Thread for timed events */
+
+struct {
+	int	active;			/* TRUE if event is active */
+	time_t	time_to_fire;		/* When to start this event */
+} timed_events[MAX_TIMED_EVENTS];	/* Array of active timed events */
+
+void timed_events_scheduler (void *arg);
+
+
+void init_timed_event_handler (void)
 {
 	int	i;
-
-	if (x >= 1.0) return (1.0);
-	if (x >= 0.5) return (1.0 + log (x));
-	i = (int) (x * 1000.0);
-	return (savedF[i] + (x * 1000.0 - i) * (savedF[i+1] - savedF[i]));
+	gwmutex_init (&TIMED_EVENTS_MUTEX);
+	gwevent_init (&TIMED_EVENTS_CHANGED);
+	TIMED_EVENTS_THREAD = 0;
+	for (i = 0; i < MAX_TIMED_EVENTS; i++)
+		timed_events[i].active = FALSE;
 }
 
-/* Analyze how well P-1 factoring will perform */
-
-void guess_pminus1_bounds (
-	double	k,		/* K in K*B^N+C. Must be a positive integer. */
-	unsigned long b,	/* B in K*B^N+C. Must be two. */
-	unsigned long n,	/* N in K*B^N+C. Exponent to test. */
-	signed long c,		/* C in K*B^N+C. */
-	double	how_far_factored,	/* Bit depth of trial factoring */
-	double	tests_saved,		/* 1 if doublecheck, 2 if first test */
-	unsigned long *bound1,
-	unsigned long *bound2,
-	unsigned long *squarings,
-	double	*success_rate)
+void add_timed_event (
+	int	event_number,		/* Which event to add */
+	int	time_to_fire)		/* When to start event (seconds from now) */
 {
-	unsigned long B1, B2, fftlen, vals;
-	double	h, pass1_squarings, pass2_squarings;
-	double	logB1, logB2, kk, logkk, temp, logtemp, log2;
-	double	size, prob, gcd_cost, ll_tests, numprimes;
-	struct {
-		unsigned long B1;
-		unsigned long B2;
-		double	prob;
-		double	pass1_squarings;
-		double	pass2_squarings;
-	} best[2];
+	time_t	this_time;
 
-/* Balance P-1 against 1 or 2 LL tests (actually more since we get a */
-/* corrupt result reported some of the time). */
+	gwmutex_lock (&TIMED_EVENTS_MUTEX);
 
-	ll_tests = tests_saved + 2 * ERROR_RATE;
+	time (&this_time);
+	timed_events[event_number].active = TRUE;
+	timed_events[event_number].time_to_fire = this_time + time_to_fire;
 
-/* Precompute the cost of a GCD.  We used Excel to come up with the */
-/* formula GCD is equivalent to 861 * Ln (p) - 7775 transforms. */
-/* Since one squaring equals two transforms we get the formula below. */
-/* NOTE: In version 22, the GCD speed has approximately doubled.  I've */
-/* adjusted the formula accordingly. */
+	if (!TIMED_EVENTS_THREAD)
+		gwthread_create (&TIMED_EVENTS_THREAD, &timed_events_scheduler, NULL);
+	else
+		gwevent_signal (&TIMED_EVENTS_CHANGED);
 
-	gcd_cost = (430.5 * log ((double) n) - 3887.5) / 2.0;
-	if (gcd_cost < 50.0) gcd_cost = 50.0;
+	gwmutex_unlock (&TIMED_EVENTS_MUTEX);
+}
 
-/* Compute how many temporaries we can use given our memory constraints. */
-
-	fftlen = gwmap_to_fftlen (k, b, n, c);
-	temp = (double) max_mem () * 1000000.0 -
-		(double) gwmap_to_memused (k, b, n, c);
-	size = (double) gwnum_size (fftlen);
-	if (temp <= size) vals = 1;
-	else vals = (unsigned long) (temp / size);
-
-/* Find the best B1 */
-
-	log2 = log ((double) 2.0);
-	for (B1 = 10000; ; B1 += 5000) {
-
-/* Constants */
-
-	logB1 = log ((double) B1);
-
-/* Compute how many squarings will be required in pass 1 */
-
-	pass1_squarings = ceil (1.44 * B1);
-
-/* Try a lot of B2 values */
-
-	for (B2 = B1; ; B2 += B1 >> 2) {
-
-/* Compute how many squarings will be required in pass 2.  In the */
-/* low-memory cases, assume choose_pminus1_plan will pick D = 210, E = 1 */
-/* If more memory is available assume choose_pminus1_plan will pick */
-/* D = 2310, E = 2.  This will provide an accurate enough cost for our */
-/* purposes even if different D and E values are picked.  See */
-/* choose_pminus1_plan for a description of the costs of P-1 stage 2. */
-
-	logB2 = log ((double) B2);
-	numprimes = (unsigned long) (B2 / (logB2 - 1.0) - B1 / (logB1 - 1.0));
-	if (B2 <= B1) {
-		pass2_squarings = 0.0;
-	} else if (vals <= 8) {		/* D = 210, E = 1, passes = 48/temps */
-		unsigned long num_passes;
-		num_passes = (unsigned long) ceil (48.0 / (vals - 3));
-		pass2_squarings = ceil ((B2 - B1) / 210.0) * num_passes;
-		pass2_squarings += numprimes * 1.1;
-	} else {
-		unsigned long num_passes;
-		double	numpairings;
-		num_passes = (unsigned long) ceil (480.0 / (vals - 5));
-		numpairings = (unsigned long)
-			(numprimes / 2.0 * numprimes / ((B2-B1) * 480.0/2310.0));
-		pass2_squarings = 2400.0 + num_passes * 90.0; /* setup costs */
-		pass2_squarings += ceil ((B2-B1) / 4620.0) * 2.0 * num_passes;
-		pass2_squarings += numprimes - numpairings;
+void delete_timed_event (
+	int	event_number)		/* Which event to delete */
+{
+	gwmutex_lock (&TIMED_EVENTS_MUTEX);
+	if (timed_events[event_number].active) {
+		timed_events[event_number].active = FALSE;
+		gwevent_signal (&TIMED_EVENTS_CHANGED);
 	}
+	gwmutex_unlock (&TIMED_EVENTS_MUTEX);
+}
 
-/* Pass 2 FFT multiplications seem to be at least 20% slower than */
-/* the squarings in pass 1.  This is probably due to several factors. */
-/* These include: better L2 cache usage and no calls to the faster */
-/* gwsquare routine. */
+int is_timed_event_active (
+	int	event_number)		/* Which event to test */
+{
+	return (timed_events[event_number].active);
+}
 
-	pass2_squarings *= 1.2;
+void timed_events_scheduler (void *arg)
+{
+	time_t	this_time;
+	int	i;
+	time_t	wake_up_time;
+	int	there_are_active_events;
 
-/* What is the "average" value that must be smooth for P-1 to succeed? */
-/* Ordinarily this is 1.5 * 2^how_far_factored.  However, for Mersenne */
-/* numbers the factor must be of the form 2kp+1.  Consequently, the */
-/* value that must be smooth (k) is much smaller. */
+/* Loop forever, sleeping until next event fires up */
 
-	kk = 1.5 * pow (2.0, how_far_factored);
-	if (k == 1.0 && b == 2 && c == -1) kk = kk / 2.0 / n;
-	logkk = log (kk);
+	for ( ; ; ) {
 
-/* Set temp to the number that will need B1 smooth if k has an */
-/* average-sized factor found in stage 2 */
+/* Determine how long until the next timed event */
 
-	temp = kk / ((B1 + B2) / 2);
-	logtemp = log (temp);
+		gwmutex_lock (&TIMED_EVENTS_MUTEX);
+		there_are_active_events = FALSE;
+		for (i = 0; i < MAX_TIMED_EVENTS; i++) {
+			if (!timed_events[i].active) continue;
+			if (!there_are_active_events ||
+			    wake_up_time > timed_events[i].time_to_fire)
+				wake_up_time = timed_events[i].time_to_fire;
+			there_are_active_events = TRUE;
+		}
+		gwmutex_unlock (&TIMED_EVENTS_MUTEX);
 
-/* Loop over increasing bit lengths for the factor */
+/* Sleep until we have work to do.  If there are no active events, then */
+/* sleep for a million seconds. */
 
-	prob = 0.0;
-	for (h = how_far_factored; ; ) {
-		double	prob1, prob2;
+		time (&this_time);
+		if (!there_are_active_events) wake_up_time = this_time + 1000000;
+		if (wake_up_time > this_time) {
+			int	rc;
+			rc = gwevent_wait (&TIMED_EVENTS_CHANGED,
+					   (int) (wake_up_time - this_time));
+			gwevent_reset (&TIMED_EVENTS_CHANGED);
+			if (rc != GWEVENT_TIMED_OUT) continue;
+		}
 
-/* See how many smooth k's we should find using B1 */
-/* Using Dickman's function (see Knuth pg 382-383) we want k^a <= B1 */
+/* Do action associated with any timed events that have triggered */
 
-		prob1 = F (logB1 / logkk);
+		time (&this_time);
+		for (i = 0; i < MAX_TIMED_EVENTS; i++) {
+			int	fire;
+			gwmutex_lock (&TIMED_EVENTS_MUTEX);
+			fire = (timed_events[i].active && this_time >= timed_events[i].time_to_fire);
+			gwmutex_unlock (&TIMED_EVENTS_MUTEX);
+			if (!fire) continue;
+			switch (i) {
+			case TE_MEM_CHANGE:	/* Night/day memory change event */
+				mem_settings_have_changed ();
+				break;
+			case TE_PAUSE_WHILE:	/* Check pause_while_running event */
+				timed_events[i].time_to_fire = this_time + PAUSE_WHILE_RUNNING_FREQ;
+				checkPauseWhileRunning ();
+				break;
+			case TE_WORK_QUEUE_CHECK:	/* Check work queue event */
+				timed_events[i].time_to_fire = this_time + TE_WORK_QUEUE_CHECK_FREQ;
+				spoolMessage (MSG_CHECK_WORK_QUEUE, NULL);
+				break;
+			case TE_COMM_SERVER:	/* Retry communication with server event */
+				timed_events[i].active = FALSE;
+				gwthread_create (&COMMUNICATION_THREAD, &communicateWithServer, NULL);
+				break;
+			case TE_COMM_KILL:	/* Kill hung communication thread */
+				timed_events[i].active = FALSE;
+				GLOBAL_SEND_MSG_COUNT++;
+				if (LOCKED_WORK_UNIT != NULL)
+					decrementWorkUnitUseCount (LOCKED_WORK_UNIT, SHORT_TERM_USE);
+//bug				gwthread_kill (&COMMUNICATION_THREAD);
+				break;
+			case TE_PRIORITY_WORK:	/* Check for priority work event */
+				timed_events[i].time_to_fire = this_time + TE_PRIORITY_WORK_FREQ;
+				check_for_priority_work ();
+				break;
+			case TE_COMPLETION_DATES:	/* Send expected completion dates event */
+				timed_events[i].active = FALSE;
+				UpdateEndDates ();
+				break;
+			case TE_THROTTLE:	/* Sleep due to Throttle=n event */
+				timed_events[i].time_to_fire =
+					this_time + handleThrottleTimerEvent ();
+				break;
+			case TE_TIMED_INI_FILE:	/* Timed INI file change event */
+				break;
+			case TE_SAVE_FILES:	/* Timer to trigger writing save files */
+						/* Also check for add files */
+				timed_events[i].active = FALSE;
+				if (addFileExists ()) stop_workers_for_add_files ();
+				saveFilesTimer ();
+				break;
+			case TE_BATTERY_CHECK:	/* Test battery status */
+				timed_events[i].time_to_fire = this_time + TE_BATTERY_CHECK_FREQ;
+				test_battery ();
+				break;
+			case TE_ROLLING_AVERAGE: /* Adjust rolling average event */
+				timed_events[i].time_to_fire =
+					this_time + TE_ROLLING_AVERAGE_FREQ;
+				adjust_rolling_average ();
+				break;
+			}
+		}
 
-/* See how many smooth k's we should find using B2 */
-/* Adjust this slightly to eliminate k's that have two primes > B1 and < B2 */
-/* Do this by assuming the largest factor is the average of B1 and B2 */
-/* and the remaining cofactor is B1 smooth */
+/* Loop to calculate sleep time until next event */
 
-		prob2 = prob1 + (F (logB2 / logkk) - prob1) *
-				(F (logB1 / logtemp) / F (logB2 / logtemp));
-		if (prob2 < 0.0001) break;
-
-/* Add this data in to the total chance of finding a factor */
-
-		prob += prob2 / (h + 0.5);
-		h += 1.0;
-		logkk += log2;
-		logtemp += log2;
-	}
-
-/* See if this is a new best case scenario */
-
-	if (B2 == B1 ||
-	    prob * ll_tests * n - pass2_squarings >
-			best[0].prob * ll_tests * n - best[0].pass2_squarings){
-		best[0].B2 = B2;
-		best[0].prob = prob;
-		best[0].pass2_squarings = pass2_squarings;
-		if (vals < 4) break;
-		continue;
-	}
-
-	if (prob * ll_tests * n - pass2_squarings <
-		0.9 * (best[0].prob * ll_tests * n - best[0].pass2_squarings))
-		break;
-	continue;
-	}
-
-/* Is this the best B1 thusfar? */
-
-	if (B1 == 10000 ||
-	    best[0].prob * ll_tests * n -
-			(pass1_squarings + best[0].pass2_squarings) >
-		best[1].prob * ll_tests * n -
-			(best[1].pass1_squarings + best[1].pass2_squarings)) {
-		best[1].B1 = B1;
-		best[1].B2 = best[0].B2;
-		best[1].prob = best[0].prob;
-		best[1].pass1_squarings = pass1_squarings;
-		best[1].pass2_squarings = best[0].pass2_squarings;
-		continue;
-	}
-	if (best[0].prob * ll_tests * n -
-			(pass1_squarings + best[0].pass2_squarings) <
-	    0.9 * (best[1].prob * ll_tests * n -
-			(best[1].pass1_squarings + best[1].pass2_squarings)))
-		break;
-	continue;
-	}
-
-/* Return the final best choice */
-
-	if (best[1].prob * ll_tests * n >
-		best[1].pass1_squarings + best[1].pass2_squarings + gcd_cost) {
-		*bound1 = best[1].B1;
-		*bound2 = best[1].B2;
-		*squarings = (unsigned long)
-			(best[1].pass1_squarings +
-			 best[1].pass2_squarings + gcd_cost);
-		*success_rate = best[1].prob;
-	} else {
-		*bound1 = 0;
-		*bound2 = 0;
-		*squarings = 0;
-		*success_rate = 0.0;
 	}
 }

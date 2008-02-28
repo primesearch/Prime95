@@ -25,6 +25,7 @@ CPreferencesDlg::CPreferencesDlg(CWnd* pParent /*=NULL*/)
 	m_noise = FALSE;
 	m_retry = 0;
 	m_r_iter = 0;
+	m_work = 0;
 	m_end_dates = 0;
 	m_modem = 0;
 	m_battery = FALSE;
@@ -36,10 +37,12 @@ void CPreferencesDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialog::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CPreferencesDlg)
-	DDX_Control(pDX, IDC_MODEM, c_modem);
 	DDX_Control(pDX, IDC_MODEM_TEXT, c_modem_text);
-	DDX_Control(pDX, IDC_END_DATES, c_end_dates);
+	DDX_Control(pDX, IDC_MODEM, c_modem);
+	DDX_Control(pDX, IDC_WORK_TEXT, c_work_text);
+	DDX_Control(pDX, IDC_WORK, c_work);
 	DDX_Control(pDX, IDC_END_DATES_TEXT, c_end_dates_text);
+	DDX_Control(pDX, IDC_END_DATES, c_end_dates);
 	DDX_Control(pDX, IDC_NETWORK_TEXT, c_network_text);
 	DDX_Control(pDX, IDC_NETWORK, c_network);
 	DDX_Text(pDX, IDC_P, m_iter);
@@ -52,6 +55,8 @@ void CPreferencesDlg::DoDataExchange(CDataExchange* pDX)
 	DDV_MinMaxUInt(pDX, m_retry, 1, 300);
 	DDX_Text(pDX, IDC_R_ITER, m_r_iter);
 	DDV_MinMaxUInt(pDX, m_r_iter, 10000, 999999999);
+	DDX_Text(pDX, IDC_WORK, m_work);
+	DDV_MinMaxUInt(pDX, m_work, 0, 90);
 	DDX_Text(pDX, IDC_END_DATES, m_end_dates);
 	DDV_MinMaxUInt(pDX, m_end_dates, 1, 60);
 	DDX_Text(pDX, IDC_MODEM, m_modem);
@@ -62,6 +67,8 @@ void CPreferencesDlg::DoDataExchange(CDataExchange* pDX)
 	c_modem.EnableWindow (USE_PRIMENET && DIAL_UP);
 	c_network_text.EnableWindow (USE_PRIMENET);
 	c_network.EnableWindow (USE_PRIMENET);
+	c_work_text.EnableWindow (USE_PRIMENET);
+	c_work.EnableWindow (USE_PRIMENET);
 	c_end_dates_text.EnableWindow (USE_PRIMENET);
 	c_end_dates.EnableWindow (USE_PRIMENET);
 }

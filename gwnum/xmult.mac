@@ -1,4 +1,4 @@
-; Copyright 2001-2005 - Just For Fun Software, Inc., all rights reserved
+; Copyright 2001-2007 - Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -7,46 +7,6 @@
 ;
 
 ; *************** macros to expand 4 types of fft macros ******************
-
-xsave_registers MACRO
-	push	rbp
-	push	rbx
-	push	rdi
-	push	rsi
-	IFDEF X86_64
-	sub	rsp, 80
-	_movsd	[rsp+72], xmm6
-	_movsd	[rsp+64], xmm7
-	_movsd	[rsp+56], xmm8
-	_movsd	[rsp+48], xmm9
-	_movsd	[rsp+40], xmm10
-	_movsd	[rsp+32], xmm11
-	_movsd	[rsp+24], xmm12
-	_movsd	[rsp+16], xmm13
-	_movsd	[rsp+8], xmm14
-	_movsd	[rsp], xmm15
-	ENDIF
-	ENDM
-
-xrestore_registers MACRO
-	IFDEF X86_64
-	_movsd	xmm15, [rsp]
-	_movsd	xmm14, [rsp+8]
-	_movsd	xmm13, [rsp+16]
-	_movsd	xmm12, [rsp+24]
-	_movsd	xmm11, [rsp+32]
-	_movsd	xmm10, [rsp+40]
-	_movsd	xmm9, [rsp+48]
-	_movsd	xmm8, [rsp+56]
-	_movsd	xmm7, [rsp+64]
-	_movsd	xmm6, [rsp+72]
-	add	rsp, 80
-	ENDIF
-	pop	rsi			;; Pop values and return
-	pop	rdi
-	pop	rbx
-	pop	rbp
-	ENDM
 
 ;;
 ;; Generate the 4 types of FFTs for the given run length.
@@ -58,18 +18,20 @@ xrestore_registers MACRO
 ;;
 
 xfft	MACRO fft_length
-	type1	&fft_length, _1
-	type2	&fft_length, _2
-	type3	&fft_length, _3
-	type4	&fft_length, _4
+	LOCAL	common_label
+	type1	common_label, &fft_length, _1
+	type2	common_label, &fft_length, _2
+	type3	common_label, &fft_length, _3
+	type4	common_label, &fft_length, _4
 	purge	xfft&fft_length
 	ENDM
 
 xfftclm	MACRO fft_length, clm
-	type1	&fft_length, _1, clm, %(xpass2_levels)
-	type2	&fft_length, _2, clm, %(xpass2_levels)
-	type3	&fft_length, _3, clm, %(xpass2_levels)
-	type4	&fft_length, _4, clm, %(xpass2_levels)
+	LOCAL	common_label
+	type1	common_label, &fft_length, _1, clm, %(xpass2_levels)
+	type2	common_label, &fft_length, _2, clm, %(xpass2_levels)
+	type3	common_label, &fft_length, _3, clm, %(xpass2_levels)
+	type4	common_label, &fft_length, _4, clm, %(xpass2_levels)
 	ENDM
 
 ;;
@@ -77,35 +39,35 @@ xfftclm	MACRO fft_length, clm
 ;; Do the forward FFT
 ;;
 
-type1	MACRO fft_length, suffix, clm, levels
-PUBLICP	xfft&fft_length&clm&levels&suffix
-LABELP	xfft&fft_length&clm&levels&suffix
-	xsave_registers
-	mov	rsi, _DESTARG
-	mov	rbx, _SRCARG
+type1	MACRO common_label, fft_length, suffix, clm, levels
+	PROCFP	xfft&fft_length&clm&levels&suffix
+	ad_prolog 0,1,rbx,rbp,rsi,rdi,xmm6,xmm7,xmm8,xmm9,xmm10,xmm11,xmm12,xmm13,xmm14,xmm15
+	mov	rsi, DESTARG
+	mov	rbx, SRCARG
 	sub	rbx, rsi
+	mov	DIST_TO_FFTSRCARG, rbx
 	IF EXPANDING GE 2
 	mov	ffttype, 1
-	JMPP	xfft2a&fft_length&clm&levels
+	jmp	common_label
 	ELSE
 	xfft&fft_length 1
 	ENDIF
+	ENDPP	xfft&fft_length&clm&levels&suffix
 	ENDM
-
 ;;
 ;; Square a number mod 2**p-1
 ;; Do the forward FFT, squaring, and inverse FFT
 ;;
 
-type2	MACRO fft_length, suffix, clm, levels
-PUBLICP	xfft&fft_length&clm&levels&suffix
-LABELP	xfft&fft_length&clm&levels&suffix
-	xsave_registers
-	mov	rsi, _DESTARG
+type2	MACRO common_label, fft_length, suffix, clm, levels
+	PROCFP	xfft&fft_length&clm&levels&suffix
+	ad_prolog 0,1,rbx,rbp,rsi,rdi,xmm6,xmm7,xmm8,xmm9,xmm10,xmm11,xmm12,xmm13,xmm14,xmm15
+	mov	rsi, DESTARG
 	sub	rbx, rbx
+	mov	DIST_TO_FFTSRCARG, rbx
 	IF EXPANDING GE 2
 	mov	ffttype, 2
-LABELP	xfft2a&fft_length&clm&levels
+common_label:
 	IFB <clm>
 	xfft&fft_length
 	ELSE
@@ -114,6 +76,7 @@ LABELP	xfft2a&fft_length&clm&levels
 	ELSE
 	xfft&fft_length 2
 	ENDIF
+	ENDPP	xfft&fft_length&clm&levels&suffix
 	ENDM
 
 ;;
@@ -122,18 +85,22 @@ LABELP	xfft2a&fft_length&clm&levels
 ;; Do the forward FFT, multiply, and inverse FFT
 ;;
 
-type3	MACRO fft_length, suffix, clm, levels
-PUBLICP	xfft&fft_length&clm&levels&suffix
-LABELP	xfft&fft_length&clm&levels&suffix
-	xsave_registers
-	mov	rsi, _DESTARG
+type3	MACRO common_label, fft_length, suffix, clm, levels
+	PROCFP	xfft&fft_length&clm&levels&suffix
+	ad_prolog 0,1,rbx,rbp,rsi,rdi,xmm6,xmm7,xmm8,xmm9,xmm10,xmm11,xmm12,xmm13,xmm14,xmm15
+	mov	rsi, DESTARG
 	sub	rbx, rbx
+	mov	DIST_TO_FFTSRCARG, rbx
+	mov	rbp, SRCARG
+	sub	rbp, rsi
+	mov	DIST_TO_MULSRCARG, rbp
 	IF EXPANDING GE 2
 	mov	ffttype, 3
-	JMPP	xfft2a&fft_length&clm&levels
+	jmp	common_label
 	ELSE
 	xfft&fft_length 3
 	ENDIF
+	ENDPP	xfft&fft_length&clm&levels&suffix
 	ENDM
 
 ;;
@@ -142,34 +109,38 @@ LABELP	xfft&fft_length&clm&levels&suffix
 ;; Do the multiply and inverse FFT
 ;;
 
-type4	MACRO fft_length, suffix, clm, levels
-PUBLICP	xfft&fft_length&clm&levels&suffix
-LABELP	xfft&fft_length&clm&levels&suffix
-	xsave_registers
-	mov	rsi, _DESTARG
-	mov	rbx, _SRC2ARG
+type4	MACRO common_label, fft_length, suffix, clm, levels
+	PROCFP	xfft&fft_length&clm&levels&suffix
+	ad_prolog 0,1,rbx,rbp,rsi,rdi,xmm6,xmm7,xmm8,xmm9,xmm10,xmm11,xmm12,xmm13,xmm14,xmm15
+	mov	rsi, DESTARG
+	mov	rbx, SRC2ARG
 	sub	rbx, rsi
+	mov	DIST_TO_FFTSRCARG, rbx
+	mov	rbp, SRCARG
+	sub	rbp, rsi
+	mov	DIST_TO_MULSRCARG, rbp
 	IF EXPANDING GE 2
 	mov	ffttype, 4
-	JMPP	xfft2a&fft_length&clm&levels
+	jmp	common_label
 	ELSE
 	xfft&fft_length 4
 	ENDIF
+	ENDPP	xfft&fft_length&clm&levels&suffix
 	ENDM
 
 ; Return from a type 1 FFT - return to caller
 
 xfft_1_ret MACRO
-	xrestore_registers
-	ret
+	ad_epilog 0,1,rbx,rbp,rsi,rdi,xmm6,xmm7,xmm8,xmm9,xmm10,xmm11,xmm12,xmm13,xmm14,xmm15
 	ENDM
 
 ; Return from a type 2,3, or 4 FFT - jump to the common normalization code
 ; used in one-pass FFTs only.
 
 xfft_3_ret MACRO
-	mov	rax, _NORMRTN
-	jmp	rax
+	mov	rax, NORMRTN
+	call	rax
+	ad_epilog 0,1,rbx,rbp,rsi,rdi,xmm6,xmm7,xmm8,xmm9,xmm10,xmm11,xmm12,xmm13,xmm14,xmm15
 	ENDM
 
 ;;

@@ -9,7 +9,7 @@
  *  This is the only C++ routine in the gwnum library.  Since gwnum is
  *  a C based library, we declare all routines here as extern "C".
  * 
- *  Copyright 2005 Just For Fun Software, Inc.
+ *  Copyright 2005-2006 Just For Fun Software, Inc.
  *  All Rights Reserved.
  *
  **************************************************************/
@@ -48,6 +48,23 @@
 #define	_log2 Log2
 #endif
 
+/* Structure for "global" data that gwfft_weight_setup and passes */
+/* to several gwdbldbl routines */
+	
+struct gwdbldbl_constants {
+	dd_real	gw__bits_per_word;
+	int	gw__c_is_one;
+	dd_real gw__log2_abs_c_div_fftlen;
+	dd_real gw__fftlen_inverse;
+	dd_real gw__over_fftlen;
+	double	gwdbl__bits_per_word;
+	double	gwdbl__log2_abs_c_div_fftlen;
+};
+
+/* Macro routines below use to type the cast untyped data pointer */
+/* input argument. */
+
+#define dd_data		((struct gwdbldbl_constants *) dd_data_arg)
 
 /* Now write all the routines that use the dd_real package. */
 
@@ -57,136 +74,33 @@
 
 extern "C"
 void gwasm_constants (
-	double	k,
-	signed long c,
-	int	sse2,
-	int	zero_pad,
-	unsigned long fftlen,
-	unsigned long bits_in_small_word,
 	double	*asm_values)
 {
 	dd_real arg, sine1, cosine1, sine2, cosine2, sine3, cosine3;
-	double	small_word, big_word, temp;
-#define MINUS_CARG			asm_values[0]
-#define BIGVAL				((float *) &asm_values[1])[0]
-#define BIGBIGVAL			((float *) &asm_values[1])[1]
-#define XMM_BIGVAL			asm_values[2]
-#define XMM_BIGBIGVAL			asm_values[3]
-#define SQRTHALF			asm_values[4]
-#define ttmp_ff_inv			asm_values[5]
-#define XMM_NORM012_FF			asm_values[6]
-#define XMM_K_HI			asm_values[7]
-#define XMM_K_LO			asm_values[8]
-#define XMM_K_HI_2			asm_values[9]
-#define XMM_K_HI_1			asm_values[10]
-#define XMM_LIMIT_INVERSE		(asm_values+11)
-#define XMM_LIMIT_BIGMAX		(asm_values+19)
-#define XMM_LIMIT_BIGMAX_NEG		(asm_values+27)
-#define P951				asm_values[35]
-#define P618				asm_values[36]
-#define P309				asm_values[37]
-#define M262				asm_values[38]
-#define P588				asm_values[39]
-#define M162				asm_values[40]
-#define M809				asm_values[41]
-#define M382				asm_values[42]
-#define P866				asm_values[43]
-#define P433				asm_values[44]
-#define P577				asm_values[45]
-#define P975				asm_values[46]
-#define P445				asm_values[47]
-#define P180				asm_values[48]
-#define P623				asm_values[49]
-#define M358				asm_values[50]
-#define P404				asm_values[51]
-#define M223				asm_values[52]
-#define M901				asm_values[53]
-#define M691				asm_values[54]
+#define P951			asm_values[0]
+#define P618			asm_values[1]
+#define P309			asm_values[2]
+#define M262			asm_values[3]
+#define P588			asm_values[4]
+#define M162			asm_values[5]
+#define M809			asm_values[6]
+#define M382			asm_values[7]
+#define P866			asm_values[8]
+#define P433			asm_values[9]
+#define P577			asm_values[10]
+#define P975			asm_values[11]
+#define P445			asm_values[12]
+#define P180			asm_values[13]
+#define P623			asm_values[14]
+#define M358			asm_values[15]
+#define P404			asm_values[16]
+#define M223			asm_values[17]
+#define M901			asm_values[18]
+#define M691			asm_values[19]
 
 /* Do some initial setup */
 	
 	x86_FIX
-	small_word = (double) (1 << bits_in_small_word);
-	big_word = (double) (1 << (bits_in_small_word + 1));
-	
-/* Negate c and store as a double */
-
-	MINUS_CARG = (double) -c;
-
-/* Compute the x87 (64-bit) rounding constants */
-
-	BIGVAL = (float) (3.0 * pow (2.0, 62.0));
-	BIGBIGVAL = (float) (big_word * BIGVAL);
-
-/* Compute the SSE2 (53-bit) rounding constants */
-
-	XMM_BIGVAL = 3.0 * pow (2.0, 51.0);
-	XMM_BIGBIGVAL = big_word * XMM_BIGVAL;
-
-/* Compute square root of 0.5 */
-
-	SQRTHALF = sqrt (0.5);
-
-/* The sumout value is FFTLEN/2 times larger than it should be.  Create an */
-/* inverse to properly calculate the sumout when a multiplication ends. */
-
-	ttmp_ff_inv = 2.0 / (double) fftlen;
-
-/* Compute constant that converts fft_weight_over_fftlen found in the */
-/* two-to-minus-phi tables into the true fft_weight value.  This is usually */
-/* FFTLEN / 2, but when doing a non-zero-padded FFT this is FFTLEN / 2k. */
-
-	XMM_NORM012_FF = (double) fftlen / 2.0;
-	if (!zero_pad) XMM_NORM012_FF /= k;
-
-/* Split k for zero-padded FFTs emulating modulo k*2^n+c */
-
-	XMM_K_HI = floor (k / big_word) * big_word;
-	XMM_K_LO = k - XMM_K_HI;
-	XMM_K_HI_2 = floor (k / big_word / big_word) * big_word * big_word;
-	XMM_K_HI_1 = XMM_K_HI - XMM_K_HI_2;
-
-/* Compute the normalization constants indexed by biglit array entries */
-
-	temp = 1.0 / small_word;	/* Compute lower limit inverse */
-	XMM_LIMIT_INVERSE[0] =
-	XMM_LIMIT_INVERSE[1] =
-	XMM_LIMIT_INVERSE[3] =
-	XMM_LIMIT_INVERSE[4] = temp;
-
-					/* Compute lower limit bigmax */
-	if (sse2) temp = small_word * XMM_BIGVAL - XMM_BIGVAL;
-	else temp = small_word * BIGVAL - BIGVAL;
-	XMM_LIMIT_BIGMAX[0] =
-	XMM_LIMIT_BIGMAX[1] =
-	XMM_LIMIT_BIGMAX[3] =
-	XMM_LIMIT_BIGMAX[4] = temp;
-
-	temp = -temp;			/* Negative lower limit bigmax */
-	XMM_LIMIT_BIGMAX_NEG[0] =
-	XMM_LIMIT_BIGMAX_NEG[1] =
-	XMM_LIMIT_BIGMAX_NEG[3] =
-	XMM_LIMIT_BIGMAX_NEG[4] = temp;
-
-	temp = 1.0 / big_word;		/* Compute upper limit inverse */
-	XMM_LIMIT_INVERSE[2] =
-	XMM_LIMIT_INVERSE[5] =
-	XMM_LIMIT_INVERSE[6] =
-	XMM_LIMIT_INVERSE[7] = temp;
-
-					/* Compute upper limit bigmax */
-	if (sse2) temp = big_word * XMM_BIGVAL - XMM_BIGVAL;
-	else temp = big_word * BIGVAL - BIGVAL;
-	XMM_LIMIT_BIGMAX[2] =
-	XMM_LIMIT_BIGMAX[5] =
-	XMM_LIMIT_BIGMAX[6] =
-	XMM_LIMIT_BIGMAX[7] = temp;
-
-	temp = -temp;			/* Negative upper limit bigmax */
-	XMM_LIMIT_BIGMAX_NEG[2] =
-	XMM_LIMIT_BIGMAX_NEG[5] =
-	XMM_LIMIT_BIGMAX_NEG[6] =
-	XMM_LIMIT_BIGMAX_NEG[7] = temp;
 
 /* Initialize the five_reals sine-cosine data. */
 /* NOTE: When computing cosine / sine, divide by the 64-bit sine not the */
@@ -248,7 +162,7 @@ void gwasm_constants (
 // Utility routine to compute a sin/cos premultiplier or a set of 3
 // sine-cosine values.
 // This is used during setup, formerly written in assembly language to take
-// advantage of the extra precision in the FPU's 80-bit registers. 
+// advantage of the extra precision in the FPU's 80-bit registers.
 // NOTE: When computing cosine / sine, divide by the 64-bit sine
 // not the 80-bit sine since macros will multiply by the 64-bit sine.
 
@@ -304,16 +218,15 @@ void gwsincos3 (
 //	2 ^ (ceil (j*q/FFTLEN) - j*q/FFTLEN)   *    abs(c) ^ j/FFTLEN
 //
 
-static	dd_real gw__bits_per_word;
-static	int gw__c_is_one;
-static	dd_real gw__log2_abs_c_div_fftlen;
-static	dd_real gw__fftlen_inverse;
-static	dd_real gw__over_fftlen;
-static	double gwdbl__bits_per_word;
-static	double gwdbl__log2_abs_c_div_fftlen;
+extern "C"
+void *gwdbldbl_data_alloc (void)
+{
+	return (malloc (sizeof (struct gwdbldbl_constants)));
+}
 
 extern "C"
 void gwfft_weight_setup (
+	void	*dd_data_arg,
 	int	zero_pad,
 	double	k,
 	unsigned long n,
@@ -321,39 +234,42 @@ void gwfft_weight_setup (
 	unsigned long fftlen)
 {
 	x86_FIX
-	gw__fftlen_inverse = dd_real (1.0) / dd_real ((double) fftlen);
+	dd_data->gw__fftlen_inverse = dd_real (1.0) / dd_real ((double) fftlen);
 	if (zero_pad) {
-		gw__bits_per_word =
-			dd_real ((double) (n + n)) * gw__fftlen_inverse;
-		gw__c_is_one = 1;
-		gw__over_fftlen = dd_real (2.0) * gw__fftlen_inverse;
+		dd_data->gw__bits_per_word =
+			dd_real ((double) (n+n)) * dd_data->gw__fftlen_inverse;
+		dd_data->gw__c_is_one = TRUE;
+		dd_data->gw__over_fftlen =
+			dd_real (2.0) * dd_data->gw__fftlen_inverse;
 	} else {
-		gw__bits_per_word =
+		dd_data->gw__bits_per_word =
 			(dd_real ((double) n) +
 			 log (dd_real (k)) / dd_real::_log2) *
-			gw__fftlen_inverse;
-		gw__c_is_one = (abs ((int) c) == 1);
-		gw__log2_abs_c_div_fftlen =
+			dd_data->gw__fftlen_inverse;
+		dd_data->gw__c_is_one = (abs ((int) c) == 1);
+		dd_data->gw__log2_abs_c_div_fftlen =
 			log (dd_real (abs ((int) c))) / dd_real::_log2 *
-			gw__fftlen_inverse;
-		gw__over_fftlen = dd_real (k * 2.0) * gw__fftlen_inverse;
+			dd_data->gw__fftlen_inverse;
+		dd_data->gw__over_fftlen =
+			dd_real (k * 2.0) * dd_data->gw__fftlen_inverse;
 	}
-	gwdbl__bits_per_word = (double) gw__bits_per_word;
-	gwdbl__log2_abs_c_div_fftlen = (double) gw__log2_abs_c_div_fftlen;
+	dd_data->gwdbl__bits_per_word = (double) dd_data->gw__bits_per_word;
+	dd_data->gwdbl__log2_abs_c_div_fftlen = (double) dd_data->gw__log2_abs_c_div_fftlen;
 	END_x86_FIX
 }
 
 extern "C"
 double gwfft_weight (
+	void	*dd_data_arg,
 	unsigned long j)
 {
 	dd_real temp, twopow, result;
 
 	x86_FIX
-	temp = dd_real ((double) j) * gw__bits_per_word;
+	temp = dd_real ((double) j) * dd_data->gw__bits_per_word;
 	twopow = ceil (temp) - temp;
-	if (! gw__c_is_one)
-		twopow += gw__log2_abs_c_div_fftlen * dd_real ((double) j);
+	if (! dd_data->gw__c_is_one)
+		twopow += dd_data->gw__log2_abs_c_div_fftlen * dd_real ((double) j);
 	result = exp (dd_real::_log2 * twopow);
 	END_x86_FIX
 	return (double (result));
@@ -363,15 +279,16 @@ double gwfft_weight (
 
 extern "C"
 double gwfft_weight_sloppy (
+	void	*dd_data_arg,
 	unsigned long j)
 {
 	dd_real temp, twopow;
 
 	x86_FIX
-	temp = dd_real ((double) j) * gw__bits_per_word;
+	temp = dd_real ((double) j) * dd_data->gw__bits_per_word;
 	twopow = ceil (temp) - temp;
-	if (! gw__c_is_one)
-		twopow += gw__log2_abs_c_div_fftlen * dd_real ((double) j);
+	if (! dd_data->gw__c_is_one)
+		twopow += dd_data->gw__log2_abs_c_div_fftlen * dd_real ((double) j);
 	END_x86_FIX
 	return (pow (2.0, double (twopow)));
 }
@@ -380,15 +297,16 @@ double gwfft_weight_sloppy (
 
 extern "C"
 double gwfft_weight_inverse (
+	void	*dd_data_arg,
 	unsigned long j)
 {
 	dd_real temp, twopow, result;
 
 	x86_FIX
-	temp = dd_real ((double) j) * gw__bits_per_word;
+	temp = dd_real ((double) j) * dd_data->gw__bits_per_word;
 	twopow = ceil (temp) - temp;
-	if (! gw__c_is_one)
-		twopow += gw__log2_abs_c_div_fftlen * dd_real ((double) j);
+	if (! dd_data->gw__c_is_one)
+		twopow += dd_data->gw__log2_abs_c_div_fftlen * dd_real ((double) j);
 	result = exp (dd_real::_log2 * -twopow);
 	END_x86_FIX
 	return (double (result));
@@ -398,23 +316,24 @@ double gwfft_weight_inverse (
 
 extern "C"
 double gwfft_weight_inverse_sloppy (
+	void	*dd_data_arg,
 	unsigned long j)
 {
 	double	tempdbl, twopowdbl;
 
-	tempdbl = (double) j * gwdbl__bits_per_word;
+	tempdbl = (double) j * dd_data->gwdbl__bits_per_word;
 	twopowdbl = ceil (tempdbl) - tempdbl;
 	if (twopowdbl < 0.001 || twopowdbl > 0.999) {
 		dd_real temp;
 
 		x86_FIX
-		temp = dd_real ((double) j) * gw__bits_per_word;
+		temp = dd_real ((double) j) * dd_data->gw__bits_per_word;
 		twopowdbl = (double) (ceil (temp) - temp);
 		END_x86_FIX
 	}
 
-	if (! gw__c_is_one)
-		twopowdbl += gwdbl__log2_abs_c_div_fftlen * (double) j;
+	if (! dd_data->gw__c_is_one)
+		twopowdbl += dd_data->gwdbl__log2_abs_c_div_fftlen * (double) j;
 	return (pow (2.0, - double (twopowdbl)));
 }
 
@@ -425,16 +344,17 @@ double gwfft_weight_inverse_sloppy (
 
 extern "C"
 double gwfft_weight_inverse_over_fftlen (
+	void	*dd_data_arg,
 	unsigned long j)
 {
 	dd_real temp, twopow, result;
 
 	x86_FIX
-	temp = dd_real ((double) j) * gw__bits_per_word;
+	temp = dd_real ((double) j) * dd_data->gw__bits_per_word;
 	twopow = ceil (temp) - temp;
-	if (! gw__c_is_one)
-		twopow += gw__log2_abs_c_div_fftlen * dd_real ((double) j);
-	result = exp (dd_real::_log2 * -twopow) * gw__over_fftlen;
+	if (! dd_data->gw__c_is_one)
+		twopow += dd_data->gw__log2_abs_c_div_fftlen * dd_real ((double) j);
+	result = exp (dd_real::_log2 * -twopow) * dd_data->gw__over_fftlen;
 	END_x86_FIX
 	return (double (result));
 }
@@ -444,6 +364,7 @@ double gwfft_weight_inverse_over_fftlen (
 
 extern "C"
 void gwfft_weights3 (
+	void	*dd_data_arg,
 	unsigned long j,
 	double	*fft_weight,
 	double	*fft_weight_inverse,
@@ -452,17 +373,17 @@ void gwfft_weights3 (
 	dd_real temp, twopow, weight;
 
 	x86_FIX
-	temp = dd_real ((double) j) * gw__bits_per_word;
+	temp = dd_real ((double) j) * dd_data->gw__bits_per_word;
 	twopow = ceil (temp) - temp;
-	if (! gw__c_is_one)
-		twopow += gw__log2_abs_c_div_fftlen * dd_real ((double) j);
+	if (! dd_data->gw__c_is_one)
+		twopow += dd_data->gw__log2_abs_c_div_fftlen * dd_real ((double) j);
 	weight = exp (dd_real::_log2 * twopow);
 	*fft_weight = double (weight);
 	weight = dd_real (1.0) / weight;
 	if (fft_weight_inverse != NULL)
 		*fft_weight_inverse = double (weight);
 	if (fft_weight_inverse_over_fftlen != NULL)
-		*fft_weight_inverse_over_fftlen = double (weight * gw__over_fftlen);
+		*fft_weight_inverse_over_fftlen = double (weight * dd_data->gw__over_fftlen);
 	END_x86_FIX
 }
 
@@ -472,6 +393,7 @@ void gwfft_weights3 (
 
 extern "C"
 double gwfft_weight_exponent (
+	void	*dd_data_arg,
 	unsigned long j)
 {
 	double	tempdbl, twopowdbl;
@@ -480,14 +402,14 @@ double gwfft_weight_exponent (
 // For speed, try this with plain old doubles first
 
 	if (j == 0) return (0);
-	tempdbl = (double) j * gwdbl__bits_per_word;
+	tempdbl = (double) j * dd_data->gwdbl__bits_per_word;
 	twopowdbl = ceil (tempdbl) - tempdbl;
 	if (twopowdbl > 0.001 && twopowdbl < 0.999) return (twopowdbl);
 
 // If at all uncertain of the result, use doubledoubles to do the calculation
 
 	x86_FIX
-	temp = dd_real ((double) j) * gw__bits_per_word;
+	temp = dd_real ((double) j) * dd_data->gw__bits_per_word;
 	twopow = ceil (temp) - temp;
 	END_x86_FIX
 	return (double (twopow));
@@ -507,6 +429,7 @@ double gwfft_weight_exponent (
 
 extern "C"
 unsigned long gwfft_base (
+	void	*dd_data_arg,
 	unsigned long j)
 {
 	double	tempdbl, ceildbl, diffdbl;
@@ -516,7 +439,7 @@ unsigned long gwfft_base (
 // For speed, try this with plain old doubles first
 
 	if (j == 0) return (0);
-	tempdbl = (double) j * gwdbl__bits_per_word;
+	tempdbl = (double) j * dd_data->gwdbl__bits_per_word;
 	ceildbl = ceil (tempdbl);
 	diffdbl = ceildbl - tempdbl;
 	if (diffdbl > 0.001 && diffdbl < 0.999)
@@ -525,7 +448,7 @@ unsigned long gwfft_base (
 // If at all uncertain of the result, use doubledoubles to do the calculation
 
 	x86_FIX
-	temp = dd_real ((double) j) * gw__bits_per_word;
+	temp = dd_real ((double) j) * dd_data->gw__bits_per_word;
 	twopow = (int) ceil (temp);
 	END_x86_FIX
 	return (twopow);

@@ -1,4 +1,4 @@
-; Copyright 1995-2004 - Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2007 - Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -382,6 +382,9 @@ eight_reals_unfft_2 MACRO R1,R2,R3,R4,R5,R6,R7,R8
 
 four_real_four_semireal_fft MACRO R1,R2,R3,R4,R5,R6,R7,R8
 	cp_four_real_four_semireal_fft R1,R2,R3,R4,R5,R6,R7,R8,R1,R2,R3,R4,R5,R6,R7,R8
+	ENDM
+four_real_four_semireal_first_fft MACRO R1,R2,R3,R4,R5,R6,R7,R8
+	cp_four_real_four_semireal_fft R1[ebx],R2[ebx],R3[ebx],R4[ebx],R5[ebx],R6[ebx],R7[ebx],R8[ebx],R1,R2,R3,R4,R5,R6,R7,R8
 	ENDM
 cp_four_real_four_semireal_fft MACRO R1,R2,R3,R4,R5,R6,R7,R8,D1,D2,D3,D4,D5,D6,D7,D8
 	fld	R6			;; R6
@@ -1889,7 +1892,7 @@ four_complex_unfft_1 MACRO R1,R2,R3,R4,R5,R6,R7,R8
 ; NOTE: Optimal = 72 clocks, Actual = 72 clocks
 
 four_complex_gpm4_fft MACRO R1,R2,R3,R4,R5,R6,R7,R8
-	four_complex_fft4_cmn <R1>,<R2>,<R3>,<R4>,<R5>,<R6>,<R7>,<R8>,0,0,16,32,48
+	four_complex_fft4_cmn <R1>,<R2>,<R3>,<R4>,<R5>,<R6>,<R7>,<R8>,ebx,0,16,32,48
 	ENDM
 
 ; *************** four-complex-gpm4-unfft-0 macro ******************
@@ -2519,7 +2522,7 @@ four_complex_cpm_unfft_3 MACRO R1,R2,R3,R4,R5,R6,R7,R8
 
 copy_7_words MACRO
 	LOCAL	nozpad
-	cmp	_ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
+	cmp	ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
 	je	short nozpad		;; No, skip 7 word copy
 	fld	QWORD PTR [esi+ebx+8]	;; Copy 1st word above half-way point
 	fstp	QWORD PTR [esi-40]
@@ -2530,15 +2533,15 @@ copy_7_words MACRO
 	fld	QWORD PTR [esi+ebx+56]	;; Copy 4th word
 	fstp	QWORD PTR [esi-64]
 	mov	eax, esi		;; Copy 1st word below half-way point
-	add	eax, _HIGH_WORD1_OFFSET
+	add	eax, HIGH_WORD1_OFFSET
 	fld	QWORD PTR [eax+ebx]
 	fstp	QWORD PTR [esi-72]
 	mov	eax, esi		;; Copy 2nd word
-	add	eax, _HIGH_WORD2_OFFSET
+	add	eax, HIGH_WORD2_OFFSET
 	fld	QWORD PTR [eax+ebx]
 	fstp	QWORD PTR [esi-80]
 	mov	eax, esi		;; Copy 3rd word
-	add	eax, _HIGH_WORD3_OFFSET
+	add	eax, HIGH_WORD3_OFFSET
 	fld	QWORD PTR [eax+ebx]
 	fstp	QWORD PTR [esi-88]
 nozpad:
@@ -2551,7 +2554,7 @@ nozpad:
 
 copy_4_words MACRO
 	LOCAL	nozpad
-	cmp	_ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
+	cmp	ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
 	je	short nozpad		;; No, skip 4 word copy
 	fld	QWORD PTR [esi+8]	;; Copy 1st word above half-way point
 	fstp	QWORD PTR [esi-40]
@@ -2566,68 +2569,65 @@ nozpad:
 
 copy_3_words MACRO clm, scratch
 	LOCAL	nozpad, iter2
-	cmp	_ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
+	cmp	ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
 	je	short nozpad		;; No, skip 3 word copy
 	IF clm GE 2
 	cmp	edx, 65536+256		;; Only copy on last inverse FFT pass
 	jne	short nozpad		;; Jump if delaying
-	mov	edi, _DESTARG		;; Load destination pointer
+	mov	edi, DESTARG		;; Load destination pointer
 	IF scratch EQ 0
-	mov	eax, _HIGH_WORD1_OFFSET	;; Copy 1st word below half-way point
+	mov	eax, HIGH_WORD1_OFFSET	;; Copy 1st word below half-way point
 	fld	QWORD PTR [edi+eax]
 	fstp	QWORD PTR [edi-72]
-	mov	eax, _HIGH_WORD2_OFFSET	;; Copy 2nd word
+	mov	eax, HIGH_WORD2_OFFSET	;; Copy 2nd word
 	fld	QWORD PTR [edi+eax]
 	fstp	QWORD PTR [edi-80]
-	mov	eax, _HIGH_WORD3_OFFSET	;; Copy 3rd word
+	mov	eax, HIGH_WORD3_OFFSET	;; Copy 3rd word
 	fld	QWORD PTR [edi+eax]
 	fstp	QWORD PTR [edi-88]
 	ELSE
-	push	ecx
-	mov	ecx, scratch_area
-	mov	eax, _HIGH_SCRATCH1_OFFSET;; Copy 1st word below half-way point
-	fld	QWORD PTR [ecx+eax]
+	mov	eax, HIGH_SCRATCH1_OFFSET;; Copy 1st word below half-way point
+	fld	QWORD PTR [esi+eax]
 	fstp	QWORD PTR [edi-72]
-	mov	eax, _HIGH_SCRATCH2_OFFSET;; Copy 2nd word
-	fld	QWORD PTR [ecx+eax]
+	mov	eax, HIGH_SCRATCH2_OFFSET;; Copy 2nd word
+	fld	QWORD PTR [esi+eax]
 	fstp	QWORD PTR [edi-80]
-	mov	eax, _HIGH_SCRATCH3_OFFSET;; Copy 3rd word
-	fld	QWORD PTR [ecx+eax]
+	mov	eax, HIGH_SCRATCH3_OFFSET;; Copy 3rd word
+	fld	QWORD PTR [esi+eax]
 	fstp	QWORD PTR [edi-88]
-	pop	ecx
 	ENDIF
 	ELSE
 	cmp	edx, 65536+2*256	;; Copy on last two inverse FFT passes
 	jg	short nozpad		;; Jump if delaying
-	mov	edi, _DESTARG		;; Load destination pointer
+	mov	edi, DESTARG		;; Load destination pointer
 	IF scratch EQ 1
-	push	ecx
+	pusher	ecx
 	mov	ecx, scratch_area
 	ENDIF
 	je	short iter2		;; Jump if next to last pass
 	IF scratch EQ 0
-	mov	eax, _HIGH_WORD1_OFFSET	;; Copy 1st word below half-way point
+	mov	eax, HIGH_WORD1_OFFSET	;; Copy 1st word below half-way point
 	fld	QWORD PTR [edi+eax]
 	fstp	QWORD PTR [edi-72]
-	mov	eax, _HIGH_WORD2_OFFSET	;; Copy 2nd word
+	mov	eax, HIGH_WORD2_OFFSET	;; Copy 2nd word
 	fld	QWORD PTR [edi+eax]
 	fstp	QWORD PTR [edi-80]
 	jmp	short nozpad
-iter2:	mov	eax, _HIGH_WORD3_OFFSET	;; Copy 3rd word
+iter2:	mov	eax, HIGH_WORD3_OFFSET	;; Copy 3rd word
 	fld	QWORD PTR [edi+eax]
 	fstp	QWORD PTR [edi-88]
 	ELSE
-	mov	eax, _HIGH_SCRATCH1_OFFSET;; Copy 1st word below half-way point
+	mov	eax, HIGH_SCRATCH1_OFFSET;; Copy 1st word below half-way point
 	fld	QWORD PTR [ecx+eax]
 	fstp	QWORD PTR [edi-72]
-	mov	eax, _HIGH_SCRATCH2_OFFSET;; Copy 2nd word
+	mov	eax, HIGH_SCRATCH2_OFFSET;; Copy 2nd word
 	fld	QWORD PTR [ecx+eax]
 	fstp	QWORD PTR [edi-80]
 	jmp	short nozpad
-iter2:	mov	eax, _HIGH_SCRATCH3_OFFSET;; Copy 3rd word
+iter2:	mov	eax, HIGH_SCRATCH3_OFFSET;; Copy 3rd word
 	fld	QWORD PTR [ecx+eax]
 	fstp	QWORD PTR [edi-88]
-	pop	ecx
+	popper	ecx
 	ENDIF
 	ENDIF
 nozpad:
@@ -2639,7 +2639,8 @@ nozpad:
 
 mult7	MACRO	src1, src2
 	LOCAL	nozpad
-	cmp	_ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
+
+	cmp	ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
 	je	nozpad			;; No, skip 7 word multiply
 	fld	QWORD PTR [src1-40]	;; Result0 = word0 * word0
 	fmul	QWORD PTR [src2-40]
@@ -2661,7 +2662,7 @@ mult7	MACRO	src1, src2
 	fld	QWORD PTR [src1-88]	;;	   + word-3 * word3
 	fmul	QWORD PTR [src2-64]
 	faddp	st(1), st
-	fstp	XMM_ZPAD0
+	fstp	ZPAD0
 
 	fld	QWORD PTR [src1-40]	;; Result1 = word0 * word1
 	fmul	QWORD PTR [src2-48]
@@ -2680,7 +2681,7 @@ mult7	MACRO	src1, src2
 	fmul	QWORD PTR [src2-64]
 	faddp	st(1), st
 	faddp	st(1), st
-	fstp	XMM_ZPAD1
+	fstp	ZPAD1
 
 	fld	QWORD PTR [src1-40]	;; Result2 = word0 * word2
 	fmul	QWORD PTR [src2-56]
@@ -2696,7 +2697,7 @@ mult7	MACRO	src1, src2
 	fld	QWORD PTR [src1-72]	;;	   + word-1 * word3
 	fmul	QWORD PTR [src2-64]
 	faddp	st(1), st
-	fstp	XMM_ZPAD2
+	fstp	ZPAD2
 
 	fld	QWORD PTR [src1-40]	;; Result3 = word0 * word3
 	fmul	QWORD PTR [src2-64]
@@ -2709,7 +2710,7 @@ mult7	MACRO	src1, src2
 	fmul	QWORD PTR [src2-40]
 	faddp	st(1), st
 	faddp	st(1), st
-	fstp	XMM_ZPAD3
+	fstp	ZPAD3
 
 	fld	QWORD PTR [src1-48]	;; Result4 = word1 * word3
 	fmul	QWORD PTR [src2-64]
@@ -2719,20 +2720,23 @@ mult7	MACRO	src1, src2
 	fld	QWORD PTR [src1-64]	;;	   + word3 * word1
 	fmul	QWORD PTR [src2-48]
 	faddp	st(1), st
-	fstp	XMM_ZPAD4
+	fstp	ZPAD4
 
 	fld	QWORD PTR [src1-56]	;; Result5 = word2 * word3
 	fmul	QWORD PTR [src2-64]
 	fld	QWORD PTR [src1-64]	;;	   + word3 * word2
 	fmul	QWORD PTR [src2-56]
 	faddp	st(1), st
-	fstp	XMM_ZPAD5
+	fstp	ZPAD5
 
 	fld	QWORD PTR [src1-64]	;; Result6 = word3 * word3
 	fmul	QWORD PTR [src2-64]
-	fstp	XMM_ZPAD6
+	fstp	ZPAD6
 
-	mov	zpad_addr, OFFSET XMM_ZPAD0
+	pusher	eax
+	lea	eax, ZPAD0
+	mov	zpad_addr, eax 
+	popper	eax
 nozpad:
 	ENDM
 

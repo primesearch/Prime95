@@ -5,27 +5,23 @@
 #include "MainFrm.h"
 #include "Prime95.h"
 #include "Prime95Doc.h"
+#include "Prime95View.h"
 
 #include <direct.h>
 #include "math.h"
 
-#include "AffinityDlg.h"
 #include "CpuDlg.h"
 #include "EcmDlg.h"
 #include "ManualCommDlg.h"
-#include "Password.h"
 #include "Pminus1Dlg.h"
 #include "PreferencesDlg.h"
 #include "PrimeNetDlg.h"
-#include "Priority.h"
-#include "ServerDlg.h"
 #include "TestDlg.h"
 #include "TimeDlg.h"
 #include "TortureDlg.h"
 #include "UnreserveDlg.h"
-#include "UserDlg.h"
-#include "VacationDlg.h"
 #include "WelcomeDlg.h"
+#include "WorkerDlg.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -33,19 +29,6 @@
 static char THIS_FILE[] = __FILE__;
 #endif
 
-#define OP_CONTINUE	1
-#define OP_TIME		2
-#define OP_BENCH	3
-#define OP_TORTURE	5
-struct thread_info {
-	int	op;		// Opcode defined above
-	unsigned long p;	// Prime to test
-	unsigned long p2;	// End prime
-	unsigned short b1;	// Start # bits
-	unsigned short b2;	// End # bits
-	int	db;		// Search DB
-	CPrime95Doc *doc;	// Ptr to main document
-} thread_pkt;
 
 /////////////////////////////////////////////////////////////////////////////
 // CPrime95Doc
@@ -54,6 +37,9 @@ IMPLEMENT_DYNCREATE(CPrime95Doc, CDocument)
 
 BEGIN_MESSAGE_MAP(CPrime95Doc, CDocument)
 	//{{AFX_MSG_MAP(CPrime95Doc)
+	ON_COMMAND(IDM_PRIMENET, OnPrimenet)
+	ON_UPDATE_COMMAND_UI(IDM_WORKER_THREADS, OnUpdateWorkerThreads)
+	ON_COMMAND(IDM_WORKER_THREADS, OnWorkerThreads)
 	ON_COMMAND(IDM_CONTINUE, OnContinue)
 	ON_UPDATE_COMMAND_UI(IDM_CONTINUE, OnUpdateContinue)
 	ON_COMMAND(IDM_STOP, OnStop)
@@ -66,9 +52,7 @@ BEGIN_MESSAGE_MAP(CPrime95Doc, CDocument)
 	ON_COMMAND(IDM_TEST, OnTest)
 	ON_UPDATE_COMMAND_UI(IDM_TIME, OnUpdateTime)
 	ON_COMMAND(IDM_TIME, OnTime)
-	ON_COMMAND(ID_RANGE_STATUS, OnRangeStatus)
-	ON_COMMAND(IDM_PASSWORD, OnPassword)
-	ON_UPDATE_COMMAND_UI(IDM_PASSWORD, OnUpdatePassword)
+	ON_COMMAND(IDM_STATUS, OnRangeStatus)
 	ON_UPDATE_COMMAND_UI(ID_HELP_FINDER, OnUpdateHelpFinder)
 	ON_COMMAND(IDM_TRAY, OnTray)
 	ON_UPDATE_COMMAND_UI(IDM_TRAY, OnUpdateTray)
@@ -76,52 +60,44 @@ BEGIN_MESSAGE_MAP(CPrime95Doc, CDocument)
 	ON_UPDATE_COMMAND_UI(IDM_HIDE, OnUpdateHide)
 	ON_COMMAND(IDM_TORTURE, OnTorture)
 	ON_UPDATE_COMMAND_UI(IDM_TORTURE, OnUpdateTorture)
-	ON_COMMAND(ID_RANGE_USERINFORMATION, OnRangeUserinformation)
-	ON_COMMAND(IDM_PRIMENET, OnPrimenet)
-	ON_COMMAND(IDM_PRIORITY, OnPriority)
-	ON_UPDATE_COMMAND_UI(IDM_PRIORITY, OnUpdatePriority)
 	ON_COMMAND(IDM_SERVER, OnServer)
 	ON_UPDATE_COMMAND_UI(IDM_SERVER, OnUpdateServer)
 	ON_COMMAND(IDM_QUIT, OnQuitGimps)
-	ON_COMMAND(IDM_VACATION, OnVacation)
 	ON_COMMAND(IDM_SERVICE, OnService)
 	ON_UPDATE_COMMAND_UI(IDM_SERVICE, OnUpdateService)
-	ON_COMMAND(ID_MANUALCOMM, OnManualcomm)
-	ON_UPDATE_COMMAND_UI(ID_MANUALCOMM, OnUpdateManualcomm)
-	ON_UPDATE_COMMAND_UI(ID_RANGE_USERINFORMATION, OnUpdateRangeUserinformation)
+	ON_COMMAND(IDM_MANUALCOMM, OnManualcomm)
+	ON_UPDATE_COMMAND_UI(IDM_MANUALCOMM, OnUpdateManualcomm)
 	ON_COMMAND(IDM_ECM, OnEcm)
 	ON_UPDATE_COMMAND_UI(IDM_ECM, OnUpdateEcm)
-	ON_COMMAND(IDM_AFFINITY, OnAffinity)
-	ON_UPDATE_COMMAND_UI(IDM_AFFINITY, OnUpdateAffinity)
 	ON_COMMAND(IDM_PMINUS1, OnPminus1)
 	ON_UPDATE_COMMAND_UI(IDM_PMINUS1, OnUpdatePminus1)
 	ON_COMMAND(USR_WELCOME, OnWelcome)
 	ON_COMMAND(USR_TORTURE, OnUsrTorture)
-	ON_COMMAND(USR_BROADCAST, OnBroadcast)
 	ON_COMMAND(IDM_UNRESERVE, OnUnreserve)
 	ON_UPDATE_COMMAND_UI(IDM_UNRESERVE, OnUpdateUnreserve)
-	ON_UPDATE_COMMAND_UI(IDM_VACATION, OnUpdateVacation)
 	ON_UPDATE_COMMAND_UI(IDM_QUIT, OnUpdateQuit)
 	ON_COMMAND(IDM_BENCHMARK, OnBenchmark)
 	ON_UPDATE_COMMAND_UI(IDM_BENCHMARK, OnUpdateBenchmark)
+	ON_COMMAND(IDM_MERGE_MAIN, OnMergeMain)
+	ON_UPDATE_COMMAND_UI(IDM_MERGE_MAIN, OnUpdateMergeMain)
+	ON_COMMAND(IDM_MERGE_COMM, OnMergeComm)
+	ON_UPDATE_COMMAND_UI(IDM_MERGE_COMM, OnUpdateMergeComm)
+	ON_COMMAND(IDM_MERGE_ALL, OnMergeAll)
+	ON_UPDATE_COMMAND_UI(IDM_MERGE_ALL, OnUpdateMergeAll)
+	ON_COMMAND(IDM_HELP_FORUM, OnForum)
+	ON_COMMAND(IDM_HELP_WIKI, OnWiki)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
 // CPrime95Doc construction/destruction
 
-CPrime95Doc *OUTPUT_STR_HACK;
-
 CPrime95Doc::CPrime95Doc()
 {
-	OUTPUT_STR_HACK = this;
 }
 
 CPrime95Doc::~CPrime95Doc()
 {
-	int	x;
-	for (x = 0; x < NumLines; x++)
-		if (lines[x] != NULL) free (lines[x]);
 }
 
 BOOL CPrime95Doc::OnNewDocument()
@@ -176,11 +152,11 @@ void CPrime95Doc::OnCloseDocument()
 
 	EXIT_IN_PROGRESS = 1;
 
-// Stop background thread before exiting
+// Stop background threads before exiting
 
-	if (THREAD_ACTIVE) {
+	if (WORKER_THREADS_ACTIVE) {
 		OnStop ();
-		while (THREAD_STOP) Sleep (50);
+		while (WORKER_THREADS_STOPPING) Sleep (50);
 	}
 
 // Remember the main window's size and position
@@ -200,189 +176,324 @@ void CPrime95Doc::OnCloseDocument()
 // Free the networking library
 
 	UnloadPrimeNet ();
+	SaveViews();
 
 // Finish closing
 
 	CDocument::OnCloseDocument();
 }
 
-// Range menu
+// Test menu
 
-#define MSG_BIGONES	"A 500 MHz Pentium-III computer will take a full year to test just one 10,000,000 digit number.  Your chance of finding a new prime is roughly 1 in 250,000.  Read the prize rules at http://www.mersenne.org/prize.htm.  If you accept these rules and still want to search for 10,000,000 digit primes, then click Yes."
+void getProxyInfo (char *, unsigned short *, char *, char *);
 
 void CPrime95Doc::OnPrimenet() 
 {
+	int	update_computer_info, primenet_debug;
+
+	update_computer_info = FALSE;
+	primenet_debug = IniSectionGetInt (INI_FILE, "PrimeNet", "Debug", 0);
+
+if (USE_V4) {
+PrimenetV4Dlg dlg;
+char	szProxyHost[120], szProxyUser[50], szProxyPassword[50];
+unsigned short nProxyPort;
+dlg.m_primenet = USE_PRIMENET;
+dlg.m_userid = V4_USERID;
+dlg.m_userpwd = V4_USERPWD;
+dlg.m_username = V4_USERNAME;
+dlg.m_compid = COMPID;
+dlg.m_dialup = DIAL_UP;
+dlg.m_debug = primenet_debug;
+getProxyInfo (szProxyHost, &nProxyPort, szProxyUser, szProxyPassword);
+if (szProxyHost[0]) {
+	dlg.m_proxyhost = szProxyHost;
+	dlg.m_proxyport = nProxyPort;
+	dlg.m_proxyuser = szProxyUser;
+	dlg.m_proxypassword = szProxyPassword;
+}
+if (dlg.DoModal () == IDOK) {
+	DIAL_UP = dlg.m_dialup;
+	IniWriteInt (INI_FILE, "DialUp", DIAL_UP);
+	strcpy (szProxyHost, dlg.m_proxyhost);
+	if (szProxyHost[0] && dlg.m_proxyport != 8080)
+		sprintf (szProxyHost + strlen (szProxyHost), ":%d",
+			 dlg.m_proxyport);
+	IniSectionWriteString (INI_FILE, "PrimeNet",
+			       "ProxyHost", szProxyHost);
+	IniSectionWriteString (INI_FILE, "PrimeNet",
+			       "ProxyUser", dlg.m_proxyuser);
+	if (strcmp (szProxyPassword, dlg.m_proxypassword)) {
+		IniSectionWriteString (INI_FILE, "PrimeNet",
+				"ProxyPass", dlg.m_proxypassword);
+		IniSectionWriteInt (INI_FILE, "PrimeNet",
+				"ProxyMask", 0);
+	}
+	if (!dlg.m_debug != !primenet_debug) {
+		IniSectionWriteInt (INI_FILE, "PrimeNet", "Debug",
+				    dlg.m_debug ? 2 : 0);
+	}
+	if (strcmp (COMPID, dlg.m_compid) != 0) {
+		strcpy (COMPID, dlg.m_compid);
+		sanitizeString (COMPID);
+		IniWriteString (LOCALINI_FILE, "ComputerID", COMPID);
+		update_computer_info = TRUE;
+	}
+	if (strcmp (V4_USERID, dlg.m_userid) != 0) {
+		strcpy (V4_USERID, dlg.m_userid);
+		sanitizeString (V4_USERID);
+		IniWriteString (INI_FILE, "UserID", V4_USERID);
+		update_computer_info = TRUE;
+	}
+	if (strcmp (V4_USERPWD, dlg.m_userpwd) != 0) {
+		strcpy (V4_USERPWD, dlg.m_userpwd);
+		sanitizeString (V4_USERPWD);
+		IniWriteString (INI_FILE, "UserPWD", V4_USERPWD);
+		update_computer_info = TRUE;
+	}
+	if (strcmp (V4_USERNAME, dlg.m_username) != 0) {
+		strcpy (V4_USERNAME, dlg.m_username);
+		IniWriteString (INI_FILE, "UserName", V4_USERNAME);
+		update_computer_info = TRUE;
+	}
+	if (!USE_PRIMENET && dlg.m_primenet) {
+		USE_PRIMENET = 1;
+		create_window (COMM_THREAD_NUM);
+		base_title (COMM_THREAD_NUM, "Communication thread");
+		if (!STARTUP_IN_PROGRESS) set_comm_timers ();
+		spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
+		spoolExistingResultsFile ();
+	} else if (USE_PRIMENET && !dlg.m_primenet) {
+		USE_PRIMENET = 0;
+		if (!STARTUP_IN_PROGRESS) set_comm_timers ();
+	} else if (update_computer_info)
+		spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
+	IniWriteInt (INI_FILE, "UsePrimenet", USE_PRIMENET);
+	if (!STARTUP_IN_PROGRESS && USE_PRIMENET) OnContinue ();
+}
+/*End V4 code */
+} else {
 	PrimenetDlg dlg;
-	short	work_pref;
+	char	szProxyHost[120], szProxyUser[50], szProxyPassword[50];
+	unsigned short nProxyPort;
 
 	dlg.m_primenet = USE_PRIMENET;
+	if (strcmp (USERID, "ANONYMOUS") == 0)
+		dlg.m_userid = "";
+	else
+		dlg.m_userid = USERID;
+	dlg.m_compid = COMPID;
 	dlg.m_dialup = DIAL_UP;
-	dlg.m_work = DAYS_OF_WORK;
-	if (WORK_PREFERENCE == 0) {
-		dlg.m_work_dflt = 1;
-		work_pref = default_work_type ();
-	} else {
-		dlg.m_work_dflt = 0;
-		work_pref = WORK_PREFERENCE;
+	dlg.m_debug = primenet_debug;
+	getProxyInfo (szProxyHost, &nProxyPort, szProxyUser, szProxyPassword);
+	if (szProxyHost[0]) {
+		dlg.m_proxyhost = szProxyHost;
+		dlg.m_proxyport = nProxyPort;
+		dlg.m_proxyuser = szProxyUser;
+		dlg.m_proxypassword = szProxyPassword;
 	}
-	dlg.m_bigones = !! (work_pref & PRIMENET_ASSIGN_BIGONES);
-	dlg.m_lucas = !! (work_pref & PRIMENET_ASSIGN_TEST);
-	dlg.m_pfactor = !! (work_pref & PRIMENET_ASSIGN_PFACTOR);
-	dlg.m_factor = !! (work_pref & PRIMENET_ASSIGN_FACTOR);
-	dlg.m_dblchk = !! (work_pref & PRIMENET_ASSIGN_DBLCHK);
-
 	if (dlg.DoModal () == IDOK) {
+		DIAL_UP = dlg.m_dialup;
+		IniWriteInt (INI_FILE, "DialUp", DIAL_UP);
+		strcpy (szProxyHost, dlg.m_proxyhost);
+		if (szProxyHost[0] && dlg.m_proxyport != 8080)
+			sprintf (szProxyHost + strlen (szProxyHost), ":%d",
+				 dlg.m_proxyport);
+		IniSectionWriteString (INI_FILE, "PrimeNet",
+				       "ProxyHost", szProxyHost);
+		IniSectionWriteString (INI_FILE, "PrimeNet",
+				       "ProxyUser", dlg.m_proxyuser);
+		if (strcmp (szProxyPassword, dlg.m_proxypassword)) {
+			IniSectionWriteString (INI_FILE, "PrimeNet",
+					"ProxyPass", dlg.m_proxypassword);
+			IniSectionWriteInt (INI_FILE, "PrimeNet",
+					"ProxyMask", 0);
+		}
+		if (!dlg.m_debug != !primenet_debug) {
+			IniSectionWriteInt (INI_FILE, "PrimeNet", "Debug",
+					    dlg.m_debug ? 2 : 0);
+		}
+
+		if (dlg.m_userid[0] == 0)
+			dlg.m_userid = "ANONYMOUS";
+
+		if (strcmp (USERID, dlg.m_userid) != 0) {
+			strcpy (USERID, dlg.m_userid);
+			sanitizeString (USERID);
+			IniWriteString (INI_FILE, "V5UserID", USERID);
+			update_computer_info = TRUE;
+		}
+		if (strcmp (COMPID, dlg.m_compid) != 0) {
+			strcpy (COMPID, dlg.m_compid);
+			sanitizeString (COMPID);
+			IniWriteString (LOCALINI_FILE, "ComputerID", COMPID);
+			update_computer_info = TRUE;
+		}
 		if (!USE_PRIMENET && dlg.m_primenet) {
 			USE_PRIMENET = 1;
-			spoolMessage (PRIMENET_MAINTAIN_USER_INFO, NULL);
-			spoolMessage (PRIMENET_SET_COMPUTER_INFO, NULL);
+			create_window (COMM_THREAD_NUM);
+			base_title (COMM_THREAD_NUM, "Communication thread");
+			if (!STARTUP_IN_PROGRESS) set_comm_timers ();
+			spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
 			spoolExistingResultsFile ();
-		}
-		USE_PRIMENET = dlg.m_primenet;
-		DIAL_UP = dlg.m_dialup;
-		DAYS_OF_WORK = dlg.m_work;
-		if (dlg.m_work_dflt)
-			WORK_PREFERENCE = 0;
-		else {
-			work_pref =
-				(dlg.m_bigones ? PRIMENET_ASSIGN_BIGONES : 0) +
-				(dlg.m_lucas ? PRIMENET_ASSIGN_TEST : 0) +
-				(dlg.m_pfactor ? PRIMENET_ASSIGN_PFACTOR : 0) +
-				(dlg.m_factor ? PRIMENET_ASSIGN_FACTOR : 0) +
-				(dlg.m_dblchk ? PRIMENET_ASSIGN_DBLCHK : 0);
-			if (! (work_pref & PRIMENET_ASSIGN_BIGONES) ||
-			    WORK_PREFERENCE & PRIMENET_ASSIGN_BIGONES ||
-			    AfxMessageBox (MSG_BIGONES, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES)
-				WORK_PREFERENCE = work_pref;
-		}
+		} else if (USE_PRIMENET && !dlg.m_primenet) {
+			USE_PRIMENET = 0;
+			if (!STARTUP_IN_PROGRESS) set_comm_timers ();
+		} else if (update_computer_info)
+			spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
+
 		IniWriteInt (INI_FILE, "UsePrimenet", USE_PRIMENET);
-		IniWriteInt (INI_FILE, "DialUp", DIAL_UP);
-		IniWriteInt (INI_FILE, "DaysOfWork", DAYS_OF_WORK);
-		IniWriteInt (INI_FILE, "WorkPreference", WORK_PREFERENCE);
-		CHECK_WORK_QUEUE = 1;
-		if (!THREAD_ACTIVE &&
-		    (STARTUP_IN_PROGRESS || USE_PRIMENET)) {
-			STARTUP_IN_PROGRESS = 0;
-			OnContinue ();
-		}
+
+/* For historical reasons, this dialog box also does a Test/Continue */
+/* when you are using primenet */
+
+		if (!STARTUP_IN_PROGRESS && USE_PRIMENET) OnContinue ();
 	} else
 		STARTUP_IN_PROGRESS = 0;
+}
 }
 
 void CPrime95Doc::OnUpdateQuit(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (USE_PRIMENET || IniGetNumLines (WORKTODO_FILE));
+	pCmdUI->Enable (USE_PRIMENET || WORKTODO_COUNT);
 }
 
 void CPrime95Doc::OnQuitGimps() 
 {
 	if (!USE_PRIMENET) {
 		if (AfxMessageBox (MANUAL_QUIT, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES) {
-			OutputBoth ("Quitting GIMPS.\n");
-			IniDeleteAllLines (WORKTODO_FILE);
-			THREAD_STOP = 1;
-			GIMPS_QUIT = 1;
+			OutputBoth (MAIN_THREAD_NUM, "Quitting GIMPS.\n");
+//bug - either delete file, or delete all work_units and write the file.
+//bug			IniDeleteAllLines (WORKTODO_FILE);
+			stop_workers_for_escape ();
 			if (WINDOWS95_SERVICE) OnService ();
 		}
 	} else {
 		int	res;
 		res = AfxMessageBox (PRIMENET_QUIT, MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON3);
 		if (res == IDYES) {
-			OutputBoth ("Quitting GIMPS after current work completes.\n");
+			OutputBoth (MAIN_THREAD_NUM, "Quitting GIMPS after current work completes.\n");
 			IniWriteInt (INI_FILE, "NoMoreWork", 1);
-			if (!THREAD_ACTIVE) OnContinue ();
 		}
 		if (res == IDNO) {
-			OutputBoth ("Quitting GIMPS immediately.\n");
-			spoolMessage (999, NULL);
-			if (!THREAD_ACTIVE) OnContinue ();
+			OutputBoth (MAIN_THREAD_NUM, "Quitting GIMPS immediately.\n");
+			spoolMessage (MSG_QUIT_GIMPS, NULL);
 		}
 	}
 }
 
-void CPrime95Doc::OnUpdateRangeUserinformation(CCmdUI* pCmdUI) 
+void CPrime95Doc::OnUpdateWorkerThreads(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (! IniGetInt (INI_FILE, "LockUserInfo", 0));
+	pCmdUI->Enable (1);
 }
 
-void CPrime95Doc::OnRangeUserinformation() 
+void CPrime95Doc::OnWorkerThreads() 
 {
-	CUserDlg dlg;
+	CWorkerDlg dlg;
+	int	i;
 
-	dlg.m_name = USER_NAME;
-	dlg.m_email = USER_ADDR;
-	dlg.m_sendemail = NEWSLETTERS;
-	dlg.m_userid = USERID;
-	dlg.m_password = USER_PWD;
-	dlg.m_compid = COMPID;
-	dlg.m_team = 0;
-	if (dlg.DoModal () == IDOK) {
-		if (strcmp (COMPID, dlg.m_compid) != 0) {
-			strcpy (COMPID, dlg.m_compid);
-			sanitizeString (COMPID);
-			IniWriteString (LOCALINI_FILE, "ComputerID", COMPID);
-			spoolMessage (PRIMENET_SET_COMPUTER_INFO, NULL);
+	dlg.m_num_thread = NUM_WORKER_THREADS;
+	dlg.m_priority = PRIORITY;
+	for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+		dlg.m_work_pref[i] = WORK_PREFERENCE[i];
+		dlg.m_affinity[i] = CPU_AFFINITY[i];
+		dlg.m_numcpus[i] = THREADS_PER_TEST[i];
+	}
+
+again:	if (dlg.DoModal () == IDOK) {
+		int	restart = FALSE;
+		int	new_options = FALSE;
+		unsigned long i, total_num_threads;
+
+/* If the user has allocated more threads than there are CPUs, raise a */
+/* severe warning. */
+
+		total_num_threads = 0;
+		for (i = 0; i < dlg.m_num_thread; i++)
+			total_num_threads += dlg.m_numcpus[i];
+		if (total_num_threads > NUM_CPUS * CPU_HYPERTHREADS &&
+		    AfxMessageBox (MSG_THREADS, MB_YESNO | MB_ICONQUESTION) == IDYES)
+			goto again;
+
+/* If user is changing the number of worker threads, then make the */
+/* necessary changes.  Restart worker threads so that we are running */
+/* the correct number of worker threads. */
+
+		if (dlg.m_num_thread != NUM_WORKER_THREADS) {
+//bug- do something with orphaned work units?  
+//bug- tell server of the change?
+			NUM_WORKER_THREADS = dlg.m_num_thread;
+			IniWriteInt (LOCALINI_FILE, "WorkerThreads", NUM_WORKER_THREADS);
+			restart = TRUE;
 		}
-		if (OLD_USERID[0] == 0 &&
-		    strcmp (USERID, dlg.m_userid) != 0) {
-			strcpy (OLD_USERID, USERID);
-			strcpy (OLD_USER_PWD, USER_PWD);
-			IniWriteString (INI_FILE, "OldUserID", OLD_USERID);
-			IniWriteString (INI_FILE, "OldUserPWD", OLD_USER_PWD);
+
+/* If user is changing the priority of worker threads, then change */
+/* the INI file.  Restart worker threads so that they are running at */
+/* the new priority. */
+
+		if (PRIORITY != dlg.m_priority) {
+			PRIORITY = dlg.m_priority;
+			IniWriteInt (INI_FILE, "Priority", PRIORITY);
+			new_options = TRUE;
+			restart = TRUE;
 		}
-		strcpy (USER_PWD, dlg.m_password);
-		sanitizeString (USER_PWD);
-		IniWriteString (INI_FILE, "UserPWD", USER_PWD);
-		if (strcmp (USER_NAME, dlg.m_name) != 0 ||
-		    strcmp (USER_ADDR, dlg.m_email) != 0 ||
-		    NEWSLETTERS != dlg.m_sendemail ||
-		    dlg.m_team ||
-		    strcmp (USERID, dlg.m_userid) != 0) {
-			strcpy (USER_NAME, dlg.m_name);
-			strcpy (USER_ADDR, dlg.m_email);
-			NEWSLETTERS = dlg.m_sendemail;
-			strcpy (USERID, dlg.m_userid);
-			sanitizeString (USERID);
-			IniWriteString (INI_FILE, "UserName", USER_NAME);
-			IniWriteString (INI_FILE, "UserEmailAddr", USER_ADDR);
-			IniWriteInt (INI_FILE, "Newsletters", NEWSLETTERS);
-			IniWriteString (INI_FILE, "UserID", USERID);
-			spoolMessage (dlg.m_team ?
-				PRIMENET_MAINTAIN_USER_INFO + 0x80 :
-				PRIMENET_MAINTAIN_USER_INFO, NULL);
+
+/* If the user changes any of the work preferences record it in the INI file */
+/* and tell the server */
+
+		if (dlg.AreAllTheSame (dlg.m_work_pref)) {
+			if (! PTOIsGlobalOption (WORK_PREFERENCE) ||
+			    WORK_PREFERENCE[0] != dlg.m_work_pref[0]) {
+				PTOSetAll (INI_FILE, "WorkPreference", NULL,
+					   WORK_PREFERENCE, dlg.m_work_pref[0]);
+				new_options = TRUE;
+			}
+		} else {
+			for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+				if (WORK_PREFERENCE[i] == dlg.m_work_pref[i])
+					continue;
+				PTOSetOne (INI_FILE, "WorkPreference", NULL,
+					   WORK_PREFERENCE, i,
+					   dlg.m_work_pref[i]);
+				new_options = TRUE;
+			}
 		}
-		if (STARTUP_IN_PROGRESS) OnCpu ();
+
+/* If the user changes any of the affinities record it in the INI file. */
+
+		if (dlg.AreAllTheSame (dlg.m_affinity)) {
+			PTOSetAll (LOCALINI_FILE, "Affinity", NULL,
+				   CPU_AFFINITY, dlg.m_affinity[0]);
+		} else {
+			for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+				PTOSetOne (LOCALINI_FILE, "Affinity", NULL,
+					   CPU_AFFINITY, i, dlg.m_affinity[i]);
+			}
+		}
+
+/* If the user changes any of the threads_per_test record it in the INI file */
+
+		if (dlg.AreAllTheSame (dlg.m_numcpus)) {
+			PTOSetAll (LOCALINI_FILE, "ThreadsPerTest", NULL,
+				   THREADS_PER_TEST, dlg.m_numcpus[0]);
+		} else {
+			for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+				PTOSetOne (LOCALINI_FILE, "ThreadsPerTest", NULL,
+					   THREADS_PER_TEST, i, dlg.m_numcpus[i]);
+			}
+		}
+
+/* Send new settings to the server */
+
+		if (new_options) spoolMessage (PRIMENET_PROGRAM_OPTIONS, NULL);
+
+/* Restart worker threads with new options.  Since Windows must create */
+/* worker windows in the main thread, the routine we call will do that */
+/* if there are now more worker threads. */
+
+		if (restart) stop_workers_for_restart ();
 	} else
 		STARTUP_IN_PROGRESS = 0;
-}
-
-
-void CPrime95Doc::OnUpdateVacation(CCmdUI* pCmdUI) 
-{
-	pCmdUI->Enable (USE_PRIMENET);
-}
-
-void CPrime95Doc::OnVacation() 
-{
-	CVacationDlg dlg;
-
-	dlg.m_vacation_days =
-		(secondsUntilVacationEnds () + 43200) / 86400;
-	dlg.m_computer_on = ON_DURING_VACATION;
-	if (dlg.DoModal () == IDOK) {
-		if (dlg.m_vacation_days) {
-			time (&VACATION_END);
-			VACATION_END += dlg.m_vacation_days * 86400;
-		} else
-			VACATION_END = 0;
-		ON_DURING_VACATION = dlg.m_computer_on;
-                IniWriteInt (LOCALINI_FILE, "VacationEnd", (long) VACATION_END);
-                IniWriteInt (LOCALINI_FILE, "VacationOn", ON_DURING_VACATION);
-		if (VACATION_END && !ON_DURING_VACATION)
-			IniWriteInt (LOCALINI_FILE, "RollingStartTime", 0);
-		next_comm_time = 0;
-		UpdateEndDates ();
-	}
 }
 
 void CPrime95Doc::OnRangeStatus() 
@@ -392,67 +503,31 @@ void CPrime95Doc::OnRangeStatus()
 
 void CPrime95Doc::OnUpdateContinue(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (! THREAD_ACTIVE &&
-			(USE_PRIMENET || IniGetNumLines (WORKTODO_FILE)));
+	pCmdUI->Enable (! WORKER_THREADS_ACTIVE &&
+			(USE_PRIMENET || WORKTODO_COUNT));
 }
 
 void CPrime95Doc::OnContinue() 
 {
-	CWinThread *thread;
-
-	// Set flag to check laptop battery status
-	// This ugly 999 code happens when we are auto-restarting
-	// from a POWER_BROADCAST message.  By setting STOPPED_ON_BATTERY
-	// to one, escapeCheck will not output a message should the
-	// POWER_BROADCAST message turn out to be spurious.
-	CHECK_BATTERY = 1;
-	if (STOPPED_ON_BATTERY == 999)
-		STOPPED_ON_BATTERY = 1;
-	else
-		STOPPED_ON_BATTERY = 0;
-
-	// Start the thread
-	thread_pkt.op = OP_CONTINUE;
-	thread_pkt.doc = this;
-	thread = AfxBeginThread (threadDispatch, NULL);
+	// Start the threads
+	if (! WORKER_THREADS_ACTIVE) LaunchWorkerThreads (FALSE);
 }
 
 void CPrime95Doc::OnUpdateStop(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (THREAD_ACTIVE && !THREAD_STOP);
+	pCmdUI->Enable (WORKER_THREADS_ACTIVE && !WORKER_THREADS_STOPPING);
 }
 
 void CPrime95Doc::OnStop() 
 {
-	THREAD_STOP = 1;
-	SetPriorityClass (GetCurrentProcess (), NORMAL_PRIORITY_CLASS);
-	SetThreadPriority (WORKER_THREAD, THREAD_PRIORITY_ABOVE_NORMAL);
+	stop_workers_for_escape ();
 }
 
 // Advanced Menu
 
-void CPrime95Doc::OnUpdatePassword(CCmdUI* pCmdUI) 
-{
-	pCmdUI->Enable (!ADVANCED_ENABLED);
-}
-
-void CPrime95Doc::OnPassword() 
-{
-	Password dlg;
-
-	dlg.m_password = 0;
-	if (dlg.DoModal () == IDOK) {
-		if (dlg.m_password == 9876) {	// secret code
-			ADVANCED_ENABLED = 1;
-			IniWriteInt (INI_FILE, "Advanced", 1);
-			return;
-		}
-	}
-}
-
 void CPrime95Doc::OnUpdateTest(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (ADVANCED_ENABLED && ! THREAD_ACTIVE);
+	pCmdUI->Enable (TRUE);
 }
 
 void CPrime95Doc::OnTest() 
@@ -460,89 +535,110 @@ void CPrime95Doc::OnTest()
 	CTestDlg dlg;
 
 	if (dlg.DoModal () == IDOK) {
-		IniFileOpen (WORKTODO_FILE, 1);
-		IniInsertLineAsInt (WORKTODO_FILE, 1, "AdvancedTest", dlg.m_p);
-		OnContinue ();
+		struct work_unit w;
+		memset (&w, 0, sizeof (w));
+		w.work_type = WORK_ADVANCEDTEST;
+		w.k = 1.0;
+		w.b = 2;
+		w.n = dlg.m_p;
+		w.c = -1;
+		addWorkToDoLine (dlg.m_thread - 1, &w);
+		if (WORKER_THREADS_ACTIVE)
+			stop_worker_for_advanced_test (dlg.m_thread - 1);
+		else
+			OnContinue ();
 	}
 }
 
 void CPrime95Doc::OnUpdateTime(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (ADVANCED_ENABLED && ! THREAD_ACTIVE);
+	pCmdUI->Enable (TRUE);
 }
 
 void CPrime95Doc::OnTime() 
 {
 	CTimeDlg dlg;
 
-	dlg.m_p = 10000000;
+	dlg.m_p = 38000000;
 	dlg.m_iter = 10;
 	if (dlg.DoModal () == IDOK) {
-		thread_pkt.op = OP_TIME;
-		thread_pkt.p = dlg.m_p;
-		thread_pkt.p2 = dlg.m_iter;
-		thread_pkt.doc = this;
-		CWinThread *thread = AfxBeginThread (threadDispatch, NULL);
+		LaunchAdvancedTime (dlg.m_p, dlg.m_iter);
 	}
 }
 
 void CPrime95Doc::OnUpdatePminus1(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (ADVANCED_ENABLED && ! THREAD_ACTIVE);
+	pCmdUI->Enable (TRUE);
 }
 
 void CPrime95Doc::OnPminus1() 
 {
 	CPminus1Dlg dlg;
 
+	dlg.m_k = 1.0;
+	dlg.m_b = 2;
+	dlg.m_n = 1061;
+	dlg.m_c = -1;
 	dlg.m_bound1 = 1000000;
 	if (dlg.DoModal () == IDOK) {
-		work_unit w;
+		struct work_unit w;
+		memset (&w, 0, sizeof (w));
 		w.work_type = WORK_PMINUS1;
-		w.k = 1.0;
-		w.b = 2;
-		w.n = dlg.m_p;
-		w.c = dlg.m_plus1 ? 1 : -1;
+		w.k = dlg.m_k;
+		w.b = dlg.m_b;
+		w.n = dlg.m_n;
+		w.c = dlg.m_c;
 		w.B1 = dlg.m_bound1;
 		w.B2_start = 0;
-		w.B2_end = dlg.m_bound2;
-		addWorkToDoLine (&w);
-		OnContinue ();
+		w.B2 = dlg.m_bound2;
+		addWorkToDoLine (dlg.m_thread - 1, &w);
+
+/* If worker threads are running, adding the work should have restarted */
+/* threads waiting for work.  Otherwise, start the worker threads. */
+
+		if (!WORKER_THREADS_ACTIVE) OnContinue ();
 	}
 }
 
 void CPrime95Doc::OnUpdateEcm(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (ADVANCED_ENABLED && ! THREAD_ACTIVE);
+	pCmdUI->Enable (TRUE);
 }
 
 void CPrime95Doc::OnEcm() 
 {
 	CEcmDlg dlg;
 
+	dlg.m_k = 1.0;
+	dlg.m_b = 2;
+	dlg.m_n = 1061;
+	dlg.m_c = -1;
 	dlg.m_bound1 = 1000000;
 	dlg.m_num_curves = 100;
 	if (dlg.DoModal () == IDOK) {
-		work_unit w;
+		struct work_unit w;
+		memset (&w, 0, sizeof (w));
 		w.work_type = WORK_ECM;
-		w.k = 1.0;
-		w.b = 2;
-		w.n = dlg.m_p;
-		w.c = dlg.m_plus1 ? 1 : -1;
+		w.k = dlg.m_k;
+		w.b = dlg.m_b;
+		w.n = dlg.m_n;
+		w.c = dlg.m_c;
 		w.B1 = dlg.m_bound1;
-		w.B2_start = 0;
-		w.B2_end = dlg.m_bound2;
+		w.B2 = dlg.m_bound2;
 		w.curves_to_do = dlg.m_num_curves;
-		w.curve = dlg.m_curve;
-		addWorkToDoLine (&w);
-		OnContinue ();
+		addWorkToDoLine (dlg.m_thread - 1, &w);
+
+/* If worker threads are running, adding the work should have restarted */
+/* threads waiting for work.  Otherwise, start the worker threads. */
+
+		if (!WORKER_THREADS_ACTIVE) OnContinue ();
 	}
 }
 
 void CPrime95Doc::OnUpdateErrchk(CCmdUI* pCmdUI) 
 {
 	pCmdUI->SetCheck (ERRCHK);
-	pCmdUI->Enable (ADVANCED_ENABLED);
+	pCmdUI->Enable (1);
 }
 
 void CPrime95Doc::OnErrchk() 
@@ -551,92 +647,40 @@ void CPrime95Doc::OnErrchk()
 	IniWriteInt (INI_FILE, "ErrorCheck", ERRCHK);
 }
 
-void CPrime95Doc::OnUpdatePriority(CCmdUI* pCmdUI) 
-{
-	pCmdUI->Enable (ADVANCED_ENABLED);
-}
-
-void CPrime95Doc::OnPriority() 
-{
-	CPriority dlg;
-
-	dlg.m_priority = PRIORITY;
-	if (dlg.DoModal () == IDOK) {
-		if (PRIORITY != dlg.m_priority) {
-			Restart1 ();
-			PRIORITY = dlg.m_priority;
-			IniWriteInt (INI_FILE, "Priority", PRIORITY);
-			Restart2 ();
-		}
-	}
-}
-
-void CPrime95Doc::OnUpdateAffinity(CCmdUI* pCmdUI) 
-{
-	pCmdUI->Enable (!isWindows95 ());
-}
-
-void CPrime95Doc::OnAffinity() 
-{
-	CAffinityDlg dlg;
-
-	if (CPU_AFFINITY == 99) {
-		dlg.m_all_cpus = 1;
-		dlg.m_cpu = 0;
-	} else {
-		dlg.m_all_cpus = 0;
-		dlg.m_cpu = CPU_AFFINITY;
-	}
-	if (dlg.DoModal () == IDOK) {
-		if (dlg.m_all_cpus) CPU_AFFINITY = 99;
-		else CPU_AFFINITY = dlg.m_cpu;
-		IniWriteInt (LOCALINI_FILE, "Affinity", CPU_AFFINITY);
-	}
-}
-
 void CPrime95Doc::OnUpdateManualcomm(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (ADVANCED_ENABLED && USE_PRIMENET);
+	pCmdUI->Enable (USE_PRIMENET);
 }
 
 void CPrime95Doc::OnManualcomm() 
 {
 	CManualCommDlg dlg;
 
-	dlg.m_manual_comm = MANUAL_COMM & 0x1;
+	dlg.m_manual_comm = MANUAL_COMM;
 	dlg.m_comm_now = 1;
 	dlg.m_new_dates = 0;
 	if (dlg.DoModal () == IDOK) {
-		MANUAL_COMM = dlg.m_manual_comm;
-		IniWriteInt (INI_FILE, "ManualComm", MANUAL_COMM);
-		if (dlg.m_new_dates) UpdateEndDates ();
-		if (dlg.m_comm_now) {
-			MANUAL_COMM |= 0x2;
-			CHECK_WORK_QUEUE = 1;
-			if (!THREAD_ACTIVE) OnContinue ();
+		if ((MANUAL_COMM && !dlg.m_manual_comm) ||
+		    (!MANUAL_COMM && dlg.m_manual_comm)) {
+			MANUAL_COMM = dlg.m_manual_comm;
+			IniWriteInt (INI_FILE, "ManualComm", MANUAL_COMM);
+			set_comm_timers ();
 		}
+		if (dlg.m_new_dates) UpdateEndDates ();
+		if (dlg.m_comm_now) do_manual_comm_now ();
 	}
 }
 
 void CPrime95Doc::OnUpdateUnreserve(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (ADVANCED_ENABLED && USE_PRIMENET);
+	pCmdUI->Enable (USE_PRIMENET);
 }
 
 void CPrime95Doc::OnUnreserve() 
 {
 	CUnreserveDlg dlg;
 
-	if (dlg.DoModal () == IDOK) {
-		if (THREAD_ACTIVE) {
-			Restart1 ();
-			unreserve (dlg.m_p);
-			Restart2 ();
-		} else {
-			unreserve (dlg.m_p);
-			OnContinue ();
-		}
-	}
+	if (dlg.DoModal () == IDOK) unreserve (dlg.m_p);
 }
 
 
@@ -660,33 +704,35 @@ again:	if (dlg.DoModal () == IDOK) {
 		unsigned int new_day_start_time, new_day_end_time;
 
 		if (CPU_HOURS != dlg.m_hours) {
+			CPU_HOURS = dlg.m_hours;
+			IniWriteInt (LOCALINI_FILE, "CPUHours", CPU_HOURS);
 			ROLLING_AVERAGE = 1000;
 			IniWriteInt (LOCALINI_FILE, "RollingAverage", 1000);
 			IniWriteInt (LOCALINI_FILE, "RollingStartTime", 0);
-			spoolMessage (PRIMENET_SET_COMPUTER_INFO, NULL);
-			next_comm_time = 0;
+			spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
+			delete_timed_event (TE_COMM_SERVER);
 			UpdateEndDates ();
 		}
+
+/* Save the new information */
+
 		new_day_start_time = strToMinutes ((char *)(LPCTSTR) dlg.m_start_time);
 		new_day_end_time = strToMinutes ((char *)(LPCTSTR) dlg.m_end_time);
 		if (DAY_MEMORY != dlg.m_day_memory ||
 		    NIGHT_MEMORY != dlg.m_night_memory ||
 		    DAY_START_TIME != new_day_start_time ||
-		    DAY_END_TIME != new_day_end_time)
-			if (THREAD_ACTIVE) memSettingsChanged ();
-
-/* Save the new information */
-
-		CPU_HOURS = dlg.m_hours;
-		DAY_MEMORY = dlg.m_day_memory;
-		NIGHT_MEMORY = dlg.m_night_memory;
-		DAY_START_TIME = new_day_start_time;
-		DAY_END_TIME = new_day_end_time;
-		IniWriteInt (LOCALINI_FILE, "CPUHours", CPU_HOURS);
-		IniWriteInt (LOCALINI_FILE, "DayMemory", DAY_MEMORY);
-		IniWriteInt (LOCALINI_FILE, "NightMemory", NIGHT_MEMORY);
-		IniWriteInt (LOCALINI_FILE, "DayStartTime", DAY_START_TIME);
-		IniWriteInt (LOCALINI_FILE, "DayEndTime", DAY_END_TIME);
+		    DAY_END_TIME != new_day_end_time) {
+			DAY_MEMORY = dlg.m_day_memory;
+			NIGHT_MEMORY = dlg.m_night_memory;
+			DAY_START_TIME = new_day_start_time;
+			DAY_END_TIME = new_day_end_time;
+			IniWriteInt (LOCALINI_FILE, "DayMemory", DAY_MEMORY);
+			IniWriteInt (LOCALINI_FILE, "NightMemory", NIGHT_MEMORY);
+			IniWriteInt (LOCALINI_FILE, "DayStartTime", DAY_START_TIME);
+			IniWriteInt (LOCALINI_FILE, "DayEndTime", DAY_END_TIME);
+			mem_settings_have_changed ();
+		}
+		spoolMessage (PRIMENET_PROGRAM_OPTIONS, NULL);
 
 		if (!IniGetInt (INI_FILE, "AskedAboutMemory", 0)) {
 			IniWriteInt (INI_FILE, "AskedAboutMemory", 1);
@@ -694,8 +740,6 @@ again:	if (dlg.DoModal () == IDOK) {
 			    AfxMessageBox (MSG_MEMORY, MB_YESNO | MB_ICONQUESTION) == IDYES)
 				goto again;
 		}
-
-		if (STARTUP_IN_PROGRESS) OnPrimenet ();
 	} else
 		STARTUP_IN_PROGRESS = 0;
 }
@@ -709,6 +753,7 @@ void CPrime95Doc::OnPreferences()
 	dlg.m_disk_write_time = DISK_WRITE_TIME;
 	dlg.m_modem = MODEM_RETRY_TIME;
 	dlg.m_retry = NETWORK_RETRY_TIME;
+	dlg.m_work = DAYS_OF_WORK;
 	dlg.m_end_dates = DAYS_BETWEEN_CHECKINS;
 	dlg.m_backup = TWO_BACKUP_FILES;
 	dlg.m_noise = !SILENT_VICTORY;
@@ -719,40 +764,41 @@ void CPrime95Doc::OnPreferences()
 		DISK_WRITE_TIME = dlg.m_disk_write_time;
 		MODEM_RETRY_TIME = dlg.m_modem;
 		NETWORK_RETRY_TIME = dlg.m_retry;
+		DAYS_OF_WORK = dlg.m_work;
 		DAYS_BETWEEN_CHECKINS = dlg.m_end_dates;
 		TWO_BACKUP_FILES = dlg.m_backup;
 		SILENT_VICTORY = !dlg.m_noise;
-		RUN_ON_BATTERY = dlg.m_battery;
+		if (RUN_ON_BATTERY != dlg.m_battery) {
+			RUN_ON_BATTERY = dlg.m_battery;
+			IniWriteInt (LOCALINI_FILE, "RunOnBattery", RUN_ON_BATTERY);
+			run_on_battery_changed ();
+		}
 		IniWriteInt (INI_FILE, "OutputIterations", ITER_OUTPUT);
 		IniWriteInt (INI_FILE, "ResultsFileIterations", ITER_OUTPUT_RES);
 		IniWriteInt (INI_FILE, "DiskWriteTime", DISK_WRITE_TIME);
 		IniWriteInt (INI_FILE, "NetworkRetryTime", MODEM_RETRY_TIME);
 		IniWriteInt (INI_FILE, "NetworkRetryTime2", NETWORK_RETRY_TIME);
+		IniWriteInt (INI_FILE, "DaysOfWork", DAYS_OF_WORK);
 		IniWriteInt (INI_FILE, "DaysBetweenCheckins", DAYS_BETWEEN_CHECKINS);
 		IniWriteInt (INI_FILE, "TwoBackupFiles", TWO_BACKUP_FILES);
 		IniWriteInt (INI_FILE, "SilentVictory", SILENT_VICTORY);
-		IniWriteInt (LOCALINI_FILE, "RunOnBattery", RUN_ON_BATTERY);
-		CHECK_BATTERY = 1;
+		spoolMessage (PRIMENET_PROGRAM_OPTIONS, NULL);
 	}
 }
 
 void CPrime95Doc::OnUpdateBenchmark(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (! THREAD_ACTIVE);
+	pCmdUI->Enable (TRUE);
 }
 
 void CPrime95Doc::OnBenchmark() 
 {
-	CWinThread *thread;
-
-	thread_pkt.op = OP_BENCH;
-	thread_pkt.doc = this;
-	thread = AfxBeginThread (threadDispatch, NULL);
+	LaunchBench ();
 }
 
 void CPrime95Doc::OnUpdateTorture(CCmdUI* pCmdUI)
 {
-	pCmdUI->Enable (! THREAD_ACTIVE);
+	pCmdUI->Enable (TRUE);
 }
 
 void CPrime95Doc::OnTorture() 
@@ -762,30 +808,33 @@ void CPrime95Doc::OnTorture()
 
 	dlg.m_minfft = 8;
 	dlg.m_maxfft = 4096;
+	dlg.m_thread = NUM_CPUS * CPU_HYPERTHREADS;
 	mem = physical_memory ();
-	if (mem >= 500) {
-		dlg.m_memory = GetSuggestedMemory (mem - 256);
+	if (mem >= 2000) {
+		dlg.m_blendmemory = GetSuggestedMemory (1750);
+		dlg.m_in_place_fft = FALSE;
+	} else if (mem >= 500) {
+		dlg.m_blendmemory = GetSuggestedMemory (mem - 256);
 		dlg.m_in_place_fft = FALSE;
 	} else if (mem >= 200) {
-		dlg.m_memory = GetSuggestedMemory (mem / 2);
+		dlg.m_blendmemory = GetSuggestedMemory (mem / 2);
 		dlg.m_in_place_fft = TRUE;
 	} else {
-		dlg.m_memory = 8;
+		dlg.m_blendmemory = 8;
 		dlg.m_in_place_fft = TRUE;
 	}
+	dlg.m_memory = dlg.m_blendmemory;
 	dlg.m_timefft = 15;
 	if (dlg.DoModal () == IDOK) {
-		CWinThread *thread;
-
 		IniWriteInt (INI_FILE, "MinTortureFFT", dlg.m_minfft);
 		IniWriteInt (INI_FILE, "MaxTortureFFT", dlg.m_maxfft);
-		IniWriteInt (INI_FILE, "TortureMem",
-			dlg.m_in_place_fft ? 8 : dlg.m_memory);
+		mem = dlg.m_memory;
+		if (mem > dlg.m_blendmemory) mem = dlg.m_blendmemory;
+		mem = mem / dlg.m_thread;
+		if (dlg.m_in_place_fft) mem = 8;
+		IniWriteInt (INI_FILE, "TortureMem", mem);
 		IniWriteInt (INI_FILE, "TortureTime", dlg.m_timefft);
-
-		thread_pkt.op = OP_TORTURE;
-		thread_pkt.doc = this;
-		thread = AfxBeginThread (threadDispatch, NULL);
+		LaunchTortureTest (dlg.m_thread, FALSE);
 	}
 }
 
@@ -801,7 +850,7 @@ void CPrime95Doc::OnTray()
 	if (TRAY_ICON) {
 		HIDE_ICON = 0;
 		pApp->TrayMessage (NIM_ADD, NULL, 0);
-		ChangeIcon (-1);
+		ChangeIcon (MAIN_THREAD_NUM, -1);
 	} else {
 		pApp->TrayMessage (NIM_DELETE, NULL, 0);
 	}
@@ -811,7 +860,7 @@ void CPrime95Doc::OnTray()
 
 void CPrime95Doc::OnUpdateHide(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (ADVANCED_ENABLED);
+	pCmdUI->Enable (1);
 	pCmdUI->SetCheck (HIDE_ICON);
 }
 
@@ -850,13 +899,91 @@ void CPrime95Doc::OnService()
 	Service95 ();
 }
 
+// Window menu
+
+void CPrime95Doc::OnUpdateMergeMain(CCmdUI* pCmdUI)
+{
+	pCmdUI->SetText (NUM_WORKER_THREADS > 1 ?
+				"Merge &Main && 1st Worker" :
+				"Merge &Main && Worker");
+	pCmdUI->Enable (1);
+	pCmdUI->SetCheck (MERGE_WINDOWS & MERGE_MAIN_WINDOW);
+}
+
+void CPrime95Doc::OnMergeMain() 
+{
+	if (! (MERGE_WINDOWS & MERGE_MAIN_WINDOW))
+		destroy_window (MAIN_THREAD_NUM);
+	MERGE_WINDOWS ^= MERGE_MAIN_WINDOW;
+	IniWriteInt (INI_FILE, "MergeWindows", MERGE_WINDOWS);
+	if (! (MERGE_WINDOWS & MERGE_MAIN_WINDOW)) {
+		create_window (MAIN_THREAD_NUM);
+		base_title (MAIN_THREAD_NUM, "Main thread");
+	}
+	PositionViews (TRUE);
+}
+
+void CPrime95Doc::OnUpdateMergeComm(CCmdUI* pCmdUI)
+{
+	pCmdUI->SetText (NUM_WORKER_THREADS > 1 ?
+				"Merge C&omm && 1st Worker" :
+				"Merge C&omm && Worker");
+	pCmdUI->Enable (1);
+	pCmdUI->SetCheck (MERGE_WINDOWS & MERGE_COMM_WINDOW);
+}
+
+void CPrime95Doc::OnMergeComm() 
+{
+	if (! (MERGE_WINDOWS & MERGE_COMM_WINDOW))
+		destroy_window (COMM_THREAD_NUM);
+	MERGE_WINDOWS ^= MERGE_COMM_WINDOW;
+	IniWriteInt (INI_FILE, "MergeWindows", MERGE_WINDOWS);
+	if (! (MERGE_WINDOWS & MERGE_COMM_WINDOW)) {
+		create_window (COMM_THREAD_NUM);
+		base_title (COMM_THREAD_NUM, "Communication thread");
+	}
+	PositionViews (TRUE);
+}
+
+void CPrime95Doc::OnUpdateMergeAll(CCmdUI* pCmdUI)
+{
+	pCmdUI->Enable (NUM_CPUS * CPU_HYPERTHREADS > 1);
+	pCmdUI->SetCheck (MERGE_WINDOWS & MERGE_WORKER_WINDOWS);
+}
+
+void CPrime95Doc::OnMergeAll() 
+{
+	int	i;
+
+	if (! (MERGE_WINDOWS & MERGE_WORKER_WINDOWS)) {
+		for (i = 1; i < MAX_NUM_WORKER_THREADS; i++)
+			destroy_window (i);
+	}
+	MERGE_WINDOWS ^= MERGE_WORKER_WINDOWS;
+	IniWriteInt (INI_FILE, "MergeWindows", MERGE_WINDOWS);
+	if (! (MERGE_WINDOWS & MERGE_WORKER_WINDOWS)) {
+		create_worker_windows (NUM_WORKER_THREADS);
+	}
+	PositionViews (TRUE);
+}
 
 // Help menu
-
 
 void CPrime95Doc::OnUpdateHelpFinder(CCmdUI* pCmdUI) 
 {
 	pCmdUI->Enable (TRUE);
+}
+
+void CPrime95Doc::OnForum() 
+{
+	CHyperLink dummy;
+	dummy.GotoURL (_T("http://mersenneforum.org"), SW_SHOW);
+}
+
+void CPrime95Doc::OnWiki() 
+{
+	CHyperLink dummy;
+	dummy.GotoURL (_T("http://mersennewiki.org"), SW_SHOW);
 }
 
 void CPrime95Doc::OnUpdateServer(CCmdUI* pCmdUI) 
@@ -866,19 +993,7 @@ void CPrime95Doc::OnUpdateServer(CCmdUI* pCmdUI)
 
 void CPrime95Doc::OnServer() 
 {
-	CServerDlg dlg;
-	struct primenetPingServerInfo pkt;
-	
-	memset (&pkt, 0, sizeof (pkt));
-	pkt.u.serverInfo.versionNumber = PRIMENET_VERSION;
-	if (sendMessage (PRIMENET_PING_SERVER_INFO, &pkt)) {
-		AfxMessageBox (PING_ERROR, MB_OK | MB_ICONEXCLAMATION);
-	} else {
-		dlg.m_line1 = pkt.u.serverInfo.buildID;
-		dlg.m_line2 = pkt.u.serverInfo.primenetServerName;
-		dlg.m_line3 = pkt.u.serverInfo.adminEmailAddr;
-		dlg.DoModal ();
-	}
+	pingServer ();
 }
 
 // Other internal commands
@@ -887,122 +1002,57 @@ void CPrime95Doc::OnWelcome()
 {
 	CWelcomeDlg dlg;
 
+// Set global flag indicating startup is in progress.  This will delay
+// starting any communication with the server until the user has confirmed
+// he wants to use primenet and he has selected his work preferences.
+	
+	STARTUP_IN_PROGRESS = 1;
+
 // After the welcome screen, install prime95 as an auto-start program
 // and then go collect the user information.
 
 	if (dlg.DoModal () == IDOK) {
+		STRESS_TESTER = 0;
+		IniWriteInt (INI_FILE, "StressTester", 0);
+		USE_PRIMENET = 1;
+		IniWriteInt (INI_FILE, "UsePrimenet", 1);
 		if (!WINDOWS95_SERVICE) OnService ();
-		OnRangeUserinformation();
+		OnPrimenet();
+		if (USE_PRIMENET && STARTUP_IN_PROGRESS) OnCpu ();
+		if (USE_PRIMENET && STARTUP_IN_PROGRESS) OnWorkerThreads ();
+		if (USE_PRIMENET && STARTUP_IN_PROGRESS) {
+			STARTUP_IN_PROGRESS = 0;
+			set_comm_timers ();
+			OnContinue ();
+		} else
+			STARTUP_IN_PROGRESS = 0;
 	} else {
+		STRESS_TESTER = 1;
 		IniWriteInt (INI_FILE, "StressTester", 1);
-		IniWriteInt (INI_FILE, "UsePrimenet", USE_PRIMENET = 0);
+		USE_PRIMENET = 0;
+		IniWriteInt (INI_FILE, "UsePrimenet", 0);
 		STARTUP_IN_PROGRESS = 0;
+		OnTorture ();
 	}
 }
 
 void CPrime95Doc::OnUsrTorture() 
 {
-	CWinThread *thread;
+	int	num_threads;
 
-	thread_pkt.op = OP_TORTURE;
-	thread_pkt.doc = this;
-	thread = AfxBeginThread (threadDispatch, NULL);
-}
-
-void CPrime95Doc::OnBroadcast() 
-{
-static	int	msg_box_up = 0;
-	char	filename[33];
-
-	if (msg_box_up || BROADCAST_MESSAGE == NULL) return;
-	msg_box_up = 1;
-	AfxGetApp()->m_pMainWnd->MessageBox (
-		BROADCAST_MESSAGE, "Important Message from PrimeNet Server", MB_OK | MB_ICONEXCLAMATION);
-	free (BROADCAST_MESSAGE);
-	BROADCAST_MESSAGE = NULL;
-	strcpy (filename, "bcastmsg");
-	strcat (filename, EXTENSION);
-	unlink (filename);
-	BlinkIcon (-1);
-	msg_box_up = 0;
+	num_threads = IniGetInt (INI_FILE, "TortureThreads", NUM_CPUS * CPU_HYPERTHREADS);
+	LaunchTortureTest (num_threads, FALSE);
 }
 
 /////////////////////////////////////////////////////////////////////////////
 // CPrime95Doc private routines
 
-// Crude routine to stop and restart the worker thread
-
-int	RESTARTING = FALSE;
-
-void CPrime95Doc::Restart1 ()
-{
-	if (!THREAD_ACTIVE) return;
-	RESTARTING = TRUE;
-	OutputStr ("Stopping and restarting using new settings.\n");
-	OnStop ();
-	while (THREAD_ACTIVE) {
-		MSG m;
-		while (PeekMessage (&m, NULL, 0, 0, PM_NOREMOVE))
-			AfxGetApp()->PumpMessage ();
-		Sleep (100);
-	}
-}
-
-void CPrime95Doc::Restart2 ()
-{
-	if (RESTARTING) {
-		RESTARTING = FALSE;
-		OnContinue ();
-	}
-}
-
-void CPrime95Doc::LineFeed ()
-{
-	char	*p;
-
-// Scroll the line on the screen
-
-	p = lines[NumLines-1];
-	memmove (&lines[1], &lines[0], (NumLines-1)*sizeof(char *));
-	lines[0] = p;
-	*p = 0;
-	UpdateAllViews (NULL);
-}
-
-void OutputStr (char *str)
-{
-	OUTPUT_STR_HACK->OutputStr (str);
-}
-
-void title (char *str)
-{
-	OUTPUT_STR_HACK->title (str);
-}
 
 void flashWindowAndBeep ()
 {
 	CWinApp* pApp = AfxGetApp();
 	pApp->m_pMainWnd->FlashWindow (TRUE);
 	MessageBeep (0xFFFFFFFF);
-}
-
-void CPrime95Doc::OutputStr (
-	char	*str)
-{
-	if (EXIT_IN_PROGRESS) return;
-	if (lines[0] == NULL) {
-		for (int i = 0; i < NumLines; i++) {
-			lines[i] = (char *) malloc (128);
-			*lines[i] = 0;
-		}
-	}
-	char *p = lines[0] + strlen (lines[0]);
-	for ( ; *str; str++) {
-		if (*str == '\r') continue;
-		if (*str == '\n') *p = 0, LineFeed (), p = lines[0];
-		else if (p - lines[0] < 127) *p++ = *str;
-	}
-	*p = 0;
 }
 
 
@@ -1029,133 +1079,71 @@ void CPrime95Doc::OutputStr (
 #include "commonb.c"
 #include "commonc.c"
 #include "ecm.c"
-#include "comm95a.c"
 #include "comm95b.c"
 #include "comm95c.c"
 #include "primenet.c"
+#include "gwtest.c"
 
-UINT threadDispatch (
-	LPVOID stuff)
+/* Do some work prior to launching worker threads */
+
+void PreLaunchCallback (
+	int	launch_type)
 {
-
-// Set thread-active flags
-
-	THREAD_ACTIVE = TRUE;
-	THREAD_STOP = 0;
 
 // Stall if we've just booted (within 5 minutes of Windows starting)
 
-	if (GetTickCount () < 300000 && thread_pkt.op == OP_CONTINUE) {
+	if (GetTickCount () < 300000 && launch_type == LD_CONTINUE) {
 		int	delay;
 		delay = IniGetInt (INI_FILE, "BootDelay", 90);
 		delay -= GetTickCount () / 1000;
 		if (delay > 0) {
 			char buf[50];
 			sprintf (buf, "Waiting %d seconds for boot to complete.\n", delay);
-			OutputStr (buf);
+			OutputStr (MAIN_THREAD_NUM, buf);
 			Sleep (delay * 1000);
 		}
 	}
-
-// Change the icon
-
-	ChangeIcon (WORKING_ICON);
-
-// Dispatch to the correct code
-
-	switch (thread_pkt.op) {
-	case OP_CONTINUE:
-		primeContinue ();
-		break;
-	case OP_TIME:
-		primeTime (thread_pkt.p, thread_pkt.p2);
-		break;
-	case OP_BENCH:
-		primeBench ();
-		break;
-	case OP_TORTURE:
-		selfTest (1);
-		break;
-	}
-
-// Output informative message
-
-	if (!GIMPS_QUIT && !STOPPED_ON_BATTERY && !RESTARTING) {
-		if (thread_pkt.op == OP_CONTINUE || thread_pkt.op == OP_TORTURE)
-			OutputStr ("Execution halted.\n");
-		if (thread_pkt.op == OP_CONTINUE)
-			OutputStr ("Choose Test/Continue to restart.\n");
-	}
-
-// Clear thread-active flags
-
-	ChangeIcon (IDLE_ICON);
-	THREAD_ACTIVE = FALSE;
-	THREAD_STOP = 0;
-	title ("IDLE");
-
-// Thread complete
-
-	return (0);
 }
 
+/* Do some work after worker threads have terminated */
 
-/* Return TRUE if we should stop calculating */
-/* Perform other misceallanous tasks */
+void PostLaunchCallback (
+	int	launch_type)
+{
+}
 
-int escapeCheck ()
+/* Return TRUE if we are on battery power. */
+
+int OnBattery (void)
+{
+	SYSTEM_POWER_STATUS power;
+
+// We might be able to optimize this by caching the system power status
+// and only regetting it after a PBT_APMPOWERSTATUSCHANGE message.
+
+	if (GetSystemPowerStatus (&power) &&
+	    (power.ACLineStatus != 1 ||
+	     (power.ACLineStatus == 1 &&
+	      power.BatteryLifePercent < BATTERY_PERCENT)))
+		return (TRUE);
+
+// Return FALSE, were on AC power */
+
+	return (FALSE);
+}
+
+/* OSes that must poll for whether the ESC key was hit do it here. */
+/* We use this opportunity to perform other miscellaneous tasks that */
+/* can't be done any other way. */
+
+void stopCheckCallback (
+	int	thread_num)
 {
 	// If we couldn't add the icon to the task bar, then keep
 	// trying until we finally succeed!
 	if (WINDOWS95_TRAY_ADD) {
 		CPrime95App *pApp = (CPrime95App *)AfxGetApp();
 		pApp->TrayMessage (NIM_ADD, NULL, 0);
-	}
-	// If we aren't supposed to run on the battery and we're not
-	// connected to the AC power, then stop processing.
-	if (CHECK_BATTERY) {
-		SYSTEM_POWER_STATUS power;
-		if (!RUN_ON_BATTERY &&
-		    GetSystemPowerStatus (&power) &&
-		    (power.ACLineStatus != 1 || 
-		     (power.ACLineStatus == 1 &&
-		      power.BatteryLifePercent < IniGetInt (INI_FILE, "BatteryPercent", 0)))) {
-			if (STOPPED_ON_BATTERY == 0) {
-				OutputStr ("Processing stopped while on battery power.\n");
-				STOPPED_ON_BATTERY = 1;
-			}
-			return (TRUE);
-		}
-		CHECK_BATTERY = 0;
-		STOPPED_ON_BATTERY = 0;
-	}
-
-/* Return TRUE if the thread must stop executing */
-
-	return (THREAD_STOP);
-}
-
-/* Put a title on the main window */
-
-void CPrime95Doc::title (
-	char	*str)
-{
-	char buf[80];
-	CWinApp* pApp = AfxGetApp();
-static	int was_iconic = TRUE;
-
-	sprintf (buf, "Prime95 - %s", str);
-	if (pApp->m_pMainWnd) {
-		if (TRAY_ICON)
-			((CPrime95App *)pApp)->
-				TrayMessage (NIM_MODIFY, buf, 0);
-		if (pApp->m_pMainWnd->IsIconic ()) {
-			pApp->m_pMainWnd->SetWindowText (buf);
-			was_iconic = TRUE;
-		} else if (was_iconic) {
-			pApp->m_pMainWnd->SetWindowText ("Prime95");
-			was_iconic = FALSE;
-		}
 	}
 }
 

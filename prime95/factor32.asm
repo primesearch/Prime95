@@ -1,4 +1,4 @@
-; Copyright 1995-2005 Just For Fun Software, Inc., all rights reserved
+; Copyright 1995-2007 Just For Fun Software, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -7,7 +7,7 @@
 ; This only runs on 32-bit CPUs.  For x86-64, see factor64.asm
 ;
 
-TITLE   setup
+TITLE   factor32
 
 	.686
 	.XMM
@@ -16,15 +16,221 @@ TITLE   setup
 INCLUDE	unravel.mac
 INCLUDE factor32.mac
 
-EXTRN	_SRCARG:EXTPTR
-EXTRN	_FACHSW:DWORD
-EXTRN	_FACMSW:DWORD
-EXTRN	_FACLSW:DWORD
-EXTRN	_FACPASS:DWORD
-EXTRN	_CPU_FLAGS:DWORD
+; In 32-bit mode we are so starved for registers that we are forced to
+; use the stack pointer to access the asm_data.  In 64-bit mode we
+; use one of the extra 8 registers.  We can't use the rsp trick because
+; that violates the Window's exception handling stack unwind mechanism.
+
+AD_BASE		EQU	<rsp+push_amt>
 
 ;
-; Global variables
+; Define the offsets into the C / assembly communication structure
+;
+
+EXPONENT		EQU	DWORD PTR [AD_BASE+0*4]
+FACPASS			EQU	DWORD PTR [AD_BASE+1*4]
+FACHSW			EQU	DWORD PTR [AD_BASE+2*4]
+FACMSW			EQU	DWORD PTR [AD_BASE+3*4]
+FACLSW			EQU	DWORD PTR [AD_BASE+4*4]
+CPU_FLAGS		EQU	DWORD PTR [AD_BASE+5*4]
+firstcall		EQU	DWORD PTR [AD_BASE+6*4]
+;;pad 
+XMM_INITVAL		EQU	DWORD PTR [AD_BASE+12*4]
+XMM_INVFAC		EQU	DWORD PTR [AD_BASE+16*4]
+XMM_I1			EQU	DWORD PTR [AD_BASE+20*4]
+XMM_I2			EQU	DWORD PTR [AD_BASE+24*4]
+XMM_F1			EQU	DWORD PTR [AD_BASE+28*4]
+XMM_F2			EQU	DWORD PTR [AD_BASE+32*4]
+XMM_F3			EQU	DWORD PTR [AD_BASE+36*4]
+XMM_TWO_120_MODF1	EQU	DWORD PTR [AD_BASE+40*4]
+XMM_TWO_120_MODF2	EQU	DWORD PTR [AD_BASE+44*4]
+XMM_TWO_120_MODF3	EQU	DWORD PTR [AD_BASE+48*4]
+XMM_INIT120BS		EQU	DWORD PTR [AD_BASE+52*4]
+XMM_INITBS		EQU	DWORD PTR [AD_BASE+54*4]
+XMM_BS			EQU	DWORD PTR [AD_BASE+56*4]
+XMM_SHIFTER		EQU	DWORD PTR [AD_BASE+58*4]
+TWO_TO_FACSIZE_PLUS_62	EQU	QWORD PTR [AD_BASE+122*4]
+SSE2_LOOP_COUNTER	EQU	DWORD PTR [AD_BASE+124*4]
+
+;facdists	64 DUP(0)	; 32 distances between sieve factors
+facdists		EQU	DWORD PTR [AD_BASE+256*4]
+facdistsoffset		EQU				256*4
+;facdist32	DD	0, 0	; 32 * facdist
+facdist32		EQU	DWORD PTR [AD_BASE+320*4]
+;BASE		DQ	0.0	; Used in 64-bit factoring code
+BASE			EQU	QWORD PTR [AD_BASE+322*4]
+;FACDIFF	DQ	0.0	; Distance between 1/fac1 and 1/fac2
+FACDIFF			EQU	QWORD PTR [AD_BASE+324*4]
+;FACHI		DQ	0.0	; High 32 bits of trial factor
+FACHI			EQU	QWORD PTR [AD_BASE+326*4]
+;FACHI2		DQ	0.0	; High 32 bits of trial factor #2
+FACHI2			EQU	QWORD PTR [AD_BASE+328*4]
+;FACLO		DQ	0.0	; Low 32 bits of trial factor
+FACLO			EQU	QWORD PTR [AD_BASE+330*4]
+;FACLO2		DQ	0.0	; Low 32 bits of trial factor #2
+FACLO2			EQU	QWORD PTR [AD_BASE+332*4]
+;initval	DD	0.0	; Initial value for squarer (as a float)
+initval			EQU	DWORD PTR [AD_BASE+334*4]
+;initval_inv	DD	0.0	; 1/initval (to compute 1/fac)
+initval_inv		EQU	DWORD PTR [AD_BASE+335*4]
+;fachi_shf_count DD	0	; Shift count for making FACHI
+fachi_shf_count		EQU	DWORD PTR [AD_BASE+336*4]
+;fachi_shf_mask	DD	0	; Shift mask for making FACHI
+fachi_shf_mask		EQU	DWORD PTR [AD_BASE+337*4]
+;savefac2	DD	0	; The 80-bit factor being tested
+savefac2		EQU	DWORD PTR [AD_BASE+338*4]
+;savefac1	DD	0
+savefac1		EQU	DWORD PTR [AD_BASE+339*4]
+;savefac0	DD	0
+savefac0		EQU	DWORD PTR [AD_BASE+340*4]
+
+;base_int	DD	0	; Used in 64-bit factoring
+base_int		EQU	DWORD PTR [AD_BASE+341*4]
+;wqloop_counter	DD	0	; Number of iterations in 64-bit wqloop
+wqloop_counter		EQU	DWORD PTR [AD_BASE+342*4]
+;temp		DD	0
+temp			EQU	DWORD PTR [AD_BASE+343*4]
+;primearray	DD	0	; Array of primes and offsets
+primearray		EQU	DWORD PTR [AD_BASE+344*4]
+;initsieve	DD	0	; Array used to init sieve
+initsieve		EQU	DWORD PTR [AD_BASE+345*4]
+;initlookup	DD	0	; Lookup table into initsieve
+initlookup		EQU	DWORD PTR [AD_BASE+346*4]
+;sieve		DD	0	; Array of sieve bits
+sieve			EQU	DWORD PTR [AD_BASE+347*4]
+;primearray12	DD	0
+primearray12		EQU	DWORD PTR [AD_BASE+348*4]
+
+	;; Pentium Pro globals
+;facdistsflt	DQ	32 DUP(0.0)
+facdistsflt		EQU	QWORD PTR [AD_BASE+400*4]
+facdistsfltoffset	EQU				400*4
+;facdist_flt	DQ	0	; Distance between trial factors (32 * 120 * p)
+facdist_flt		EQU	QWORD PTR [AD_BASE+464*4]
+;facdata	DQ	0.0, 0.0, 0.0
+facdata			EQU	QWORD PTR [AD_BASE+466*4]
+;quotient2	DD	0	; The result of a 486 or PPro division
+quotient2		EQU	DWORD PTR [AD_BASE+472*4]
+;quotient1	DD	0
+quotient1		EQU	DWORD PTR [AD_BASE+473*4]
+;quotient4	DD	0	; The result of a PPro division
+quotient4		EQU	DWORD PTR [AD_BASE+474*4]
+;quotient3	DD	0
+quotient3		EQU	DWORD PTR [AD_BASE+475*4]
+;quotient6	DD	0	; The result of a PPro division
+quotient6		EQU	DWORD PTR [AD_BASE+476*4]
+;quotient5	DD	0
+quotient5		EQU	DWORD PTR [AD_BASE+477*4]
+;quotient8	DD	0	; The result of a PPro division
+quotient8		EQU	DWORD PTR [AD_BASE+478*4]
+;quotient7	DD	0
+quotient7		EQU	DWORD PTR [AD_BASE+479*4]
+;rem2		DD	0	; The remainder of a 486 or PPro squaring
+rem2			EQU	DWORD PTR [AD_BASE+480*4]
+;rem1		DD	0
+rem1			EQU	DWORD PTR [AD_BASE+481*4]
+;rem4		DD	0	; The remainder of a PPro squaring
+rem4			EQU	DWORD PTR [AD_BASE+482*4]
+;rem3		DD	0
+rem3			EQU	DWORD PTR [AD_BASE+483*4]
+;rem6		DD	0	; The remainder of a PPro squaring
+rem6			EQU	DWORD PTR [AD_BASE+484*4]
+;rem5		DD	0
+rem5			EQU	DWORD PTR [AD_BASE+485*4]
+;rem8		DD	0	; The remainder of a PPro squaring
+rem8			EQU	DWORD PTR [AD_BASE+486*4]
+;rem7		DD	0
+rem7			EQU	DWORD PTR [AD_BASE+487*4]
+;pfac2		DD	0	; The first PPro factor being tested
+pfac2			EQU	DWORD PTR [AD_BASE+488*4]
+;pfac1		DD	0
+pfac1			EQU	DWORD PTR [AD_BASE+489*4]
+;pfac4		DD	0	; The second PPro factor being tested
+pfac4			EQU	DWORD PTR [AD_BASE+490*4]
+;pfac3		DD	0
+pfac3			EQU	DWORD PTR [AD_BASE+491*4]
+;pfac6		DD	0	; The third PPro factor being tested
+pfac6			EQU	DWORD PTR [AD_BASE+492*4]
+;pfac5		DD	0
+pfac5			EQU	DWORD PTR [AD_BASE+493*4]
+;pfac8		DD	0	; The fourth PPro factor being tested
+pfac8			EQU	DWORD PTR [AD_BASE+494*4]
+;pfac7		DD	0
+pfac7			EQU	DWORD PTR [AD_BASE+495*4]
+;pneg2		DD	0	; The first PPro -factor value
+pneg2			EQU	DWORD PTR [AD_BASE+496*4]
+;pneg1		DD	0
+pneg1			EQU	DWORD PTR [AD_BASE+497*4]
+;pneg4		DD	0	; The second PPro -factor value
+pneg4			EQU	DWORD PTR [AD_BASE+498*4]
+;pneg3		DD	0
+pneg3			EQU	DWORD PTR [AD_BASE+499*4]
+;pneg6		DD	0	; The third PPro -factor value
+pneg6			EQU	DWORD PTR [AD_BASE+500*4]
+;pneg5		DD	0
+pneg5			EQU	DWORD PTR [AD_BASE+501*4]
+;pneg8		DD	0	; The fourth PPro -factor value
+pneg8			EQU	DWORD PTR [AD_BASE+502*4]
+;pneg7		DD	0
+pneg7			EQU	DWORD PTR [AD_BASE+503*4]
+;queuedpro	DD	0	; Saved count of PPro queued factors
+queuedpro		EQU	DWORD PTR [AD_BASE+504*4]
+
+	;; 80-bit factoring globals
+;faclow		DD	0
+faclow			EQU	DWORD PTR [AD_BASE+520*4]
+;facmid		DD	0
+facmid			EQU	DWORD PTR [AD_BASE+521*4]
+;fachigh	DD	0
+fachigh			EQU	DWORD PTR [AD_BASE+522*4]
+;two_to_123_modf_lo DD	0
+two_to_123_modf_lo	EQU	DWORD PTR [AD_BASE+523*4]
+;two_to_123_modf_mid DD	0
+two_to_123_modf_mid	EQU	DWORD PTR [AD_BASE+524*4]
+;two_to_123_modf_hi DD	0
+two_to_123_modf_hi	EQU	DWORD PTR [AD_BASE+525*4]
+;initval64	DD	0.0
+initval64		EQU	DWORD PTR [AD_BASE+526*4]
+;cmpvalmask	DD	0	; The bits to test in sqexit
+cmpvalmask		EQU	DWORD PTR [AD_BASE+527*4]
+;cmpval		DD	0	; The value to match in sqexit
+cmpval			EQU	DWORD PTR [AD_BASE+528*4]
+;REMMULTS	DD	32 DUP (0.0)
+REMMULTS		EQU	DWORD PTR [AD_BASE+529*4]
+;FACMULTS	DD	32 DUP (0.0)
+FACMULTS		EQU	DWORD PTR [AD_BASE+561*4]
+;shifter	DD	0
+shifter			EQU	DWORD PTR [AD_BASE+593*4]
+;sqloop_counter	DD	0	; Number of iterations in 60-bit sqloop
+sqloop_counter		EQU	DWORD PTR [AD_BASE+594*4]
+;initstart	DD	0	; First dword in initsieve to copy
+initstart		EQU	DWORD PTR [AD_BASE+595*4]
+;initval1	DD	0	; Bits 33-64 of 486 initial value for squarer
+initval1		EQU	DWORD PTR [AD_BASE+596*4]
+;initval0	DD	0	; Bits 65-96 of initial value for squarer
+initval0		EQU	DWORD PTR [AD_BASE+597*4]
+;reps		DD	0
+reps			EQU	DWORD PTR [AD_BASE+598*4]
+;p		DD	0	; Mersenne prime being tested
+p			EQU	DWORD PTR [AD_BASE+599*4]
+;twop		DD	0	; Multiples of p + p
+twop			EQU	DWORD PTR [AD_BASE+600*4]
+;last_primearray DD	0	; Last address in primearray
+last_primearray		EQU	DWORD PTR [AD_BASE+601*4]
+
+;XMM_COMPARE_VAL1 DD	0,0,0,0
+XMM_COMPARE_VAL1	EQU	DWORD PTR [AD_BASE+620*4]
+;XMM_COMPARE_VAL2 DD	0,0,0,0
+XMM_COMPARE_VAL2	EQU	DWORD PTR [AD_BASE+624*4]
+;XMM_COMPARE_VAL3 DD	0,0,0,0
+XMM_COMPARE_VAL3	EQU	DWORD PTR [AD_BASE+628*4]
+
+SAVED_RSP		EQU	DWORD PTR [AD_BASE+650*4]
+
+last_global		EQU	DWORD PTR [AD_BASE+700*4]
+
+;
+; Constant global variables
 ;
 
 _GWDATA SEGMENT PAGE PUBLIC 'DATA'
@@ -36,83 +242,7 @@ returns6	DD	OFFSET wx1, OFFSET wx2, OFFSET wx3, OFFSET wx4
 		DD	OFFSET wx21, OFFSET wx22, OFFSET wx23, OFFSET wx24
 		DD	OFFSET wx25, OFFSET wx26, OFFSET wx27, OFFSET wx28
 		DD	OFFSET wx29, OFFSET wx30, OFFSET wx31, OFFSET wlp5
-facdists	DD	64 DUP(0) ; 32 distances between sieve factors
-facdist32	DD	0, 0	; 32 * facdist
-BASE		DQ	0.0	; Used in 64-bit factoring code
-FACDIFF		DQ	0.0	; Distance between 1/fac1 and 1/fac2
-FACHI		DQ	0.0	; High 32 bits of trial factor
-FACHI2		DQ	0.0	; High 32 bits of trial factor #2
-FACLO		DQ	0.0	; Low 32 bits of trial factor
-FACLO2		DQ	0.0	; Low 32 bits of trial factor #2
-BIGVAL0		DD	0.0	; For rounding to an integer
-BIGVAL1		DD	0.0	; For rounding to multiple of 2^32
-initval		DD	0.0	; Initial value for squarer (as a float)
-initval_inv	DD	0.0	; 1/initval (to compute 1/fac)
-fachi_shf_count	DD	0	; Shift count for making FACHI
-fachi_shf_mask	DD	0	; Shift mask for making FACHI
-savefac2	DD	0	; The 80-bit factor being tested
-savefac1	DD	0
-savefac0	DD	0
-HALF		DD	0.5
-base_int	DD	0	; Used in 64-bit factoring
-wqloop_counter	DD	0	; Number of iterations in 64-bit wqloop
-temp		DD	0
-primearray	DD	0	; Array of primes and offsets
-initsieve	DD	0	; Array used to init sieve
-initlookup	DD	0	; Lookup table into initsieve
-sieve		DD	0	; Array of sieve bits
-primearray12	DD	0
-	;; Pentium Pro globals
-	align 32
-facdistsflt	DQ	32 DUP(0.0)
-facdist_flt	DQ	0	; Distance between trial factors (32 * 120 * p)
-facdata		DQ	0.0, 0.0, 0.0
-quotient2	DD	0	; The result of a 486 or PPro division
-quotient1	DD	0
-quotient4	DD	0	; The result of a PPro division
-quotient3	DD	0
-quotient6	DD	0	; The result of a PPro division
-quotient5	DD	0
-quotient8	DD	0	; The result of a PPro division
-quotient7	DD	0
-rem2		DD	0	; The remainder of a 486 or PPro squaring
-rem1		DD	0
-rem4		DD	0	; The remainder of a PPro squaring
-rem3		DD	0
-rem6		DD	0	; The remainder of a PPro squaring
-rem5		DD	0
-rem8		DD	0	; The remainder of a PPro squaring
-rem7		DD	0
-pfac2		DD	0	; The first PPro factor being tested
-pfac1		DD	0
-pfac4		DD	0	; The second PPro factor being tested
-pfac3		DD	0
-pfac6		DD	0	; The third PPro factor being tested
-pfac5		DD	0
-pfac8		DD	0	; The fourth PPro factor being tested
-pfac7		DD	0
-pneg2		DD	0	; The first PPro -factor value
-pneg1		DD	0
-pneg4		DD	0	; The second PPro -factor value
-pneg3		DD	0
-pneg6		DD	0	; The third PPro -factor value
-pneg5		DD	0
-pneg8		DD	0	; The fourth PPro -factor value
-pneg7		DD	0
-queuedpro	DD	0	; Saved count of PPro queued factors
 	
-	;; 80-bit factoring globals
-	align 32
-faclow		DD	0
-facmid		DD	0
-fachigh		DD	0
-two_to_123_modf_lo DD	0
-two_to_123_modf_mid DD	0
-two_to_123_modf_hi DD	0
-TWO_TO_123	DD	0.0
-TWO_TO_MINUS_59 DD	0.0
-initval64	DD	0.0
-
 	;; From here down are globals not used in 64-bit code
 returns5a	DD	OFFSET vx1, OFFSET vx2, OFFSET vx3, OFFSET vx4
 		DD	OFFSET vx5, OFFSET vx6, OFFSET vx7, OFFSET vx8
@@ -122,55 +252,26 @@ returns5a	DD	OFFSET vx1, OFFSET vx2, OFFSET vx3, OFFSET vx4
 		DD	OFFSET vx21, OFFSET vx22, OFFSET vx23, OFFSET vx24
 		DD	OFFSET vx25, OFFSET vx26, OFFSET vx27, OFFSET vx28
 		DD	OFFSET vx29, OFFSET vx30, OFFSET vx31, OFFSET vlp5
-cmpvalmask	DD	0	; The bits to test in sqexit
-cmpval		DD	0	; The value to match in sqexit
 ONE		DD	1.0	; The floating point constant 1.0
-REMMULTS	DD	32 DUP (0.0)
-FACMULTS	DD	32 DUP (0.0)
-shifter		DD	0
-sqloop_counter	DD	0	; Number of iterations in 60-bit sqloop
-initstart	DD	0	; First dword in initsieve to copy
-firstcall	DD	0
-initval1	DD	0	; Bits 33-64 of 486 initial value for squarer
-initval0	DD	0	; Bits 65-96 of initial value for squarer
-reps		DD	0
-p		DD	0	; Mersenne prime being tested
-twop		DD	0	; Multiples of p + p
-last_primearray	DD	0	; Last address in primearray
 rems		DD	1,7,17,23,31,41,47,49,71,73,79,89,97,103,113,119
 QUARTER		DD	0.25
+HALF		DD	0.5
 TWO		DD	2.0
 FOUR		DD	4.0
+BIGVAL0		DD	0.0	; For rounding to an integer
+BIGVAL1		DD	0.0	; For rounding to multiple of 2^32
 TWO_TO_32	DD	0.0
 TWO_TO_64	DQ	0.0
+TWO_TO_123	DD	0.0
+TWO_TO_MINUS_59 DD	0.0
 FDMULT		DD	3840.0	; 32 * 120 (to compute facdist_flt)
 
 	;; From here down are globals used in SSE2 code
 	align 16
 XMM_LOWONE		DD	1,0,0,0
 XMM_HIGHONE		DD	0,0,1,0
-XMM_COMPARE_VAL1	DD	0,0,0,0
-XMM_COMPARE_VAL2	DD	0,0,0,0
-XMM_COMPARE_VAL3	DD	0,0,0,0
 XMM_BITS28		DD	0FFFFFFFh,0,0FFFFFFFh,0
 XMM_BITS30		DD	3FFFFFFFh,0,3FFFFFFFh,0
-XMM_INITVAL		DD	0,0,0,0
-XMM_INVFAC		DD	0,0,0,0
-XMM_I1			DD	0,0,0,0
-XMM_I2			DD	0,0,0,0
-XMM_F1			DD	0,0,0,0
-XMM_F2			DD	0,0,0,0
-XMM_F3			DD	0,0,0,0
-XMM_TWO_120_MODF1	DD	0,0,0,0
-XMM_TWO_120_MODF2	DD	0,0,0,0
-XMM_TWO_120_MODF3	DD	0,0,0,0
-XMM_INIT120BS		DD	0,0
-XMM_INITBS		DD	0,0
-XMM_BS			DD	0,0
-XMM_SHIFTER		DD	64 DUP (0)
-TWO_TO_FACSIZE_PLUS_62	DQ	0.0
-SSE2_LOOP_COUNTER	DD	0
-
 
 ;
 ; More data
@@ -1068,21 +1169,21 @@ repcnt		EQU	4		; How many reps before returning
 
 _TEXT	SEGMENT
 
-; Initialize - FACLSW contains p
+; setupf (struct facasm_data *)
+;	Initialize 32-bit factoring code
+; Windows 32-bit (_setupf)
+; Linux 32-bit (setupf)
+;	Parameter ptr = [esp+4]
 
-	PUBLIC	_setupf
-_setupf	PROC
-	push	edi
-	push	esi
-	push	ebp
-	push	ebx
+PROCFL	setupf
+	ad_prolog 0,0,rbx,rbp,rsi,rdi
 
-; Save p (passed in _FACLSW), compute various constants and addresses
+; Save p (passed in EXPONENT), compute various constants and addresses
 
-	mov	ecx, _FACLSW
+	mov	ecx, EXPONENT
 	mov	p, ecx
 
-	mov	eax, _SRCARG		; Addr of allocated memory
+	lea	eax, last_global	; Addr of allocated memory
 	add	eax, 0FFFFh		; Align area on a 64K boundary
 	and	eax, 0FFFF0000h
 	mov	primearray, eax		; Array of primes and offsets
@@ -1099,19 +1200,20 @@ _setupf	PROC
 	add	ecx, ecx		; Two times p
 	mov	twop, ecx
 
+	lea	esi, facdists[32*8]
 	mov	eax, 120		; Compute 120 (8 * 3 * 5) * p
 	mul	p
 	sub	ebx, ebx		; LSW of multiple of facdist
 	sub	ecx, ecx		; MSW of multiple of facdist
-	mov	edi, OFFSET facdists
+	lea	edi, facdists
 fdlp:	mov	[edi], ebx
 	mov	[edi+4], ecx
 	fild	QWORD PTR [edi]		; Convert from integer to float point
-	fstp	QWORD PTR [edi][00000000h + OFFSET facdistsflt - OFFSET facdists]
+	fstp	QWORD PTR [edi][facdistsfltoffset - facdistsoffset]
 	lea	edi, [edi+8]		; Bump pointers
 	add	ebx, eax		; Next distance
 	adc	ecx, edx
-	cmp	edi, OFFSET facdists+32*8; Loop 32 times
+	cmp	edi, esi		; Loop 32 times
 	jne	short fdlp
 	mov	facdist32, ebx		; Save 32 * facdist
 	mov	facdist32+4, ecx
@@ -1121,7 +1223,7 @@ fdlp:	mov	[edi], ebx
 
 ; Copy byte based prime array to double word based array
 
-	mov	esi, OFFSET sivinfo	; Source - array of bytes
+	lea	esi, sivinfo		; Source - array of bytes
 	mov	edi, primearray		; Destination - array of double words
 	mov	edx, 5			; Sivinfo contains primes larger than 5
 	sub	eax, eax
@@ -1235,30 +1337,22 @@ ilp6:	sub	edx, ecx		; Compute bit# mod smallp
 	fstp	TWO_TO_MINUS_59		; Save 2^-59
 	fstp	FACLO
 
-; Return address of XMM area so that we can init that with C code
-; I wish I'd done that with the x86 factoring code too!
-
-	mov	_SRCARG, OFFSET XMM_BITS30
-
 ; Return
 
-	pop	ebx
-	pop	ebp
-	pop	esi
-	pop	edi
-	ret
-_setupf	ENDP
+	ad_epilog 0,0,rbx,rbp,rsi,rdi
+setupf	ENDP
 
 ; Do some of the initial squarings here.  Shift p such that the first quotient
 ; will be 62 bits or less.
 
-presq	PROC
+PROCF	presq
+	int_prolog 0,0,0
 	mov	edx, 126
-	mov	eax, _FACHSW
+	mov	eax, FACHSW
 	or	eax, eax
 	jnz	short psq1
 	mov	edx, 94
-	mov	eax, _FACMSW
+	mov	eax, FACMSW
 psq1:	inc	edx
 	shr	eax, 1
 	jnz	short psq1
@@ -1303,12 +1397,12 @@ idone2:	mov	initval0, eax		; Save bits 65-96 of initval
 	mov	eax, sievesize * 8 * repcnt * 120; true sieve size (times 120)
 	mul	p			; times distance between factors(120*p)
 	add	eax, savefac2		; plus value corresponding
-	adc	edx, _FACMSW		; to first sieve bit
-	mov	ecx, _FACHSW
+	adc	edx, FACMSW		; to first sieve bit
+	mov	ecx, FACHSW
 	adc	ecx, 0			; Add in carry and test for >= 65-bits
 	jz	short not65		; Jump if not >= 65 bits
 	mov	eax, OFFSET tlp80	; 80 bit all cpus version
-	test	_CPU_FLAGS, 10h		; Is this an SSE2 machine?
+	test	CPU_FLAGS, 10h		; Is this an SSE2 machine?
 	jz	short cp1		; No, use all purpose code
 	mov	eax, OFFSET tlp86	; 75-86 bit SSE2 version
 	cmp	ecx, 3FFh		; Are we testing 75-bits or greater?
@@ -1319,10 +1413,10 @@ not65:	mov	eax, OFFSET tlp64	; 64 bit all cpus version
 	cmp	edx, 3FFFFFFFh		; Are we testing 63-bits or greater?
 	ja	short cp1		; Yes, jump
 	mov	eax, OFFSET plp		; Pentium Pro version
-	test	_CPU_FLAGS, 2		; Is this a Pentium Pro or better?
+	test	CPU_FLAGS, 2		; Is this a Pentium Pro or better?
 	jnz	short cp1		; Yes - CMOV is supported, jump
 	mov	eax, OFFSET ulp		; 486 version
-	test	_CPU_FLAGS, 1		; Is this a 486 or AMD K6?
+	test	CPU_FLAGS, 1		; Is this a 486 or AMD K6?
 	jz	short cp1		; Yes RDTSC not supported, jump
 	mov	eax, OFFSET tlp60	; 60 bit Pentium version
 	cmp	edx, 0FFFFFFFh		; Are we testing 61-bits or greater?
@@ -1364,14 +1458,42 @@ mlptst:	dec	ecx			; Decrement loop counter
 	jnz	short mlp		; Loop if necessary
 	fstp	temp			; Discard float values
 
-	retn
+	int_epilog 0,0,0
 presq	ENDP
+
+;
+; Register allocations
+;
+
+fac0	equ	edi
+fac1	equ	ebx			; Keep factor in edi, ebx, ecx
+fac2	equ	ecx
+
+; factor64 (struct facasm_data *)
+;	Do a few sieving runs and test potential factors
+; Windows 32-bit (_factor64)
+; Linux 32-bit (factor64)
+;	Parameter ptr = [esp+4]
+
+PROCFL	factor64
+	ad_prolog 0,0,rbx,rbp,rsi,rdi
+
+; Init the FPU every iteration just to be safe
+
+	finit
+
+; Is this a request to test 32-bit factors?  If not, go to complicated code.
+
+	mov	eax, FACHSW
+	mov	ecx, FACMSW
+	or	eax, ecx
+	jnz	not32
 
 ;
 ; Try to find a 32-bit factor of 2**p - 1
 ;
 
-fac32:	mov	ecx, p
+	mov	ecx, p
 s32lp:	add	ecx, ecx		; Shift until top bit on
 	jns	short s32lp
 	mov	eax, ecx
@@ -1430,46 +1552,21 @@ nextf:	add	ecx, twop
 ; No 32-bit factor found - return for ESC check
 
 	mov	eax, 2			; Return for ESC check
-	mov	_FACMSW, 1		; Restart at 1
+	mov	FACMSW, 1		; Restart at 1
 	jmp	done
 
 ; Divisor found, return TRUE
 
 win32:	mov	eax, 1
-	mov	_FACMSW, 0
-	mov	_FACLSW, ecx
+	mov	FACMSW, 0
+	mov	FACLSW, ecx
 	jmp	done
 
 ;
-; Register allocations
+; Find a factor bigger than 2^32
 ;
 
-fac0	equ	edi
-fac1	equ	ebx			; Keep factor in edi, ebx, ecx
-fac2	equ	ecx
-
-;
-; Try to find a 64-bit factor of 2**p - 1
-; ecx = Starting point (times 2**32)
-;
-
-	PUBLIC	_factor64
-_factor64 PROC
-	push	edi
-	push	esi
-	push	ebp
-	push	ebx
-
-; Init the FPU every iteration just to be safe
-
-	finit
-
-; Is this a request to test 32-bit factors?  If so, go to special code.
-
-	mov	eax, _FACHSW
-	mov	ecx, _FACMSW
-	or	eax, ecx
-	jz	fac32
+not32:
 
 ; Set number of repetitions
 
@@ -1493,8 +1590,8 @@ _factor64 PROC
 ; First trial factor is first number of the form 2kp + 1
 ; greater than FACMSW * 2^32
 
-	mov	fac0, _FACHSW		; Start point * 2^64
-	mov	fac1, _FACMSW		; Start point * 2^32
+	mov	fac0, FACHSW		; Start point * 2^64
+	mov	fac1, FACMSW		; Start point * 2^32
 	mov	fac2, twop		; Load twop for dividing
 	mov	eax, fac0		; Do a mod on the start point
 	sub	edx, edx
@@ -1508,7 +1605,7 @@ _factor64 PROC
 
 ; Make sure we have a factor with the right modulo for this pass
 
-	mov	esi, _FACPASS		; Get the pass number (0 to 15)
+	mov	esi, FACPASS		; Get the pass number (0 to 15)
 	mov	ebp, 120
 flp1:	mov	eax, fac0		; Do a mod 120 in three parts
 	sub	edx, edx
@@ -1554,7 +1651,7 @@ smok:
 ; clearing.
 ;
 
-	push	esi
+	pusher	esi
 	sub	prev, prev		; Set up: set bigrem = testp,
 	mov	cur, 1			; litrem = facdist mod testp
 	mov	bigrem, testp
@@ -1588,7 +1685,7 @@ eucdn2:	sub	edx, edx		; Divide first factor by testp
 	mov	eax, edx		; Multiply remainder by x
 	mul	cur
 	div	testp			; edx now contains the bit number!
-	pop	esi			; save it for sieve clearing
+	popper	esi			; save it for sieve clearing
 	mov	[esi+4], edx
 	lea	esi, [esi+12]
 	jmp	short smlp
@@ -2041,7 +2138,7 @@ tlp5:	add	fac2, facdist32		; U - Add facdist * 32 to the factor
 ; Return so caller can check for ESC
 
 	mov	eax, 2			; Return for ESC check
-	mov	_FACMSW, fac1
+	mov	FACMSW, fac1
 	jmp	done
 
 ; Entry points for testing each bit#
@@ -2138,15 +2235,15 @@ testit0:mov	savefac2, fac2		; U - Store factor so FPU can load it
 
 	mov	edi, returns5[edx*4]	; U - Load return address
 	mov	ebp, facdists[edx*8]	; V - fac2 adjustment
-	push	edi			; U - Push return address
-	push	eax			; V - Save sieve test register
+	pusher	edi			; U - Push return address
+	pusher	eax			; V - Save sieve test register
 
 	; Recompute original fac1 and fac2.  That is, the fac1/fac2 values
 	; for the first sieve bit in EAX 
 	sub	fac2, ebp		; U - Recompute original fac2
 	mov	edi, facdists+4[edx*8]	; V - fac1 adjustment
 	sbb	fac1, edi		; U - Recompute original fac1
-	push	ecx			; V - Save another register
+	pusher	ecx			; V - Save another register
 
 	; Compute the shift count to create floating point values
 	; We'd like to use the BSF instruction but it is very slow.
@@ -2375,20 +2472,16 @@ smaybe:	fadd	st, st			; dbl rem, trash, trash, trash
 	pop	ecx			; Restore sieve testing register
 	pop	eax			; Restore sieve testing register
 	retn				; UV - Test next factor from sieve
+	push_amt = 0
 
 winner:	mov	eax, savefac1		; Load MSW
-	mov	_FACMSW, eax
+	mov	FACMSW, eax
 	mov	eax, savefac2		; Load LSW
-	mov	_FACLSW, eax
+	mov	FACLSW, eax
 	mov	eax, 1			; Factor found!!! Return TRUE
 	add	esp, 12			; pop sieve testing registers and
 					; return address
-	
-done:	pop	ebx
-	pop	ebp
-	pop	esi
-	pop	edi
-	ret
+	jmp	done
 
 ;***********************************************************************
 ; For Pentium machines only - 62 bit factors
@@ -2601,7 +2694,7 @@ vhiok:	shl	ebx, cl			;4UV - Normalize (top bit always on)
 	mov	ebp, ebx		; U - EBP will hold the float LSW
 	mov	eax, returns5a[edx*4]	; V - Load return address
 	shr	ebx, 11			; U - EAX will hold the float MSW
-	push	eax			; V - Push return address
+	pusher	eax			; V - Push return address
 	shl	ecx, 20			; U - Put shift count in exponent byte
 	add	ebx, 43D00000h 		; V - Make the exponent byte right
 	shl	ebp, 21			; U - Low 32 bits of the float
@@ -2622,6 +2715,7 @@ vhiok:	shl	ebx, cl			;4UV - Normalize (top bit always on)
 	inc	edi			;*U - Bump count of queued factors
 	jz	short vest2		; V - Jump if enough are queued
 	retn				; UV - return to sieve testing
+	push_amt = 0
 
 ;
 ; Now test the 2 factors
@@ -3097,8 +3191,8 @@ vin2:	fld	FACHI2			; Load MSW
 vincom:	fistp	QWORD PTR savefac2	; Save as an integer
 	mov	eax, savefac2		; Load LSW
 	mov	edx, savefac1		; Load MSW
-	mov	_FACLSW, eax		; Store LSW
-	mov	_FACMSW, edx		; Store MSW
+	mov	FACLSW, eax		; Store LSW
+	mov	FACMSW, edx		; Store MSW
 	mov	eax, 1			; Factor found!!! Return TRUE
 	add	esp, 4			; pop return address
 	jmp	done
@@ -3121,7 +3215,7 @@ vlpdn2:	mov	savefac1, ebx		; Save for the restart or more sieving
 	dec	reps			; Check repetition counter
 	jnz	slp0
 	mov	eax, 2			; Return for ESC check
-	mov	_FACMSW, ebx
+	mov	FACMSW, ebx
 	jmp	done
 
 
@@ -3359,7 +3453,7 @@ whiok:	shl	eax, cl			;4UV - Normalize (top bit always on)
 	mov	ebp, eax		; U - EBP will hold the float LSW
 	mov	ebx, returns6[edx*4]	; V - Load return address
 	shr	eax, 11			; U - EAX will hold the float MSW
-	push	ebx			; V - Push return address
+	pusher	ebx			; V - Push return address
 	shl	ecx, 20			; U - Put shift count in exponent byte
 	add	eax, 43D00000h 		; V - Make the exponent byte right
 	shl	ebp, 21			; U - Low 32 bits of the float
@@ -3367,6 +3461,7 @@ whiok:	shl	eax, cl			;4UV - Normalize (top bit always on)
 
 	; Recompute original fachi and faclo.  That is, the fachi/faclo values
 	; for the first sieve bit in EAX 
+	push_amt = 4
 whidn:	mov	DWORD PTR FACHI[edi*8+16], ebp ; U - Store FACHI LSW
 	mov	ebp, savefac2		; V - Reload faclo
 	mov	ecx, facdists[edx*8]	; U - faclo adjustment
@@ -3387,6 +3482,7 @@ whidn:	mov	DWORD PTR FACHI[edi*8+16], ebp ; U - Store FACHI LSW
 
 	; More miscellaneous initialization
 
+	push_amt = 4
 west2:	mov	ecx, wqloop_counter	; U - Load loop counter
 	mov	edi, -2			; V - Restore queued factor counter
 
@@ -3914,8 +4010,8 @@ wincom:	fsub	ONE			; Make it fit in 63 bits
 	add	eax, eax		; Double it to 64 bits again
 	adc	edx, edx
 	inc	eax			; Undo the decrement
-	mov	_FACLSW, eax		; Store LSW
-	mov	_FACMSW, edx		; Store MSW
+	mov	FACLSW, eax		; Store LSW
+	mov	FACMSW, edx		; Store MSW
 	mov	eax, 1			; Factor found!!! Return TRUE
 	add	esp, 4			; pop return address
 	jmp	done
@@ -3923,6 +4019,7 @@ wincom:	fsub	ONE			; Make it fit in 63 bits
 ; One sieve is done, save registers and see if another
 ; sieve will be tested before we check for an ESC.
 
+	push_amt = 0
 wlpdn:	cmp	edi, -2			; Is a factor queued up?
 	je	short wlpdn2		; No
 	fld	FACHI			; Yes, go test it
@@ -3941,11 +4038,11 @@ wlpdn2:	mov	savefac1, ebx		; Save for the restart or more sieving
 	inc	reps
 	jmp	slp0
 wlpdn1:	mov	eax, 2			; Return for ESC check
-	mov	_FACMSW, ebx
+	mov	FACMSW, ebx
 	cmp	ebx, -1			; Check for special value
 	jne	done
-	mov	_FACHSW, 1		; Return 2^64
-	mov	_FACMSW, 0
+	mov	FACHSW, 1		; Return 2^64
+	mov	FACMSW, 0
 	jmp	done
 
 ;***********************************************************************
@@ -4009,7 +4106,7 @@ ux21:	test	eax, 200000h
 ux22:	test	eax, 400000h
 	jnz	ust22
 ux23:	test	eax, 800000h
-	jnz	short ust23
+	jnz	ust23
 ux24:	test	eax, 1000000h
 	jnz	short ust24
 ux25:	test	eax, 2000000h
@@ -4043,7 +4140,7 @@ ulp5:	add	fac2, facdist32		; U - Add facdist * 32 to the factor
 ; Return so caller can check for ESC
 
 	mov	eax, 2			; Return for ESC check
-	mov	_FACMSW, fac1
+	mov	FACMSW, fac1
 	jmp	done
 
 ; Entry points for testing each bit#
@@ -4119,12 +4216,12 @@ ust0:	mov	dl, 0			; Test factor corresponding to bit 0
 ; this algorithm.
 ;
 
-uestit:	push	returns4[edx*4]		; Push return address
-	push	esi			; Save sieve testing registers
+uestit:	pusher	returns4[edx*4]		; Push return address
+	pusher	esi			; Save sieve testing registers
 	add	fac2, facdists[edx*8]	; Determine factor to test
 	adc	fac1, facdists+4[edx*8]	; Add carry
-	push	edx	
-	push	eax			; Save sieve testing registers
+	pusher	edx	
+	pusher	eax			; Save sieve testing registers
 
 ;
 ; Precompute 1 / factor
@@ -4212,35 +4309,39 @@ uaddf:	add	esi, fac2		; Add fac so that |remainder| < factor
 uqexit:	fstp	quotient2		; Pop 1 / factor from FPU
 	add	esi, esi		; Double the remainder
 	adc	edi, edi		; Propogate carry
-	pop	eax			; Restore sieve testing register
-	pop	edx
+	popper	eax			; Restore sieve testing register
+	popper	edx
 
 	; Handle a negative remainder, add factor and see if value is 1
 	jnc	short upos		; Positive remainder?
 	add	esi, fac2		; No, make remainder positive
 	adc	edi, fac1
 	jz	short umaybe		; Check if remainder is one
-	pop	esi			; Restore sieve testing register
+	popper	esi			; Restore sieve testing register
 	sub	fac2, facdists[edx*8]	; Subtract factor increment
 	sbb	fac1, facdists+4[edx*8]
 	retn				; Test next factor from sieve
 
+	push_amt = 8
 	; Handle a positive remainder, subtract factor and see if value is 1
 upos:	sub	esi, fac2		; No, make remainder positive
 	sbb	edi, fac1
 	jz	short umaybe
-unext:	pop	esi			; Restore sieve testing register
+unext:	popper	esi			; Restore sieve testing register
 	sub	fac2, facdists[edx*8]	; Subtract factor increment
 	sbb	fac1, facdists+4[edx*8]
 	retn				; Test next factor from sieve
+
+	push_amt = 8
 umaybe:	cmp	esi, 1
 	jne	short unext
 
 	mov	eax, 1			; Factor found!!! Return TRUE
-	mov	_FACMSW, fac1
-	mov	_FACLSW, fac2
+	mov	FACMSW, fac1
+	mov	FACLSW, fac2
 	add	esp, 8			; pop sieve testing register
 					; and testit's return address
+	push_amt = 0
 	jmp	done
 
 
@@ -4288,7 +4389,7 @@ svdone:
 ; Return so caller can check for ESC
 
 	mov	eax, savefac1		; Return for ESC check
-	mov	_FACMSW, eax
+	mov	FACMSW, eax
 	mov	eax, 2
 	jmp	done
 
@@ -4324,8 +4425,8 @@ pestit:	fld	QWORD PTR facdistsflt[edx*8] ; Determine factor to test
 ; Now test the 4 factors
 ;
 
-	push	esi			; Save sieve testing registers
-	push	eax
+	pusher	esi			; Save sieve testing registers
+	pusher	eax
 	mov	ebp, shifter		; Load shifter
 
 ;
@@ -4696,13 +4797,14 @@ pwin4:	mov	esi, ebx		; pwin expects remainder in edi/esi
 
 ; No factors found, go search for more
 
-pret:	pop	eax			; Restore sieve testing registers
-	pop	esi
+pret:	popper	eax			; Restore sieve testing registers
+	popper	esi
 	sub	edi, edi		; Clear count of queued factors
 	jmp	px1			; Test next factor from sieve
 
 ; We probably found a factor, test it out more thoroughly
 
+	push_amt = 12
 pwin:	xor	edx, edx		; Zero extend al
 	mov	dl, al
 	mov	rem2, esi		; Save remainder for FPU to load
@@ -4722,12 +4824,13 @@ pwin:	xor	edx, edx		; Zero extend al
 
 pfound:	fstp	temp			; Toss the value on the FPU stack
 	mov	eax, pfac1[edx*8]	; Copy factor to fixed memory address
-	mov	_FACMSW, eax
+	mov	FACMSW, eax
 	mov	eax, pfac2[edx*8]
-	mov	_FACLSW, eax
+	mov	FACLSW, eax
 	mov	eax, 1			; Factor found!!! Return TRUE
 	add	esp, 12			; Pop sieve testing registers
 					; and the pwin return address
+	push_amt = 0
 	jmp	done
 
 ;***********************************************************************
@@ -4772,8 +4875,8 @@ zx1:	bsf	edx, eax		; Look for a set bit
 
 ; Return so caller can check for ESC
 
-	mov	_FACMSW, eax
-	mov	_FACHSW, edx
+	mov	FACMSW, eax
+	mov	FACHSW, edx
 	mov	eax, 2
 	jmp	done
 
@@ -4806,8 +4909,8 @@ zestit:	fld	QWORD PTR facdistsflt[edx*8]
 ; to do something useful with the integer units.
 
 	btr	eax, edx		; Clear the sieve bit
-	push	eax			; Save registers
-	push	esi
+	pusher	eax			; Save registers
+	pusher	esi
 	mov	ebp, shifter		; Load shifter
 	mov	eax, savefac1		; Finish computing factor as an integer
 	mov	edx, savefac0
@@ -4903,7 +5006,7 @@ zzz1:
 ; registers also double as third, fourth, and fifth word of the
 ; squared remainder.
 
-zqloop:	push	ebp
+zqloop:	pusher	ebp
 	mov	ebp, ebx		; Compute upper 2 words of squared rem
 	imul	ebp, ebp		; remhi * remhi
 	lea	eax, [ebx+ebx]
@@ -4961,7 +5064,7 @@ zqloop:	push	ebp
 	adc	ecx, edx
 	adc	ebx, 0
 	adc	edi, 0
-	pop	ebp
+	popper	ebp
 
 ; Now compute the remaining bits of the quotient
 
@@ -5027,16 +5130,18 @@ zqexit:	fstp	quotient2		; Pop 1 / factor from FPU
 	jnz	short zloser
 	sbb	ebx, fachigh
 	jz	short zwin
-zloser:	pop	esi			; Restore sieve testing register
-	pop	eax
+zloser:	popper	esi			; Restore sieve testing register
+	popper	eax
 	jmp	zx1			; Test next factor from sieve
+	push_amt = 8
 zwin:	mov	eax, fachigh		; Factor found!!! Return it
-	mov	_FACHSW, eax
+	mov	FACHSW, eax
 	mov	eax, facmid
-	mov	_FACMSW, eax
+	mov	FACMSW, eax
 	mov	eax, faclow
-	mov	_FACLSW, eax
+	mov	FACLSW, eax
 	add	esp, 8			; pop sieve testing registers
+	push_amt = 0
 	mov	eax, 1			; return TRUE
 	jmp	done
 
@@ -5083,8 +5188,8 @@ ax1:	bsf	edx, eax		; Look for a set bit
 
 ; Return so caller can check for ESC
 
-	mov	_FACMSW, eax
-	mov	_FACHSW, edx
+	mov	FACMSW, eax
+	mov	FACHSW, edx
 	mov	eax, 2
 	jmp	done
 
@@ -5187,9 +5292,9 @@ awin3:	shl	eax, 2
 	shl	ebx, 2
 	shrd	ebx, ecx, 4
 	shr	ecx, 4
-	mov	_FACLSW, eax
-	mov	_FACMSW, ebx
-	mov	_FACHSW, ecx
+	mov	FACLSW, eax
+	mov	FACMSW, ebx
+	mov	FACHSW, ecx
 	mov	eax, 1			; return TRUE
 	jmp	done
 
@@ -5232,8 +5337,8 @@ bx1:	bsf	edx, eax		; Look for a set bit
 
 ; Return so caller can check for ESC
 
-	mov	_FACMSW, eax
-	mov	_FACHSW, edx
+	mov	FACMSW, eax
+	mov	FACHSW, edx
 	mov	eax, 2
 	jmp	done
 
@@ -5325,7 +5430,12 @@ bqloop:	sse2_fac 86
 	je	awin2			; Yes! Factor found
 	jmp	bx1			; Test next factor from sieve
 
-_factor64 ENDP
+;
+; All done
+;
+
+done:	ad_epilog 0,0,rbx,rbp,rsi,rdi
+factor64 ENDP
 
 _TEXT	ENDS
 END

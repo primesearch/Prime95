@@ -1,4 +1,4 @@
-; Copyright 1995-2004 - Just For Fun Software, Inc.
+; Copyright 1995-2006 - Just For Fun Software, Inc.
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -58,17 +58,16 @@ fmaxp	MACRO reg
 	fcomp	st			;; Pop non-maximum
 	ELSE
 	fcom	st(reg)			;; Compare to maximum error
-	push	eax
+	pusher	eax
 	fstsw	ax			;; Copy comparison results
 	test	ax, 100h		;; Isolate C0 bit
 	jnz	short less		;; Error is less than maximum
 	fxch	st(reg)			;; Save the maxerr
 less:	fcomp	st			;; Pop non-maximum
-	pop	eax
+	popper	eax
 	ENDIF
 	ENDM
 brute_force_error_check MACRO reg
-	LOCAL	less
 	fld	BIGVAL
 	fadd	st, st(1)
 	fsub	BIGVAL			;; This is the integer value
@@ -290,7 +289,7 @@ norm012_1d MACRO zero
 	fld	QWORD PTR [esi+0*8]	;; Load values1
 	fadd	BIGVAL			;; Compensate for BIGVAL-less carry
 	fxch	st(2)			;; c1, x2, x1, c2
-	fmul	MINUS_CARG		;; Mul wrap-araound carry by -CARG
+	fmul	MINUS_C			;; Mul wrap-araound carry by -c
 	faddp	st(2), st		;; x1 = values + carry1
 	fmul	XMM_NORM012_FF		;; x2 *= FFTLEN/2K
 	faddp	st(2), st		;; x2 = values + carry2
@@ -479,13 +478,13 @@ const	fld	XMM_K_TIMES_MULCONST_LO	;; x1 = low bits of k*mulconst
 no const fmul	XMM_K_HI		;; b1 *= high bits of k
 const	fmul	XMM_K_TIMES_MULCONST_HI	;; b1 *= high bits of k*mulconst
 	fxch	st(1)			;; a2,b1,x1,a1,b2,c1,sumout,maxerr
-no const fmul	XMM_MINUS_CARG		;; a2 *= -c
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST ;; a2 *= -c*mulconst
+no const fmul	XMM_MINUS_C		;; a2 *= -c
+const	fmul	XMM_MINUS_C_TIMES_MULCONST ;; a2 *= -c*mulconst
 	fxch	st(5)			;; c1,b1,x1,a1,b2,a2,sumout,maxerr
 	faddp	st(2), st		;; x1 += carry
 	fxch	st(3)			;; b2,x1,a1,b1,a2,sumout,maxerr
-no const fmul	XMM_MINUS_CARG		;; b2 *= -c
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST ;; b2 *= -c*mulconst
+no const fmul	XMM_MINUS_C		;; b2 *= -c
+const	fmul	XMM_MINUS_C_TIMES_MULCONST ;; b2 *= -c*mulconst
 	fxch	st(4)			;; a2,x1,a1,b1,b2,sumout,maxerr
 	faddp	st(3), st		;; b1 += a2 (Add upper FFT word to lower FFT word
 	faddp	st(3), st		;; x1 += b2 (Add upper FFT word to lower FFT word
@@ -562,13 +561,13 @@ const	fld	XMM_K_TIMES_MULCONST_LO	;; x1 = low bits of k*mulconst
 no const fmul	XMM_K_HI		;; b1 *= high bits of k
 const	fmul	XMM_K_TIMES_MULCONST_HI	;; b1 *= high bits of k*mulconst
 	fxch	st(1)			;; a2,b1,x1,a1,b2,c1,sumout,maxerr
-no const fmul	XMM_MINUS_CARG		;; a2 *= -c
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST ;; a2 *= -c*mulconst
+no const fmul	XMM_MINUS_C		;; a2 *= -c
+const	fmul	XMM_MINUS_C_TIMES_MULCONST ;; a2 *= -c*mulconst
 	fxch	st(5)			;; c1,b1,x1,a1,b2,a2,sumout,maxerr
 	faddp	st(2), st		;; x1 += carry
 	fxch	st(3)			;; b2,x1,a1,b1,a2,sumout,maxerr
-no const fmul	XMM_MINUS_CARG		;; b2 *= -c
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST ;; b2 *= -c*mulconst
+no const fmul	XMM_MINUS_C		;; b2 *= -c
+const	fmul	XMM_MINUS_C_TIMES_MULCONST ;; b2 *= -c*mulconst
 	fxch	st(4)			;; a2,x1,a1,b1,b2,sumout,maxerr
 	faddp	st(3), st		;; b1 += a2 (Add upper FFT word to lower FFT word
 	faddp	st(3), st		;; x1 += b2 (Add upper FFT word to lower FFT word
@@ -603,7 +602,7 @@ norm012_1d_zpad MACRO const
 
 	;; Rather than calculate high FFT carry times k and then later dividing
 	;; by k, we multiply FFT high carry by const and we'll add it
-	;; to the lower FFT data later (after multiplying by -CARG).
+	;; to the lower FFT data later (after multiplying by -c).
 const	fmul	XMM_MULCONST
 
 	;; Strip BIGVAL from the traditional carry, we'll add the traditional
@@ -611,18 +610,18 @@ const	fmul	XMM_MULCONST
 	fxch	st(1)			;; c1, c2, sumout, maxerr
 	fsub	BIGVAL			;; Integerize traditional carry
 
-	;; Multiply ZPAD0 through ZPAD6 by const * -CARG.  This, in essense,
+	;; Multiply ZPAD0 through ZPAD6 by const * -c.  This, in essense,
 	;; wraps this data from above the FFT data area to the halfway point.
 	;; Later on we'll divide this by K to decide which data needs wrapping
 	;; all the way down to the bottom of the FFT data.
 
 	;; NOTE that ZPAD0's column multiplier is 1.0.  Also, ZPAD6 will not
-	;; be bigger than a big word.  We must be careful to handle CARG's up
+	;; be bigger than a big word.  We must be careful to handle c's up
 	;; to about 30 bits
 
 	mov	al, [edi]		;; Load big vs. little flags
-	fld	XMM_ZPAD0		;; Load values1
-	fadd	_ADDIN_VALUE		;; Add in the requested value
+	fld	ZPAD0			;; Load values1
+	fadd	ADDIN_VALUE		;; Add in the requested value
 	fadd	BIGVAL			;; Round to an integer
 	fsub	BIGVAL
 	fld	BIGBIGVAL		;; Big word rounding constant
@@ -631,8 +630,8 @@ const	fmul	XMM_MULCONST
 	fsub	st(1), st		;; Compute low bigword bits
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Saved shifted high ZPAD data
 	fxch	st(1)			;; lowbits,hibits,c1,c2,sumout,maxerr
-no const fmul	MINUS_CARG
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
+no const fmul	MINUS_C
+const	fmul	XMM_MINUS_C_TIMES_MULCONST
 	faddp	st(2), st		;; Add in traditional carry
 	fld	BIGBIGVAL		;; Big word rounding constant
 	fadd	st, st(2)		;; Round to multiple of big word
@@ -640,10 +639,10 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fsub	st(2), st		;; Compute low bigword bits
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Shift high ZPAD data
 	fxch	st(2)			;; lo(z),hibits,hi(z),c2,sumout,maxerr
-	fstp	XMM_ZPAD0
+	fstp	ZPAD0
 
 	mov	al, [edi+1]		;; Load big vs. little flags
-	fld	XMM_ZPAD1		;; Load values1
+	fld	ZPAD1			;; Load values1
 	fmul	QWORD PTR [ebx+1*32]	;; Mul values1 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
 	fadd	BIGVAL			;; Round to an integer
@@ -655,8 +654,8 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Saved shifted high ZPAD data
 	fxch	st(2)			;; hibits0,lobits,hibits,c1,c2,sumout,maxerr
 	faddp	st(1), st		;; Add in prev shifted high ZPAD data
-no const fmul	MINUS_CARG
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
+no const fmul	MINUS_C
+const	fmul	XMM_MINUS_C_TIMES_MULCONST
 	faddp	st(2), st		;; Add in high part of last calculation
 	fld	BIGBIGVAL		;; Big word rounding constant
 	fadd	st, st(2)		;; Round to multiple of big word
@@ -664,10 +663,10 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fsub	st(2), st		;; Compute low bigword bits
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Shift high ZPAD data
 	fxch	st(2)			;; lo(z),hibits,hi(z),c2,sumout,maxerr
-	fstp	XMM_ZPAD1
+	fstp	ZPAD1
 
 	mov	al, [edi+2]		;; Load big vs. little flags
-	fld	XMM_ZPAD2		;; Load values1
+	fld	ZPAD2			;; Load values1
 	fmul	QWORD PTR [ebx+2*32]	;; Mul values1 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
 	fadd	BIGVAL			;; Round to an integer
@@ -679,8 +678,8 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Saved shifted high ZPAD data
 	fxch	st(2)			;; hibits0,lobits,hibits,c1,c2,sumout,maxerr
 	faddp	st(1), st		;; Add in prev shifted high ZPAD data
-no const fmul	MINUS_CARG
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
+no const fmul	MINUS_C
+const	fmul	XMM_MINUS_C_TIMES_MULCONST
 	faddp	st(2), st		;; Add in high part of last calculation
 	fld	BIGBIGVAL		;; Big word rounding constant
 	fadd	st, st(2)		;; Round to multiple of big word
@@ -688,10 +687,10 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fsub	st(2), st		;; Compute low bigword bits
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Shift high ZPAD data
 	fxch	st(2)			;; lo(z),hibits,hi(z),c2,sumout,maxerr
-	fstp	XMM_ZPAD2
+	fstp	ZPAD2
 
 	mov	al, [edi+3]		;; Load big vs. little flags
-	fld	XMM_ZPAD3		;; Load values1
+	fld	ZPAD3			;; Load values1
 	fmul	QWORD PTR [ebx+3*32]	;; Mul values1 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
 	fadd	BIGVAL			;; Round to an integer
@@ -703,8 +702,8 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Saved shifted high ZPAD data
 	fxch	st(2)			;; hibits0,lobits,hibits,c1,c2,sumout,maxerr
 	faddp	st(1), st		;; Add in prev shifted high ZPAD data
-no const fmul	MINUS_CARG
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
+no const fmul	MINUS_C
+const	fmul	XMM_MINUS_C_TIMES_MULCONST
 	faddp	st(2), st		;; Add in high part of last calculation
 	fld	BIGBIGVAL		;; Big word rounding constant
 	fadd	st, st(2)		;; Round to multiple of big word
@@ -712,10 +711,10 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fsub	st(2), st		;; Compute low bigword bits
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Shift high ZPAD data
 	fxch	st(2)			;; lo(z),hibits,hi(z),c2,sumout,maxerr
-	fstp	XMM_ZPAD3
+	fstp	ZPAD3
 
 	mov	al, [edi+4]		;; Load big vs. little flags
-	fld	XMM_ZPAD4		;; Load values1
+	fld	ZPAD4			;; Load values1
 	fmul	QWORD PTR [ebx+4*32]	;; Mul values1 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
 	fadd	BIGVAL			;; Round to an integer
@@ -727,8 +726,8 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Saved shifted high ZPAD data
 	fxch	st(2)			;; hibits0,lobits,hibits,c1,c2,sumout,maxerr
 	faddp	st(1), st		;; Add in prev shifted high ZPAD data
-no const fmul	MINUS_CARG
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
+no const fmul	MINUS_C
+const	fmul	XMM_MINUS_C_TIMES_MULCONST
 	faddp	st(2), st		;; Add in high part of last calculation
 	fld	BIGBIGVAL		;; Big word rounding constant
 	fadd	st, st(2)		;; Round to multiple of big word
@@ -736,10 +735,10 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fsub	st(2), st		;; Compute low bigword bits
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Shift high ZPAD data
 	fxch	st(2)			;; lo(z),hibits,hi(z),c2,sumout,maxerr
-	fstp	XMM_ZPAD4
+	fstp	ZPAD4
 
 	mov	al, [edi+5]		;; Load big vs. little flags
-	fld	XMM_ZPAD5		;; Load values1
+	fld	ZPAD5			;; Load values1
 	fmul	QWORD PTR [ebx+5*32]	;; Mul values1 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
 	fadd	BIGVAL			;; Round to an integer
@@ -751,8 +750,8 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Saved shifted high ZPAD data
 	fxch	st(2)			;; hibits0,lobits,hibits,c1,c2,sumout,maxerr
 	faddp	st(1), st		;; Add in prev shifted high ZPAD data
-no const fmul	MINUS_CARG
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
+no const fmul	MINUS_C
+const	fmul	XMM_MINUS_C_TIMES_MULCONST
 	faddp	st(2), st		;; Add in high part of last calculation
 	fld	BIGBIGVAL		;; Big word rounding constant
 	fadd	st, st(2)		;; Round to multiple of big word
@@ -760,22 +759,22 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fsub	st(2), st		;; Compute low bigword bits
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Shift high ZPAD data
 	fxch	st(2)			;; lo(z),hibits,hi(z),c2,sumout,maxerr
-	fstp	XMM_ZPAD5
+	fstp	ZPAD5
 
-	fld	XMM_ZPAD6		;; Load values1
+	fld	ZPAD6			;; Load values1
 	fmul	QWORD PTR [ebx+6*32]	;; Mul values1 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
 	fadd	BIGVAL			;; Round to an integer
 	fsub	BIGVAL
 	faddp	st(1), st		;; Add in shifted high ZPAD data
-no const fmul	MINUS_CARG
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
+no const fmul	MINUS_C
+const	fmul	XMM_MINUS_C_TIMES_MULCONST
 	faddp	st(1), st		;; Add in high part of last calculation
-	fstp	XMM_ZPAD6
+	fstp	ZPAD6
 
 	;; Divide the zpad data by k.  Store the integer part in XMM_TMP
-	;; and the remainder in XMM_ZPAD0.  Later we will wrap the integer part
-	;; down to the bottom of the FFT data area (and multiply by -CARG).
+	;; and the remainder in ZPAD0.  Later we will wrap the integer part
+	;; down to the bottom of the FFT data area (and multiply by -c).
 	;; And we will store the remainder in the upper half of the FFT
 	;; data area.
 
@@ -783,120 +782,120 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	;; K is between one and 2 big words in size.  And K is more than
 	;; 2 big words in size.
 
-	cmp	_ZPAD_TYPE, 2		;; Are we dealing with case 1,2,or 3
+	cmp	ZPAD_TYPE, 2		;; Are we dealing with case 1,2,or 3
 	jl	smallk			;; One word case
 	je	mediumk			;; Two word case
 
 	;; This case does the divide by k where k is three words
 
-	fld	XMM_ZPAD6		;; Load zpad word (high bits)
-	fld	XMM_ZPAD5		;; Load zpad word (middle bits)
-	fld	XMM_ZPAD4		;; Load zpad word (low bits)
-	fld	_ZPAD_INVERSE_K6	;; Load shifted 1/k
+	fld	ZPAD6			;; Load zpad word (high bits)
+	fld	ZPAD5			;; Load zpad word (middle bits)
+	fld	ZPAD4			;; Load zpad word (low bits)
+	fld	ZPAD_INVERSE_K6		;; Load shifted 1/k
 	fmul	st, st(3)		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer	
 	fsub	BIGVAL
-	fld	_ZPAD_K6_HI		;; Load high bits of k
+	fld	ZPAD_K6_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(4), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K6_MID		;; Load middle bits of k
+	fld	ZPAD_K6_MID		;; Load middle bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate middle bits of remainder
-	fld	_ZPAD_K6_LO		;; Load low bits of k
+	fld	ZPAD_K6_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP5		;; Save word of zpad / k
 
 	fxch	st(2)			;; hi,mid,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT6		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT6		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD3		;; Load zpad word (new low bits)
-	fld	_ZPAD_SHIFT5		;; Combine high and medium bits
+	fld	ZPAD3			;; Load zpad word (new low bits)
+	fld	ZPAD_SHIFT5		;; Combine high and medium bits
 	fmul	st, st(2)
 	fadd	st, st(3)
-	fmul	_ZPAD_INVERSE_K5	;; Mul ZPAD by shifted 1/k
+	fmul	ZPAD_INVERSE_K5		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K5_HI		;; Load high bits of k
+	fld	ZPAD_K5_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K5_MID		;; Load middle bits of k
+	fld	ZPAD_K5_MID		;; Load middle bits of k
 	fmul	st, st(1)
 	fsubp	st(4), st		;; Calculate middle bits of remainder
-	fld	_ZPAD_K5_LO		;; Load low bits of k
+	fld	ZPAD_K5_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP4		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,mid,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT5		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT5		;; Shift previous zpad word
 	faddp	st(2), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD2		;; Load zpad word (new low bits)
-	fld	_ZPAD_SHIFT4		;; Combine high and medium bits
+	fld	ZPAD2			;; Load zpad word (new low bits)
+	fld	ZPAD_SHIFT4		;; Combine high and medium bits
 	fmul	st, st(3)
 	fadd	st, st(2)
-	fmul	_ZPAD_INVERSE_K4	;; Mul ZPAD by shifted 1/k
+	fmul	ZPAD_INVERSE_K4		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K4_HI		;; Load high bits of k
+	fld	ZPAD_K4_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(4), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K4_MID		;; Load middle bits of k
+	fld	ZPAD_K4_MID		;; Load middle bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate middle bits of remainder
-	fld	_ZPAD_K4_LO		;; Load low bits of k
+	fld	ZPAD_K4_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP3		;; Save word of zpad / k
 
 	fxch	st(2)			;; hi,mid,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT4		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT4		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD1		;; Load zpad word (new low bits)
-	fld	_ZPAD_SHIFT3		;; Combine high and medium bits
+	fld	ZPAD1			;; Load zpad word (new low bits)
+	fld	ZPAD_SHIFT3		;; Combine high and medium bits
 	fmul	st, st(2)
 	fadd	st, st(3)
-	fmul	_ZPAD_INVERSE_K3	;; Mul ZPAD by shifted 1/k
+	fmul	ZPAD_INVERSE_K3		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K3_HI		;; Load high bits of k
+	fld	ZPAD_K3_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K3_MID		;; Load middle bits of k
+	fld	ZPAD_K3_MID		;; Load middle bits of k
 	fmul	st, st(1)
 	fsubp	st(4), st		;; Calculate middle bits of remainder
-	fld	_ZPAD_K3_LO		;; Load low bits of k
+	fld	ZPAD_K3_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP2		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,mid,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT3		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT3		;; Shift previous zpad word
 	faddp	st(2), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD0		;; Load zpad word (new low bits)
-	fld	_ZPAD_SHIFT2		;; Combine high and medium bits
+	fld	ZPAD0			;; Load zpad word (new low bits)
+	fld	ZPAD_SHIFT2		;; Combine high and medium bits
 	fmul	st, st(3)
 	fadd	st, st(2)
-	fmul	_ZPAD_INVERSE_K2	;; Mul ZPAD by shifted 1/k
+	fmul	ZPAD_INVERSE_K2		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K2_HI		;; Load high bits of k
+	fld	ZPAD_K2_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(4), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K2_MID		;; Load middle bits of k
+	fld	ZPAD_K2_MID		;; Load middle bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate middle bits of remainder
-	fld	_ZPAD_K2_LO		;; Load low bits of k
+	fld	ZPAD_K2_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP1		;; Save word of zpad / k
 
 	fxch	st(2)			;; hi,mid,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT2		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT2		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fmul	_ZPAD_SHIFT1		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT1		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fstp	XMM_ZPAD0		;; Save remainder of zpad / k
+	fstp	ZPAD0			;; Save remainder of zpad / k
 
 	fldz				;; Zero words that other cases set
 	fstp	XMM_TMP6
@@ -905,158 +904,158 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 
 	;; This case does the divide by k where k is two words
 mediumk:
-	fld	XMM_ZPAD6		;; Load zpad word (high bits)
-	fld	XMM_ZPAD5		;; Load zpad word (low bits)
-	fld	_ZPAD_INVERSE_K6	;; Load shifted 1/k
+	fld	ZPAD6			;; Load zpad word (high bits)
+	fld	ZPAD5			;; Load zpad word (low bits)
+	fld	ZPAD_INVERSE_K6		;; Load shifted 1/k
 	fmul	st, st(2)		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer	
 	fsub	BIGVAL
-	fld	_ZPAD_K6_HI		;; Load high bits of k
+	fld	ZPAD_K6_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K6_LO		;; Load low bits of k
+	fld	ZPAD_K6_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP6		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT6		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT6		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD4		;; Load zpad word (new low bits)
-	fld	_ZPAD_INVERSE_K5	;; Load shifted 1/k
+	fld	ZPAD4			;; Load zpad word (new low bits)
+	fld	ZPAD_INVERSE_K5		;; Load shifted 1/k
 	fmul	st, st(2)		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K5_HI		;; Load high bits of k
+	fld	ZPAD_K5_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K5_LO		;; Load low bits of k
+	fld	ZPAD_K5_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP5		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT5		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT5		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD3		;; Load zpad word (new low bits)
-	fld	_ZPAD_INVERSE_K4	;; Load shifted 1/k
+	fld	ZPAD3			;; Load zpad word (new low bits)
+	fld	ZPAD_INVERSE_K4		;; Load shifted 1/k
 	fmul	st, st(2)		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K4_HI		;; Load high bits of k
+	fld	ZPAD_K4_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K4_LO		;; Load low bits of k
+	fld	ZPAD_K4_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP4		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT4		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT4		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD2		;; Load zpad word (new low bits)
-	fld	_ZPAD_INVERSE_K3	;; Load shifted 1/k
+	fld	ZPAD2			;; Load zpad word (new low bits)
+	fld	ZPAD_INVERSE_K3		;; Load shifted 1/k
 	fmul	st, st(2)		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K3_HI		;; Load high bits of k
+	fld	ZPAD_K3_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K3_LO		;; Load low bits of k
+	fld	ZPAD_K3_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP3		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT3		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT3		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD1		;; Load zpad word (new low bits)
-	fld	_ZPAD_INVERSE_K2	;; Load shifted 1/k
+	fld	ZPAD1			;; Load zpad word (new low bits)
+	fld	ZPAD_INVERSE_K2		;; Load shifted 1/k
 	fmul	st, st(2)		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K2_HI		;; Load high bits of k
+	fld	ZPAD_K2_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K2_LO		;; Load low bits of k
+	fld	ZPAD_K2_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP2		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT2		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT2		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD0		;; Load zpad word (new low bits)
-	fld	_ZPAD_INVERSE_K1	;; Load shifted 1/k
+	fld	ZPAD0			;; Load zpad word (new low bits)
+	fld	ZPAD_INVERSE_K1		;; Load shifted 1/k
 	fmul	st, st(2)		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K1_HI		;; Load high bits of k
+	fld	ZPAD_K1_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K1_LO		;; Load low bits of k
+	fld	ZPAD_K1_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP1		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT1		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT1		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fstp	XMM_ZPAD0		;; Save remainder of zpad / k
+	fstp	ZPAD0			;; Save remainder of zpad / k
 
 	jmp	div_k_done
 
 	;; This case does the divide by k where k is one word
 	;; Assume ZPAD5 and ZPAD6 are zero.
-smallk:	fld	XMM_ZPAD4		;; Load zpad data
-	fld	_ZPAD_INVERSE_K1	;; Load by 1/k
+smallk:	fld	ZPAD4			;; Load zpad data
+	fld	ZPAD_INVERSE_K1		;; Load by 1/k
 	fmul	st, st(1)		;; Mul ZPAD data by 1/k
 	fadd	BIGVAL			;; Round to integer	
 	fsub	BIGVAL
 	fst	XMM_TMP5		;; Save integer part
-	fmul	_ZPAD_K1_LO		;; Compute remainder
+	fmul	ZPAD_K1_LO		;; Compute remainder
 	fsubp	st(1), st
 
-	fmul	_ZPAD_SHIFT4		;; Shift previous zpad word
-	fadd	XMM_ZPAD3		;; Add in zpad data
-	fld	_ZPAD_INVERSE_K1	;; Load by 1/k
+	fmul	ZPAD_SHIFT4		;; Shift previous zpad word
+	fadd	ZPAD3			;; Add in zpad data
+	fld	ZPAD_INVERSE_K1		;; Load by 1/k
 	fmul	st, st(1)		;; Mul ZPAD data by 1/k
 	fadd	BIGVAL			;; Round to integer	
 	fsub	BIGVAL
 	fst	XMM_TMP4		;; Save integer part
-	fmul	_ZPAD_K1_LO		;; Compute remainder
+	fmul	ZPAD_K1_LO		;; Compute remainder
 	fsubp	st(1), st
 
-	fmul	_ZPAD_SHIFT3		;; Shift previous zpad word
-	fadd	XMM_ZPAD2		;; Add in zpad data
-	fld	_ZPAD_INVERSE_K1	;; Load by 1/k
+	fmul	ZPAD_SHIFT3		;; Shift previous zpad word
+	fadd	ZPAD2			;; Add in zpad data
+	fld	ZPAD_INVERSE_K1		;; Load by 1/k
 	fmul	st, st(1)		;; Mul ZPAD data by 1/k
 	fadd	BIGVAL			;; Round to integer	
 	fsub	BIGVAL
 	fst	XMM_TMP3		;; Save integer part
-	fmul	_ZPAD_K1_LO		;; Compute remainder
+	fmul	ZPAD_K1_LO		;; Compute remainder
 	fsubp	st(1), st
 
-	fmul	_ZPAD_SHIFT2		;; Shift previous zpad word
-	fadd	XMM_ZPAD1		;; Add in zpad data
-	fld	_ZPAD_INVERSE_K1	;; Load by 1/k
+	fmul	ZPAD_SHIFT2		;; Shift previous zpad word
+	fadd	ZPAD1			;; Add in zpad data
+	fld	ZPAD_INVERSE_K1		;; Load by 1/k
 	fmul	st, st(1)		;; Mul ZPAD data by 1/k
 	fadd	BIGVAL			;; Round to integer	
 	fsub	BIGVAL
 	fst	XMM_TMP2		;; Save integer part
-	fmul	_ZPAD_K1_LO		;; Compute remainder
+	fmul	ZPAD_K1_LO		;; Compute remainder
 	fsubp	st(1), st
 
-	fmul	_ZPAD_SHIFT1		;; Shift previous zpad word
-	fadd	XMM_ZPAD0		;; Add in zpad data
-	fld	_ZPAD_INVERSE_K1	;; Load by 1/k
+	fmul	ZPAD_SHIFT1		;; Shift previous zpad word
+	fadd	ZPAD0			;; Add in zpad data
+	fld	ZPAD_INVERSE_K1		;; Load by 1/k
 	fmul	st, st(1)		;; Mul ZPAD data by 1/k
 	fadd	BIGVAL			;; Round to integer	
 	fsub	BIGVAL
 	fst	XMM_TMP1		;; Save integer part
-	fmul	_ZPAD_K1_LO		;; Compute remainder
+	fmul	ZPAD_K1_LO		;; Compute remainder
 	fsubp	st(1), st
-	fstp	XMM_ZPAD0		;; Save remainder
+	fstp	ZPAD0			;; Save remainder
 
 	fldz				;; Zero words that other cases set
 	fstp	XMM_TMP6
@@ -1067,7 +1066,7 @@ div_k_done:
 	;; column two-to-phi multiplier for the first value will be 1.0.
 
 	mov	al, [edi]		;; First word 
-	fld	XMM_ZPAD0		;; Load remainder of divide by k
+	fld	ZPAD0			;; Load remainder of divide by k
 	fadd	BIGVAL
 	fld	XMM_LIMIT_BIGMAX[eax]	;; Load maximum * BIGVAL - BIGVAL
 	fadd	st, st(1)		;; y1 = top bits of x
@@ -1104,17 +1103,17 @@ div_k_done:
 	fmul	QWORD PTR [ebx+3*32+8]	;; value4 = carry * two-to-phi
 	fstp	QWORD PTR [esi+3*16+8]	;; Save value4
 
-	;; Mul the integer part of (ZPAD data divided by k) by -CARG in
+	;; Mul the integer part of (ZPAD data divided by k) by -c in
 	;; preparation for adding it into the lower FFT data area.
 	;; Also add in the shifted high FFT carry at this time.
 
 	;; Now add in and normalize the bottom FFT data.  Remember that the
 	;; column two-to-phi multiplier for the first value will be 1.0.  We 
-	;; must go 6 words deep in case k is 48-50 bits and CARG is 32 bits.
+	;; must go 6 words deep in case k is 48-50 bits and c is 32 bits.
 
 	mov	al, [edi]		;; First word 
 	fadd	XMM_TMP1		;; Add rem of div by k to hi FFT carry
-	fmul	MINUS_CARG		;; Mul by -CARG
+	fmul	MINUS_C			;; Mul by -c
 	fadd	BIGVAL
 	fadd	QWORD PTR [esi+0*16]	;; Add in the FFT data
 	fld	XMM_LIMIT_BIGMAX[eax]	;; Load maximum * BIGVAL - BIGVAL
@@ -1128,7 +1127,7 @@ div_k_done:
 
 	mov	al, [edi+1]		;; Load big vs. little flags
 	fld	XMM_TMP2		;; Load remainder of divide by k
-	fmul	MINUS_CARG		;; Mul by -CARG
+	fmul	MINUS_C			;; Mul by -c
 	fld	QWORD PTR [esi+1*16]	;; Load FFT data
 	fmul	QWORD PTR [ebx+1*32]	;; Mul values2 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
@@ -1146,7 +1145,7 @@ div_k_done:
 
 	mov	al, [edi+2]		;; Load big vs. little flags
 	fld	XMM_TMP3		;; Load remainder of divide by k
-	fmul	MINUS_CARG		;; Mul by -CARG
+	fmul	MINUS_C			;; Mul by -c
 	fld	QWORD PTR [esi+2*16]	;; Load FFT data
 	fmul	QWORD PTR [ebx+2*32]	;; Mul values2 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
@@ -1164,7 +1163,7 @@ div_k_done:
 
 	mov	al, [edi+3]		;; Load big vs. little flags
 	fld	XMM_TMP4		;; Load remainder of divide by k
-	fmul	MINUS_CARG		;; Mul by -CARG
+	fmul	MINUS_C			;; Mul by -c
 	fld	QWORD PTR [esi+3*16]	;; Load FFT data
 	fmul	QWORD PTR [ebx+3*32]	;; Mul values2 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
@@ -1182,7 +1181,7 @@ div_k_done:
 
 	mov	al, [edi+4]		;; Load big vs. little flags
 	fld	XMM_TMP5		;; Load remainder of divide by k
-	fmul	MINUS_CARG		;; Mul by -CARG
+	fmul	MINUS_C			;; Mul by -c
 	fld	QWORD PTR [esi+4*16]	;; Load FFT data
 	fmul	QWORD PTR [ebx+4*32]	;; Mul values2 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
@@ -1200,7 +1199,7 @@ div_k_done:
 
 	mov	al, [edi+5]		;; Load big vs. little flags
 	fld	XMM_TMP6		;; Load remainder of divide by k
-	fmul	MINUS_CARG		;; Mul by -CARG
+	fmul	MINUS_C			;; Mul by -c
 	fld	QWORD PTR [esi+5*16]	;; Load FFT data
 	fmul	QWORD PTR [ebx+5*32]	;; Mul values2 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
@@ -1371,7 +1370,7 @@ zero	brute_force_zero
 ; ebx = pointer after carries
 norm012_2d_part1 MACRO
 	fld	QWORD PTR [ebx-8]	;; Load very last carry
-	fmul	MINUS_CARG		;; Mul last carry by -CARG
+	fmul	MINUS_C			;; Mul last carry by -c
 	fadd	BIGVAL
 	fld	QWORD PTR [ebx-16]	;; Load other carry
 	fadd	BIGVAL
@@ -1392,7 +1391,7 @@ norm012_2d MACRO
 	;; This means the carry may need to be spread over 4 words instead
 	;; of just 2.
 
-	cmp	_SPREAD_CARRY_OVER_4_WORDS, 1;; Are there few bits per word?
+	cmp	SPREAD_CARRY_OVER_4_WORDS, 1;; Are there few bits per word?
 	je	hard			;; Yes, go do it the hard way
 
 					;; x2 = high carry, x1 = low carry
@@ -1723,13 +1722,13 @@ const	fld	XMM_K_TIMES_MULCONST_LO	;; x1 = low bits of k*mulconst
 no const fmul	XMM_K_HI		;; b1 *= high bits of k
 const	fmul	XMM_K_TIMES_MULCONST_HI	;; b1 *= high bits of k*mulconst
 	fxch	st(1)			;; a2,b1,x1,a1,b2,c1,sumout,maxerr
-no const fmul	XMM_MINUS_CARG		;; a2 *= -c
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST ;; a2 *= -c*mulconst
+no const fmul	XMM_MINUS_C		;; a2 *= -c
+const	fmul	XMM_MINUS_C_TIMES_MULCONST ;; a2 *= -c*mulconst
 	fxch	st(5)			;; c1,b1,x1,a1,b2,a2,sumout,maxerr
 	faddp	st(2), st		;; x1 += carry
 	fxch	st(3)			;; b2,x1,a1,b1,a2,sumout,maxerr
-no const fmul	XMM_MINUS_CARG		;; b2 *= -c
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST ;; b2 *= -c*mulconst
+no const fmul	XMM_MINUS_C		;; b2 *= -c
+const	fmul	XMM_MINUS_C_TIMES_MULCONST ;; b2 *= -c*mulconst
 	fxch	st(4)			;; a2,x1,a1,b1,b2,sumout,maxerr
 	faddp	st(3), st		;; b1 += a2 (Add upper FFT word to lower FFT word
 	faddp	st(3), st		;; x1 += b2 (Add upper FFT word to lower FFT word
@@ -1815,13 +1814,13 @@ const	fld	XMM_K_TIMES_MULCONST_LO	;; x1 = low bits of k*mulconst
 no const fmul	XMM_K_HI		;; b1 *= high bits of k
 const	fmul	XMM_K_TIMES_MULCONST_HI	;; b1 *= high bits of k*mulconst
 	fxch	st(1)			;; a2,b1,x1,a1,b2,c1,sumout,maxerr
-no const fmul	XMM_MINUS_CARG		;; a2 *= -c
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST ;; a2 *= -c*mulconst
+no const fmul	XMM_MINUS_C		;; a2 *= -c
+const	fmul	XMM_MINUS_C_TIMES_MULCONST ;; a2 *= -c*mulconst
 	fxch	st(5)			;; c1,b1,x1,a1,b2,a2,sumout,maxerr
 	faddp	st(2), st		;; x1 += carry
 	fxch	st(3)			;; b2,x1,a1,b1,a2,sumout,maxerr
-no const fmul	XMM_MINUS_CARG		;; b2 *= -c
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST ;; b2 *= -c*mulconst
+no const fmul	XMM_MINUS_C		;; b2 *= -c
+const	fmul	XMM_MINUS_C_TIMES_MULCONST ;; b2 *= -c*mulconst
 	fxch	st(4)			;; a2,x1,a1,b1,b2,sumout,maxerr
 	faddp	st(3), st		;; b1 += a2 (Add upper FFT word to lower FFT word
 	faddp	st(3), st		;; x1 += b2 (Add upper FFT word to lower FFT word
@@ -1860,22 +1859,22 @@ norm012_2d_zpad_part1 MACRO const
 
 	;; Rather than calculate high FFT carry times k and then later dividing
 	;; by k, we multiply FFT high carry by const and we'll add it
-	;; to the lower FFT data later (after multiplying by -CARG).
+	;; to the lower FFT data later (after multiplying by -c).
 const	fmul	XMM_MULCONST
 	fxch	st(1)			;; c1, c2, sumout, maxerr
 
-	;; Multiply ZPAD0 through ZPAD6 by const * -CARG.  This, in essense,
+	;; Multiply ZPAD0 through ZPAD6 by const * -c.  This, in essense,
 	;; wraps this data from above the FFT data area to the halfway point.
 	;; Later on we'll divide this by K to decide which data needs wrapping
 	;; all the way down to the bottom of the FFT data.
 
 	;; NOTE that ZPAD0's column multiplier is 1.0.  Also, ZPAD6 will not
-	;; be bigger than a big word.  We must be careful to handle CARG's up
+	;; be bigger than a big word.  We must be careful to handle c's up
 	;; to about 30 bits
 
 	mov	al, [edi]		;; Load big vs. little flags
-	fld	XMM_ZPAD0		;; Load values1
-	fadd	_ADDIN_VALUE		;; Add in the requested value
+	fld	ZPAD0			;; Load values1
+	fadd	ADDIN_VALUE		;; Add in the requested value
 	fadd	BIGVAL			;; Round to an integer
 	fsub	BIGVAL
 	fld	BIGBIGVAL		;; Big word rounding constant
@@ -1884,8 +1883,8 @@ const	fmul	XMM_MULCONST
 	fsub	st(1), st		;; Compute low bigword bits
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Saved shifted high ZPAD data
 	fxch	st(1)			;; lowbits,hibits,c1,c2,sumout,maxerr
-no const fmul	MINUS_CARG
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
+no const fmul	MINUS_C
+const	fmul	XMM_MINUS_C_TIMES_MULCONST
 	faddp	st(2), st		;; Add in traditional carry
 	fld	BIGBIGVAL		;; Big word rounding constant
 	fadd	st, st(2)		;; Round to multiple of big word
@@ -1893,10 +1892,10 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fsub	st(2), st		;; Compute low bigword bits
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Shift high ZPAD data
 	fxch	st(2)			;; lo(z),hibits,hi(z),c2,sumout,maxerr
-	fstp	XMM_ZPAD0
+	fstp	ZPAD0
 
 	mov	al, [edi+1]		;; Load big vs. little flags
-	fld	XMM_ZPAD1		;; Load values1
+	fld	ZPAD1			;; Load values1
 	fmul	QWORD PTR [ebx+1*16]	;; Mul values1 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
 	fadd	BIGVAL			;; Round to an integer
@@ -1908,8 +1907,8 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Saved shifted high ZPAD data
 	fxch	st(2)			;; hibits0,lobits,hibits,c1,c2,sumout,maxerr
 	faddp	st(1), st		;; Add in prev shifted high ZPAD data
-no const fmul	MINUS_CARG
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
+no const fmul	MINUS_C
+const	fmul	XMM_MINUS_C_TIMES_MULCONST
 	faddp	st(2), st		;; Add in high part of last calculation
 	fld	BIGBIGVAL		;; Big word rounding constant
 	fadd	st, st(2)		;; Round to multiple of big word
@@ -1917,12 +1916,12 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fsub	st(2), st		;; Compute low bigword bits
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Shift high ZPAD data
 	fxch	st(2)			;; lo(z),hibits,hi(z),c2,sumout,maxerr
-	fstp	XMM_ZPAD1
+	fstp	ZPAD1
 
-	mov	ecx, _BIGLIT_INCR2	;; Different clm values step through
+	mov	ecx, BIGLIT_INCR2	;; Different clm values step through
 					;; big/lit array differently
 	mov	al, [edi+ecx]		;; Load big vs. little flags
-	fld	XMM_ZPAD2		;; Load values1
+	fld	ZPAD2			;; Load values1
 	fmul	QWORD PTR [ebx+2*16]	;; Mul values1 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
 	fadd	BIGVAL			;; Round to an integer
@@ -1934,8 +1933,8 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Saved shifted high ZPAD data
 	fxch	st(2)			;; hibits0,lobits,hibits,c1,c2,sumout,maxerr
 	faddp	st(1), st		;; Add in prev shifted high ZPAD data
-no const fmul	MINUS_CARG
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
+no const fmul	MINUS_C
+const	fmul	XMM_MINUS_C_TIMES_MULCONST
 	faddp	st(2), st		;; Add in high part of last calculation
 	fld	BIGBIGVAL		;; Big word rounding constant
 	fadd	st, st(2)		;; Round to multiple of big word
@@ -1943,10 +1942,10 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fsub	st(2), st		;; Compute low bigword bits
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Shift high ZPAD data
 	fxch	st(2)			;; lo(z),hibits,hi(z),c2,sumout,maxerr
-	fstp	XMM_ZPAD2
+	fstp	ZPAD2
 
 	mov	al, [edi+ecx+1]		;; Load big vs. little flags
-	fld	XMM_ZPAD3		;; Load values1
+	fld	ZPAD3			;; Load values1
 	fmul	QWORD PTR [ebx+3*16]	;; Mul values1 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
 	fadd	BIGVAL			;; Round to an integer
@@ -1958,8 +1957,8 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Saved shifted high ZPAD data
 	fxch	st(2)			;; hibits0,lobits,hibits,c1,c2,sumout,maxerr
 	faddp	st(1), st		;; Add in prev shifted high ZPAD data
-no const fmul	MINUS_CARG
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
+no const fmul	MINUS_C
+const	fmul	XMM_MINUS_C_TIMES_MULCONST
 	faddp	st(2), st		;; Add in high part of last calculation
 	fld	BIGBIGVAL		;; Big word rounding constant
 	fadd	st, st(2)		;; Round to multiple of big word
@@ -1967,12 +1966,12 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fsub	st(2), st		;; Compute low bigword bits
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Shift high ZPAD data
 	fxch	st(2)			;; lo(z),hibits,hi(z),c2,sumout,maxerr
-	fstp	XMM_ZPAD3
+	fstp	ZPAD3
 
-	mov	ecx, _BIGLIT_INCR4	;; Different clm values step through
+	mov	ecx, BIGLIT_INCR4	;; Different clm values step through
 					;; big/lit array differently
 	mov	al, [edi+ecx]		;; Load big vs. little flags
-	fld	XMM_ZPAD4		;; Load values1
+	fld	ZPAD4			;; Load values1
 	fmul	QWORD PTR [ebx+4*16]	;; Mul values1 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
 	fadd	BIGVAL			;; Round to an integer
@@ -1984,8 +1983,8 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Saved shifted high ZPAD data
 	fxch	st(2)			;; hibits0,lobits,hibits,c1,c2,sumout,maxerr
 	faddp	st(1), st		;; Add in prev shifted high ZPAD data
-no const fmul	MINUS_CARG
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
+no const fmul	MINUS_C
+const	fmul	XMM_MINUS_C_TIMES_MULCONST
 	faddp	st(2), st		;; Add in high part of last calculation
 	fld	BIGBIGVAL		;; Big word rounding constant
 	fadd	st, st(2)		;; Round to multiple of big word
@@ -1993,10 +1992,10 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fsub	st(2), st		;; Compute low bigword bits
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Shift high ZPAD data
 	fxch	st(2)			;; lo(z),hibits,hi(z),c2,sumout,maxerr
-	fstp	XMM_ZPAD4
+	fstp	ZPAD4
 
 	mov	al, [edi+ecx+1]		;; Load big vs. little flags
-	fld	XMM_ZPAD5		;; Load values1
+	fld	ZPAD5			;; Load values1
 	fmul	QWORD PTR [ebx+5*16]	;; Mul values1 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
 	fadd	BIGVAL			;; Round to an integer
@@ -2008,8 +2007,8 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Saved shifted high ZPAD data
 	fxch	st(2)			;; hibits0,lobits,hibits,c1,c2,sumout,maxerr
 	faddp	st(1), st		;; Add in prev shifted high ZPAD data
-no const fmul	MINUS_CARG
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
+no const fmul	MINUS_C
+const	fmul	XMM_MINUS_C_TIMES_MULCONST
 	faddp	st(2), st		;; Add in high part of last calculation
 	fld	BIGBIGVAL		;; Big word rounding constant
 	fadd	st, st(2)		;; Round to multiple of big word
@@ -2017,22 +2016,22 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	fsub	st(2), st		;; Compute low bigword bits
 	fmul	XMM_LIMIT_INVERSE[eax]	;; Shift high ZPAD data
 	fxch	st(2)			;; lo(z),hibits,hi(z),c2,sumout,maxerr
-	fstp	XMM_ZPAD5
+	fstp	ZPAD5
 
-	fld	XMM_ZPAD6		;; Load values1
+	fld	ZPAD6			;; Load values1
 	fmul	QWORD PTR [ebx+6*16]	;; Mul values1 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
 	fadd	BIGVAL			;; Round to an integer
 	fsub	BIGVAL
 	faddp	st(1), st		;; Add in shifted high ZPAD data
-no const fmul	MINUS_CARG
-const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
+no const fmul	MINUS_C
+const	fmul	XMM_MINUS_C_TIMES_MULCONST
 	faddp	st(1), st		;; Add in high part of last calculation
-	fstp	XMM_ZPAD6
+	fstp	ZPAD6
 
 	;; Divide the zpad data by k.  Store the integer part in XMM_TMP
-	;; and the remainder in XMM_ZPAD0.  Later we will wrap the integer part
-	;; down to the bottom of the FFT data area (and multiply by -CARG).
+	;; and the remainder in ZPAD0.  Later we will wrap the integer part
+	;; down to the bottom of the FFT data area (and multiply by -c).
 	;; And we will store the remainder in the upper half of the FFT
 	;; data area.
 
@@ -2040,120 +2039,120 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 	;; K is between one and 2 big words in size.  And K is more than
 	;; 2 big words in size.
 
-	cmp	_ZPAD_TYPE, 2		;; Are we dealing with case 1,2,or 3
+	cmp	ZPAD_TYPE, 2		;; Are we dealing with case 1,2,or 3
 	jl	smallk			;; One word case
 	je	mediumk			;; Two word case
 
 	;; This case does the divide by k where k is three words
 
-	fld	XMM_ZPAD6		;; Load zpad word (high bits)
-	fld	XMM_ZPAD5		;; Load zpad word (middle bits)
-	fld	XMM_ZPAD4		;; Load zpad word (low bits)
-	fld	_ZPAD_INVERSE_K6	;; Load shifted 1/k
+	fld	ZPAD6			;; Load zpad word (high bits)
+	fld	ZPAD5			;; Load zpad word (middle bits)
+	fld	ZPAD4			;; Load zpad word (low bits)
+	fld	ZPAD_INVERSE_K6		;; Load shifted 1/k
 	fmul	st, st(3)		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer	
 	fsub	BIGVAL
-	fld	_ZPAD_K6_HI		;; Load high bits of k
+	fld	ZPAD_K6_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(4), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K6_MID		;; Load middle bits of k
+	fld	ZPAD_K6_MID		;; Load middle bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate middle bits of remainder
-	fld	_ZPAD_K6_LO		;; Load low bits of k
+	fld	ZPAD_K6_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP5		;; Save word of zpad / k
 
 	fxch	st(2)			;; hi,mid,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT6		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT6		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD3		;; Load zpad word (new low bits)
-	fld	_ZPAD_SHIFT5		;; Combine high and medium bits
+	fld	ZPAD3			;; Load zpad word (new low bits)
+	fld	ZPAD_SHIFT5		;; Combine high and medium bits
 	fmul	st, st(2)
 	fadd	st, st(3)
-	fmul	_ZPAD_INVERSE_K5	;; Mul ZPAD by shifted 1/k
+	fmul	ZPAD_INVERSE_K5		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K5_HI		;; Load high bits of k
+	fld	ZPAD_K5_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K5_MID		;; Load middle bits of k
+	fld	ZPAD_K5_MID		;; Load middle bits of k
 	fmul	st, st(1)
 	fsubp	st(4), st		;; Calculate middle bits of remainder
-	fld	_ZPAD_K5_LO		;; Load low bits of k
+	fld	ZPAD_K5_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP4		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,mid,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT5		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT5		;; Shift previous zpad word
 	faddp	st(2), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD2		;; Load zpad word (new low bits)
-	fld	_ZPAD_SHIFT4		;; Combine high and medium bits
+	fld	ZPAD2			;; Load zpad word (new low bits)
+	fld	ZPAD_SHIFT4		;; Combine high and medium bits
 	fmul	st, st(3)
 	fadd	st, st(2)
-	fmul	_ZPAD_INVERSE_K4	;; Mul ZPAD by shifted 1/k
+	fmul	ZPAD_INVERSE_K4		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K4_HI		;; Load high bits of k
+	fld	ZPAD_K4_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(4), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K4_MID		;; Load middle bits of k
+	fld	ZPAD_K4_MID		;; Load middle bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate middle bits of remainder
-	fld	_ZPAD_K4_LO		;; Load low bits of k
+	fld	ZPAD_K4_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP3		;; Save word of zpad / k
 
 	fxch	st(2)			;; hi,mid,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT4		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT4		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD1		;; Load zpad word (new low bits)
-	fld	_ZPAD_SHIFT3		;; Combine high and medium bits
+	fld	ZPAD1			;; Load zpad word (new low bits)
+	fld	ZPAD_SHIFT3		;; Combine high and medium bits
 	fmul	st, st(2)
 	fadd	st, st(3)
-	fmul	_ZPAD_INVERSE_K3	;; Mul ZPAD by shifted 1/k
+	fmul	ZPAD_INVERSE_K3		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K3_HI		;; Load high bits of k
+	fld	ZPAD_K3_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K3_MID		;; Load middle bits of k
+	fld	ZPAD_K3_MID		;; Load middle bits of k
 	fmul	st, st(1)
 	fsubp	st(4), st		;; Calculate middle bits of remainder
-	fld	_ZPAD_K3_LO		;; Load low bits of k
+	fld	ZPAD_K3_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP2		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,mid,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT3		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT3		;; Shift previous zpad word
 	faddp	st(2), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD0		;; Load zpad word (new low bits)
-	fld	_ZPAD_SHIFT2		;; Combine high and medium bits
+	fld	ZPAD0			;; Load zpad word (new low bits)
+	fld	ZPAD_SHIFT2		;; Combine high and medium bits
 	fmul	st, st(3)
 	fadd	st, st(2)
-	fmul	_ZPAD_INVERSE_K2	;; Mul ZPAD by shifted 1/k
+	fmul	ZPAD_INVERSE_K2		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K2_HI		;; Load high bits of k
+	fld	ZPAD_K2_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(4), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K2_MID		;; Load middle bits of k
+	fld	ZPAD_K2_MID		;; Load middle bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate middle bits of remainder
-	fld	_ZPAD_K2_LO		;; Load low bits of k
+	fld	ZPAD_K2_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP1		;; Save word of zpad / k
 
 	fxch	st(2)			;; hi,mid,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT2		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT2		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fmul	_ZPAD_SHIFT1		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT1		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fstp	XMM_ZPAD0		;; Save remainder of zpad / k
+	fstp	ZPAD0			;; Save remainder of zpad / k
 
 	fldz				;; Zero words that other cases set
 	fstp	XMM_TMP6
@@ -2162,158 +2161,158 @@ const	fmul	XMM_MINUS_CARG_TIMES_MULCONST
 
 	;; This case does the divide by k where k is two words
 mediumk:
-	fld	XMM_ZPAD6		;; Load zpad word (high bits)
-	fld	XMM_ZPAD5		;; Load zpad word (low bits)
-	fld	_ZPAD_INVERSE_K6	;; Load shifted 1/k
+	fld	ZPAD6			;; Load zpad word (high bits)
+	fld	ZPAD5			;; Load zpad word (low bits)
+	fld	ZPAD_INVERSE_K6		;; Load shifted 1/k
 	fmul	st, st(2)		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer	
 	fsub	BIGVAL
-	fld	_ZPAD_K6_HI		;; Load high bits of k
+	fld	ZPAD_K6_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K6_LO		;; Load low bits of k
+	fld	ZPAD_K6_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP6		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT6		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT6		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD4		;; Load zpad word (new low bits)
-	fld	_ZPAD_INVERSE_K5	;; Load shifted 1/k
+	fld	ZPAD4			;; Load zpad word (new low bits)
+	fld	ZPAD_INVERSE_K5		;; Load shifted 1/k
 	fmul	st, st(2)		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K5_HI		;; Load high bits of k
+	fld	ZPAD_K5_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K5_LO		;; Load low bits of k
+	fld	ZPAD_K5_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP5		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT5		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT5		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD3		;; Load zpad word (new low bits)
-	fld	_ZPAD_INVERSE_K4	;; Load shifted 1/k
+	fld	ZPAD3			;; Load zpad word (new low bits)
+	fld	ZPAD_INVERSE_K4		;; Load shifted 1/k
 	fmul	st, st(2)		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K4_HI		;; Load high bits of k
+	fld	ZPAD_K4_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K4_LO		;; Load low bits of k
+	fld	ZPAD_K4_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP4		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT4		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT4		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD2		;; Load zpad word (new low bits)
-	fld	_ZPAD_INVERSE_K3	;; Load shifted 1/k
+	fld	ZPAD2			;; Load zpad word (new low bits)
+	fld	ZPAD_INVERSE_K3		;; Load shifted 1/k
 	fmul	st, st(2)		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K3_HI		;; Load high bits of k
+	fld	ZPAD_K3_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K3_LO		;; Load low bits of k
+	fld	ZPAD_K3_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP3		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT3		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT3		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD1		;; Load zpad word (new low bits)
-	fld	_ZPAD_INVERSE_K2	;; Load shifted 1/k
+	fld	ZPAD1			;; Load zpad word (new low bits)
+	fld	ZPAD_INVERSE_K2		;; Load shifted 1/k
 	fmul	st, st(2)		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K2_HI		;; Load high bits of k
+	fld	ZPAD_K2_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K2_LO		;; Load low bits of k
+	fld	ZPAD_K2_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP2		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT2		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT2		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fld	XMM_ZPAD0		;; Load zpad word (new low bits)
-	fld	_ZPAD_INVERSE_K1	;; Load shifted 1/k
+	fld	ZPAD0			;; Load zpad word (new low bits)
+	fld	ZPAD_INVERSE_K1		;; Load shifted 1/k
 	fmul	st, st(2)		;; Mul ZPAD by shifted 1/k
 	fadd	BIGVAL			;; Round to integer
 	fsub	BIGVAL
-	fld	_ZPAD_K1_HI		;; Load high bits of k
+	fld	ZPAD_K1_HI		;; Load high bits of k
 	fmul	st, st(1)
 	fsubp	st(3), st		;; Calculate high bits of remainder
-	fld	_ZPAD_K1_LO		;; Load low bits of k
+	fld	ZPAD_K1_LO		;; Load low bits of k
 	fmul	st, st(1)
 	fsubp	st(2), st		;; Calculate low bits of remainder
 	fstp	XMM_TMP1		;; Save word of zpad / k
 
 	fxch	st(1)			;; hi,lo,c2,sumout,maxerr
-	fmul	_ZPAD_SHIFT1		;; Shift previous zpad word
+	fmul	ZPAD_SHIFT1		;; Shift previous zpad word
 	faddp	st(1), st		;; Add to create new high zpad bits
-	fstp	XMM_ZPAD0		;; Save remainder of zpad / k
+	fstp	ZPAD0			;; Save remainder of zpad / k
 
 	jmp	div_k_done
 
 	;; This case does the divide by k where k is one word
 	;; Assume ZPAD5 and ZPAD6 are zero.
-smallk:	fld	XMM_ZPAD4		;; Load zpad data
-	fld	_ZPAD_INVERSE_K1	;; Load by 1/k
+smallk:	fld	ZPAD4			;; Load zpad data
+	fld	ZPAD_INVERSE_K1		;; Load by 1/k
 	fmul	st, st(1)		;; Mul ZPAD data by 1/k
 	fadd	BIGVAL			;; Round to integer	
 	fsub	BIGVAL
 	fst	XMM_TMP5		;; Save integer part
-	fmul	_ZPAD_K1_LO		;; Compute remainder
+	fmul	ZPAD_K1_LO		;; Compute remainder
 	fsubp	st(1), st
 
-	fmul	_ZPAD_SHIFT4		;; Shift previous zpad word
-	fadd	XMM_ZPAD3		;; Add in zpad data
-	fld	_ZPAD_INVERSE_K1	;; Load by 1/k
+	fmul	ZPAD_SHIFT4		;; Shift previous zpad word
+	fadd	ZPAD3			;; Add in zpad data
+	fld	ZPAD_INVERSE_K1		;; Load by 1/k
 	fmul	st, st(1)		;; Mul ZPAD data by 1/k
 	fadd	BIGVAL			;; Round to integer	
 	fsub	BIGVAL
 	fst	XMM_TMP4		;; Save integer part
-	fmul	_ZPAD_K1_LO		;; Compute remainder
+	fmul	ZPAD_K1_LO		;; Compute remainder
 	fsubp	st(1), st
 
-	fmul	_ZPAD_SHIFT3		;; Shift previous zpad word
-	fadd	XMM_ZPAD2		;; Add in zpad data
-	fld	_ZPAD_INVERSE_K1	;; Load by 1/k
+	fmul	ZPAD_SHIFT3		;; Shift previous zpad word
+	fadd	ZPAD2			;; Add in zpad data
+	fld	ZPAD_INVERSE_K1		;; Load by 1/k
 	fmul	st, st(1)		;; Mul ZPAD data by 1/k
 	fadd	BIGVAL			;; Round to integer	
 	fsub	BIGVAL
 	fst	XMM_TMP3		;; Save integer part
-	fmul	_ZPAD_K1_LO		;; Compute remainder
+	fmul	ZPAD_K1_LO		;; Compute remainder
 	fsubp	st(1), st
 
-	fmul	_ZPAD_SHIFT2		;; Shift previous zpad word
-	fadd	XMM_ZPAD1		;; Add in zpad data
-	fld	_ZPAD_INVERSE_K1	;; Load by 1/k
+	fmul	ZPAD_SHIFT2		;; Shift previous zpad word
+	fadd	ZPAD1			;; Add in zpad data
+	fld	ZPAD_INVERSE_K1		;; Load by 1/k
 	fmul	st, st(1)		;; Mul ZPAD data by 1/k
 	fadd	BIGVAL			;; Round to integer	
 	fsub	BIGVAL
 	fst	XMM_TMP2		;; Save integer part
-	fmul	_ZPAD_K1_LO		;; Compute remainder
+	fmul	ZPAD_K1_LO		;; Compute remainder
 	fsubp	st(1), st
 
-	fmul	_ZPAD_SHIFT1		;; Shift previous zpad word
-	fadd	XMM_ZPAD0		;; Add in zpad data
-	fld	_ZPAD_INVERSE_K1	;; Load by 1/k
+	fmul	ZPAD_SHIFT1		;; Shift previous zpad word
+	fadd	ZPAD0			;; Add in zpad data
+	fld	ZPAD_INVERSE_K1		;; Load by 1/k
 	fmul	st, st(1)		;; Mul ZPAD data by 1/k
 	fadd	BIGVAL			;; Round to integer	
 	fsub	BIGVAL
 	fst	XMM_TMP1		;; Save integer part
-	fmul	_ZPAD_K1_LO		;; Compute remainder
+	fmul	ZPAD_K1_LO		;; Compute remainder
 	fsubp	st(1), st
-	fstp	XMM_ZPAD0		;; Save remainder
+	fstp	ZPAD0			;; Save remainder
 
 	fldz				;; Zero words that other cases set
 	fstp	XMM_TMP6
@@ -2324,7 +2323,7 @@ div_k_done:
 	;; column two-to-phi multiplier for the first value will be 1.0.
 
 	mov	al, [edi]		;; First word 
-	fld	XMM_ZPAD0		;; Load remainder of divide by k
+	fld	ZPAD0			;; Load remainder of divide by k
 	fadd	BIGVAL
 	fld	XMM_LIMIT_BIGMAX[eax]	;; Load maximum * BIGVAL - BIGVAL
 	fadd	st, st(1)		;; y1 = top bits of x
@@ -2346,7 +2345,7 @@ div_k_done:
 	fmul	QWORD PTR [ebx+1*16+8]	;; value4 = carry * two-to-phi
 	fstp	QWORD PTR [esi+1*16+8]	;; Save value2
 
-	mov	ecx, _BIGLIT_INCR2	;; Different clm values step through
+	mov	ecx, BIGLIT_INCR2	;; Different clm values step through
 					;; big/lit array differently
 	mov	al, [edi+ecx]		;; Load big vs. little flags
 	fld	XMM_LIMIT_BIGMAX[eax]	;; Load maximum * BIGVAL - BIGVAL
@@ -2363,17 +2362,17 @@ div_k_done:
 	fmul	QWORD PTR [ebx+3*16+8]	;; value4 = carry * two-to-phi
 	fstp	QWORD PTR [esi+3*16+8]	;; Save value4
 
-	;; Mul the integer part of (ZPAD data divided by k) by -CARG in
+	;; Mul the integer part of (ZPAD data divided by k) by -c in
 	;; preparation for adding it into the lower FFT data area.
 	;; Also add in the shifted high FFT carry at this time.
 
 	;; Now add in and normalize the bottom FFT data.  Remember that the
 	;; column two-to-phi multiplier for the first value will be 1.0.  We 
-	;; must go 6 words deep in case k is 48-50 bits and CARG is 32 bits.
+	;; must go 6 words deep in case k is 48-50 bits and c is 32 bits.
 
 	mov	al, [edi]		;; First word 
 	fadd	XMM_TMP1		;; Add rem of div by k to hi FFT carry
-	fmul	MINUS_CARG		;; Mul by -CARG
+	fmul	MINUS_C			;; Mul by -c
 	fadd	BIGVAL
 	fadd	QWORD PTR [esi+0*16]	;; Add in the FFT data
 	fld	XMM_LIMIT_BIGMAX[eax]	;; Load maximum * BIGVAL - BIGVAL
@@ -2387,7 +2386,7 @@ div_k_done:
 
 	mov	al, [edi+1]		;; Load big vs. little flags
 	fld	XMM_TMP2		;; Load remainder of divide by k
-	fmul	MINUS_CARG		;; Mul by -CARG
+	fmul	MINUS_C			;; Mul by -c
 	fld	QWORD PTR [esi+1*16]	;; Load FFT data
 	fmul	QWORD PTR [ebx+1*16]	;; Mul values2 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
@@ -2403,11 +2402,11 @@ div_k_done:
 	fmul	QWORD PTR [ebx+1*16+8]	;; new value2 = val * two-to-phi
 	fstp	QWORD PTR [esi+1*16]	;; Save value2
 
-	mov	ecx, _BIGLIT_INCR2	;; Different clm values step through
+	mov	ecx, BIGLIT_INCR2	;; Different clm values step through
 					;; big/lit array differently
 	mov	al, [edi+ecx]		;; Load big vs. little flags
 	fld	XMM_TMP3		;; Load remainder of divide by k
-	fmul	MINUS_CARG		;; Mul by -CARG
+	fmul	MINUS_C			;; Mul by -c
 	fld	QWORD PTR [esi+2*16]	;; Load FFT data
 	fmul	QWORD PTR [ebx+2*16]	;; Mul values2 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
@@ -2425,7 +2424,7 @@ div_k_done:
 
 	mov	al, [edi+ecx+1]		;; Load big vs. little flags
 	fld	XMM_TMP4		;; Load remainder of divide by k
-	fmul	MINUS_CARG		;; Mul by -CARG
+	fmul	MINUS_C			;; Mul by -c
 	fld	QWORD PTR [esi+3*16]	;; Load FFT data
 	fmul	QWORD PTR [ebx+3*16]	;; Mul values2 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
@@ -2441,11 +2440,11 @@ div_k_done:
 	fmul	QWORD PTR [ebx+3*16+8]	;; new value4 = val * two-to-phi
 	fstp	QWORD PTR [esi+3*16]	;; Save value4
 
-	mov	ecx, _BIGLIT_INCR4	;; Different clm values step through
+	mov	ecx, BIGLIT_INCR4	;; Different clm values step through
 					;; big/lit array differently
 	mov	al, [edi+ecx]		;; Load big vs. little flags
 	fld	XMM_TMP5		;; Load remainder of divide by k
-	fmul	MINUS_CARG		;; Mul by -CARG
+	fmul	MINUS_C			;; Mul by -c
 	fld	QWORD PTR [esi+4*16]	;; Load FFT data
 	fmul	QWORD PTR [ebx+4*16]	;; Mul values2 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
@@ -2463,7 +2462,7 @@ div_k_done:
 
 	mov	al, [edi+ecx+1]		;; Load big vs. little flags
 	fld	XMM_TMP6		;; Load remainder of divide by k
-	fmul	MINUS_CARG		;; Mul by -CARG
+	fmul	MINUS_C			;; Mul by -c
 	fld	QWORD PTR [esi+5*16]	;; Load FFT data
 	fmul	QWORD PTR [ebx+5*16]	;; Mul values2 by two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by FFTLEN/2
@@ -2548,7 +2547,7 @@ const	fmul	XMM_K_TIMES_MULCONST_HI_2
 	fmulp	st(1), st		;; data *= fudged col two-to-phi
 	fstp	QWORD PTR [esi+1*dist1]	;; Save FFT data
 
-	mov	ecx, _BIGLIT_INCR2	;; Different clm values step through
+	mov	ecx, BIGLIT_INCR2	;; Different clm values step through
 					;; big/lit array differently
 	mov	al, [edi+ecx]		;; Load big vs. little flag
 	fld	QWORD PTR [esi+2*dist1]	;; Load FFT data
@@ -2592,7 +2591,7 @@ const	fmul	XMM_K_TIMES_MULCONST_HI_2
 	fmulp	st(1), st		;; data *= fudged col two-to-phi
 	fstp	QWORD PTR [esi+3*dist1]	;; Save FFT data
 
-	mov	ecx, _BIGLIT_INCR4	;; Different clm values step through
+	mov	ecx, BIGLIT_INCR4	;; Different clm values step through
 					;; big/lit array differently
 	mov	al, [edi+ecx]		;; Load big vs. little flag
 	fsub	BIGVAL			;; Remove rounding const from carry
@@ -2631,7 +2630,7 @@ norm_top_carry_2d MACRO
 
 norm_top_carry_cmn MACRO srcreg, twopass
 	LOCAL	kok
-	cmp	_TOP_CARRY_NEEDS_ADJUSTING, 1 ;; Does top carry need work?
+	cmp	TOP_CARRY_NEEDS_ADJUSTING, 1 ;; Does top carry need work?
 	jne	kok			;; Skip this code if K is 1
 
 	IF twopass EQ 0			;; One pass case - last carry in st(0)
@@ -2650,60 +2649,60 @@ norm_top_carry_cmn MACRO srcreg, twopass
 	fsub	BIGVAL			;; Convert carry from int+BIGVAL state
 	ENDIF
 
-	fmul	_CARRY_ADJUST1		;; Mul by 2^ceil(log2(k))
-	fld	_INVERSE_KARG		;; Divide by k
+	fmul	CARRY_ADJUST1		;; Mul by 2^ceil(log2(k))
+	fld	INVERSE_K		;; Divide by k
 	fmul	st, st(1)
 	fadd	BIGVAL			;; Integer part of carry over k
 	fsub	BIGVAL
-	fld	_KARG_HI		;; Calculate remainder (very carefully)
+	fld	K_HI			;; Calculate remainder (very carefully)
 	fmul	st, st(1)
 	fsubp	st(2), st
 	fxch	st(1)
-	fld	_KARG_LO
+	fld	K_LO
 	fmul	st, st(2)
 	fsubp	st(1), st
-	fmul	_CARRY_ADJUST2		;; Shift remainder
+	fmul	CARRY_ADJUST2		;; Shift remainder
 	fld	BIGVAL			;; Integer part of shifted remainder
 	fadd	st, st(1)
 	fsub	BIGVAL
 	fsub	st(1), st		;; Fractional part of shifted remainder
-	fmul	_CARRY_ADJUST3		;; Weight integer part
+	fmul	CARRY_ADJUST3		;; Weight integer part
 
 	IF twopass EQ 0			;; Single pass case
-	mov	eax, _HIGH_WORD1_OFFSET	;; Add integer part to top word
+	mov	eax, HIGH_WORD1_OFFSET	;; Add integer part to top word
 	fadd	QWORD PTR [srcreg][eax]
 	fstp	QWORD PTR [srcreg][eax]
-	fmul	_CARRY_ADJUST4		;; Shift fractional part
+	fmul	CARRY_ADJUST4		;; Shift fractional part
 	fld	BIGVAL			;; Integer part of shifted fractional
 	fadd	st, st(1)
 	fsub	BIGVAL
 	fsub	st(1), st		;; Fractional part
-	fmul	_CARRY_ADJUST5		;; Weight integer part
-	mov	eax, _HIGH_WORD2_OFFSET	;; Add fractional part to top-1 word
+	fmul	CARRY_ADJUST5		;; Weight integer part
+	mov	eax, HIGH_WORD2_OFFSET	;; Add fractional part to top-1 word
 	fadd	QWORD PTR [srcreg][eax]
 	fstp	QWORD PTR [srcreg][eax]
-	fmul	_CARRY_ADJUST6		;; Shift and weight fractional part
-	mov	eax, _HIGH_WORD3_OFFSET	;; Add fractional part to top-2 word
+	fmul	CARRY_ADJUST6		;; Shift and weight fractional part
+	mov	eax, HIGH_WORD3_OFFSET	;; Add fractional part to top-2 word
 	fadd	QWORD PTR [srcreg][eax]
 	fstp	QWORD PTR [srcreg][eax]
 	ENDIF
 
 	IF twopass EQ 1			;; Two pass scratch area case
-	mov	eax, _HIGH_SCRATCH1_OFFSET ;; Add integer part to top word
+	mov	eax, HIGH_SCRATCH1_OFFSET ;; Add integer part to top word
 	fadd	QWORD PTR [srcreg][eax]
 	fstp	QWORD PTR [srcreg][eax]
-	fmul	_CARRY_ADJUST4		;; Shift and weight fractional part
-	mov	eax, _HIGH_SCRATCH2_OFFSET ;; Add fractional part to top-1 word
+	fmul	CARRY_ADJUST4		;; Shift and weight fractional part
+	mov	eax, HIGH_SCRATCH2_OFFSET ;; Add fractional part to top-1 word
 	fadd	QWORD PTR [srcreg][eax]
 	fstp	QWORD PTR [srcreg][eax]
 	ENDIF
 
 	IF twopass EQ 2			;; Two pass FFT data case
-	mov	eax, _HIGH_WORD1_OFFSET ;; Add integer part to top word
+	mov	eax, HIGH_WORD1_OFFSET ;; Add integer part to top word
 	fadd	QWORD PTR [srcreg][eax]
 	fstp	QWORD PTR [srcreg][eax]
-	fmul	_CARRY_ADJUST4		;; Shift and weight fractional part
-	mov	eax, _HIGH_WORD2_OFFSET ;; Add fractional part to top-1 word
+	fmul	CARRY_ADJUST4		;; Shift and weight fractional part
+	mov	eax, HIGH_WORD2_OFFSET ;; Add fractional part to top-1 word
 	fadd	QWORD PTR [srcreg][eax]
 	fstp	QWORD PTR [srcreg][eax]
 	ENDIF
@@ -2922,7 +2921,7 @@ norm_op_1d MACRO fop
 norm_op_1d_cleanup MACRO
 	norm_top_carry_cmn esi, 0	;; Adjust top carry if necessary
 	fsub	BIGVAL			;; Get carry without BIGVAL
-	fmul	MINUS_CARG		;; Flip carry's sign bit
+	fmul	MINUS_C			;; Flip carry's sign bit
 	fadd	QWORD PTR [esi]		;; Add in value
 	fstp	QWORD PTR [esi]		;; Save value
 
@@ -3157,7 +3156,7 @@ norm_addsub_1d MACRO
 norm_addsub_1d_cleanup MACRO
 	norm_top_carry_cmn ebp, 0	;; Adjust top carry if necessary
 	fsub	BIGVAL			;; Get carry without BIGVAL
-	fmul	MINUS_CARG		;; Flip carry's sign bit
+	fmul	MINUS_C			;; Flip carry's sign bit
 	fadd	QWORD PTR [ebp]		;; Add in value
 	fstp	QWORD PTR [ebp]		;; Save value
 
@@ -3168,7 +3167,7 @@ norm_addsub_1d_cleanup MACRO
 
 	norm_top_carry_cmn esi, 0	;; Adjust top carry if necessary
 	fsub	BIGVAL			;; Get carry without BIGVAL
-	fmul	MINUS_CARG		;; Flip carry's sign bit
+	fmul	MINUS_C			;; Flip carry's sign bit
 	fadd	QWORD PTR [esi]		;; Add in value
 	fstp	QWORD PTR [esi]		;; Save value
 
@@ -3337,7 +3336,7 @@ norm_op_2d MACRO fop
 norm_op_2d_cleanup MACRO
 	norm_top_carry_cmn esi, 2	;; Adjust top carry if necessary
 	fsub	BIGVAL			;; Get carry without BIGVAL
-	fmul	MINUS_CARG		;; Flip carry's sign bit
+	fmul	MINUS_C			;; Flip carry's sign bit
 	fadd	QWORD PTR [esi]		;; Add in value
 	fstp	QWORD PTR [esi]		;; Save value
 
@@ -3403,7 +3402,7 @@ norm_addsub_2d MACRO
 					;; c4,c3,c2,c1
 	fld	QWORD PTR [eax+0*16]	;; Load grp two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by two-to-minus-phi fudge
-	push	eax			;; Open register for big/lit flag
+	pusher	eax			;; Open register for big/lit flag
 	sub	eax, eax
 	mov	al, [edi]		;; Load big vs. little flag
 	fld	QWORD PTR [ebx+0*16]	;; Load col two-to-minus-phi
@@ -3438,7 +3437,7 @@ norm_addsub_2d MACRO
 	fxch	st(4)			;; x2,z2,v1,c4,y2,c2,y1
 	fsubrp	st(1), st		;; new value = x2 - z2
 	fld	XMM_TTP_FUDGE[eax]	;; Load two-to-phi fudge
-	pop	eax			;; Restore ptr to group multipliers
+	popper	eax			;; Restore ptr to group multipliers
 	fmul	QWORD PTR [ebx+0*16+8]	;; Mul by col two-to-phi
 	fmul	QWORD PTR [eax+0*16+8]	;; Mul by group two-to-phi
 	fmul	st(2), st		;; new value = val1 * two-to-phi
@@ -3450,7 +3449,7 @@ norm_addsub_2d MACRO
 					;; c4,c3,c2,c1
 	fld	QWORD PTR [eax+1*16]	;; Load grp two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by two-to-minus-phi fudge
-	push	eax			;; Open register for big/lit flag
+	pusher	eax			;; Open register for big/lit flag
 	sub	eax, eax
 	mov	al, [edi]		;; Load big vs. little flag
 	fld	QWORD PTR [ebx+0*16]	;; Load col two-to-minus-phi
@@ -3485,7 +3484,7 @@ norm_addsub_2d MACRO
 	fxch	st(3)			;; x2,z2,v1,y2,c3,y1,c1
 	fsubrp	st(1), st		;; new value = x2 - z2
 	fld	XMM_TTP_FUDGE[eax+8]	;; Load two-to-phi fudge
-	pop	eax			;; Restore ptr to group multipliers
+	popper	eax			;; Restore ptr to group multipliers
 	fmul	QWORD PTR [ebx+0*16+8]	;; Mul by col two-to-phi
 	fmul	QWORD PTR [eax+1*16+8]	;; Mul by group two-to-phi
 	fmul	st(2), st		;; new value = val1 * two-to-phi
@@ -3497,7 +3496,7 @@ norm_addsub_2d MACRO
 					;; c4,c3,c2,c1
 	fld	QWORD PTR [eax+0*16]	;; Load grp two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by two-to-minus-phi fudge
-	push	eax			;; Open register for big/lit flag
+	pusher	eax			;; Open register for big/lit flag
 	sub	eax, eax
 	mov	al, [edi+1]		;; Load big vs. little flag
 	fld	QWORD PTR [ebx+1*16]	;; Load col two-to-minus-phi
@@ -3532,7 +3531,7 @@ norm_addsub_2d MACRO
 	fxch	st(4)			;; x2,z2,v1,c4,y2,c2,y1
 	fsubrp	st(1), st		;; new value = x2 - z2
 	fld	XMM_TTP_FUDGE[eax]	;; Load two-to-phi fudge
-	pop	eax			;; Restore ptr to group multipliers
+	popper	eax			;; Restore ptr to group multipliers
 	fmul	QWORD PTR [ebx+1*16+8]	;; Mul by col two-to-phi
 	fmul	QWORD PTR [eax+0*16+8]	;; Mul by group two-to-phi
 	fmul	st(2), st		;; new value = val1 * two-to-phi
@@ -3544,7 +3543,7 @@ norm_addsub_2d MACRO
 					;; c4,c3,c2,c1
 	fld	QWORD PTR [eax+1*16]	;; Load grp two-to-minus-phi
 	fmul	XMM_NORM012_FF		;; Mul by two-to-minus-phi fudge
-	push	eax			;; Open register for big/lit flag
+	pusher	eax			;; Open register for big/lit flag
 	sub	eax, eax
 	mov	al, [edi+1]		;; Load big vs. little flag
 	fld	QWORD PTR [ebx+1*16]	;; Load col two-to-minus-phi
@@ -3579,7 +3578,7 @@ norm_addsub_2d MACRO
 	fxch	st(3)			;; x2,z2,v1,y2,c3,y1,c1
 	fsubrp	st(1), st		;; new value = x2 - z2
 	fld	XMM_TTP_FUDGE[eax+8]	;; Load two-to-phi fudge
-	pop	eax			;; Restore ptr to group multipliers
+	popper	eax			;; Restore ptr to group multipliers
 	fmul	QWORD PTR [ebx+1*16+8]	;; Mul by col two-to-phi
 	fmul	QWORD PTR [eax+1*16+8]	;; Mul by group two-to-phi
 	fmul	st(2), st		;; new value = val1 * two-to-phi
@@ -3606,7 +3605,7 @@ norm_addsub_2d MACRO
 norm_addsub_2d_cleanup MACRO
 	norm_top_carry_cmn ebp, 2	;; Adjust top carry if necessary
 	fsub	BIGVAL			;; Get carry without BIGVAL
-	fmul	MINUS_CARG		;; Flip carry's sign bit
+	fmul	MINUS_C			;; Flip carry's sign bit
 	fadd	QWORD PTR [ebp]		;; Add in value
 	fstp	QWORD PTR [ebp]		;; Save value
 
@@ -3617,7 +3616,7 @@ norm_addsub_2d_cleanup MACRO
 
 	norm_top_carry_cmn esi, 2	;; Adjust top carry if necessary
 	fsub	BIGVAL			;; Get carry without BIGVAL
-	fmul	MINUS_CARG		;; Flip carry's sign bit
+	fmul	MINUS_C			;; Flip carry's sign bit
 	fadd	QWORD PTR [esi]		;; Add in value
 	fstp	QWORD PTR [esi]		;; Save value
 

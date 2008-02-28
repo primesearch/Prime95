@@ -18,7 +18,6 @@
 #include "commona.h"
 #include "commonb.h"
 #include "commonc.h"
-#include "comm95a.h"
 #include "comm95b.h"
 #include "comm95c.h"
 #include "primenet.h"
@@ -32,7 +31,7 @@ class CPrime95App : public CWinApp
 {
 public:
 	CPrime95App();
-	void TrayMessage (UINT, LPCSTR, UINT);
+	void TrayMessage (UINT, LPCSTR, HICON);
 
 // Overrides
 	// ClassWizard generated virtual function overrides
@@ -61,24 +60,19 @@ public:
 
 extern HANDLE g_hMutexInst;
 
-extern "C" int THREAD_ACTIVE;		// True if a thread is active
-extern int volatile THREAD_STOP;	// one if thread should stop with msg
-					// two if thread should stop quietly
-extern int EXIT_IN_PROGRESS;		// True if we are exiting
+extern HICON ICON_IDLE;			// Red = program stopped
+extern HICON ICON_WORKING;		// Green = threads working
 
-const int NumLines = 60;
-extern char *lines[NumLines];
-extern int charHeight;
+extern int EXIT_IN_PROGRESS;		// True if we are exiting
 
 extern int WINDOWS95_SERVICE;		// True if we're running as a Win95 service
 extern int WINDOWS95_A_SWITCH;		// Value of the -A command line switch
 extern LONG WM_ENDSESSION_LPARAM;	// LPARAM of WM_ENDSESSION message
 extern int WINDOWS95_TRAY_ADD;		// True if we need to add the icon
 					// to the shell once the user logs in
-extern int CHECK_BATTERY;		// TRUE if we need to test battery status
-extern int STOPPED_ON_BATTERY;		// TRUE if we need to autocontinue on a power
-					// change event
-extern char *BROADCAST_MESSAGE;		// Message broadcast from the server
+
+extern gwmutex VIEW_MUTEX;		/* Lock for accessing Views Array */
+extern gwmutex VIEW_LINES_MUTEX;	/* Lock for accessing Lines array */
 
 // Variables used to communicate with the NT service code
 

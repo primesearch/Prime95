@@ -5,8 +5,10 @@
 #include "Prime95.h"
 
 #include "MainFrm.h"
+#include "ChildFrm.h"
 #include "Prime95Doc.h"
 #include "Prime95View.h"
+#include "hyperlink.h"
 
 #include <aclapi.h>
 #include <direct.h>
@@ -87,18 +89,34 @@ BOOL CPrime95App::InitInstance()
 	//  of your final executable, you should remove from the following
 	//  the specific initialization routines you do not need.
 
+	//SetRegistryKey(_T("GIMPS"));
 	//LoadStdProfileSettings(0);  // Load standard INI file options (including MRU)
 
 	// Register the application's document templates.  Document templates
 	//  serve as the connection between documents, frame windows and views.
 
-	CSingleDocTemplate* pDocTemplate;
-	pDocTemplate = new CSingleDocTemplate(
-		IDR_MAINFRAME,
+	CMultiDocTemplate* pDocTemplate;
+	pDocTemplate = new CMultiDocTemplate(
+		IDR_MDITYPE,
 		RUNTIME_CLASS(CPrime95Doc),
-		RUNTIME_CLASS(CMainFrame),       // main SDI frame window
+		RUNTIME_CLASS(CChildFrame),       // custom MDI child frame
 		RUNTIME_CLASS(CPrime95View));
+	if (!pDocTemplate)
+		return FALSE;
 	AddDocTemplate(pDocTemplate);
+
+	// Init our view mutexes
+	gwmutex_init (&VIEW_MUTEX);
+	gwmutex_init (&VIEW_LINES_MUTEX);
+
+	// create main MDI Frame window
+	CMainFrame* pMainFrame = new CMainFrame;
+	if (!pMainFrame || !pMainFrame->LoadFrame(IDR_MAINFRAME))
+	{
+		delete pMainFrame;
+		return FALSE;
+	}
+	m_pMainWnd = pMainFrame;
 
 	// Parse command line for standard shell commands, DDE, file open
 	CCommandLineInfo cmdInfo;
@@ -298,6 +316,7 @@ simple_mutex:	 	g_hMutexInst = CreateMutex (
 				ShowWindow (hwndPrevInst, SW_SHOWNORMAL);
 			}
 			CloseHandle (g_hMutexInst);
+			g_hMutexInst = NULL;
 			return 0;
 		}
 
@@ -307,13 +326,17 @@ simple_mutex:	 	g_hMutexInst = CreateMutex (
 		SetWindowLongPtr (m_pMainWnd->m_hWnd, GWLP_USERDATA, (LONG_PTR) g_MutexNum);
 	}
 
-/* Read the INI files. */
+/* Cache icon handles to work around Windows deadlocking bug */
 
-	nameIniFiles (named_ini_files);
-	readIniFiles ();
+	ICON_IDLE = LoadIcon (IDI_YELLOW_ICON);
+	ICON_WORKING = LoadIcon (IDR_MAINFRAME);
 
-/* Before processing the rest of the INI file, hide and/or */
-/* position the main window */
+/* Name and read the INI files.  Perform some other startup initializations. */
+
+	nameAndReadIniFiles (named_ini_files);
+
+/* Before processing the INI file, hide and/or position the */
+/* main window so that we can display error messages */
 
 	m_pMainWnd->SetWindowText ("Prime95");
 
@@ -332,6 +355,9 @@ simple_mutex:	 	g_hMutexInst = CreateMutex (
 	wp.showCmd = HIDE_ICON ? SW_HIDE : SW_SHOWMINIMIZED;
 	m_pMainWnd->SetWindowPlacement (&wp);
 
+/* Now show the main window and post initial messages */
+
+	// Put prime95 in the system tray
 	if (TRAY_ICON) TrayMessage (NIM_ADD, "Prime95", 0);
 
 	// See if we are running as a Windows95 service
@@ -339,158 +365,51 @@ simple_mutex:	 	g_hMutexInst = CreateMutex (
 	WINDOWS95_A_SWITCH = named_ini_files;
 	Service95 ();
 
-	// Set flag to read spool file.  We must see if there
-	// are messages queued up for the server.
-	if (USE_PRIMENET) SPOOL_FILE_CHANGED = 1;
-
-	// To work around a bug where the "Connect To" dialog
-	// box comes up on the first attempt to contact the 
-	// server, bring that dialog box up now.  We found a way
-	// to work around this problem, but maybe it will be
-	// useful to do this in other cases.
-	if (USE_PRIMENET && IniGetInt (INI_FILE, "PingAtStartup", 0)) {
-		struct primenetPingServerInfo pkt;
-		memset (&pkt, 0, sizeof (pkt));
-		pkt.u.serverInfo.versionNumber = PRIMENET_VERSION;
-		sendMessage (PRIMENET_PING_SERVER_INFO, &pkt);
-	}
-
-	// Run the torture test if asked to
+	// Run the torture test if asked to by a command line argument
 	if (torture_test) {
 		m_pMainWnd->ShowWindow (orig_cmdShow);
 		m_pMainWnd->PostMessage (WM_COMMAND, USR_TORTURE, 0);
 	}
 
-	// On first run, get user name and email address
-	// before contacting server for a work assignment
-	else if (USE_PRIMENET && USERID[0] == 0 &&
-		 !IniGetInt (INI_FILE, "StressTester", 0)) {
+	// On first run, see if this is a stress tester.  If not, step
+	// user throught the primenet dialog boxes.
+	else if (STRESS_TESTER == 99) {
 		m_pMainWnd->ShowWindow (orig_cmdShow);
-		STARTUP_IN_PROGRESS = 1;
 		m_pMainWnd->PostMessage (WM_COMMAND, USR_WELCOME, 0);
 	}
 
+	// Take stress testers straight to the torture dialog box
+	else if (STRESS_TESTER) {
+		m_pMainWnd->ShowWindow (orig_cmdShow);
+		m_pMainWnd->PostMessage (WM_COMMAND, IDM_TORTURE, 0);
+	}
+
 	// Auto-continue if there is any work to do.
-	else if (USE_PRIMENET || WELL_BEHAVED_WORK || IniGetNumLines (WORKTODO_FILE)) {
+	else if (USE_PRIMENET || WELL_BEHAVED_WORK || WORKTODO_COUNT) {
 		m_pMainWnd->PostMessage (WM_COMMAND, IDM_CONTINUE, 0);
 	}
 
 	// Otherwise, show the window
 	else if (!HIDE_ICON) {
 		m_pMainWnd->ShowWindow (orig_cmdShow);
-		ChangeIcon (IDLE_ICON);
+		ChangeIcon (MAIN_THREAD_NUM, IDLE_ICON);
 	}
-
-	// If a broadcast message from the server has been received but
-	// never viewed by the user, then try to display it now.
-	BroadcastMessage (NULL);
 
 	// Initialization complete
 	return TRUE;
 }
 
-void CALLBACK EXPORT TimerCallback (
-	HWND	hWnd,		//handle of CWnd that called SetTimer
-	UINT	nMsg,		//WM_TIMER
-	UINT_PTR nIDEvent,	//timer identification
-	DWORD	dwTime)		//system time
+// In ExitInstance clean up previously allocated mutex
+int CPrime95App::ExitInstance() 
 {
-	BlinkIcon (-2);
-}
-
-void ChangeIcon (
-	int	icon_id)
-{
-	CPrime95App *app;
-static	UINT	icon = IDR_MAINFRAME;
-
-	if (EXIT_IN_PROGRESS) return;
-
-	app = (CPrime95App *) AfxGetApp();
-	if (icon_id >= 0)
-		icon = (icon_id == WORKING_ICON) ? IDR_MAINFRAME : IDI_YELLOW_ICON;
-	app->m_pMainWnd->SetIcon (app->LoadIcon (icon), 1);
-	if (TRAY_ICON) app->TrayMessage (NIM_MODIFY, NULL, icon);
-}
-
-void BlinkIcon (
-	int	duration)		/* -2 = change icon (called from timer) */
-					/* -1 = blinking off, 0 = indefinite */
-{
-static	int	state = -1;		/* Current duration state */
-static	int	icon = WORKING_ICON;	/* Current icon */
-
-/* If this is the first blinking call, start the timer */
-
-	if (state == -1) {
-		if (duration < 0) return;
-		((CPrime95App *)AfxGetApp())->m_pMainWnd->SetTimer (363, 1000, &TimerCallback);
+	if( NULL != g_hMutexInst ) {
+		CloseHandle( g_hMutexInst );
 	}
-
-/* Remember how long we are to blink */
-
-	if (duration >= 0)
-		state = duration;
-
-/* If this is the last blinking call, kill the timer */
-
-	else if (duration == -1 || (state && --state == 0)) {
-		((CPrime95App *)AfxGetApp())->m_pMainWnd->KillTimer (363);
-		state = -1;
-		icon = IDLE_ICON;
-	}
-
-/* Toggle the icon */
-
-	icon = (icon == IDLE_ICON) ? WORKING_ICON : IDLE_ICON;
-	ChangeIcon (icon);
+	
+	return CWinApp::ExitInstance();
 }
 
-void BroadcastMessage (
-	char	*message)
-{
-	char	filename[33];
-	int	fd, len;
-
-/* Generate broadcast message file name */
-
-        strcpy (filename, "bcastmsg");
-        strcat (filename, EXTENSION);
-
-/* If this is a call to check if a broadcast message exists, then do so */
-
-	if (message == NULL) {
-		if (! fileExists (filename)) return;
-	}
-
-/* Otherwise, this is a new message - write it to the file */
-
-	else {
-		fd = _open (filename, _O_TEXT | _O_RDWR | _O_CREAT | _O_APPEND, 0666);
-		if (fd < 0) return;
-		_write (fd, message, strlen (message));
-		_close (fd);
-        }
-
-/* Read in the message from the file */
-
-	fd = _open (filename, _O_TEXT | _O_RDONLY, 0);
-	if (fd < 0) return;
-	BROADCAST_MESSAGE = (char *) malloc (1024);
-	len = _read (fd, BROADCAST_MESSAGE, 1024);
-	_close (fd);
-	if (len < 0) return;
-	BROADCAST_MESSAGE[len] = 0;
-
-/* Blink the icon and display the message if prime95 is visible. */
-/* Otherwise, wait until prime95 is activated to display the message. */
-
-	if (!HIDE_ICON) BlinkIcon (0);
-	if (AfxGetApp()->m_pMainWnd->IsWindowVisible ())
-		 AfxGetApp()->m_pMainWnd->PostMessage (WM_COMMAND, USR_BROADCAST, 0);
-}
-
-void CPrime95App::TrayMessage (UINT message, LPCSTR prompt, UINT icon)
+void CPrime95App::TrayMessage (UINT message, LPCSTR prompt, HICON icon)
 {
 	NOTIFYICONDATA tnd;
 
@@ -517,7 +436,7 @@ void CPrime95App::TrayMessage (UINT message, LPCSTR prompt, UINT icon)
 	tnd.cbSize = sizeof(tnd);
 	tnd.hWnd = m_pMainWnd->m_hWnd;
 	tnd.uCallbackMessage = MYWM_TRAYMESSAGE;
-	tnd.hIcon = LoadIcon (icon ? icon : IDR_MAINFRAME);
+	tnd.hIcon = icon ? icon : ICON_IDLE;
 
 	if (Shell_NotifyIcon(message, &tnd)) return;
 
@@ -540,20 +459,24 @@ public:
 // Dialog Data
 	//{{AFX_DATA(CAboutDlg)
 	enum { IDD = IDD_ABOUTBOX };
+	CHyperLink m_web_site_link;
+	CString m_app_string;
 	//}}AFX_DATA
 
 	// ClassWizard generated virtual function overrides
 	//{{AFX_VIRTUAL(CAboutDlg)
 	protected:
+	virtual BOOL OnInitDialog();
 	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
 	//}}AFX_VIRTUAL
 
 // Implementation
 protected:
 	//{{AFX_MSG(CAboutDlg)
-		// No message handlers
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
+public:
+    afx_msg void OnStnClickedLink();
 };
 
 CAboutDlg::CAboutDlg() : CDialog(CAboutDlg::IDD)
@@ -566,30 +489,35 @@ void CAboutDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialog::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CAboutDlg)
+	DDX_Control(pDX, IDC_LINK, m_web_site_link);
+	DDX_Text(pDX, IDC_APP_STRING, m_app_string);
 	//}}AFX_DATA_MAP
 }
 
 BEGIN_MESSAGE_MAP(CAboutDlg, CDialog)
 	//{{AFX_MSG_MAP(CAboutDlg)
-		// No message handlers
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
+
+BOOL CAboutDlg::OnInitDialog()
+{
+	CDialog::OnInitDialog();
+
+	m_web_site_link.SetURL(_T("http://mersenne.org/"));
+	// m_web_site_link.SetUnderline(CHyperLink::ulAlways);
+
+	return TRUE;  // return TRUE  unless you set the focus to a control
+}
 
 // App command to run the dialog
 void CPrime95App::OnAppAbout()
 {
 	CAboutDlg aboutDlg;
-	aboutDlg.DoModal();
-}
+	char	app_string[120];
 
-// In ExitInstance clean up previously allocated mutex
-int CPrime95App::ExitInstance() 
-{
-	if( NULL != g_hMutexInst ) {
-		CloseHandle( g_hMutexInst );
-	}
-	
-	return CWinApp::ExitInstance();
+	generate_application_string (app_string);
+	aboutDlg.m_app_string = app_string;
+	aboutDlg.DoModal();
 }
 
 
@@ -601,17 +529,21 @@ int CPrime95App::ExitInstance()
 // My application-wide stuff went here
 /////////////////////////////////////////////////////////////////////////////
 
-int volatile THREAD_STOP = 0;
 int	EXIT_IN_PROGRESS = 0;
-
-char	*lines[NumLines] = {NULL};
-int	charHeight = 0;
 
 int	WINDOWS95_SERVICE = 0;
 int	WINDOWS95_A_SWITCH = 0;
 LONG	WM_ENDSESSION_LPARAM = 0;
 int	WINDOWS95_TRAY_ADD = 0;
-int	CHECK_BATTERY = 0;
-int	STOPPED_ON_BATTERY = 0;
-char	*BROADCAST_MESSAGE = NULL;
 
+// We cache these handles because frigging Win64 deadlocks if you load an icon
+// in the main thread while the Curl library launches a thread to communicate
+// with the server (C runtime calls GetModuleHandle ("KERNEL32.DLL"))
+
+HICON	ICON_IDLE = 0;			// Red = program stopped
+HICON	ICON_WORKING = 0;		// Green = threads working
+
+void CAboutDlg::OnStnClickedLink()
+{
+    // TODO: Add your control notification handler code here
+}
