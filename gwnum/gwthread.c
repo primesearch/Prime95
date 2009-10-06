@@ -4,8 +4,7 @@
 | This file contains the C routines and global variables that are used
 | to implement multi-threading, mutexes, and locking.
 | 
-|  Copyright 2006-2007 Just For Fun Software, Inc.
-|  All Rights Reserved.
+|  Copyright 2006-2009 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -16,6 +15,7 @@
 #include <process.h>
 #else
 #include <sys/types.h>
+#include <sys/time.h>
 #include <errno.h>
 #include <pthread.h>
 #endif
@@ -315,6 +315,7 @@ void gwthread_create (
 			0,		// Standard stack size
 			td);		// Routine's argument
 #else
+	{
 	pthread_attr_t attr;
 	pthread_t tid;
 
@@ -323,6 +324,7 @@ void gwthread_create (
 	pthread_create (&tid, &attr, &ThreadStarter, td);
 	pthread_attr_destroy (&attr);
 	*thread_id = (gwthread) tid;
+	}
 #endif
 }
 
@@ -353,6 +355,7 @@ void gwthread_create_waitable (
 			0,		// Start thread in running state
 			&thread_num);	// Returned threadID - unused
 #else
+	{
 	pthread_attr_t attr;
 	pthread_t tid;
 
@@ -361,6 +364,7 @@ void gwthread_create_waitable (
 	pthread_create (&tid, &attr, &ThreadStarter, td);
 	pthread_attr_destroy (&attr);
 	*thread_id = (gwthread) tid;
+	}
 #endif
 }
 

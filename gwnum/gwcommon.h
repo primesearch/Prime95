@@ -3,8 +3,7 @@
 |
 | This file contains handy #defines that I use in all my projects
 | 
-|  Copyright 2005-2007 Just For Fun Software, Inc.
-|  All Rights Reserved.
+|  Copyright 2005-2007 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWCOMMON_H

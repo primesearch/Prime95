@@ -12,8 +12,7 @@
 | because we call the C runtime library thread create rather than the
 | MFC thread create routine. 
 |
-|  Copyright 2006 Just For Fun Software, Inc.
-|  All Rights Reserved.
+|  Copyright 2006 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWTHREAD_H

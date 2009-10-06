@@ -1,4 +1,4 @@
-; Copyright 2005-2007 Just For Fun Software, Inc., all rights reserved
+; Copyright 2005-2007 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;

@@ -9,8 +9,9 @@ masm=ml /c /coff
 # Use the MSVC 8 C compiler
 
 cl=cl /GF /W3 /MT /D_CRT_SECURE_NO_DEPRECATE /O2 /c
-cld=cl /GF /W3 /MT /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Zi /c
-cldo=cl /GF /W3 /MT /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Zi /O2 /c
+cld=cl /GF /W3 /MT /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Z7 /c
+cldo=cl /GF /W3 /MT /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Z7 /O2 /c
+objconv=c:\objconv\objconv
 
 # List of all buildables in this makefile
 
@@ -31,7 +32,7 @@ linux\gwnum.a: mult.obj multutil.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj
     del linux\gwnum.a
     del linux\gwnum.lib
     lib /OUT:linux\gwnum.lib *.obj
-    /objconv/objconv -felf32 linux\gwnum.lib linux\gwnum.a
+    $(objconv) -felf32 linux\gwnum.lib linux\gwnum.a
     attrib -r linux\gwnum.a
     del linux\gwnum.lib
 
@@ -40,7 +41,7 @@ macosx\gwnum.a: mult.obj multutil.obj mult1.obj mult1aux.obj mult2.obj mult2p.ob
     del macosx\gwnum.a
     del macosx\gwnum.lib
     lib /OUT:macosx\gwnum.lib *.obj
-    /objconv/objconv-3 -fmac -wd1050 macosx\gwnum.lib macosx\gwnum.a
+    $(objconv) -fmacho32 -wd1050 macosx\gwnum.lib macosx\gwnum.a
     attrib -r macosx\gwnum.a
     del macosx\gwnum.lib
 
@@ -80,7 +81,7 @@ release\giants.obj: giants.c giants.h
     $(cl) /Forelease\giants.obj giants.c
 
 debug\giants.obj: giants.c giants.h
-    $(cld) /Fodebug\giants.obj giants.c
+    $(cldo) /Fodebug\giants.obj giants.c
 
 release\ecmstag1.obj: ecmstag1.c gwnum.h
     $(cl) /Forelease\ecmstag1.obj ecmstag1.c

@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2007 Just For Fun Software, Inc., all rights reserved
+| Copyright 1995-2009 Mersenne Research, Inc.  All rights reserved
 | Author:  George Woltman
 | Email: woltman@alum.mit.edu
 |
@@ -45,20 +45,27 @@ extern double CPU_SPEED;		/* Actual CPU Speed in MHz */
 #define CPU_MMX		0x0020
 #define CPU_3DNOW	0x0040
 #define CPU_SSE3	0x0080
-#define CPU_SSSE3	0x0100
+#define CPU_SSSE3	0x0100		/* Supplemental SSE3 */
 #define CPU_SSE41	0x0200
 #define CPU_SSE42	0x0400
 extern unsigned int CPU_FLAGS;		/* Cpu capabilities */
+extern unsigned int CPU_CORES;		/* Number CPU cores */
 extern unsigned int CPU_HYPERTHREADS;	/* Number of virtual processors */
-					/* that each CPU core supports */
-extern int CPU_L1_CACHE_SIZE;
-extern int CPU_L2_CACHE_SIZE;
+					/* that each CPU core supports. */
+					/* Total number logical processors */
+					/* is CPU_CORES * CPU_HYPERTHREADS */
+extern int CPU_L1_CACHE_SIZE;		/* In KB */
+extern int CPU_L2_CACHE_SIZE;		/* In KB */
+extern int CPU_L3_CACHE_SIZE;		/* In KB */
 extern int CPU_L1_CACHE_LINE_SIZE;
 extern int CPU_L2_CACHE_LINE_SIZE;
+extern int CPU_L3_CACHE_LINE_SIZE;
 extern int CPU_L1_DATA_TLBS;
 extern int CPU_L2_DATA_TLBS;
+extern int CPU_L3_DATA_TLBS;
 extern int CPU_L1_SET_ASSOCIATIVE;
 extern int CPU_L2_SET_ASSOCIATIVE;
+extern int CPU_L3_SET_ASSOCIATIVE;
 
 extern unsigned int CPU_SIGNATURE;	/* Vendor-specific family number, */
 					/* model number, stepping ID, etc. */
