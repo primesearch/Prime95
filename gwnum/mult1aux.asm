@@ -20,12 +20,12 @@ _TEXT SEGMENT
 	flat_distances
 
 ;;
-;; Add two numbers without carry propogation.  Caller can use this for
+;; Add two numbers without carry propagation.  Caller can use this for
 ;; consecutive add or subtract operations.  However, the last operation
 ;; before a multiply must use the routine that will normalize data.
 ;;
 
-PROCF	gwaddq1
+PROCFL	gwaddq1
 	ad_prolog 0,0,rsi,rdi
 	mov	ecx, SRCARG		; Address of first number
 	mov	edx, SRC2ARG		; Address of second number
@@ -51,10 +51,10 @@ uaddlp:	fld	QWORD PTR [ecx][edi*8-32] ; Load first number
 gwaddq1	ENDP
 
 ;;
-;; Add two numbers with carry propogation
+;; Add two numbers with carry propagation
 ;;
 
-PROCF	gwadd1
+PROCFL	gwadd1
 	ad_prolog 0,0,rbx,rbp,rsi,rdi
 	mov	ecx, SRCARG		; Address of first number
 	mov	edx, SRC2ARG		; Address of second number
@@ -76,12 +76,12 @@ gwadd1	ENDP
 
 
 ;;
-;; Subtract two numbers without carry propogation.  Caller can use this for
+;; Subtract two numbers without carry propagation.  Caller can use this for
 ;; consecutive add or subtract operations.  However, the last operation
 ;; before a multiply must use the routine that will normalize data.
 ;;
 
-PROCF	gwsubq1
+PROCFL	gwsubq1
 	ad_prolog 0,0,rsi,rdi
 	mov	ecx, SRCARG		; Address of first number
 	mov	edx, SRC2ARG		; Address of second number
@@ -107,10 +107,10 @@ usublp:	fld	QWORD PTR [edx][edi*8-32] ; Load second number
 gwsubq1	ENDP
 
 ;;
-;; Subtract two numbers with carry propogation
+;; Subtract two numbers with carry propagation
 ;;
 
-PROCF	gwsub1
+PROCFL	gwsub1
 	ad_prolog 0,0,rbx,rbp,rsi,rdi
 	mov	ecx, SRCARG		; Address of first number
 	mov	edx, SRC2ARG		; Address of second number
@@ -132,10 +132,10 @@ gwsub1	ENDP
 
 
 ;;
-;; Add and subtract two numbers without carry propogation.
+;; Add and subtract two numbers without carry propagation.
 ;;
 
-PROCF	gwaddsubq1
+PROCFL	gwaddsubq1
 	ad_prolog 0,0,rbp,rsi,rdi
 	mov	ecx, SRCARG		; Address of first number
 	mov	edx, SRC2ARG		; Address of second number
@@ -178,12 +178,12 @@ uaddsublp:
 gwaddsubq1 ENDP
 
 ;;
-;; Add and subtract two numbers with carry propogation
+;; Add and subtract two numbers with carry propagation
 ;;
 
 loopcount1	EQU	DPTR [rsp+first_local]
 
-PROCF	gwaddsub1
+PROCFL	gwaddsub1
 	ad_prolog 4,0,rbx,rbp,rsi,rdi
 	mov	ecx, SRCARG		; Address of first number
 	mov	edx, SRC2ARG		; Address of second number
@@ -213,7 +213,7 @@ gwaddsub1 ENDP
 ;; Copy one number and zero some low order words.
 ;;
 
-PROCF	gwcopyzero1
+PROCFL	gwcopyzero1
 	ad_prolog 0,0,rsi,rdi
 	mov	esi, SRCARG		; Address of first number
 	mov	edi, DESTARG		; Address of destination
@@ -240,10 +240,10 @@ zlp2:	fld	QWORD PTR [esi]		; Copy low word
 gwcopyzero1 ENDP
 
 ;;
-;; Mul by a small value with carry propogation
+;; Mul by a small value with carry propagation
 ;;
 
-PROCF	gwmuls1
+PROCFL	gwmuls1
 	ad_prolog 0,0,rbx,rbp,rsi,rdi
 	mov	esi, DESTARG		; Address of destination
 	fld	DBLARG			; Load small value

@@ -20,12 +20,12 @@ _TEXT SEGMENT
 	flat_distances
 
 ;;
-;; Add two numbers without carry propogation.  Caller can use this for
+;; Add two numbers without carry propagation.  Caller can use this for
 ;; consecutive add or subtract operations.  However, the last operation
 ;; before a multiply must use the routine that will normalize data.
 ;;
 
-PROCF	gwaddq2
+PROCFL	gwaddq2
 	ad_prolog 0,0,rbx,rsi,rdi
 	mov	ecx, SRCARG		; Address of first number
 	mov	edx, SRC2ARG		; Address of second number
@@ -66,7 +66,7 @@ gwaddq2	ENDP
 
 
 ;;
-;; Add two numbers with carry propogation
+;; Add two numbers with carry propagation
 ;;
 
 loopcount1	EQU	DPTR [rsp+first_local+12]
@@ -74,7 +74,7 @@ loopcount2	EQU	DPTR [rsp+first_local+8]
 loopcount3	EQU	DPTR [rsp+first_local+4]
 loopcount4	EQU	DPTR [rsp+first_local]
 
-PROCF	gwadd2
+PROCFL	gwadd2
 	ad_prolog 16,0,rbx,rbp,rsi,rdi
 	mov	ecx, SRCARG		; Address of first number
 	mov	edx, SRC2ARG		; Address of second number
@@ -123,12 +123,12 @@ gwadd2	ENDP
 
 
 ;;
-;; Subtract two numbers without carry propogation.  Caller can use this for
+;; Subtract two numbers without carry propagation.  Caller can use this for
 ;; consecutive add or subtract operations.  However, the last operation
 ;; before a multiply must use the routine that will normalize data.
 ;;
 
-PROCF	gwsubq2
+PROCFL	gwsubq2
 	ad_prolog 0,0,rbx,rsi,rdi
 	mov	ecx, SRCARG		; Address of first number
 	mov	edx, SRC2ARG		; Address of second number
@@ -168,7 +168,7 @@ usublp:	fld	QWORD PTR [edx]		; Load second number
 gwsubq2	ENDP
 
 ;;
-;; Subtract two numbers with carry propogation
+;; Subtract two numbers with carry propagation
 ;;
 
 loopcount1	EQU	DPTR [rsp+first_local+12]
@@ -176,7 +176,7 @@ loopcount2	EQU	DPTR [rsp+first_local+8]
 loopcount3	EQU	DPTR [rsp+first_local+4]
 loopcount4	EQU	DPTR [rsp+first_local]
 
-PROCF	gwsub2
+PROCFL	gwsub2
 	ad_prolog 16,0,rbx,rbp,rsi,rdi
 	mov	ecx, SRCARG		; Address of first number
 	mov	edx, SRC2ARG		; Address of second number
@@ -225,10 +225,10 @@ isub2:	norm_op_2d fsub			; Add and normalize 4 values
 gwsub2	ENDP
 
 ;;
-;; Add and subtract two numbers without carry propogation.
+;; Add and subtract two numbers without carry propagation.
 ;;
 
-PROCF	gwaddsubq2
+PROCFL	gwaddsubq2
 	ad_prolog 0,0,rbx,rbp,rsi,rdi
 	mov	ecx, SRCARG		; Address of first number
 	mov	edx, SRC2ARG		; Address of second number
@@ -289,7 +289,7 @@ uaddsublp:
 gwaddsubq2 ENDP
 
 ;;
-;; Add and subtract two numbers with carry propogation
+;; Add and subtract two numbers with carry propagation
 ;;
 
 loopcount1	EQU	DPTR [rsp+first_local]
@@ -298,7 +298,7 @@ loopcount3	EQU	DPTR [rsp+first_local+8]
 loopcount4	EQU	DPTR [rsp+first_local+12]
 save_reg	EQU	DPTR [rsp+first_local+16]
 
-PROCF	gwaddsub2
+PROCFL	gwaddsub2
 	ad_prolog 20,0,rbx,rbp,rsi,rdi
 	mov	ecx, SRCARG		; Address of first number
 	mov	edx, SRC2ARG		; Address of second number
@@ -358,7 +358,7 @@ gwaddsub2 ENDP
 ;; Copy one number and zero some low order words.
 ;;
 
-PROCF	gwcopyzero2
+PROCFL	gwcopyzero2
 	ad_prolog 0,0,rbx,rsi,rdi
 	mov	esi, SRCARG		; Address of first number
 	mov	edi, DESTARG		; Address of destination
@@ -397,7 +397,7 @@ gwcopyzero2 ENDP
 
 
 ;;
-;; Mul by a small value with carry propogation
+;; Mul by a small value with carry propagation
 ;;
 
 loopcount1	EQU	DPTR [rsp+first_local+12]
@@ -405,7 +405,7 @@ loopcount2	EQU	DPTR [rsp+first_local+8]
 loopcount3	EQU	DPTR [rsp+first_local+4]
 loopcount4	EQU	DPTR [rsp+first_local]
 
-PROCF	gwmuls2
+PROCFL	gwmuls2
 	ad_prolog 16,0,rbx,rbp,rsi,rdi
 	mov	esi, DESTARG		; Address of destination
 	fld	DBLARG			; Load small value

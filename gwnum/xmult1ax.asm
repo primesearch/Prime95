@@ -1,4 +1,4 @@
-; Copyright 2001-2009 Mersenne Research, Inc.  All rights reserved
+; Copyright 2001-2010 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -13,46 +13,65 @@ ENDIF
 
 INCLUDE	unravel.mac
 INCLUDE extrn.mac
-INCLUDE xmult.mac
+INCLUDE xarch.mac
+INCLUDE xbasics.mac
 INCLUDE memory.mac
 INCLUDE xnormal.mac
+
+; Internal routine to add in the wraparound carry
+; I'd like to make this a subroutine, but it is too difficult
+; to get push_amt correct.
+
+final_carries_1 MACRO
+	LOCAL	b2c, c1dn
+
+	mov	rbp, norm_col_mults	; Address of the multipliers
+	mov	rdi, norm_biglit_array	; Addr of the big/little flags array
+
+	cmp	B_IS_2, 0		; Is this base 2?
+	jne	b2c			; yes, do simpler rounding
+	xnorm_smallmul_1d_cleanup noexec ; Non-base 2 carry propagation
+	jmp	c1dn
+b2c:	xnorm_smallmul_1d_cleanup exec	; Base 2 carry propagation
+c1dn:
+	ENDM
 
 _TEXT SEGMENT
 
 ;;
-;; Add two numbers without carry propogation.  Caller can use this for
+;; Add two numbers without carry propagation.  Caller can use this for
 ;; consecutive add or subtract operations.  However, the last operation
 ;; before a multiply must use the routine that will normalize data.
 ;;
 
-PROCF	gwxaddq1
+PROCFL	gwxaddq1
 	ad_prolog 0,0,rsi
 	mov	rcx, SRCARG		; Address of first number
 	mov	rdx, SRC2ARG		; Address of second number
 	mov	rsi, DESTARG		; Address of destination
 	mov	eax, addcount1		; Load loop counter
-uaddlp:	movapd	xmm0, [rdx]		; Load second number
+uaddlp:	xload	xmm0, [rdx]		; Load second number
 	addpd	xmm0, [rcx]		; Add in first number
-	movapd	xmm1, [rdx+16]		; Load second number
+	xload	xmm1, [rdx+16]		; Load second number
 	addpd	xmm1, [rcx+16]		; Add in first number
-	movapd	xmm2, [rdx+32]		; Load second number
+	xload	xmm2, [rdx+32]		; Load second number
 	addpd	xmm2, [rcx+32]		; Add in first number
-	movapd	xmm3, [rdx+48]		; Load second number
+	xload	xmm3, [rdx+48]		; Load second number
 	addpd	xmm3, [rcx+48]		; Add in first number
-	movapd	[rsi], xmm0		; Save result
-	movapd	[rsi+16], xmm1		; Save result
-	movapd	[rsi+32], xmm2		; Save result
-	movapd	[rsi+48], xmm3		; Save result
-	lea	rcx, [rcx+64]		; Next source
-	lea	rdx, [rdx+64]		; Next source
-	lea	rsi, [rsi+64]		; Next dest
+	xstore	[rsi], xmm0		; Save result
+	xstore	[rsi+16], xmm1		; Save result
+	xstore	[rsi+32], xmm2		; Save result
+	xstore	[rsi+48], xmm3		; Save result
+	bump	rcx, 64			; Next source
+	bump	rdx, 64			; Next source
+	bump	rsi, 64			; Next dest
 	sub	eax, 1			; Check loop counter
 	jnz	short uaddlp		; Loop if necessary
 	ad_epilog 0,0,rsi
 gwxaddq1 ENDP
 
 ;;
-;; Add two numbers with carry propogation
+;; Add two numbers with carry propagation
 ;;
 
 saved_dest_ptr	EQU	PPTR [rsp+first_local+0*SZPTR]
@@ -60,13 +79,13 @@ saved_col_ptr	EQU	PPTR [rsp+first_local+1*SZPTR]
 loopcount1	EQU	DPTR [rsp+first_local+2*SZPTR+0]
 loopcount2	EQU	DPTR [rsp+first_local+2*SZPTR+4]
 
-PROCF	gwxadd1
+PROCFL	gwxadd1
 	ad_prolog 2*SZPTR+8,0,rbx,rbp,rsi,rdi,xmm6,xmm7
 	mov	rcx, SRCARG		; Address of first number
 	mov	rdx, SRC2ARG		; Address of second number
 	mov	rsi, DESTARG		; Address of destination
-	movapd	xmm2, XMM_BIGVAL	; Start process with no carry
-	movapd	xmm3, xmm2
+	xload	xmm2, XMM_BIGVAL	; Start process with no carry
+	xcopy	xmm3, xmm2
 	mov	eax, normcount1		; Load loop counter
 	mov	rbp, norm_col_mults	; Address of the multipliers
 	mov	rdi, norm_biglit_array	; Addr of the big/little flags array
@@ -108,46 +127,47 @@ nadddn:	mov	rbx, saved_col_ptr	; Restore multipliers pointer
 	mov	eax, loopcount1		; Restore loop counter
 	shr	eax, 11			; Get next loop amount
 	jnz	nadd0
+
 	mov	rsi, DESTARG		; Address of result
-	mov	rbx, norm_col_mults	; Address of the multipliers
-	xnorm_op_1d_cleanup
+	final_carries_1
+
 	ad_epilog 2*SZPTR+8,0,rbx,rbp,rsi,rdi,xmm6,xmm7
 gwxadd1 ENDP
 
 ;;
-;; Subtract two numbers without carry propogation.  Caller can use this for
+;; Subtract two numbers without carry propagation.  Caller can use this for
 ;; consecutive add or subtract operations.  However, the last operation
 ;; before a multiply must use the routine that will normalize data.
 ;;
 
-PROCF	gwxsubq1
+PROCFL	gwxsubq1
 	ad_prolog 0,0,rsi
 	mov	rcx, SRCARG		; Address of first number
 	mov	rdx, SRC2ARG		; Address of second number
 	mov	rsi, DESTARG		; Address of destination
 	mov	eax, addcount1		; Load loop counter
-usublp:	movapd	xmm0, [rdx]		; Load second number
+usublp:	xload	xmm0, [rdx]		; Load second number
 	subpd	xmm0, [rcx]		; Subtract first number
-	movapd	xmm1, [rdx+16]		; Load second number
+	xload	xmm1, [rdx+16]		; Load second number
 	subpd	xmm1, [rcx+16]		; Subtract first number
-	movapd	xmm2, [rdx+32]		; Load second number
+	xload	xmm2, [rdx+32]		; Load second number
 	subpd	xmm2, [rcx+32]		; Subtract first number
-	movapd	xmm3, [rdx+48]		; Load second number
+	xload	xmm3, [rdx+48]		; Load second number
 	subpd	xmm3, [rcx+48]		; Subtract first number
-	movapd	[rsi], xmm0		; Save result
-	movapd	[rsi+16], xmm1		; Save result
-	movapd	[rsi+32], xmm2		; Save result
-	movapd	[rsi+48], xmm3		; Save result
-	lea	rcx, [rcx+64]		; Next source
-	lea	rdx, [rdx+64]		; Next source
-	lea	rsi, [rsi+64]		; Next dest
+	xstore	[rsi], xmm0		; Save result
+	xstore	[rsi+16], xmm1		; Save result
+	xstore	[rsi+32], xmm2		; Save result
+	xstore	[rsi+48], xmm3		; Save result
+	bump	rcx, 64			; Next source
+	bump	rdx, 64			; Next source
+	bump	rsi, 64			; Next dest
 	sub	eax, 1			; Check loop counter
 	jnz	short usublp		; Loop if necessary
 	ad_epilog 0,0,rsi
 gwxsubq1 ENDP
 
 ;;
-;; Subtract two numbers with carry propogation
+;; Subtract two numbers with carry propagation
 ;;
 
 saved_dest_ptr	EQU	PPTR [rsp+first_local+0*SZPTR]
@@ -155,13 +175,13 @@ saved_col_ptr	EQU	PPTR [rsp+first_local+1*SZPTR]
 loopcount1	EQU	DPTR [rsp+first_local+2*SZPTR+0]
 loopcount2	EQU	DPTR [rsp+first_local+2*SZPTR+4]
 
-PROCF	gwxsub1
+PROCFL	gwxsub1
 	ad_prolog 2*SZPTR+8,0,rbx,rbp,rsi,rdi,xmm6,xmm7
 	mov	rcx, SRCARG		; Address of first number
 	mov	rdx, SRC2ARG		; Address of second number
 	mov	rsi, DESTARG		; Address of destination
-	movapd	xmm2, XMM_BIGVAL	; Start process with no carry
-	movapd	xmm3, xmm2
+	xload	xmm2, XMM_BIGVAL	; Start process with no carry
+	xcopy	xmm3, xmm2
 	mov	eax, normcount1		; Load loop counter
 	mov	rbp, norm_col_mults	; Address of the multipliers
 	mov	rdi, norm_biglit_array	; Addr of the big/little flags array
@@ -203,17 +223,18 @@ nsubdn:	mov	rbx, saved_col_ptr	; Restore multipliers pointer
 	mov	eax, loopcount1		; Restore loop counter
 	shr	eax, 11			; Get next loop amount
 	jnz	nsub0
+
 	mov	rsi, DESTARG		; Address of result
-	mov	rbx, norm_col_mults	; Address of the multipliers
-	xnorm_op_1d_cleanup
+	final_carries_1
+
 	ad_epilog 2*SZPTR+8,0,rbx,rbp,rsi,rdi,xmm6,xmm7
 gwxsub1 ENDP
 
 ;;
-;; Add and subtract two numbers without carry propogation.
+;; Add and subtract two numbers without carry propagation.
 ;;
 
-PROCF	gwxaddsubq1
+PROCFL	gwxaddsubq1
 	ad_prolog 0,0,rbp,rsi,xmm6,xmm7
 	mov	rcx, SRCARG		; Address of first number
 	mov	rdx, SRC2ARG		; Address of second number
@@ -221,41 +242,41 @@ PROCF	gwxaddsubq1
 	mov	rbp, DEST2ARG	  	; Address of destination #2
 	mov	eax, addcount1		; Load loop counter
 uaddsublp:
-	movapd	xmm0, [rcx]		; Load first number
-	movapd	xmm1, xmm0		; Dup first number
+	xload	xmm0, [rcx]		; Load first number
+	xcopy	xmm1, xmm0		; Dup first number
 	addpd	xmm0, [rdx]		; Add in second number
 	subpd	xmm1, [rdx]		; Subtract out second number
-	movapd	xmm2, [rcx+16]		; Load first number
-	movapd	xmm3, xmm2		; Dup first number
+	xload	xmm2, [rcx+16]		; Load first number
+	xcopy	xmm3, xmm2		; Dup first number
 	addpd	xmm2, [rdx+16]		; Add in second number
 	subpd	xmm3, [rdx+16]		; Subtract out second number
-	movapd	xmm4, [rcx+32]		; Load first number
-	movapd	xmm5, xmm4		; Dup first number
+	xload	xmm4, [rcx+32]		; Load first number
+	xcopy	xmm5, xmm4		; Dup first number
 	addpd	xmm4, [rdx+32]		; Add in second number
 	subpd	xmm5, [rdx+32]		; Subtract out second number
-	movapd	xmm6, [rcx+48]		; Load first number
-	movapd	xmm7, xmm6		; Dup first number
+	xload	xmm6, [rcx+48]		; Load first number
+	xcopy	xmm7, xmm6		; Dup first number
 	addpd	xmm6, [rdx+48]		; Add in second number
 	subpd	xmm7, [rdx+48]		; Subtract out second number
-	movapd	[rsi], xmm0		; Save result
-	movapd	[rbp], xmm1		; Save result
-	movapd	[rsi+16], xmm2		; Save result
-	movapd	[rbp+16], xmm3		; Save result
-	movapd	[rsi+32], xmm4		; Save result
-	movapd	[rbp+32], xmm5		; Save result
-	movapd	[rsi+48], xmm6		; Save result
-	movapd	[rbp+48], xmm7		; Save result
-	lea	rcx, [rcx+64]		; Next source
-	lea	rdx, [rdx+64]		; Next source
-	lea	rsi, [rsi+64]		; Next dest
-	lea	rbp, [rbp+64]		; Next dest
+	xstore	[rsi], xmm0		; Save result
+	xstore	[rbp], xmm1		; Save result
+	xstore	[rsi+16], xmm2		; Save result
+	xstore	[rbp+16], xmm3		; Save result
+	xstore	[rsi+32], xmm4		; Save result
+	xstore	[rbp+32], xmm5		; Save result
+	xstore	[rsi+48], xmm6		; Save result
+	xstore	[rbp+48], xmm7		; Save result
+	bump	rcx, 64			; Next source
+	bump	rdx, 64			; Next source
+	bump	rsi, 64			; Next dest
+	bump	rbp, 64			; Next dest
 	sub	eax, 1			; Check loop counter
 	jnz	uaddsublp		; Loop if necessary
 	ad_epilog 0,0,rbp,rsi,xmm6,xmm7
 gwxaddsubq1 ENDP
 
 ;;
-;; Add and subtract two numbers with carry propogation
+;; Add and subtract two numbers with carry propagation
 ;;
 
 saved_dest1_ptr	EQU	PPTR [rsp+first_local+0*SZPTR]
@@ -264,16 +285,16 @@ saved_col_ptr	EQU	PPTR [rsp+first_local+2*SZPTR]
 loopcount1	EQU	DPTR [rsp+first_local+3*SZPTR+0]
 loopcount2	EQU	DPTR [rsp+first_local+3*SZPTR+4]
 
-PROCF	gwxaddsub1
+PROCFL	gwxaddsub1
 	ad_prolog 3*SZPTR+8,0,rbx,rbp,rsi,rdi,xmm6,xmm7
 	mov	rcx, SRCARG		; Address of first number
 	mov	rdx, SRC2ARG		; Address of second number
 	mov	rsi, DESTARG		; Address of destination
 	mov	rbp, DEST2ARG	  	; Address of destination #2
-	movapd	xmm2, XMM_BIGVAL	; Start process with no carry
-	movapd	xmm3, xmm2
-	movapd	xmm6, xmm2
-	movapd	xmm7, xmm2
+	xload	xmm2, XMM_BIGVAL	; Start process with no carry
+	xcopy	xmm3, xmm2
+	xcopy	xmm6, xmm2
+	xcopy	xmm7, xmm2
 	mov	eax, normcount1		; Load loop counter
 	mov	rbx, norm_col_mults	; Address of the multipliers
 	mov	rdi, norm_biglit_array	; Addr of the big/little flags array
@@ -322,10 +343,17 @@ naddsubdn:
 	shr	eax, 11			; Get next loop amount
 	jnz	naddsub0
 
+	xstore	XMM_TMP7, xmm6		; Save carry
+	xstore	XMM_TMP8, xmm7		; Save carry
+
 	mov	rsi, DESTARG		; Address of result #1
-	mov	rbp, DEST2ARG		; Address of result #2
-	mov	rbx, norm_col_mults	; Address of the multipliers
-	xnorm_addsub_1d_cleanup
+	final_carries_1
+
+	xload	xmm2, XMM_TMP7		; Load carry
+	xload	xmm3, XMM_TMP8		; Load carry
+	mov	rsi, DEST2ARG		; Address of result #2
+	final_carries_1
+
 	ad_epilog 3*SZPTR+8,0,rbx,rbp,rsi,rdi,xmm6,xmm7
 gwxaddsub1 ENDP
 
@@ -333,26 +361,26 @@ gwxaddsub1 ENDP
 ;; Copy one number and zero some low order words.
 ;;
 
-PROCF	gwxcopyzero1
+PROCFL	gwxcopyzero1
 	ad_prolog 0,0,rsi,rdi
 	mov	rsi, SRCARG		; Address of first number
 	mov	rdi, DESTARG		; Address of destination
 	sub	ecx, ecx		; Offset to compare to COPYZERO
 	mov	eax, addcount1		; Load loop counter
 cz1:	xcopyzero			; Copy/zero 8 values
-	lea	rsi, [rsi+64]		; Next source
-	lea	rdi, [rdi+64]		; Next dest
-	lea	rcx, [rcx+64]		; Next compare offset
+	bump	rsi, 64			; Next source
+	bump	rdi, 64			; Next dest
+	bump	rcx, 64			; Next compare offset
 	sub	eax, 1			; Test loop counter
 	jnz	cz1			; Loop if necessary
 	ad_epilog 0,0,rsi,rdi
 gwxcopyzero1 ENDP
 
 ;;
-;; Add in a small number with carry propogation
+;; Add in a small number with carry propagation
 ;;
 
-PROCF	gwxadds1
+PROCFL	gwxadds1
 	ad_prolog 0,0,rbx,rbp,rsi,rdi,xmm6,xmm7
 	mov	rsi, DESTARG		; Address of destination
 	movsd	xmm7, DBLARG		; Small addin value
@@ -377,7 +405,7 @@ saved_dest_ptr	EQU	PPTR [rsp+first_local+0*SZPTR]
 saved_col_ptr	EQU	PPTR [rsp+first_local+1*SZPTR]
 saved_biglit_ptr EQU	PPTR [rsp+first_local+2*SZPTR]
 
-PROCF	gwxmuls1
+PROCFL	gwxmuls1
 	ad_prolog 3*SZPTR,0,rbx,rbp,rsi,rdi,xmm6,xmm7
 	mov	rsi, DESTARG		; Address of destination
 	movlpd	xmm7, DBLARG		; Small multiplier value
@@ -385,8 +413,8 @@ PROCF	gwxmuls1
 	cmp	RATIONAL_FFT, 0		; Test for irrational FFTs
 	jne	skip			; No, skip mul by two-to-phi fudge factor
 	mulpd	xmm7, XMM_NORM012_FF	; Mul by FFTLEN/2
-skip:	movapd	xmm2, XMM_BIGVAL	; Start process with no carry
-	movapd	xmm3, xmm2
+skip:	xload	xmm2, XMM_BIGVAL	; Start process with no carry
+	xcopy	xmm3, xmm2
 	mov	edx, normcount1		; Load loop counter
 	mov	rbp, norm_col_mults	; Address of the multipliers
 	mov	rdi, norm_biglit_array	; Addr of the big/little flags array
@@ -423,10 +451,6 @@ nb2nmuldn:
 	mov	rbp, saved_col_ptr	; Restore multipliers pointer
 	shr	edx, 11			; Get next loop amount
 	jnz	nb2nmul0
-	mov	rsi, DESTARG		; Address of result
-	mov	rbp, norm_col_mults	; Address of the multipliers
-	mov	rdi, norm_biglit_array	; Addr of the big/little flags array
-	xnorm_smallmul_1d_cleanup noexec
 	jmp	mulsdn
 
 nmul0:	mov	ebx, edx		; Save loop counter
@@ -449,11 +473,10 @@ nmuldn:	xchg	rsi, saved_dest_ptr	; Restore dest pointer
 	mov	rbp, saved_col_ptr	; Restore multipliers pointer
 	shr	edx, 11			; Get next loop amount
 	jnz	nmul0
-	mov	rsi, DESTARG		; Address of result
-	mov	rbp, norm_col_mults	; Address of the multipliers
-	mov	rdi, norm_biglit_array	; Addr of the big/little flags array
-	xnorm_smallmul_1d_cleanup exec
-mulsdn:
+
+mulsdn:	mov	rsi, DESTARG		; Address of result
+	final_carries_1
+
 	ad_epilog 3*SZPTR,0,rbx,rbp,rsi,rdi,xmm6,xmm7
 gwxmuls1 ENDP
 
@@ -470,7 +493,7 @@ saved_reg3	EQU	PPTR [rsp+first_local+2*SZPTR]
 
 inorm	MACRO	lab, ttp, zero, echk, const, base2, sse4
 	LOCAL	ilp0, ilp1
-	PROCFL	lab
+	PROCFLP	lab
 	int_prolog 3*SZPTR,0,0
 	mov	rsi, DESTARG		;; Addr of multiplied number
 no zero	mov	edi, ADDIN_OFFSET	;; Get address to add value into
@@ -478,8 +501,8 @@ no zero	movsd	xmm0, Q [rsi][rdi]	;; Get the value
 no zero	addsd	xmm0, ADDIN_VALUE	;; Add in the requested value
 no zero	movsd	Q [rsi][rdi], xmm0	;; Save the new value
 no zero	subsd	xmm7, ADDIN_VALUE	;; Do not include addin in sumout
-	movapd	xmm2, XMM_BIGVAL	;; Start process with no carry
-	movapd	xmm3, xmm2
+	xload	xmm2, XMM_BIGVAL	;; Start process with no carry
+	xcopy	xmm3, xmm2
 	movlpd	xmm6, MAXERR		;; Current maximum error
 	movhpd	xmm6, MAXERR
 	mov	rbp, norm_col_mults	;; Addr of the multipliers
@@ -494,9 +517,9 @@ ttp	mov	saved_reg1, rbp		;; remember ebp for xnorm012_1d_mid
 ilp0:	mov	ebx, edx		;; Load loop counter
 	and	ebx, 07FFh		;; Grab 11 bits of the counter
 ilp1:	xnorm_1d ttp, zero, echk, const, base2, sse4 ;; Normalize 8 values
-	lea	rsi, [rsi+64]		;; Next cache line
-ttp	lea	rbp, [rbp+128]		;; Next set of 8 multipliers
-ttp	lea	rdi, [rdi+4]		;; Next big/little flags
+	bump	rsi, 64			;; Next cache line
+ttp	bump	rbp, 128		;; Next set of 8 multipliers
+ttp	bump	rdi, 4			;; Next big/little flags
 	sub	ebx, 1			;; Test loop counter
 	jnz	ilp1			;; Loop til done
 
@@ -513,15 +536,15 @@ ttp	mov	rbp, saved_reg1		;; Restore ttp pointer
 no base2 jmp	non2dn			;; Go to non-base2 end code
 zero	jmp	zdn			;; Go to zero upper half end code
 base2 no zero jmp idn			;; Go to normal end code
-&lab	ENDP
+	ENDPP lab
 	ENDM
 
 zpnorm	MACRO	lab, ttp, echk, const, base2, sse4, khi, c1, cm1
 	LOCAL	ilp0, ilp1
-	PROCFL	lab
+	PROCFLP	lab
 	int_prolog 3*SZPTR,0,0
 	mov	rsi, DESTARG		;; Addr of multiplied number
-	movapd	xmm2, XMM_BIGVAL	;; Start process with no carry
+	xload	xmm2, XMM_BIGVAL	;; Start process with no carry
 	subpd	xmm3, xmm3
 	movlpd	xmm6, MAXERR		;; Current maximum error
 	movhpd	xmm6, MAXERR
@@ -535,9 +558,9 @@ ilp0:	mov	saved_reg1, rbx		;; Save loop counter
 	mov	saved_reg3, rsi		;; remember esi for xnorm012_1d_mid
 	mov	rdx, rbp		;; remember ebp for xnorm012_1d_mid
 ilp1:	xnorm_1d_zpad ttp, echk, const, base2, sse4, khi, c1, cm1 ;; Normalize 8 values
-	lea	rsi, [rsi+64]		;; Next cache line
-ttp	lea	rbp, [rbp+128]		;; Next set of 8 multipliers
-ttp	lea	rdi, [rdi+4]		;; Next big/little flags
+	bump	rsi, 64			;; Next cache line
+ttp	bump	rbp, 128		;; Next set of 8 multipliers
+ttp	bump	rdi, 4			;; Next big/little flags
 	sub	ebx, 1			;; Test loop counter
 	jnz	ilp1			;; Loop til done
 	mov	rbx, saved_reg3		;; Restore FFT data addr
@@ -551,7 +574,7 @@ no base2 const jmp non2zpcdn		;; Go to zero padded FFT end code
 no base2 no const jmp non2zpdn		;; Go to non-base2 end code
 base2 const jmp	zpcdn			;; Go to zero padded FFT end code
 base2 no const jmp zpdn			;; Go to zero padded FFT end code
-&lab	ENDP
+	ENDPP lab
 	ENDM
 
 ; The many different normalization routines.  One for each valid combination of
@@ -791,11 +814,12 @@ idn:	mov	rsi, DESTARG		; Address of squared number
 
 ; Normalize SUMOUT value by multiplying by 1 / (fftlen/2).
 
-cmnend:	movapd	XMM_TMP1, xmm7		; Add together the two partial sumouts
+cmnend:	mov	rsi, DESTARG		; Address of squared number
+	xstore	XMM_TMP1, xmm7		; Add together the two partial sumouts
 	addsd	xmm7, XMM_TMP1+8
 	mulsd	xmm7, ttmp_ff_inv
 	movsd	Q [rsi-24], xmm7	; Save sum of FFT outputs
-	movapd	XMM_TMP1, xmm6		; Compute new maximum error
+	xstore	XMM_TMP1, xmm6		; Compute new maximum error
 	maxsd	xmm6, XMM_TMP1+8
 	movsd	MAXERR, xmm6
 
