@@ -1,0 +1,27 @@
+# Makefile for FreeBSD 10.0 64-bit gwnum library
+#
+
+CC = cc
+CFLAGS = -I.. -DX86_64 -O2
+
+CPP = cc
+CPPFLAGS = -I.. -I../qd -DX86_64 -O2
+
+LINUXOBJS = cpuid.o gwnum.o gwtables.o gwthread.o gwutil.o gwdbldbl.o giants.o ecmstag1.o
+
+LIB = gwnum.a
+
+#########################################################################
+
+$(LIB): $(LINUXOBJS)
+	cp linux64/gwnum.a .
+	ar -rs $(LIB) $(LINUXOBJS)
+
+clean:
+	rm -f $(LINUXOBJS)
+
+.c.o:
+	$(CC) $(CFLAGS) -c $<
+
+.cpp.o:
+	$(CPP) $(CPPFLAGS) -c $<
