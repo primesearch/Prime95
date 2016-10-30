@@ -1,8 +1,8 @@
 /*----------------------------------------------------------------------
 | This file contains various utility routines that may be used by gwnum
-| routines, prime95, or PRP.
+| routines, prime95, or other consumers of gwnum.
 | 
-|  Copyright 2004-2009 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2004-2016 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWUTIL_H
@@ -34,6 +34,11 @@ void  aligned_free (void *ptr);
 
 void * large_pages_malloc (size_t size);
 void large_pages_free (void *ptr);
+
+/* Utility string routines */
+
+void truncated_strcpy (char *buf, unsigned int bufsize, const char *val);
+void truncated_strcpy_with_len (char *buf, unsigned int bufsize, const char *val, unsigned int valsize);
 
 #ifdef __cplusplus
 }

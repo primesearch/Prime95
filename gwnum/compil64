@@ -1,12 +1,16 @@
-# Assembler command lines, without and with listings
+# Assembler command lines
+#
+# HJWasm is a MASM-compatible assembler that is supported much better than MASM.
+# It can be downloaded at http://www.terraspace.co.uk/hjwasm.html
 #
 # objconv comes courtesy of Agner Fog.  Download available at
 # http://www.agner.org/optimize/#objconv
 
+#masm64=HJWasm32 /c /DX86_64 /DWINDOWS64 -win64
 masm64=ml64 /c /DX86_64 /DWINDOWS64
 #masm64=ml64 /c /DX86_64 /DWINDOWS64 /Fl /Sf /Sa
+#masm64lx=HJWasm32 /c /DX86_64 /DLINUX64 -win64
 masm64lx=ml64 /c /DX86_64 /DLINUX64
-#masm64lx=ml64 /c /DX86_64 /DLINUX64 /Fl /Sf /Sa
 objconv=c:\objconv\objconv
 
 # Use the 64-bit C compiler
@@ -22,7 +26,7 @@ all:	gwnum64.lib gwnum64d.lib linux64\gwnum.a macosx64\gwnum.a amd64\release\ecm
 # Make libraries out of the object files
 
 gwnum64.lib: amd64\release\cpuid.obj amd64\release\gwnum.obj amd64\release\gwtables.obj \
-	     amd64\release\gwthread.obj amd64\release\gwutil.obj amd64\release\gwdbldbl.obj \
+	     amd64\release\gwthread.obj amd64\release\gwini.obj amd64\release\gwutil.obj amd64\release\gwdbldbl.obj \
 	     amd64\release\giants.obj amd64\xmult1ax.obj amd64\xmult2.obj amd64\xmult2a_core.obj amd64\xmult2a_k8.obj amd64\xmult2ax.obj \
 	     amd64\xmult3.obj amd64\xmult3a_core.obj amd64\xmult3a_k8.obj amd64\xmult3ax.obj \
 	     amd64\hg_blend.obj amd64\hg_core.obj amd64\hg_p4.obj amd64\hg_k8.obj amd64\hg_k10.obj \
@@ -42,7 +46,7 @@ gwnum64.lib: amd64\release\cpuid.obj amd64\release\gwnum.obj amd64\release\gwtab
     lib /OUT:gwnum64.lib amd64\release\*.obj amd64\*.obj
 
 gwnum64d.lib: amd64\debug\cpuid.obj amd64\debug\gwnum.obj amd64\debug\gwtables.obj \
-	      amd64\debug\gwthread.obj amd64\debug\gwutil.obj amd64\debug\gwdbldbl.obj \
+	      amd64\debug\gwthread.obj amd64\debug\gwini.obj amd64\debug\gwutil.obj amd64\debug\gwdbldbl.obj \
 	      amd64\debug\giants.obj amd64\xmult1ax.obj amd64\xmult2.obj amd64\xmult2a_core.obj amd64\xmult2a_k8.obj amd64\xmult2ax.obj \
 	      amd64\xmult3.obj amd64\xmult3a_core.obj amd64\xmult3a_k8.obj amd64\xmult3ax.obj \
 	      amd64\hg_blend.obj amd64\hg_core.obj amd64\hg_p4.obj amd64\hg_k8.obj amd64\hg_k10.obj \
@@ -143,6 +147,12 @@ amd64\release\gwthread.obj: gwthread.c gwthread.h
 
 amd64\debug\gwthread.obj: gwthread.c gwthread.h
     $(cl64d) /Foamd64\debug\gwthread.obj gwthread.c
+
+amd64\release\gwini.obj: gwini.c gwini.h
+    $(cl64) /Foamd64\release\gwini.obj gwini.c
+
+amd64\debug\gwini.obj: gwini.c gwini.h
+    $(cl64d) /Foamd64\debug\gwini.obj gwini.c
 
 amd64\release\gwutil.obj: gwutil.c gwutil.h
     $(cl64) /Foamd64\release\gwutil.obj gwutil.c

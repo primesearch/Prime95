@@ -343,18 +343,18 @@ no base2	nobase2_single_rounding xmmval, xmmcarry, xmmtmp, basereg
 	ENDM
 
 base2_single_rounding MACRO xmmval, xmmcarry, xmmtmp, basereg
-	vmovsd	xmmtmp, YMM_LIMIT_BIGMAX[basereg]		;; Load maximum * BIGVAL - BIGVAL
+	vmovsd	xmmtmp, Q YMM_LIMIT_BIGMAX[basereg]		;; Load maximum * BIGVAL - BIGVAL
 	vaddsd	xmmcarry, xmmval, xmmtmp			;; y1 = top bits of x
 	vsubsd	xmmtmp, xmmcarry, xmmtmp			;; z1 = y1-(maximum * BIGVAL - BIGVAL)
 	vsubsd	xmmval, xmmval, xmmtmp				;; rounded value = x1 - z1
-	vmulsd	xmmcarry, xmmcarry, YMM_LIMIT_INVERSE[basereg]	;; next carry = shifted y1
+	vmulsd	xmmcarry, xmmcarry, Q YMM_LIMIT_INVERSE[basereg];; next carry = shifted y1
 	ENDM
 
 nobase2_single_rounding MACRO xmmval, xmmcarry, xmmtmp, basereg
-	vmulsd	xmmcarry, xmmval, YMM_LIMIT_INVERSE[basereg]	;; val / base
+	vmulsd	xmmcarry, xmmval, Q YMM_LIMIT_INVERSE[basereg]	;; val / base
 	vroundsd xmmval, xmmval, xmmval, 0			;; Round val
 	vroundsd xmmcarry, xmmcarry, xmmcarry, 0		;; next carry = round (val / base)
-	vmulsd	xmmtmp, xmmcarry, YMM_LIMIT_BIGMAX[basereg]	;; z = round (val / base) * base
+	vmulsd	xmmtmp, xmmcarry, Q YMM_LIMIT_BIGMAX[basereg]	;; z = round (val / base) * base
 	vsubsd	xmmval, xmmval, xmmtmp				;; new value = val - z
 	ENDM
 
@@ -372,27 +372,27 @@ no base2	nobase2_single_rounding_interleaved xmmval, xmmcarry, xmmtmp, basereg, 
 	ENDM
 
 base2_single_rounding_interleaved MACRO xmmval, xmmcarry, xmmtmp, basereg, xmmval2, xmmcarry2, xmmtmp2, basereg2
-	vmovsd	xmmtmp, YMM_LIMIT_BIGMAX[basereg]		;; Load maximum * BIGVAL - BIGVAL
-	vmovsd	xmmtmp2, YMM_LIMIT_BIGMAX[basereg2]		;; Load maximum * BIGVAL - BIGVAL
+	vmovsd	xmmtmp, Q YMM_LIMIT_BIGMAX[basereg]		;; Load maximum * BIGVAL - BIGVAL
+	vmovsd	xmmtmp2, Q YMM_LIMIT_BIGMAX[basereg2]		;; Load maximum * BIGVAL - BIGVAL
 	vaddsd	xmmcarry, xmmval, xmmtmp			;; y1 = top bits of x
 	vaddsd	xmmcarry2, xmmval2, xmmtmp2			;; y1 = top bits of x
 	vsubsd	xmmtmp, xmmcarry, xmmtmp			;; z1 = y1-(maximum * BIGVAL - BIGVAL)
 	vsubsd	xmmtmp2, xmmcarry2, xmmtmp2			;; z1 = y1-(maximum * BIGVAL - BIGVAL)
 	vsubsd	xmmval, xmmval, xmmtmp				;; rounded value = x1 - z1
 	vsubsd	xmmval2, xmmval2, xmmtmp2			;; rounded value = x1 - z1
-	vmulsd	xmmcarry, xmmcarry, YMM_LIMIT_INVERSE[basereg]	;; next carry = shifted y1
-	vmulsd	xmmcarry2, xmmcarry2, YMM_LIMIT_INVERSE[basereg2] ;; next carry = shifted y1
+	vmulsd	xmmcarry, xmmcarry, Q YMM_LIMIT_INVERSE[basereg];; next carry = shifted y1
+	vmulsd	xmmcarry2, xmmcarry2, Q YMM_LIMIT_INVERSE[basereg2] ;; next carry = shifted y1
 	ENDM
 
 nobase2_single_rounding_interleaved MACRO xmmval, xmmcarry, xmmtmp, basereg, xmmval2, xmmcarry2, xmmtmp2, basereg2
-	vmulsd	xmmcarry, xmmval, YMM_LIMIT_INVERSE[basereg]	;; val / base
-	vmulsd	xmmcarry2, xmmval2, YMM_LIMIT_INVERSE[basereg2] ;; val / base
+	vmulsd	xmmcarry, xmmval, Q YMM_LIMIT_INVERSE[basereg]	;; val / base
+	vmulsd	xmmcarry2, xmmval2, Q YMM_LIMIT_INVERSE[basereg2] ;; val / base
 	vroundsd xmmval, xmmval, xmmval, 0			;; Round val
 	vroundsd xmmval2, xmmval2, xmmval2, 0			;; Round val
 	vroundsd xmmcarry, xmmcarry, xmmcarry, 0		;; next carry = round (val / base)
 	vroundsd xmmcarry2, xmmcarry2, xmmcarry2, 0		;; next carry = round (val / base)
-	vmulsd	xmmtmp, xmmcarry, YMM_LIMIT_BIGMAX[basereg]	;; z = round (val / base) * base
-	vmulsd	xmmtmp2, xmmcarry2, YMM_LIMIT_BIGMAX[basereg2]	;; z = round (val / base) * base
+	vmulsd	xmmtmp, xmmcarry, Q YMM_LIMIT_BIGMAX[basereg]	;; z = round (val / base) * base
+	vmulsd	xmmtmp2, xmmcarry2, Q YMM_LIMIT_BIGMAX[basereg2] ;; z = round (val / base) * base
 	vsubsd	xmmval, xmmval, xmmtmp				;; new value = val - z
 	vsubsd	xmmval2, xmmval2, xmmtmp2			;; new value = val - z
 	ENDM
@@ -493,20 +493,20 @@ no base2	nobase2_single_split_lower_zpad_word xmmval, xmmcarry, xmmtmp, basereg
 
 base2_single_split_lower_zpad_word MACRO xmmval, xmmcarry, xmmtmp, basereg
 	vaddsd	xmmval, xmmval, xmmcarry			;; Add in previous high FFT data
-	vmovsd	xmmtmp, YMM_BIGBIGVAL				;; Big word rounding constant
+	vmovsd	xmmtmp, Q YMM_BIGBIGVAL				;; Big word rounding constant
 	vaddsd	xmmcarry, xmmval, xmmtmp			;; Round to multiple of big word
 	vsubsd	xmmcarry, xmmcarry, xmmtmp
 	vroundsd xmmval, xmmval, xmmval, 0			;; Round to an integer
 	vsubsd	xmmval, xmmval, xmmcarry			;; xmmval now contains low bigword bits
-	vmulsd	xmmcarry, xmmcarry, YMM_LIMIT_INVERSE[basereg]	;; Next carry = shifted FFT hi data
+	vmulsd	xmmcarry, xmmcarry, Q YMM_LIMIT_INVERSE[basereg] ;; Next carry = shifted FFT hi data
 	ENDM
 
 nobase2_single_split_lower_zpad_word MACRO xmmval, xmmcarry, xmmtmp, basereg
 	vaddsd	xmmval, xmmval, xmmcarry			;; Add in previous high FFT data
-	vmulsd	xmmcarry, xmmval, YMM_LIMIT_INVERSE[basereg]	;; Compute FFTvalue / base
+	vmulsd	xmmcarry, xmmval, Q YMM_LIMIT_INVERSE[basereg]	;; Compute FFTvalue / base
 	vroundsd xmmval, xmmval, xmmval, 0			;; Round input to an integer
 	vroundsd xmmcarry, xmmcarry, xmmcarry, 0		;; Next carry = round ( FFTvalue / base )
-	vmulsd	xmmtmp, xmmcarry, YMM_LIMIT_BIGMAX[basereg]
+	vmulsd	xmmtmp, xmmcarry, Q YMM_LIMIT_BIGMAX[basereg]
 	vsubsd	xmmval, xmmval, xmmtmp				;; xmmval now contains FFTvalue % base
 	ENDM
 
@@ -553,18 +553,18 @@ no base2	nobase2_round_zpad7_word xmmvalin, xmmcarry, xmmvalout, basereg
 
 base2_round_zpad7_word MACRO xmmval, xmmcarry, xmmtmp, basereg
 	vaddsd	xmmval, xmmval, xmmcarry		;; Add in high part of last calculation
-	vmovsd	xmmtmp, YMM_BIGBIGVAL			;; Big word rounding constant
+	vmovsd	xmmtmp, Q YMM_BIGBIGVAL			;; Big word rounding constant
 	vaddsd	xmmcarry, xmmval, xmmtmp		;; Round to multiple of big word
 	vsubsd	xmmcarry, xmmcarry, xmmtmp
 	vsubsd	xmmval, xmmval, xmmcarry		;; xmmval now contains low bigword bits
-	vmulsd	xmmcarry, xmmcarry, YMM_LIMIT_INVERSE[basereg] ;; Shift high ZPAD data
+	vmulsd	xmmcarry, xmmcarry, Q YMM_LIMIT_INVERSE[basereg] ;; Shift high ZPAD data
 	ENDM
 
 nobase2_round_zpad7_word MACRO xmmval, xmmcarry, xmmtmp, basereg
 	vaddsd	xmmval, xmmval, xmmcarry			;; Add in high part of last calculation
-	vmulsd	xmmcarry, xmmval, YMM_LIMIT_INVERSE[basereg]	;; val / base
+	vmulsd	xmmcarry, xmmval, Q YMM_LIMIT_INVERSE[basereg]	;; val / base
 	vroundsd xmmcarry, xmmcarry, xmmcarry, 0		;; next carry = round (val / base)
-	vmulsd	xmmtmp, xmmcarry, YMM_LIMIT_BIGMAX[basereg]	;; z = round (val / base) * base
+	vmulsd	xmmtmp, xmmcarry, Q YMM_LIMIT_BIGMAX[basereg]	;; z = round (val / base) * base
 	vsubsd	xmmval, xmmval, xmmtmp				;; new value = val - z
 	ENDM
 
@@ -1752,12 +1752,12 @@ ynorm_1d_zpad_cleanup MACRO const, base2
 
 	;; Strip BIGVAL from the traditional carry, we'll add the traditional
 	;; carry in later when we are working on the ZPAD0 - ZPAD6 values.
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Integerize traditional carry
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Integerize traditional carry
 
 	;; Rather than calculate high FFT carry times k and then later dividing
 	;; by k, we multiply FFT high carry by const and we'll add it
 	;; to the lower FFT data later (after multiplying by -c).
-const	vmulsd	xmm3, xmm3, YMM_MULCONST
+const	vmulsd	xmm3, xmm3, Q YMM_MULCONST
 
 	;; Multiply ZPAD0 through ZPAD6 by const * -c.  This, in essense,
 	;; wraps this data from above the FFT data area to the halfway point.
@@ -1775,8 +1775,8 @@ const	vmulsd	xmm3, xmm3, YMM_MULCONST
 	vmovsd	xmm0, ZPAD0			;; Load value
 	vmovsd	xmm5, ADDIN_VALUE		;; Use ADDIN_VALUE as the initial carry to add in
 	single_split_lower_zpad_word base2, xmm0, xmm5, xmm1, rax*2
-no const vmulsd	xmm0, xmm0, YMM_MINUS_C
-const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
+no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
+const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
 	round_zpad7_word base2, xmm0, xmm2, xmm1, rax*2
 	vmovsd	ZPAD0, xmm0
 
@@ -1784,10 +1784,10 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	movzx	rax, BYTE PTR [rdi+1]		;; Load big vs. little flags
 	vmovsd	xmm0, ZPAD1			;; Load value
 	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul value by two-to-minus-phi
-	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	single_split_lower_zpad_word base2, xmm0, xmm5, xmm1, rax*2
-no const vmulsd	xmm0, xmm0, YMM_MINUS_C
-const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
+no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
+const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
 	round_zpad7_word base2, xmm0, xmm2, xmm1, rax*2
 	vmovsd	ZPAD1, xmm0
 
@@ -1795,10 +1795,10 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	movzx	rax, BYTE PTR [rdi+2]		;; Load big vs. little flags
 	vmovsd	xmm0, ZPAD2			;; Load value
 	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul value by two-to-minus-phi
-	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	single_split_lower_zpad_word base2, xmm0, xmm5, xmm1, rax*2
-no const vmulsd	xmm0, xmm0, YMM_MINUS_C
-const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
+no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
+const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
 	round_zpad7_word base2, xmm0, xmm2, xmm1, rax*2
 	vmovsd	ZPAD2, xmm0
 
@@ -1806,10 +1806,10 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	movzx	rax, BYTE PTR [rdi+3]		;; Load big vs. little flags
 	vmovsd	xmm0, ZPAD3			;; Load value
 	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul value by two-to-minus-phi
-	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	single_split_lower_zpad_word base2, xmm0, xmm5, xmm1, rax*2
-no const vmulsd	xmm0, xmm0, YMM_MINUS_C
-const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
+no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
+const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
 	round_zpad7_word base2, xmm0, xmm2, xmm1, rax*2
 	vmovsd	ZPAD3, xmm0
 
@@ -1817,10 +1817,10 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	movzx	rax, BYTE PTR [rdi+4]		;; Load big vs. little flags
 	vmovsd	xmm0, ZPAD4			;; Load value
 	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul value by two-to-minus-phi
-	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	single_split_lower_zpad_word base2, xmm0, xmm5, xmm1, rax*2
-no const vmulsd	xmm0, xmm0, YMM_MINUS_C
-const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
+no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
+const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
 	round_zpad7_word base2, xmm0, xmm2, xmm1, rax*2
 	vmovsd	ZPAD4, xmm0
 
@@ -1828,21 +1828,21 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	movzx	rax, BYTE PTR [rdi+5]		;; Load big vs. little flags
 	vmovsd	xmm0, ZPAD5			;; Load value
 	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul value by two-to-minus-phi
-	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	single_split_lower_zpad_word base2, xmm0, xmm5, xmm1, rax*2
-no const vmulsd	xmm0, xmm0, YMM_MINUS_C
-const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
+no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
+const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
 	round_zpad7_word base2, xmm0, xmm2, xmm1, rax*2
 	vmovsd	ZPAD5, xmm0
 
 	add	rbp, YMM_NORM_INCR6		;; Next ttp/ttmp pointer
 	vmovsd	xmm0, ZPAD6			;; Load value
 	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul value by two-to-minus-phi
-	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vaddsd	xmm0, xmm0, xmm5		;; Add in shifted high ZPAD data
-no const vmulsd	xmm0, xmm0, YMM_MINUS_C
-const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
+no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
+const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
 	vaddsd	xmm0, xmm0, xmm2		;; Add in high part of last calculation
 	vmovsd	ZPAD6, xmm0
 
@@ -1873,7 +1873,7 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K6_LO		;; Mul by low bits of k
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP5, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP5, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT6		;; Shift previous zpad word
 	vaddsd	xmm1, xmm1, xmm0		;; Add to create new high zpad bits
@@ -1888,7 +1888,7 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K5_LO		;; Mul by low bits of k
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP4, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP4, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm1, xmm1, ZPAD_SHIFT5		;; Shift previous zpad word
 	vaddsd	xmm2, xmm2, xmm1		;; Add to create new high zpad bits
@@ -1903,7 +1903,7 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	vsubsd	xmm0,xmm0,xmm5			;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K4_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP3, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP3, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm2, xmm2, ZPAD_SHIFT4		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm2		;; Add to create new high zpad bits
@@ -1918,7 +1918,7 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K3_LO		;; Mul by low bits of k
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP2, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP2, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT3		;; Shift previous zpad word
 	vaddsd	xmm1, xmm1, xmm0		;; Add to create new high zpad bits
@@ -1933,7 +1933,7 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K2_LO		;; Load low bits of k
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP1, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP1, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm1, xmm1, ZPAD_SHIFT2		;; Shift previous zpad word
 	vaddsd	xmm2, xmm2, xmm1		;; Add to create new high zpad bits
@@ -1942,7 +1942,7 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	vmovsd	ZPAD0, xmm0			;; Save remainder of zpad / k
 
 	vxorpd	xmm1, xmm1, xmm1		;; Zero words that other cases set
-	vmovsd	YMM_TMP6, xmm1
+	vmovsd	Q YMM_TMP6, xmm1
 	
 	jmp	div_k_done
 
@@ -1956,7 +1956,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K6_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP6, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP6, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT6		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -1967,7 +1967,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K5_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP5, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP5, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT5		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -1978,7 +1978,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K4_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP4, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP4, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT4		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -1989,7 +1989,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K3_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP3, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP3, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT3		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -2000,7 +2000,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K2_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP2, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP2, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT2		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -2011,7 +2011,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K1_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP1, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP1, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT1		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -2024,7 +2024,7 @@ mediumk:
 smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP5, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP5, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -2032,7 +2032,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD3		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP4, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP4, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -2040,7 +2040,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD2		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP3, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP3, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -2048,7 +2048,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD1		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP2, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP2, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -2056,13 +2056,13 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD0		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP1, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP1, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 	vmovsd	ZPAD0, xmm0			;; Save remainder
 
 	vxorpd	xmm1, xmm1, xmm1		;; Zero words that other cases set
-	vmovsd	YMM_TMP6, xmm1
+	vmovsd	Q YMM_TMP6, xmm1
 
 div_k_done:
 
@@ -2075,7 +2075,7 @@ div_k_done:
 
 	movzx	rax, BYTE PTR [rdi]		;; First word
 	vmovsd	xmm0, ZPAD0			;; Load remainder of divide by k
-base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
+base2	vaddsd	xmm0, xmm0, Q YMM_BIGVAL
 	single_rounding base2, xmm0, xmm2, xmm4, rax*2
 	vmovsd	Q [rsi+32], xmm0		;; Save value1
 
@@ -2095,7 +2095,7 @@ base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
 
 	add	rbp, YMM_NORM_INCR3		;; Next ttp/ttmp pointer
 	add	rsi, YMM_SRC_INCR3		;; Next source pointer
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Remove integer rounding constant
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Remove integer rounding constant
 	vmulsd	xmm2, xmm2, Q [rbp+32]		;; value4 = carry * two-to-phi
 	vmovsd	Q [rsi+32], xmm2		;; Save new value4
 
@@ -2111,10 +2111,10 @@ base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Remove integer rounding constant
 	mov	rbp, norm_col_mults		;; Address of ttmp/ttp multipliers
 
 	movzx	rax, BYTE PTR [rdi]		;; First word
-	vmovsd	xmm0, YMM_TMP1			;; Load integer part of divide by k
+	vmovsd	xmm0, Q YMM_TMP1		;; Load integer part of divide by k
 	vaddsd	xmm0, xmm0, xmm3		;; Add in shifted high FFT carry
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
-base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
+base2	vaddsd	xmm0, xmm0, Q YMM_BIGVAL
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	single_rounding base2, xmm0, xmm2, xmm4, rax*2
 	vmovsd	Q [rsi], xmm0			;; Save value1
@@ -2122,11 +2122,11 @@ base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
 	add	rsi, YMM_SRC_INCR1		;; Next source pointer
 	add	rbp, YMM_NORM_INCR1		;; Next ttp/ttmp pointer
 	movzx	rax, BYTE PTR [rdi+1]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP2			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP2		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values2 by two-to-minus-phi
-	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x2 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	single_rounding base2, xmm0, xmm2, xmm4, rax*2
@@ -2136,11 +2136,11 @@ base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
 	add	rsi, YMM_SRC_INCR2		;; Next source pointer
 	add	rbp, YMM_NORM_INCR2		;; Next ttp/ttmp pointer
 	movzx	rax, BYTE PTR [rdi+2]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP3			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP3		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values3 by two-to-minus-phi
-	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x3 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	single_rounding base2, xmm0, xmm2, xmm4, rax*2
@@ -2150,11 +2150,11 @@ base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
 	add	rsi, YMM_SRC_INCR3		;; Next source pointer
 	add	rbp, YMM_NORM_INCR3		;; Next ttp/ttmp pointer
 	movzx	rax, BYTE PTR [rdi+3]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP4			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP4		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values4 by two-to-minus-phi
-	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x4 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	single_rounding base2, xmm0, xmm2, xmm4, rax*2
@@ -2164,11 +2164,11 @@ base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
 	add	rsi, YMM_SRC_INCR4		;; Next source pointer
 	add	rbp, YMM_NORM_INCR4		;; Next ttp/ttmp pointer
 	movzx	rax, BYTE PTR [rdi+4]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP5			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP5		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values4 by two-to-minus-phi
-	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x5 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	single_rounding base2, xmm0, xmm2, xmm4, rax*2
@@ -2178,11 +2178,11 @@ base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
 	add	rsi, YMM_SRC_INCR5		;; Next source pointer
 	add	rbp, YMM_NORM_INCR5		;; Next ttp/ttmp pointer
 	movzx	rax, BYTE PTR [rdi+5]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP6			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP6		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values6 by two-to-minus-phi
-	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x6 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	single_rounding base2, xmm0, xmm2, xmm4, rax*2
@@ -2194,7 +2194,7 @@ base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
 	movzx	rax, BYTE PTR [rdi+6]		;; Load big vs. little flags
 	vmovsd	xmm0, Q [rsi]			;; Load FFT data
 	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values7 by two-to-minus-phi
-	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x7 = value + carry
 	single_rounding base2, xmm0, xmm2, xmm4, rax*2
 	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value7 = val * two-to-phi
@@ -2202,7 +2202,7 @@ base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
 
 	add	rsi, YMM_SRC_INCR7		;; Next source pointer
 	add	rbp, YMM_NORM_INCR7		;; Next ttp/ttmp pointer
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Remove rounding constant
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Remove rounding constant
 	vmulsd	xmm2, xmm2, Q [rbp+32]		;; new value8 = val * two-to-phi
 	vaddsd	xmm2, xmm2, Q [rsi]		;; Add in FFT data
 	vmovsd	Q [rsi], xmm2			;; Save value8
@@ -2243,10 +2243,10 @@ ynorm_top_carry_cmn MACRO base2, srcreg, xreg, twopass
 	IF twopass EQ 0
 	ystore	YMM_TMP6, ymm3		;; Save the full carry register
 	ELSE
-	vmovsd	YMM_TMP6, xreg		;; Save the carry for later use
+	vmovsd	Q YMM_TMP6, xreg	;; Save the carry for later use
 	ENDIF
 
-base2	vsubsd	xreg, xreg, YMM_BIGVAL	;; Convert top carry from int+BIGVAL state
+base2	vsubsd	xreg, xreg, Q YMM_BIGVAL ;; Convert top carry from int+BIGVAL state
 
 	;; We want to calculate carry * b^ceil(logb(k)) / k and
 	;; carry * b^ceil(logb(k)) % k.  This must be done very carefully as
@@ -2280,8 +2280,8 @@ base2	vsubsd	xreg, xreg, YMM_BIGVAL	;; Convert top carry from int+BIGVAL state
 
 	;; Finally calculate integer_part = (carry * b^ceil(logb(k)) - remainder) / k
 
-	vmovsd	xreg, YMM_TMP6			;; Reload top carry
-base2	vsubsd	xreg, xreg, YMM_BIGVAL		;; Convert top carry from int+BIGVAL state
+	vmovsd	xreg, Q YMM_TMP6		;; Reload top carry
+base2	vsubsd	xreg, xreg, Q YMM_BIGVAL	;; Convert top carry from int+BIGVAL state
 	vmulsd	xreg, xreg, CARRY_ADJUST1	;; Mul by b^ceil(logb(k))
 	vsubsd	xreg, xreg, xmm0		;; Subtract the remainder
 	vmulsd	xreg, xreg, INVERSE_K		;; Mul by 1/k
@@ -2340,7 +2340,7 @@ base2	vsubsd	xreg, xreg, YMM_BIGVAL		;; Convert top carry from int+BIGVAL state
 	vmovsd	Q [srcreg][rax], xmm0
 	ENDIF
 
-base2	vaddsd	xreg, xreg, YMM_BIGVAL		;; Restore carry to int+BIGVAL state
+base2	vaddsd	xreg, xreg, Q YMM_BIGVAL	;; Restore carry to int+BIGVAL state
 
 	IF twopass EQ 0
 	vblendpd ymm3, ymm3, YMM_TMP6, 1110b	;; Blend in the new carry
@@ -4140,9 +4140,9 @@ shuflp:	vmovsd	xmm4, Q [rsi+0*32]	;; Shift 3 carry words up
 	bump	rsi, 64			;; Next carry cache line
 	dec	rax			;; Decement count of cache lines
 	jnz	short shuflp
-base2	vsubsd	xmm1, xmm1, YMM_BIGVAL
-	vmulsd	xmm1, xmm1, YMM_MINUS_C	;; Negate the very last carry
-base2	vaddsd	xmm1, xmm1, YMM_BIGVAL
+base2	vsubsd	xmm1, xmm1, Q YMM_BIGVAL
+	vmulsd	xmm1, xmm1, Q YMM_MINUS_C ;; Negate the very last carry
+base2	vaddsd	xmm1, xmm1, Q YMM_BIGVAL
 	mov	rsi, carries		;; Reload carries array pointer
 	vmovsd	Q [rsi+0*32], xmm1	;; Move last cache line's high carries into first cache line
 	vmovsd	Q [rsi+1*32], xmm0
@@ -4287,7 +4287,7 @@ ttp	lea	rdi, YMM_FIRST_BIGLIT_VALUES ;; Address of first big/little flags
 noncon:	ynorm012_wpn_zpad_part1_cmn ttp, base2, noexec
 
 zpaddn:	mov	rsi, carries		;; Reload carries array pointer
-base2	vmovsd	xmm6, YMM_BIGVAL	;; Clear two carries just processed by ynorm012_wpn_zpad_part1_cmn
+base2	vmovsd	xmm6, Q YMM_BIGVAL	;; Clear two carries just processed by ynorm012_wpn_zpad_part1_cmn
 no base2 vxorpd	xmm6, xmm6, xmm6
 	vxorpd	xmm7, xmm7, xmm7
 	vmovsd	Q [rsi], xmm6
@@ -4301,12 +4301,12 @@ ynorm012_wpn_zpad_part1_cmn MACRO ttp, base2, const
 
 	;; Strip BIGVAL from the traditional carry, we'll add the traditional
 	;; carry in later when we are working on the ZPAD0 - ZPAD6 values.
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL	;; Integerize traditional carry
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL ;; Integerize traditional carry
 
 	;; Rather than calculate high FFT carry times k and then later dividing
 	;; by k, we multiply FFT high carry by const and we'll add it
 	;; to the lower FFT data later (after multiplying by -c).
-const	vmulsd	xmm3, xmm3, YMM_MULCONST
+const	vmulsd	xmm3, xmm3, Q YMM_MULCONST
 
 	;; Multiply ZPAD0 through ZPAD6 by const * -C.  This, in essense,
 	;; wraps this data from above the FFT data area to the halfway point.
@@ -4321,56 +4321,56 @@ ttp	movzx	rax, BYTE PTR [rdi]		;; Load big vs. little flags
 	vmovsd	xmm0, ZPAD0			;; Load value
 	vmovsd	xmm5, ADDIN_VALUE		;; Use ADDIN_VALUE as the initial carry to add in
 	new_single_split_lower_zpad_word ttp, base2, xmm0, xmm5, xmm1, rax*8
-no const vmulsd	xmm0, xmm0, YMM_MINUS_C
-const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
+no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
+const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
 	new_round_zpad7_word ttp, base2, xmm0, xmm2, xmm1, rax*8
 	vmovsd	ZPAD0, xmm0
 
 ttp	movzx	rax, BYTE PTR [rdi+1]		;; Load big vs. little flags
 	vmovsd	xmm0, ZPAD1			;; Load value
 	new_single_split_lower_zpad_word ttp, base2, xmm0, xmm5, xmm1, rax*8
-no const vmulsd	xmm0, xmm0, YMM_MINUS_C
-const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
+no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
+const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
 	new_round_zpad7_word ttp, base2, xmm0, xmm2, xmm1, rax*8
 	vmovsd	ZPAD1, xmm0
 
 ttp	movzx	rax, BYTE PTR [rdi+2]		;; Load big vs. little flags
 	vmovsd	xmm0, ZPAD2			;; Load value
 	new_single_split_lower_zpad_word ttp, base2, xmm0, xmm5, xmm1, rax*8
-no const vmulsd	xmm0, xmm0, YMM_MINUS_C
-const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
+no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
+const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
 	new_round_zpad7_word ttp, base2, xmm0, xmm2, xmm1, rax*8
 	vmovsd	ZPAD2, xmm0
 
 ttp	movzx	rax, BYTE PTR [rdi+3]		;; Load big vs. little flags
 	vmovsd	xmm0, ZPAD3			;; Load value
 	new_single_split_lower_zpad_word ttp, base2, xmm0, xmm5, xmm1, rax*8
-no const vmulsd	xmm0, xmm0, YMM_MINUS_C
-const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
+no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
+const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
 	new_round_zpad7_word ttp, base2, xmm0, xmm2, xmm1, rax*8
 	vmovsd	ZPAD3, xmm0
 
 ttp	movzx	rax, BYTE PTR [rdi+4]		;; Load big vs. little flags
 	vmovsd	xmm0, ZPAD4			;; Load value
 	new_single_split_lower_zpad_word ttp, base2, xmm0, xmm5, xmm1, rax*8
-no const vmulsd	xmm0, xmm0, YMM_MINUS_C
-const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
+no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
+const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
 	new_round_zpad7_word ttp, base2, xmm0, xmm2, xmm1, rax*8
 	vmovsd	ZPAD4, xmm0
 
 ttp	movzx	rax, BYTE PTR [rdi+5]		;; Load big vs. little flags
 	vmovsd	xmm0, ZPAD5			;; Load value
 	new_single_split_lower_zpad_word ttp, base2, xmm0, xmm5, xmm1, rax*8
-no const vmulsd	xmm0, xmm0, YMM_MINUS_C
-const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
+no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
+const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
 	new_round_zpad7_word ttp, base2, xmm0, xmm2, xmm1, rax*8
 	vmovsd	ZPAD5, xmm0
 
 	vmovsd	xmm0, ZPAD6			;; Load value
 	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vaddsd	xmm0, xmm0, xmm5		;; Add in shifted high ZPAD data
-no const vmulsd	xmm0, xmm0, YMM_MINUS_C
-const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
+no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
+const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
 	vaddsd	xmm0, xmm0, xmm2		;; Add in high part of last calculation
 	vmovsd	ZPAD6, xmm0
 
@@ -4401,7 +4401,7 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K6_LO		;; Mul by low bits of k
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP5, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP5, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT6		;; Shift previous zpad word
 	vaddsd	xmm1, xmm1, xmm0		;; Add to create new high zpad bits
@@ -4416,7 +4416,7 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K5_LO		;; Mul by low bits of k
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP4, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP4, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm1, xmm1, ZPAD_SHIFT5		;; Shift previous zpad word
 	vaddsd	xmm2, xmm2, xmm1		;; Add to create new high zpad bits
@@ -4431,7 +4431,7 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	vsubsd	xmm0,xmm0,xmm5			;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K4_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP3, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP3, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm2, xmm2, ZPAD_SHIFT4		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm2		;; Add to create new high zpad bits
@@ -4446,7 +4446,7 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K3_LO		;; Mul by low bits of k
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP2, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP2, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT3		;; Shift previous zpad word
 	vaddsd	xmm1, xmm1, xmm0		;; Add to create new high zpad bits
@@ -4461,7 +4461,7 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K2_LO		;; Load low bits of k
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP1, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP1, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm1, xmm1, ZPAD_SHIFT2		;; Shift previous zpad word
 	vaddsd	xmm2, xmm2, xmm1		;; Add to create new high zpad bits
@@ -4470,8 +4470,8 @@ const	vmulsd	xmm0, xmm0, YMM_MINUS_C_TIMES_MULCONST
 	vmovsd	ZPAD0, xmm0			;; Save remainder of zpad / k
 
 	vxorpd	xmm1, xmm1, xmm1		;; Zero words that other cases set
-	vmovsd	YMM_TMP6, xmm1
-	
+	vmovsd	Q YMM_TMP6, xmm1
+
 	jmp	div_k_done
 
 	;; This case does the divide by k where k is two words
@@ -4484,7 +4484,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K6_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP6, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP6, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT6		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -4495,7 +4495,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K5_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP5, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP5, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT5		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -4506,7 +4506,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K4_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP4, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP4, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT4		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -4517,7 +4517,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K3_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP3, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP3, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT3		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -4528,7 +4528,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K2_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP2, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP2, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT2		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -4539,7 +4539,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K1_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP1, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP1, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT1		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -4552,7 +4552,7 @@ mediumk:
 smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP5, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP5, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -4560,7 +4560,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD3		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP4, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP4, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -4568,7 +4568,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD2		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP3, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP3, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -4576,7 +4576,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD1		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP2, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP2, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -4584,13 +4584,13 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD0		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP1, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP1, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 	vmovsd	ZPAD0, xmm0			;; Save remainder
 
 	vxorpd	xmm1, xmm1, xmm1		;; Zero words that other cases set
-	vmovsd	YMM_TMP6, xmm1
+	vmovsd	Q YMM_TMP6, xmm1
 
 div_k_done:
 
@@ -4599,7 +4599,7 @@ div_k_done:
 
 ttp	movzx	rax, BYTE PTR [rdi]		;; First word
 	vmovsd	xmm0, ZPAD0			;; Load remainder of divide by k
-base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
+base2	vaddsd	xmm0, xmm0, Q YMM_BIGVAL
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
 	vmovsd	Q [rsi+32], xmm0		;; Save value1
 
@@ -4614,7 +4614,7 @@ ttp	movzx	rax, BYTE PTR [rdi+2]		;; Load big vs. little flags
 	vmovsd	Q [rsi+32], xmm0		;; Save value3
 
 	add	rsi, YMM_SRC_INCR3		;; Next source pointer
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Remove integer rounding constant
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Remove integer rounding constant
 	vmovsd	Q [rsi+32], xmm2		;; Save new value4
 
 	;; Mul the integer part of (ZPAD data divided by k) by -c in
@@ -4628,18 +4628,18 @@ base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Remove integer rounding constant
 	mov	rsi, DESTARG			;; Restore address of FFT data
 
 ttp	movzx	rax, BYTE PTR [rdi]		;; First word
-	vmovsd	xmm0, YMM_TMP1			;; Load integer part of divide by k
+	vmovsd	xmm0, Q YMM_TMP1		;; Load integer part of divide by k
 	vaddsd	xmm0, xmm0, xmm3		;; Add in shifted high FFT carry
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
-base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
+base2	vaddsd	xmm0, xmm0, Q YMM_BIGVAL
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
 	vmovsd	Q [rsi], xmm0			;; Save value1
 
 	add	rsi, YMM_SRC_INCR1		;; Next source pointer
 ttp	movzx	rax, BYTE PTR [rdi+1]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP2			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP2		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vaddsd	xmm0, xmm0, xmm2		;; x2 = value + carry
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
@@ -4647,8 +4647,8 @@ ttp	movzx	rax, BYTE PTR [rdi+1]		;; Load big vs. little flags
 
 	add	rsi, YMM_SRC_INCR2		;; Next source pointer
 ttp	movzx	rax, BYTE PTR [rdi+2]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP3			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP3		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vaddsd	xmm0, xmm0, xmm2		;; x3 = value + carry
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
@@ -4656,8 +4656,8 @@ ttp	movzx	rax, BYTE PTR [rdi+2]		;; Load big vs. little flags
 
 	add	rsi, YMM_SRC_INCR3		;; Next source pointer
 ttp	movzx	rax, BYTE PTR [rdi+3]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP4			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP4		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vaddsd	xmm0, xmm0, xmm2		;; x4 = value + carry
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
@@ -4665,8 +4665,8 @@ ttp	movzx	rax, BYTE PTR [rdi+3]		;; Load big vs. little flags
 
 	add	rsi, YMM_SRC_INCR4		;; Next source pointer
 ttp	movzx	rax, BYTE PTR [rdi+4]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP5			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP5		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vaddsd	xmm0, xmm0, xmm2		;; x5 = value + carry
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
@@ -4674,8 +4674,8 @@ ttp	movzx	rax, BYTE PTR [rdi+4]		;; Load big vs. little flags
 
 	add	rsi, YMM_SRC_INCR5		;; Next source pointer
 ttp	movzx	rax, BYTE PTR [rdi+5]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP6			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP6		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vaddsd	xmm0, xmm0, xmm2		;; x6 = value + carry
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
@@ -4688,7 +4688,7 @@ ttp	movzx	rax, BYTE PTR [rdi+6]		;; Load big vs. little flags
 	vmovsd	Q [rsi], xmm0			;; Save value7
 
 	add	rsi, YMM_SRC_INCR7		;; Next source pointer
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Remove rounding constant
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Remove rounding constant
 	vaddsd	xmm2, xmm2, Q [rsi]		;; Add in FFT data
 	vmovsd	Q [rsi], xmm2			;; Save value8
 	ENDM
@@ -4924,13 +4924,13 @@ ynorm_op_1d_cleanup MACRO ttp, base2, destptr
 	ynorm_top_carry_1d ttp, base2		;; No, do a very standard carry
 
 ttp	mov	rbp, norm_col_mults		;; Address of the ttp/ttmp multipliers
-base2	vsubsd	xmm3, xmm3, YMM_BIGVAL
-	vmulsd	xmm3, xmm3, YMM_MINUS_C		;; Adjust wrap-around carry
+base2	vsubsd	xmm3, xmm3, Q YMM_BIGVAL
+	vmulsd	xmm3, xmm3, Q YMM_MINUS_C	;; Adjust wrap-around carry
 	vaddsd	xmm0, xmm3, Q [rsi]		;; wrap-around carry + values1
 	vmovsd	xmm1, Q [rsi+32]		;; Load values2
 ttp	vmulsd	xmm1, xmm1, Q [rbp+64]		;; Mul values2 by two-to-minus-phi
-ttp	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL
+ttp	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL
 	vaddsd	xmm1, xmm1, xmm2		;; x2 = values + carry
 ttp	vmulsd	xmm1, xmm1, Q [rbp+96]		;; new value2 = val * two-to-phi
 	vmovsd	Q [rsi], xmm0			;; Save new value1
@@ -4947,7 +4947,7 @@ ttp	vmulsd	xmm1, xmm1, Q [rbp+96]		;; new value2 = val * two-to-phi
 ynorm_op_1d_zpad_cleanup MACRO ttp, base2, destptr
 	LOCAL	smallk, mediumk, div_k_done
 
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Integerize carry
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Integerize carry
 
 	;; Copy and integerize data from 7 words above halfway point to ZPAD0-ZPAD6
 	;; Clear high words as we go
@@ -4963,7 +4963,7 @@ ttp	mov	rbp, norm_col_mults		;; Address of the multipliers
 ttp	add	rbp, YMM_NORM_INCR1		;; Next ttp/ttmp pointer
 	vmovsd	xmm0, Q [rsi+32]		;; Value2
 ttp	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values2 by two-to-minus-phi
-ttp	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vmovsd	ZPAD1, xmm0
 
@@ -4971,7 +4971,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 ttp	add	rbp, YMM_NORM_INCR2		;; Next ttp/ttmp pointer
 	vmovsd	xmm0, Q [rsi+32]		;; Value3
 ttp	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values3 by two-to-minus-phi
-ttp	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vmovsd	ZPAD2, xmm0
 
@@ -4979,7 +4979,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 ttp	add	rbp, YMM_NORM_INCR3		;; Next ttp/ttmp pointer
 	vmovsd	xmm0, Q [rsi+32]		;; Value4
 ttp	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values4 by two-to-minus-phi
-ttp	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vmovsd	ZPAD3, xmm0
 
@@ -4987,7 +4987,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 ttp	add	rbp, YMM_NORM_INCR4		;; Next ttp/ttmp pointer
 	vmovsd	xmm0, Q [rsi+32]		;; Value5
 ttp	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values5 by two-to-minus-phi
-ttp	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vmovsd	ZPAD4, xmm0
 	vxorpd	xmm1, xmm1, xmm1		;; Clear highest words
@@ -5023,7 +5023,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K6_LO		;; Mul by low bits of k
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP5, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP5, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT6		;; Shift previous zpad word
 	vaddsd	xmm1, xmm1, xmm0		;; Add to create new high zpad bits
@@ -5038,7 +5038,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K5_LO		;; Mul by low bits of k
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP4, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP4, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm1, xmm1, ZPAD_SHIFT5		;; Shift previous zpad word
 	vaddsd	xmm2, xmm2, xmm1		;; Add to create new high zpad bits
@@ -5053,7 +5053,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm0,xmm0,xmm5			;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K4_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP3, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP3, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm2, xmm2, ZPAD_SHIFT4		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm2		;; Add to create new high zpad bits
@@ -5068,7 +5068,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K3_LO		;; Mul by low bits of k
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP2, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP2, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT3		;; Shift previous zpad word
 	vaddsd	xmm1, xmm1, xmm0		;; Add to create new high zpad bits
@@ -5083,7 +5083,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K2_LO		;; Load low bits of k
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP1, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP1, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm1, xmm1, ZPAD_SHIFT2		;; Shift previous zpad word
 	vaddsd	xmm2, xmm2, xmm1		;; Add to create new high zpad bits
@@ -5092,7 +5092,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vmovsd	ZPAD0, xmm0			;; Save remainder of zpad / k
 
 	vxorpd	xmm1, xmm1, xmm1		;; Zero words that other cases set
-	vmovsd	YMM_TMP6, xmm1
+	vmovsd	Q YMM_TMP6, xmm1
 	
 	jmp	div_k_done
 
@@ -5106,7 +5106,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K6_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP6, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP6, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT6		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -5117,7 +5117,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K5_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP5, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP5, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT5		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -5128,7 +5128,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K4_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP4, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP4, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT4		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -5139,7 +5139,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K3_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP3, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP3, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT3		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -5150,7 +5150,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K2_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP2, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP2, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT2		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -5161,7 +5161,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K1_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP1, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP1, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT1		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -5174,7 +5174,7 @@ mediumk:
 smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP5, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP5, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -5182,7 +5182,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD3		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP4, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP4, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -5190,7 +5190,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD2		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP3, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP3, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -5198,7 +5198,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD1		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP2, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP2, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -5206,13 +5206,13 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD0		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP1, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP1, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 	vmovsd	ZPAD0, xmm0			;; Save remainder
 
 	vxorpd	xmm1, xmm1, xmm1		;; Zero words that other cases set
-	vmovsd	YMM_TMP6, xmm1
+	vmovsd	Q YMM_TMP6, xmm1
 
 div_k_done:
 
@@ -5225,7 +5225,7 @@ ttp	mov	rbp, norm_col_mults		;; Address of the ttmp/ttp multipliers
 
 	movzx	rax, BYTE PTR [rdi]		;; First word
 	vmovsd	xmm0, ZPAD0			;; Load remainder of divide by k
-base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
+base2	vaddsd	xmm0, xmm0, Q YMM_BIGVAL
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
 	vmovsd	Q [rsi+32], xmm0		;; Save value1
 
@@ -5245,7 +5245,7 @@ ttp	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value3 = val * two-to-phi
 
 ttp	add	rbp, YMM_NORM_INCR3		;; Next ttp/ttmp pointer
 	add	rsi, YMM_SRC_INCR3		;; Next source pointer
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Remove integer rounding constant
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Remove integer rounding constant
 ttp	vmulsd	xmm2, xmm2, Q [rbp+32]		;; value4 = carry * two-to-phi
 	vmovsd	Q [rsi+32], xmm2		;; Save new value4
 
@@ -5261,9 +5261,9 @@ ttp	vmulsd	xmm2, xmm2, Q [rbp+32]		;; value4 = carry * two-to-phi
 ttp	mov	rbp, norm_col_mults		;; Address of ttmp/ttp multipliers
 
 	movzx	rax, BYTE PTR [rdi]		;; First word
-	vmovsd	xmm0, YMM_TMP1			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
-base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
+	vmovsd	xmm0, Q YMM_TMP1		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
+base2	vaddsd	xmm0, xmm0, Q YMM_BIGVAL
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
 	vmovsd	Q [rsi], xmm0			;; Save value1
@@ -5271,11 +5271,11 @@ base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
 	add	rsi, YMM_SRC_INCR1		;; Next source pointer
 ttp	add	rbp, YMM_NORM_INCR1		;; Next ttp/ttmp pointer
 ttp	movzx	rax, BYTE PTR [rdi+1]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP2			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP2		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 ttp	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values2 by two-to-minus-phi
-ttp	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x2 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
@@ -5285,11 +5285,11 @@ ttp	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value2 = val * two-to-phi
 	add	rsi, YMM_SRC_INCR2		;; Next source pointer
 ttp	add	rbp, YMM_NORM_INCR2		;; Next ttp/ttmp pointer
 ttp	movzx	rax, BYTE PTR [rdi+2]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP3			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP3		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 ttp	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values3 by two-to-minus-phi
-ttp	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x3 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
@@ -5299,11 +5299,11 @@ ttp	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value3 = val * two-to-phi
 	add	rsi, YMM_SRC_INCR3		;; Next source pointer
 ttp	add	rbp, YMM_NORM_INCR3		;; Next ttp/ttmp pointer
 ttp	movzx	rax, BYTE PTR [rdi+3]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP4			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP4		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 ttp	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values4 by two-to-minus-phi
-ttp	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x4 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
@@ -5313,11 +5313,11 @@ ttp	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value4 = val * two-to-phi
 	add	rsi, YMM_SRC_INCR4		;; Next source pointer
 ttp	add	rbp, YMM_NORM_INCR4		;; Next ttp/ttmp pointer
 ttp	movzx	rax, BYTE PTR [rdi+4]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP5			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP5		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 ttp	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values4 by two-to-minus-phi
-ttp	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x5 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
@@ -5327,11 +5327,11 @@ ttp	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value5 = val * two-to-phi
 	add	rsi, YMM_SRC_INCR5		;; Next source pointer
 ttp	add	rbp, YMM_NORM_INCR5		;; Next ttp/ttmp pointer
 ttp	movzx	rax, BYTE PTR [rdi+5]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP6			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP6		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 ttp	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values6 by two-to-minus-phi
-ttp	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x6 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
@@ -5343,7 +5343,7 @@ ttp	add	rbp, YMM_NORM_INCR6		;; Next ttp/ttmp pointer
 ttp	movzx	rax, BYTE PTR [rdi+6]		;; Load big vs. little flags
 	vmovsd	xmm0, Q [rsi]			;; Load FFT data
 ttp	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values7 by two-to-minus-phi
-ttp	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x7 = value + carry
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
 ttp	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value7 = val * two-to-phi
@@ -5351,7 +5351,7 @@ ttp	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value7 = val * two-to-phi
 
 	add	rsi, YMM_SRC_INCR7		;; Next source pointer
 ttp	add	rbp, YMM_NORM_INCR7		;; Next ttp/ttmp pointer
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Remove rounding constant
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Remove rounding constant
 ttp	vmulsd	xmm2, xmm2, Q [rbp+32]		;; new value8 = val * two-to-phi
 	vaddsd	xmm2, xmm2, Q [rsi]		;; Add in FFT data
 	vmovsd	Q [rsi], xmm2			;; Save value8
@@ -5551,7 +5551,7 @@ ynorm_smalladd_1d MACRO base2
 	movzx	rax, BYTE PTR [rdi]		;; First biglit flag
 	vmovsd	xmm0, Q [rsi]			;; Load value1
 	vaddsd	xmm0, xmm0, xmm7		;; Add in carry
-base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
+base2	vaddsd	xmm0, xmm0, Q YMM_BIGVAL
 	single_rounding base2, xmm0, xmm2, xmm4, rax*2
 	vmovsd	Q [rsi], xmm0			;; Save value1
 
@@ -5560,7 +5560,7 @@ base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
 	movzx	rax, BYTE PTR [rdi+1]		;; Load big vs. little flags
 	vmovsd	xmm0, Q [rsi]			;; Load FFT data
 	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values2 by two-to-minus-phi
-	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x2 = value + carry
 	single_rounding base2, xmm0, xmm2, xmm4, rax*2
 	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value2 = val * two-to-phi
@@ -5571,7 +5571,7 @@ base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
 	movzx	rax, BYTE PTR [rdi+2]		;; Load big vs. little flags
 	vmovsd	xmm0, Q [rsi]			;; Load FFT data
 	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values3 by two-to-minus-phi
-	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x3 = value + carry
 	single_rounding base2, xmm0, xmm2, xmm4, rax*2
 	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value3 = val * two-to-phi
@@ -5582,7 +5582,7 @@ base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
 	movzx	rax, BYTE PTR [rdi+3]		;; Load big vs. little flags
 	vmovsd	xmm0, Q [rsi]			;; Load FFT data
 	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values2 by two-to-minus-phi
-	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x4 = value + carry
 	single_rounding base2, xmm0, xmm2, xmm4, rax*2
 	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value4 = val * two-to-phi
@@ -5590,7 +5590,7 @@ base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
 
 	add	rbp, YMM_NORM_INCR4		;; Next ttp/ttmp pointer
 	add	rsi, YMM_SRC_INCR4		;; Next source pointer
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL
 	vmulsd	xmm2, xmm2, Q [rbp+32]		;; carry *= two-to-phi
 	vaddsd	xmm2, xmm2, Q [rsi]		;; Add in FFT data
 	vmovsd	Q [rsi], xmm2			;; Save value5
@@ -5773,7 +5773,7 @@ ynorm_smallmul_1d_cleanup MACRO ttp, base2, destptr
 ynorm_smallmul_1d_zpad_cleanup MACRO ttp, base2, destptr
 	LOCAL	smallk, mediumk, div_k_done
 
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Integerize carry
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Integerize carry
 
 	;; Copy and integerize data from 7 words above halfway point to ZPAD0-ZPAD6
 	;; Clear high words as we go
@@ -5793,7 +5793,7 @@ ttp	add	rbp, YMM_NORM_INCR1		;; Next ttp/ttmp pointer
 ttp	movzx	rax, BYTE PTR [rdi+1]		;; Load big vs. little flags
 	vmovsd	xmm0, Q [rsi+32]		;; Value2
 ttp	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values2 by two-to-minus-phi
-ttp	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	new_single_split_lower_zpad_word ttp, base2, xmm0, xmm2, xmm4, rax*2
 	vmovsd	ZPAD1, xmm0
 
@@ -5802,7 +5802,7 @@ ttp	add	rbp, YMM_NORM_INCR2		;; Next ttp/ttmp pointer
 ttp	movzx	rax, BYTE PTR [rdi+2]		;; Load big vs. little flags
 	vmovsd	xmm0, Q [rsi+32]		;; Value3
 ttp	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values3 by two-to-minus-phi
-ttp	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	new_single_split_lower_zpad_word ttp, base2, xmm0, xmm2, xmm4, rax*2
 	vmovsd	ZPAD2, xmm0
 
@@ -5810,7 +5810,7 @@ ttp	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
 ttp	add	rbp, YMM_NORM_INCR3		;; Next ttp/ttmp pointer
 	vmovsd	xmm0, Q [rsi+32]		;; Value4
 ttp	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values4 by two-to-minus-phi
-ttp	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vaddsd	xmm0, xmm0, xmm2		;; Value4 + carry
 	vmovsd	ZPAD3, xmm0
@@ -5819,7 +5819,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 ttp	add	rbp, YMM_NORM_INCR4		;; Next ttp/ttmp pointer
 	vmovsd	xmm0, Q [rsi+32]		;; Value5
 ttp	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values5 by two-to-minus-phi
-ttp	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vmovsd	ZPAD4, xmm0
 	vxorpd	xmm1, xmm1, xmm1		;; Clear highest words
@@ -5829,7 +5829,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 ttp	add	rbp, YMM_NORM_INCR5		;; Next ttp/ttmp pointer
 	vmovsd	xmm0, Q [rsi+32]		;; Value6
 ttp	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values6 by two-to-minus-phi
-ttp	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vmovsd	ZPAD5, xmm0
 	vmovsd	Q [rsi+32], xmm1		;; Clear value6
@@ -5838,7 +5838,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 ttp	add	rbp, YMM_NORM_INCR6		;; Next ttp/ttmp pointer
 	vmovsd	xmm0, Q [rsi+32]		;; Value7
 ttp	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values7 by two-to-minus-phi
-ttp	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vmovsd	ZPAD6, xmm0
 	vmovsd	Q [rsi+32], xmm1		;; Clear value7
@@ -5870,7 +5870,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K6_LO		;; Mul by low bits of k
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP5, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP5, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT6		;; Shift previous zpad word
 	vaddsd	xmm1, xmm1, xmm0		;; Add to create new high zpad bits
@@ -5885,7 +5885,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K5_LO		;; Mul by low bits of k
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP4, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP4, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm1, xmm1, ZPAD_SHIFT5		;; Shift previous zpad word
 	vaddsd	xmm2, xmm2, xmm1		;; Add to create new high zpad bits
@@ -5900,7 +5900,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm0,xmm0,xmm5			;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K4_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP3, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP3, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm2, xmm2, ZPAD_SHIFT4		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm2		;; Add to create new high zpad bits
@@ -5915,7 +5915,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K3_LO		;; Mul by low bits of k
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP2, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP2, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT3		;; Shift previous zpad word
 	vaddsd	xmm1, xmm1, xmm0		;; Add to create new high zpad bits
@@ -5930,7 +5930,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K2_LO		;; Load low bits of k
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP1, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP1, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm1, xmm1, ZPAD_SHIFT2		;; Shift previous zpad word
 	vaddsd	xmm2, xmm2, xmm1		;; Add to create new high zpad bits
@@ -5939,7 +5939,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vmovsd	ZPAD0, xmm0			;; Save remainder of zpad / k
 
 	vxorpd	xmm1, xmm1, xmm1		;; Zero words that other cases set
-	vmovsd	YMM_TMP6, xmm1
+	vmovsd	q YMM_TMP6, xmm1
 	
 	jmp	div_k_done
 
@@ -5953,7 +5953,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K6_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP6, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP6, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT6		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -5964,7 +5964,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K5_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP5, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP5, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT5		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -5975,7 +5975,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K4_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP4, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP4, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT4		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -5986,7 +5986,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K3_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP3, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP3, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT3		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -5997,7 +5997,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K2_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP2, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP2, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT2		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -6008,7 +6008,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K1_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP1, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP1, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT1		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -6021,7 +6021,7 @@ mediumk:
 smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP5, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP5, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -6029,7 +6029,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD3		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP4, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP4, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -6037,7 +6037,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD2		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP3, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP3, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -6045,7 +6045,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD1		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP2, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP2, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -6053,13 +6053,13 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD0		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP1, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP1, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 	vmovsd	ZPAD0, xmm0			;; Save remainder
 
 	vxorpd	xmm1, xmm1, xmm1		;; Zero words that other cases set
-	vmovsd	YMM_TMP6, xmm1
+	vmovsd	Q YMM_TMP6, xmm1
 
 div_k_done:
 
@@ -6072,7 +6072,7 @@ ttp	mov	rbp, norm_col_mults		;; Address of the ttmp/ttp multipliers
 
 ttp	movzx	rax, BYTE PTR [rdi]		;; First word
 	vmovsd	xmm0, ZPAD0			;; Load remainder of divide by k
-base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
+base2	vaddsd	xmm0, xmm0, Q YMM_BIGVAL
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
 	vmovsd	Q [rsi+32], xmm0		;; Save value1
 
@@ -6092,7 +6092,7 @@ ttp	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value3 = val * two-to-phi
 
 ttp	add	rbp, YMM_NORM_INCR3		;; Next ttp/ttmp pointer
 	add	rsi, YMM_SRC_INCR3		;; Next source pointer
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Remove integer rounding constant
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Remove integer rounding constant
 ttp	vmulsd	xmm2, xmm2, Q [rbp+32]		;; value4 = carry * two-to-phi
 	vmovsd	Q [rsi+32], xmm2		;; Save new value4
 
@@ -6108,9 +6108,9 @@ ttp	vmulsd	xmm2, xmm2, Q [rbp+32]		;; value4 = carry * two-to-phi
 ttp	mov	rbp, norm_col_mults		;; Address of ttmp/ttp multipliers
 
 ttp	movzx	rax, BYTE PTR [rdi]		;; First word
-	vmovsd	xmm0, YMM_TMP1			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
-base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
+	vmovsd	xmm0, Q YMM_TMP1		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
+base2	vaddsd	xmm0, xmm0, Q YMM_BIGVAL
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
 	vmovsd	Q [rsi], xmm0			;; Save value1
@@ -6118,11 +6118,11 @@ base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
 	add	rsi, YMM_SRC_INCR1		;; Next source pointer
 ttp	add	rbp, YMM_NORM_INCR1		;; Next ttp/ttmp pointer
 ttp	movzx	rax, BYTE PTR [rdi+1]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP2			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP2		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 ttp	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values2 by two-to-minus-phi
-ttp	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x2 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
@@ -6132,11 +6132,11 @@ ttp	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value2 = val * two-to-phi
 	add	rsi, YMM_SRC_INCR2		;; Next source pointer
 ttp	add	rbp, YMM_NORM_INCR2		;; Next ttp/ttmp pointer
 ttp	movzx	rax, BYTE PTR [rdi+2]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP3			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP3		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 ttp	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values3 by two-to-minus-phi
-ttp	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x3 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
@@ -6146,11 +6146,11 @@ ttp	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value3 = val * two-to-phi
 	add	rsi, YMM_SRC_INCR3		;; Next source pointer
 ttp	add	rbp, YMM_NORM_INCR3		;; Next ttp/ttmp pointer
 ttp	movzx	rax, BYTE PTR [rdi+3]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP4			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP4		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 ttp	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values4 by two-to-minus-phi
-ttp	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x4 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
@@ -6160,11 +6160,11 @@ ttp	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value4 = val * two-to-phi
 	add	rsi, YMM_SRC_INCR4		;; Next source pointer
 ttp	add	rbp, YMM_NORM_INCR4		;; Next ttp/ttmp pointer
 ttp	movzx	rax, BYTE PTR [rdi+4]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP5			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP5		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 ttp	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values4 by two-to-minus-phi
-ttp	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x5 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
@@ -6174,11 +6174,11 @@ ttp	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value5 = val * two-to-phi
 	add	rsi, YMM_SRC_INCR5		;; Next source pointer
 ttp	add	rbp, YMM_NORM_INCR5		;; Next ttp/ttmp pointer
 ttp	movzx	rax, BYTE PTR [rdi+5]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP6			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP6		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vmovsd	xmm1, Q [rsi]			;; Load FFT data
 ttp	vmulsd	xmm1, xmm1, Q [rbp]		;; Mul values6 by two-to-minus-phi
-ttp	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x6 = value + carry
 	vaddsd	xmm0, xmm0, xmm1		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
@@ -6190,7 +6190,7 @@ ttp	add	rbp, YMM_NORM_INCR6		;; Next ttp/ttmp pointer
 ttp	movzx	rax, BYTE PTR [rdi+6]		;; Load big vs. little flags
 	vmovsd	xmm0, Q [rsi]			;; Load FFT data
 ttp	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values7 by two-to-minus-phi
-ttp	vmulsd	xmm0, xmm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
+ttp	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
 	vaddsd	xmm0, xmm0, xmm2		;; x7 = value + carry
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*2
 ttp	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value7 = val * two-to-phi
@@ -6198,7 +6198,7 @@ ttp	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value7 = val * two-to-phi
 
 	add	rsi, YMM_SRC_INCR7		;; Next source pointer
 ttp	add	rbp, YMM_NORM_INCR7		;; Next ttp/ttmp pointer
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Remove rounding constant
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Remove rounding constant
 ttp	vmulsd	xmm2, xmm2, Q [rbp+32]		;; new value8 = val * two-to-phi
 	vaddsd	xmm2, xmm2, Q [rsi]		;; Add in FFT data
 	vmovsd	Q [rsi], xmm2			;; Save value8
@@ -6343,9 +6343,9 @@ ynorm_op_wpn_final MACRO ttp, base2, carry1, carry2
 
 	ynorm_top_carry_cmn base2, rsi, carry2, 2
 
-base2	vsubsd	carry2, carry2, YMM_BIGVAL	;; Remove BIGVAL
-	vmulsd	carry2, carry2, YMM_MINUS_C	;; mul wrap around carry by -c
-base2	vaddsd	carry2, carry2, YMM_BIGVAL	;; Restore BIGVAL
+base2	vsubsd	carry2, carry2, Q YMM_BIGVAL	;; Remove BIGVAL
+	vmulsd	carry2, carry2, Q YMM_MINUS_C	;; mul wrap around carry by -c
+base2	vaddsd	carry2, carry2, Q YMM_BIGVAL	;; Restore BIGVAL
 
 	sub	dl, dl				;; Clear loop counter
 
@@ -6367,7 +6367,7 @@ ttp	vmulsd	xmm1, xmm1, Q [rbp+1*YMM_GMD+YMM_GMD/2][rbx*8] ;; value2 *= fudged gr
 	vmovsd	Q [rsi], xmm0			;; Save new value1
 	vmovsd	Q [rsi+32], xmm1		;; Save new value2
 
-base2	vmovsd	xmm1, YMM_BIGVAL		;; Load comparison value
+base2	vmovsd	xmm1, Q YMM_BIGVAL		;; Load comparison value
 no base2 vxorpd	xmm1, xmm1, xmm1		;; Create comparison value
 	vcmpsd	xmm0, carry2, xmm1, 0Ch		;; Test for non-zero carry
 	vmovmskpd rax, xmm0			;; Extract comparison bit
@@ -6383,8 +6383,8 @@ ttp	bump	rdi, 2				;; Advance pointers
 
 		;; Do last iteration without propagating carries out
 last_iter:
-base2	vsubsd	carry2, carry2, YMM_BIGVAL	;; Subtract rounding constant from carries
-base2	vsubsd	carry1, carry1, YMM_BIGVAL
+base2	vsubsd	carry2, carry2, Q YMM_BIGVAL	;; Subtract rounding constant from carries
+base2	vsubsd	carry1, carry1, Q YMM_BIGVAL
 ttp	vmulsd	carry1, carry1, Q [rbp+1*YMM_GMD+YMM_GMD/2][rbx*8]
 	vaddsd	xmm0, carry2, Q [rsi]		;; x1 = values1 + carry2
 	vaddsd	xmm1, carry1, Q [rsi+32]	;; x2 = values2 + carry1
@@ -6399,7 +6399,7 @@ done:
 ; carry can be safely added into one FFT data word.  Also the group
 ; multiplier for the first cache line is 1.0.
 ynorm_op_wpn_zpad_final MACRO ttp, base2, carry1, carry2
-base2	vsubsd	carry1, carry1, YMM_BIGVAL		;; Remove BIGVAL
+base2	vsubsd	carry1, carry1, Q YMM_BIGVAL		;; Remove BIGVAL
 	vaddsd	xmm0, carry1, Q [rsi+32]		;; x1 = carry1 + values1
 	vmovsd	Q [rsi+32], xmm0			;; Save new value1
 	ENDM
@@ -6523,7 +6523,7 @@ ynorm_smalladd_wpn MACRO ttp, base2
 
 	mov	rsi, DESTARG			;; Address of destination
 	vmovsd	xmm2, DBLARG			;; Small addin value
-base2	vaddsd	xmm2, xmm2, YMM_BIGVAL
+base2	vaddsd	xmm2, xmm2, Q YMM_BIGVAL
 ttp	mov	rbp, norm_grp_mults		;; Addr of the group multipliers
 ttp	mov	rdi, norm_biglit_array		;; Addr of the big/little flags array
 
@@ -6543,7 +6543,7 @@ ttp	vmulsd	xmm0, xmm0, Q [rbp+0*YMM_GMD][rbx] ;; Mul values by fudged two-to-min
 ttp	vmulsd	xmm0, xmm0, Q [rbp+0*YMM_GMD+YMM_GMD/2][rbx] ;; value = rounded value * fudged grp two-to-phi
 	vmovsd	Q [rsi], xmm0			;; Save new value
 
-base2	vmovsd	xmm1, YMM_BIGVAL		;; Load comparison value
+base2	vmovsd	xmm1, Q YMM_BIGVAL		;; Load comparison value
 no base2 vxorpd	xmm1, xmm1, xmm1		;; Create comparison value
 	vcmpsd	xmm0, xmm2, xmm1, 0Ch		;; Test for non-zero carry
 	vmovmskpd rax, xmm0			;; Extract comparison bit
@@ -6751,9 +6751,9 @@ ynorm_smallmul_wpn_final MACRO ttp, base2
 
 	ynorm_top_carry_cmn base2, rsi, xmm3, 2
 
-base2	vsubsd	xmm3, xmm3, YMM_BIGVAL		;; Remove BIGVAL
-	vmulsd	xmm3, xmm3, YMM_MINUS_C		;; mul wrap around carry by -c
-base2	vaddsd	xmm3, xmm3, YMM_BIGVAL		;; Restore BIGVAL
+base2	vsubsd	xmm3, xmm3, Q YMM_BIGVAL	;; Remove BIGVAL
+	vmulsd	xmm3, xmm3, Q YMM_MINUS_C	;; mul wrap around carry by -c
+base2	vaddsd	xmm3, xmm3, Q YMM_BIGVAL	;; Restore BIGVAL
 
 clmloop:
 ttp	mov	edx, cache_line_multiplier	;; We must increment rdi by a funky amount every 4*clm cache lines
@@ -6778,7 +6778,7 @@ ttp	vmulsd	xmm1, xmm1, Q [rbp+1*YMM_GMD+YMM_GMD/2][rbx*8] ;; value2 = rounded va
 	vmovsd	Q [rsi], xmm0			;; Save new value1
 	vmovsd	Q [rsi+32], xmm1		;; Save new value2
 
-base2	vmovsd	xmm1, YMM_BIGVAL		;; Load comparison value
+base2	vmovsd	xmm1, Q YMM_BIGVAL		;; Load comparison value
 no base2 vxorpd	xmm1, xmm1, xmm1		;; Create comparison value
 	vcmpsd	xmm0, xmm3, xmm1, 0Ch		;; Test for non-zero carry
 	vmovmskpd rax, xmm0			;; Extract comparison bit
@@ -6813,7 +6813,7 @@ done:
 ynorm_smallmul_wpn_zpad_final MACRO ttp, base2, destptr
 	LOCAL	smallk, mediumk, div_k_done
 
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Integerize carry
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Integerize carry
 
 	;; Copy and integerize data from 7 words above halfway point to ZPAD0-ZPAD6
 	;; Clear high words as we go
@@ -6891,7 +6891,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K6_LO		;; Mul by low bits of k
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP5, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP5, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT6		;; Shift previous zpad word
 	vaddsd	xmm1, xmm1, xmm0		;; Add to create new high zpad bits
@@ -6906,7 +6906,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K5_LO		;; Mul by low bits of k
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP4, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP4, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm1, xmm1, ZPAD_SHIFT5		;; Shift previous zpad word
 	vaddsd	xmm2, xmm2, xmm1		;; Add to create new high zpad bits
@@ -6921,7 +6921,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm0,xmm0,xmm5			;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K4_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP3, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP3, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm2, xmm2, ZPAD_SHIFT4		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm2		;; Add to create new high zpad bits
@@ -6936,7 +6936,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K3_LO		;; Mul by low bits of k
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP2, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP2, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT3		;; Shift previous zpad word
 	vaddsd	xmm1, xmm1, xmm0		;; Add to create new high zpad bits
@@ -6951,7 +6951,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vsubsd	xmm2, xmm2, xmm5		;; Calculate middle bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K2_LO		;; Load low bits of k
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP1, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP1, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm1, xmm1, ZPAD_SHIFT2		;; Shift previous zpad word
 	vaddsd	xmm2, xmm2, xmm1		;; Add to create new high zpad bits
@@ -6960,7 +6960,7 @@ ttp	vroundsd xmm0, xmm0, xmm0, 0		;; Round to an integer
 	vmovsd	ZPAD0, xmm0			;; Save remainder of zpad / k
 
 	vxorpd	xmm1, xmm1, xmm1		;; Zero words that other cases set
-	vmovsd	YMM_TMP6, xmm1
+	vmovsd	Q YMM_TMP6, xmm1
 	
 	jmp	div_k_done
 
@@ -6974,7 +6974,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K6_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP6, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP6, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT6		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -6985,7 +6985,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K5_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP5, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP5, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT5		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -6996,7 +6996,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K4_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP4, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP4, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT4		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -7007,7 +7007,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K3_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP3, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP3, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT3		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -7018,7 +7018,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K2_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP2, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP2, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT2		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -7029,7 +7029,7 @@ mediumk:
 	vsubsd	xmm0, xmm0, xmm5		;; Calculate high bits of remainder
 	vmulsd	xmm5, xmm4, ZPAD_K1_LO		;; Mul by low bits of k
 	vsubsd	xmm1, xmm1, xmm5		;; Calculate low bits of remainder
-	vmovsd	YMM_TMP1, xmm4			;; Save word of zpad / k
+	vmovsd	Q YMM_TMP1, xmm4		;; Save word of zpad / k
 
 	vmulsd	xmm0, xmm0, ZPAD_SHIFT1		;; Shift previous zpad word
 	vaddsd	xmm0, xmm0, xmm1		;; Add to create new high zpad bits
@@ -7042,7 +7042,7 @@ mediumk:
 smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP5, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP5, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -7050,7 +7050,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD3		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP4, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP4, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -7058,7 +7058,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD2		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP3, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP3, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -7066,7 +7066,7 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD1		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP2, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP2, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 
@@ -7074,13 +7074,13 @@ smallk:	vmovsd	xmm0, ZPAD4			;; Load zpad data
 	vaddsd	xmm0, xmm0, ZPAD0		;; Add in zpad data
 	vmulsd	xmm4, xmm0, ZPAD_INVERSE_K1	;; Mul ZPAD data by 1/k
 	vroundsd xmm4, xmm4, xmm4, 0		;; Round to integer
-	vmovsd	YMM_TMP1, xmm4			;; Save integer part
+	vmovsd	Q YMM_TMP1, xmm4		;; Save integer part
 	vmulsd	xmm4, xmm4, ZPAD_K1_LO		;; Compute remainder
 	vsubsd	xmm0, xmm0, xmm4
 	vmovsd	ZPAD0, xmm0			;; Save remainder
 
 	vxorpd	xmm1, xmm1, xmm1		;; Zero words that other cases set
-	vmovsd	YMM_TMP6, xmm1
+	vmovsd	Q YMM_TMP6, xmm1
 
 div_k_done:
 
@@ -7092,7 +7092,7 @@ ttp	lea	rdi, YMM_FIRST_BIGLIT_VALUES	;; Address of first big/little flags
 
 ttp	movzx	rax, BYTE PTR [rdi]		;; First word
 	vmovsd	xmm0, ZPAD0			;; Load remainder of divide by k
-base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
+base2	vaddsd	xmm0, xmm0, Q YMM_BIGVAL
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
 	vmovsd	Q [rsi+32], xmm0		;; Save value1
 
@@ -7107,7 +7107,7 @@ ttp	movzx	rax, BYTE PTR [rdi+2]		;; Load big vs. little flags
 	vmovsd	Q [rsi+32], xmm0		;; Save value3
 
 	add	rsi, YMM_SRC_INCR3		;; Next source pointer
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Remove integer rounding constant
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Remove integer rounding constant
 	vmovsd	Q [rsi+32], xmm2		;; Save new value4
 
 	;; Mul the integer part of (ZPAD data divided by k) by -c in
@@ -7121,17 +7121,17 @@ base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Remove integer rounding constant
 	mov	rsi, destptr			;; Address of squared number
 
 ttp	movzx	rax, BYTE PTR [rdi]		;; First word
-	vmovsd	xmm0, YMM_TMP1			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
-base2	vaddsd	xmm0, xmm0, YMM_BIGVAL
+	vmovsd	xmm0, Q YMM_TMP1		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
+base2	vaddsd	xmm0, xmm0, Q YMM_BIGVAL
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
 	vmovsd	Q [rsi], xmm0			;; Save value1
 
 	add	rsi, YMM_SRC_INCR1		;; Next source pointer
 ttp	movzx	rax, BYTE PTR [rdi+1]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP2			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP2		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vaddsd	xmm0, xmm0, xmm2		;; x2 = value + carry
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
@@ -7139,8 +7139,8 @@ ttp	movzx	rax, BYTE PTR [rdi+1]		;; Load big vs. little flags
 
 	add	rsi, YMM_SRC_INCR2		;; Next source pointer
 ttp	movzx	rax, BYTE PTR [rdi+2]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP3			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP3		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vaddsd	xmm0, xmm0, xmm2		;; x3 = value + carry
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
@@ -7148,8 +7148,8 @@ ttp	movzx	rax, BYTE PTR [rdi+2]		;; Load big vs. little flags
 
 	add	rsi, YMM_SRC_INCR3		;; Next source pointer
 ttp	movzx	rax, BYTE PTR [rdi+3]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP4			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP4		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vaddsd	xmm0, xmm0, xmm2		;; x4 = value + carry
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
@@ -7157,8 +7157,8 @@ ttp	movzx	rax, BYTE PTR [rdi+3]		;; Load big vs. little flags
 
 	add	rsi, YMM_SRC_INCR4		;; Next source pointer
 ttp	movzx	rax, BYTE PTR [rdi+4]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP5			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP5		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vaddsd	xmm0, xmm0, xmm2		;; x5 = value + carry
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
@@ -7166,8 +7166,8 @@ ttp	movzx	rax, BYTE PTR [rdi+4]		;; Load big vs. little flags
 
 	add	rsi, YMM_SRC_INCR5		;; Next source pointer
 ttp	movzx	rax, BYTE PTR [rdi+5]		;; Load big vs. little flags
-	vmovsd	xmm0, YMM_TMP6			;; Load integer part of divide by k
-	vmulsd	xmm0, xmm0, YMM_MINUS_C		;; Mul by -c
+	vmovsd	xmm0, Q YMM_TMP6		;; Load integer part of divide by k
+	vmulsd	xmm0, xmm0, Q YMM_MINUS_C	;; Mul by -c
 	vaddsd	xmm0, xmm0, xmm2		;; x6 = value + carry
 	vaddsd	xmm0, xmm0, Q [rsi]		;; Add in the FFT data
 	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
@@ -7180,7 +7180,7 @@ ttp	movzx	rax, BYTE PTR [rdi+6]		;; Load big vs. little flags
 	vmovsd	Q [rsi], xmm0			;; Save value7
 
 	add	rsi, YMM_SRC_INCR7		;; Next source pointer
-base2	vsubsd	xmm2, xmm2, YMM_BIGVAL		;; Remove rounding constant
+base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Remove rounding constant
 	vaddsd	xmm2, xmm2, Q [rsi]		;; Add in FFT data
 	vmovsd	Q [rsi], xmm2			;; Save value8
 	ENDM

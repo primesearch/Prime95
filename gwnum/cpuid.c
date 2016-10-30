@@ -525,6 +525,7 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 			 (family == 6 && model == 30) ||		// Core i5/i7
 			 (family == 6 && model == 46) ||		// Xeon MP (based on Core i7 technology)
 			 (family == 6 && model == 47) ||		// Xeon MP (based on Sandy Bridge technology)
+			 (family == 6 && model == 69) ||		// Xeon MP (based on Haswell technology)
 			 (family == 6 && model == 44) ||		// Core i7 (based on Sandy Bridge technology)
 			 (family == 6 && model == 37) ||		// Core i3, mobile i5/i7 (based on Sandy Bridge technology)
 			 (family == 6 && model == 42) ||		// Core i7 (based on Sandy Bridge technology)
@@ -536,6 +537,7 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 			 (family == 6 && model == 69) ||		// Core i7, mobile (based on Haswell technology)
 			 (family == 6 && model == 70) ||		// Core i7 (based on Haswell technology)
 			 (family == 6 && model == 61) ||		// Core i7 (based on Broadwell technology)
+			 (family == 6 && model == 79) ||		// Core i7 (based on Broadwell-E technology)
 			 (family == 6 && model == 71) ||		// Core i7, mobile (based on Broadwell technology)
 			 (family == 6 && model == 86) ||		// Core i7, mobile (based on Broadwell technology)
 			 (family == 6 && model == 94))			// Core i7 (based on Skylake technology)

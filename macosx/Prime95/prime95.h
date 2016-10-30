@@ -3,7 +3,7 @@
 //  Prime95
 //
 //  Created by George Woltman on 4/17/09.
-//  Copyright 2009 Mersenne Research, Inc. All rights reserved.
+//  Copyright 2009-2016 Mersenne Research, Inc. All rights reserved.
 //
 //  This file contains the include files needed to access any
 //  of the common C routines
@@ -23,6 +23,7 @@
 #include "common.h"
 #include "cpuid.h"
 #include "gwnum.h"
+#include "gwini.h"
 #include "gwutil.h"
 #include "commona.h"
 #include "commonc.h"

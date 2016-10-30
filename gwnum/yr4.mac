@@ -6720,7 +6720,7 @@ yr4_8r_fft_cmn MACRO srcreg,srcinc,srcoff,d1,d2,screg1,screg2,screg5,screg,scinc
 	vsubpd	ymm1, ymm4, ymm5	;; new R6 = R2 - R6			; 3-5
 	vaddpd	ymm5, ymm4, ymm5	;; new R2 = R2 + R6			; 4-6
 
-	vbroadcastsd ymm2, YMM_SQRTHALF ;; sqrt(1/2)
+	vbroadcastsd ymm2, Q YMM_SQRTHALF ;; sqrt(1/2)
 	vmulpd	ymm3, ymm3, ymm2	;; R8 = R8 * square root		;  4-8
 	vmulpd	ymm1, ymm1, ymm2	;; R6 = R6 * square root		;  6-10
 
@@ -6813,7 +6813,7 @@ yr4_s8r_fft_cmn MACRO srcreg,srcinc,srcoff,d1,d2,screg1,screg2,screg5,scregA,sci
 	vsubpd	ymm1, ymm4, ymm5	;; new R6 = R2 - R6			; 3-5
 	vaddpd	ymm5, ymm4, ymm5	;; new R2 = R2 + R6			; 4-6
 
-	vbroadcastsd ymm2, YMM_SQRTHALF ;; sqrt(1/2)
+	vbroadcastsd ymm2, Q YMM_SQRTHALF ;; sqrt(1/2)
 	vmulpd	ymm3, ymm3, ymm2	;; R8 = R8 * square root		;  4-8
 	vmulpd	ymm1, ymm1, ymm2	;; R6 = R6 * square root		;  6-10
 
@@ -9350,8 +9350,8 @@ yr4_o8r_t4c_djbfft_mem MACRO mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,screg,dst
 	vaddpd	ymm3, ymm3, ymm5	;; new R4 = R4 + R8		; I2 + I4 (new I2)
 	vaddpd	ymm1, ymm1, ymm6	;; new R2 = R2 + R6		; R2 + R4 (new R2)
 
-	vmulsd	xmm0, xmm4, YMM_SQRTHALF;; interim R8 * square root	; meaningless
-	vmulsd	xmm2, xmm7, YMM_SQRTHALF;; interim R6 * square root	; meaningless
+	vmulsd	xmm0, xmm4, Q YMM_SQRTHALF;; interim R8 * square root	; meaningless
+	vmulsd	xmm2, xmm7, Q YMM_SQRTHALF;; interim R6 * square root	; meaningless
 
 	vaddsd	xmm5, xmm2, xmm0	;; new R8 = interim R6 + R8	; meaningless
 	vsubsd	xmm2, xmm0, xmm2	;; new negR6 = interim R8 - R6	; meaningless
@@ -9703,8 +9703,8 @@ yr4_o8r_t4c_djbunfft_mem MACRO mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,screg,dst
 	vaddsd	xmm3, xmm4, xmm2	;; R6 = R6 + R8			; meaningless
 	vsubsd	xmm0, xmm4, xmm2	;; negR8 = R6 - R8		; meaningless
 
-	vmulsd	xmm3, xmm3, YMM_SQRTHALF ;; R6 *= square root of 1/2	; meaningless
-	vmulsd	xmm0, xmm0, YMM_SQRTHALF ;; negR8 *= square root of 1/2	; meaningless
+	vmulsd	xmm3, xmm3, Q YMM_SQRTHALF ;; R6 *= square root of 1/2	; meaningless
+	vmulsd	xmm0, xmm0, Q YMM_SQRTHALF ;; negR8 *= square root of 1/2 ; meaningless
 
 	vblendpd ymm2, ymm2, ymm3, 1	;; new R6			; new R4
 	vblendpd ymm4, ymm4, ymm0, 1	;; new negR8			; new negI4
@@ -10079,8 +10079,8 @@ yr4_o8r_t4c_simple_fft_mem MACRO mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,destR4,
 	vmovapd	ymm5, mem6		;; R6				; I2
 	vsubsd	xmm2, xmm1, xmm5	;; interim R6 = R2 - R6		; meaningless
 
-	vmulsd	xmm0, xmm0, YMM_SQRTHALF;; interim R8 * square root	; meaningless
-	vmulsd	xmm2, xmm2, YMM_SQRTHALF;; interim R6 * square root	; meaningless
+	vmulsd	xmm0, xmm0, Q YMM_SQRTHALF;; interim R8 * square root	; meaningless
+	vmulsd	xmm2, xmm2, Q YMM_SQRTHALF;; interim R6 * square root	; meaningless
 
 	vblendpd ymm3, ymm5, ymm6, 1	;; R4				; I2
 	vaddpd	ymm3, ymm3, ymm7	;; new R4 = R4 + R8		; I2 + I4 (new I2)
@@ -10153,11 +10153,11 @@ yr4_o8r_t4c_simple_unfft_mem MACRO mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,dst1
 	vmovsd	xmm2, Q mem1		;; R1
 	vmovsd	xmm6, Q mem2		;; R2
 	vsubsd	xmm2, xmm2, xmm6	;; new R2 = R1 - R2
-	vmulsd	xmm2, xmm2, YMM_HALF	;; Mul new R2 by HALF
+	vmulsd	xmm2, xmm2, Q YMM_HALF	;; Mul new R2 by HALF
 	vaddsd	xmm6, xmm2, xmm6	;; new R1 = R1 + R2
 
-	vmulsd	xmm3, xmm3, YMM_SQRTHALF;; R6 = R6 * square root of 1/2
-	vmulsd	xmm4, xmm4, YMM_SQRTHALF;; R8 = R8 * square root of 1/2
+	vmulsd	xmm3, xmm3, Q YMM_SQRTHALF;; R6 = R6 * square root of 1/2
+	vmulsd	xmm4, xmm4, Q YMM_SQRTHALF;; R8 = R8 * square root of 1/2
 
 	vmovsd	xmm0, Q mem4		;; R4
 	vaddsd	xmm5, xmm2, xmm0	;; R2 + R4 (new R2)
@@ -10169,15 +10169,15 @@ yr4_o8r_t4c_simple_unfft_mem MACRO mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,dst1
 	vsubsd	xmm3, xmm2, xmm4	;; R4 - R8 (final R8)
 	vaddsd	xmm2, xmm2, xmm4	;; R4 + R8 (final R4)
 
-	vmovsd	YMM_TMP6, xmm0		;; Save R6
-	vmovsd	YMM_TMP2, xmm5		;; Save R2
+	vmovsd	Q YMM_TMP6, xmm0	;; Save R6
+	vmovsd	Q YMM_TMP2, xmm5	;; Save R2
 
 	vmovsd	xmm4, Q mem3		;; R3
 	vaddsd	xmm0, xmm6, xmm4	;; R1 + R3 (new R1)
 	vsubsd	xmm6, xmm6, xmm4	;; R1 - R3 (new R3)
 
-	vmovsd	YMM_TMP8, xmm3		;; Save R8
-	vmovsd	YMM_TMP4, xmm2		;; Save R4
+	vmovsd	Q YMM_TMP8, xmm3	;; Save R8
+	vmovsd	Q YMM_TMP4, xmm2	;; Save R4
 
 	vsubsd	xmm2, xmm0, xmm1	;; R1 - R5 (final R5)
 	vaddsd	xmm0, xmm0, xmm1	;; R1 + R5 (final R1)
@@ -10185,11 +10185,11 @@ yr4_o8r_t4c_simple_unfft_mem MACRO mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,dst1
 	vsubsd	xmm3, xmm6, xmm7	;; R3 - R7 (final R7)
 	vaddsd	xmm6, xmm6, xmm7	;; R3 + R7 (final R3)
 
-	vmovsd	YMM_TMP5, xmm2		;; Save R5
-	vmovsd	YMM_TMP1, xmm0		;; Save R1
+	vmovsd	Q YMM_TMP5, xmm2	;; Save R5
+	vmovsd	Q YMM_TMP1, xmm0	;; Save R1
 
-	vmovsd	YMM_TMP7, xmm3		;; Save R7
-	vmovsd	YMM_TMP3, xmm6		;; Save R3
+	vmovsd	Q YMM_TMP7, xmm3	;; Save R7
+	vmovsd	Q YMM_TMP3, xmm6	;; Save R3
 
 	;; Do the four complex part
 

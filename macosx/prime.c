@@ -94,7 +94,7 @@ typedef int pid_t;
 
 /* Globals */
 
-int volatile THREAD_KILL = 0;
+int volatile KILL_MENUS = 0;
 int NO_GUI = 1;
 int VERBOSE = 0;
 int MENUING = 0;
@@ -113,8 +113,11 @@ int MENUING = 0;
 
 void sigterm_handler(int signo)
 {
-	stop_workers_for_escape ();
-	if (signo != SIGINT) THREAD_KILL = TRUE;
+	stop_workers_for_escape ();	// Gracefully stop any active worker threads
+	if (signo != SIGINT) {
+		KILL_MENUS = TRUE;	// Set flag so we exit the menus
+		fclose (stdin);		// Makes fgets in menu.c return.  Thus, mprime will terminate rather than waiting for a menu choice.
+	}
 	(void)signal(signo, sigterm_handler);
 }
 
@@ -135,6 +138,7 @@ int main (
 
 	(void)signal(SIGTERM, sigterm_handler);
 	(void)signal(SIGINT, sigterm_handler);
+	(void)signal(SIGHUP, sigterm_handler);	/* See discussion in http://www.mersenneforum.org/showthread.php?t=21496 */
 
 /* No buffering of output */
 
@@ -432,7 +436,7 @@ void linuxContinue (
 /* Compare this process' ID and the pid from the INI file */
 
 	my_pid = getpid ();
-	openIniFile (LOCALINI_FILE, 1);
+	IniFileReread (LOCALINI_FILE);
 	running_pid = IniGetInt (LOCALINI_FILE, "Pid", 0);
 	if (running_pid == 0 || my_pid == running_pid) goto ok;
 

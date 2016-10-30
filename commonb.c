@@ -4160,7 +4160,7 @@ typedef struct {
 	gwevent	thread_work_to_do;		/* This event is set whenever the auxiliary threads have work to do. */
 	gwevent	sieved_areas_available;		/* This event is set whenever a sieved area is made available for TF. */
 	gwevent	all_threads_done;		/* This event is set whenever the auxiliary threads are done and the */
-						/* main thread can resume.  That is, it is set if and only if num_active_threads==0 */
+						/* main thread can resume.  That is, it is set when num_active_threads==0 */
 } fachandle;
 
 /* Possible states for a sieve area */
@@ -4215,15 +4215,9 @@ void factor_auxiliary_thread (void *arg)
 		gwevent_wait (&facdata->thread_work_to_do, 0);
 		if (facdata->threads_must_exit) break;
 
-/* Increment the number of active threads so that we can tell */
-/* when all auxiliary routines have finished. */
-
-		gwmutex_lock (&facdata->thread_lock);
-		facdata->num_active_threads++;
-		gwevent_reset (&facdata->all_threads_done);
-
 /* Each thread needs its own copy of the asm_data.  Copy the structure after each factor_pass_setup */
 
+		gwmutex_lock (&facdata->thread_lock);
 		memcpy (asm_data, main_thread_asm_data, sizeof (struct facasm_data));
 		gwmutex_unlock (&facdata->thread_lock);
 
@@ -4516,8 +4510,11 @@ int factorPassSetup (
 
 /* Signal the auxiliary threads to resume working */
 
-	if (facdata->num_threads > 1)
-		gwevent_signal (&facdata->thread_work_to_do);
+	if (facdata->num_threads > 1) {
+		facdata->num_active_threads = facdata->num_threads - 1;	// Set count of active auxilary threads
+		gwevent_reset (&facdata->all_threads_done);		// Clear auxilary threads done signal
+		gwevent_signal (&facdata->thread_work_to_do);		// Start auxilary threads
+	}
 
 /* Setup complete */
 
@@ -4567,7 +4564,7 @@ int factorChunk (
 			facdata->found_hsw = 0;
 			return (1);					// Return factor found
 		}
-		// For historical reasons, caller expects fachsw/facmsw set to next factor to TF
+		// For percent complete messasges, caller expects fachsw/facmsw set to next factor to TF.
 		// factorChunkMultithreaded should have set this to a reasonable value.
 		return (2);						// Return factor not found
 	}
@@ -4587,7 +4584,8 @@ int factorChunk (
 	res = factor64_tf (asm_data);
 	facdata->num_chunks_TFed++;
 	if (res == 1) return (1);	// Return if factor found
-	// For historical reasons, caller expects fachsw/facmsw set to next factor to TF
+	// For percent complete messasges and knowing when to start the next pass,
+	// caller expects fachsw/facmsw set to next factor to TF
 	asm_data->FACHSW = (uint32_t) facdata->next_sieve_first_factor[0];
 	asm_data->FACMSW = (uint32_t) (facdata->next_sieve_first_factor[1] >> 32);
 	return (2);	// No factor found
@@ -4677,12 +4675,14 @@ int factorChunkMultithreaded (		/* Return TRUE when there is no more work to do 
 	facdata->num_chunks_TFed++;
 	facdata->sieve_area[i].state = SIEVE_AREA_FREE;			/* Update sieve area's state */
 	facdata->num_free_sieve_areas++;
+	// For percent complete messages, primeFactor expects fachsw/facmsw set to next factor to TF.
+	// While multithreading may mean there are some smaller values to TF, primeFactor will get the
+	// exact information by calling factorFindSmallestNotTFed before writing a save file.
+//	asm_data->FACHSW = (uint32_t) asm_data->savefac0;	//bug -- this starts next pass prematurely if we just did last sieve area!!!!
+//	asm_data->FACMSW = (uint32_t) (asm_data->savefac1 >> 32);
+	asm_data->FACHSW = (uint32_t) facdata->sieve_area[i].first_factor[0]; //instead set to first factor in sieve area just processed
+	asm_data->FACMSW = (uint32_t) (facdata->sieve_area[i].first_factor[1] >> 32);
 	gwmutex_unlock (&facdata->thread_lock);
-	// For historical reasons, primeFactor expects fachsw/facmsw set to next factor to TF.
-	// While this isn't the next factor to TF, primeFactor will get the correct information
-	// by calling factorFindSmallestNotTFed before writing a save file.
-	asm_data->FACHSW = (uint32_t) asm_data->savefac0;
-	asm_data->FACMSW = (uint32_t) (asm_data->savefac1 >> 32);
 	return (FALSE);							// Return more work to do flag
 }
 
@@ -5081,7 +5081,7 @@ int primeFactor (
 			double	currentpt;
 
 /* Do a chunk of factoring.  Usually this is just one chunk (as defined by the underlying factoring code). */
-/* However, when multithreading the auxillary threads are TFing chunks at the same time. */
+/* However, when multithreading the auxilary threads are TFing chunks at the same time. */
 			
 			start_timer (timers, 0);
 			stop_reason = factorAndVerify (thread_num, p, &facdata, &res);
@@ -5345,21 +5345,24 @@ int lucasSetup (
 	llhandle *lldata)	/* Common LL data structure */
 {
 	int	res;
+	int	c;
 
 /* Init LL data structure */
 
 	lldata->lldata = NULL;
 	lldata->units_bit = 0;
 
-/* Init the FFT code for squaring modulo 1.0*2^p-1.  NOTE: As a kludge for */
-/* the benchmarking and timing code, an odd FFTlen sets up the 1.0*2^p+1 FFT code. */
+/* As a kludge for the benchmarking and timing code, an odd FFTlen sets up gwnum for all-complex FFTs. */
+
+	c = (fftlen & 1) ? 1 : -1;
+	fftlen &= ~1;
+
+/* Init the FFT code for squaring modulo 2^p+c */
+/* Use benchmarking throughput data to select the fastest FFT implementation */
 
 	gwset_safety_margin (&lldata->gwdata, IniGetFloat (INI_FILE, "ExtraSafetyMargin", 0.0));
-	gwset_specific_fftlen (&lldata->gwdata, fftlen & ~1);
-	if (fftlen & 1)
-		res = gwsetup (&lldata->gwdata, 1.0, 2, p, 1);
-	else
-		res = gwsetup (&lldata->gwdata, 1.0, 2, p, -1);
+	gwset_specific_fftlen (&lldata->gwdata, fftlen);
+	res = gwsetup (&lldata->gwdata, 1.0, 2, p, c);
 
 /* If we were unable to init the FFT code, then print an error message */
 /* and return an error code.  There is one exception, when we are doing */
@@ -5831,7 +5834,7 @@ int pick_fft_size (
 	small_fftlen = gwmap_to_fftlen (1.0, 2,
 			(unsigned long) ((1.0 - softpct) * w->n), -1);
 	large_fftlen = gwmap_to_fftlen (1.0, 2,
-			(unsigned long) ((1.0 + softpct) * w->n), -1);
+					(unsigned long) ((1.0 + softpct) * w->n), -1);
 	if (small_fftlen == large_fftlen || large_fftlen == 0) return (0);
 
 /* Let the user be more conservative or more aggressive in picking the */
@@ -5915,55 +5918,6 @@ int exponent_near_fft_limit (
 	gwhandle *gwdata)		/* Handle returned by gwsetup */
 {
 	return (gwnear_fft_limit (gwdata, IniGetFloat (INI_FILE, "NearFFTLimitPct", 0.5)));
-}
-
-/* Do an LL iteration very carefully.  This is done after a normal */
-/* iteration gets a roundoff error above 0.40.  This careful iteration */
-/* will not generate a roundoff error. */
-
-void careful_iteration (
-	llhandle *lldata,		/* Handle from lucasSetup */
-	unsigned long p)		/* Exponent being tested */
-{
-	gwnum	hi, lo;
-	unsigned long i;
-
-/* Copy the data to hi and lo.  Zero out half the FFT data in each. */
-
-	hi = gwalloc (&lldata->gwdata);
-	lo = gwalloc (&lldata->gwdata);
-	gwcopy (&lldata->gwdata, lldata->lldata, hi);
-	gwcopy (&lldata->gwdata, lldata->lldata, lo);
-	for (i = 0; i < gwfftlen (&lldata->gwdata)/2; i++)
-		set_fft_value (&lldata->gwdata, hi, i, 0);
-	for ( ; i < gwfftlen (&lldata->gwdata); i++)
-		set_fft_value (&lldata->gwdata, lo, i, 0);
-
-/* Now do the squaring using three multiplies and adds */
-
-	gwsetnormroutine (&lldata->gwdata, 0, 0, 0);
-	gwstartnextfft (&lldata->gwdata, FALSE);
-	gwsetaddin (&lldata->gwdata, 0);
-	gwfft (&lldata->gwdata, hi, hi);
-	gwfft (&lldata->gwdata, lo, lo);
-	gwfftfftmul (&lldata->gwdata, lo, hi, lldata->lldata);
-	gwfftfftmul (&lldata->gwdata, hi, hi, hi);
-	lucas_fixup (lldata, p);
-	gwfftfftmul (&lldata->gwdata, lo, lo, lo);
-	gwaddquick (&lldata->gwdata, lldata->lldata, lldata->lldata);
-	gwaddquick (&lldata->gwdata, hi, lldata->lldata);
-	gwadd (&lldata->gwdata, lo, lldata->lldata);
-
-/* Since our error recovery code cannot cope with an error during a careful */
-/* iteration, make sure the error variable is cleared.  This shouldn't */
-/* ever happen, but two users inexplicably ran into this problem. */
-
-	gw_clear_error (&lldata->gwdata);
-
-/* Free memory and return */
-
-	gwfree (&lldata->gwdata, hi);
-	gwfree (&lldata->gwdata, lo);
 }
 
 /* Output the good news of a new prime to the screen in an infinite loop */
@@ -6228,7 +6182,7 @@ begin:	gwinit (&lldata.gwdata);
 /* can properly keep track of error counts. */
 /* Also save right after we pass an errored iteration and several */
 /* iterations before retesting an errored iteration so that we don't */
-/* have to backtrack very far to do a careful_iteration	(we don't do the */
+/* have to backtrack very far to do a gwsquare_carefully iteration (we don't do the */
 /* iteration immediately before because on the P4 a save operation will */
 /* change the FFT data and make the error non-reproducible. */
 /* Error check the last 50 iterations, before writing an */
@@ -6251,13 +6205,21 @@ begin:	gwinit (&lldata.gwdata);
 		start_timer (timers, 1);
 
 /* If we are recovering from a big roundoff error, then run one */
-/* iteration using three multiplies where half the data is zeroed. */
-/* This won't run into any roundoff problems and will protect us from */
-/* roundoff errors up to 0.6. */
+/* iteration using extra multiplies to reduce the roundoff error. */
+/* This shouldn't run into any roundoff problems and will protect us from */
+/* roundoff errors up to (1.0 - 0.40625). */
 
 		if (maxerr_recovery_mode && counter == last_counter) {
-			careful_iteration (&lldata, p);
+			gwsetnormroutine (&lldata.gwdata, 0, echk, 0);
+			gwstartnextfft (&lldata.gwdata, 0);
+			lucas_fixup (&lldata, p);
+			gwsquare_carefully (&lldata.gwdata, lldata.lldata);
 			maxerr_recovery_mode = 0;
+/* IS THIS STILL NECESSARY???? CAN IT BE FIXED???? IN PRP TOO. */
+/* Since our error recovery code cannot cope with an error during a careful */
+/* iteration, make sure the error variable is cleared.  This shouldn't */
+/* ever happen, but two users inexplicably ran into this problem. */
+			gw_clear_error (&lldata.gwdata);
 			echk = 0;
 		}
 
@@ -7888,12 +7850,8 @@ int lucas_QA (
 			if (type == 0) {		/* Typical LL test */
 				gwsetnormroutine (&lldata.gwdata, 0, (i & 63) == 37, 0);
 				gwstartnextfft (&lldata.gwdata, i < iters / 2);
-				if (i > iters / 2 && (i & 63) == 44)
-					careful_iteration (&lldata, p);
-				else {
-					lucas_fixup (&lldata, p);
-					gwsquare (&lldata.gwdata, lldata.lldata);
-				}
+				lucas_fixup (&lldata, p);
+				gwsquare (&lldata.gwdata, lldata.lldata);
 			} else if (type == 1 || type == 4) { /* Gather stats */
 				gwsetnormroutine (&lldata.gwdata, 0, 1, 0);
 				gwstartnextfft (&lldata.gwdata, i < iters / 2);
@@ -8543,6 +8501,7 @@ struct prime_bench_arg {
 	int	hyperthreads;
 	int	impl;
 	int	iterations;
+	int	error_check;
 	double	total_time;
 };
 
@@ -8598,7 +8557,7 @@ void primeBenchOneWorker (void *arg)
 
 /* Do one squaring untimed, to prime the caches and start the POSTFFT optimization going. */
 
-	gwsetnormroutine (&lldata.gwdata, 0, 0, 0);
+	gwsetnormroutine (&lldata.gwdata, 0, info->error_check, 0);
 	gwstartnextfft (&lldata.gwdata, TRUE);
 	gwsquare (&lldata.gwdata, lldata.lldata);
 
@@ -8635,6 +8594,7 @@ int primeBenchMultipleWorkers (
 	int	workers, cpus, hypercpus, impl;
 	int	all_bench, only_time_5678, time_all_complex, plus1, is_a_5678;
 	int	bench_hyperthreading, bench_multithreading, bench_oddballs, bench_one_or_all, bench_arch, bench_max_cpus, bench_max_workers;
+	int	bench_error_check;
 	int	i, stop_reason;
 	unsigned long fftlen, min_FFT_length, max_FFT_length;
 	double	throughput;
@@ -8678,6 +8638,7 @@ int primeBenchMultipleWorkers (
 	bench_arch = IniGetInt (INI_FILE, "BenchArch", 0);			/* CPU architecture to benchmark */
 	bench_max_cpus = IniGetInt (INI_FILE, "OnlyBenchMaxCpus", 1);		/* Benchmark all CPUs or only max CPUs */
 	bench_max_workers = IniGetInt (INI_FILE, "OnlyBenchMaxWorkers", 0);	/* Benchmark all worker combos or only max workers */
+	bench_error_check = IniGetInt (INI_FILE, "BenchErrorCheck", 0);		/* Benchmark round-off checking */
 
 /* Loop over a variety of FFT lengths */
 
@@ -8779,6 +8740,7 @@ int primeBenchMultipleWorkers (
 				info[i].cpu_num = i * cpus/workers + (i < cpus%workers ? i : cpus%workers);
 				info[i].threads = (cpus/workers + (i < cpus%workers ? 1 : 0)) * hypercpus;
 				info[i].hyperthreads = hypercpus;
+				info[i].error_check = bench_error_check;
 				gwthread_create_waitable (&thread_id[i], &primeBenchOneWorker, (void *) &info[i]);
 			}
 
@@ -9529,7 +9491,7 @@ gwtogiant (&gwdata, x, t1);
 /* can properly keep track of error counts. */
 /* Also save right after we pass an errored iteration and several */
 /* iterations before retesting an errored iteration so that we don't */
-/* have to backtrack very far to do a careful_iteration	(we don't do the */
+/* have to backtrack very far to do a gwsquare_carefully iteration (we don't do the */
 /* iteration immediately before because on the P4 a save operation will */
 /* change the FFT data and make the error non-reproducible. */
 /* Error check the first and last 50 iterations, before writing an */
@@ -9555,7 +9517,7 @@ gwtogiant (&gwdata, x, t1);
 /* Process this bit.  Use square carefully the first and last 30 iterations. */
 /* This should avoid any pathological non-random bit pattterns.  Also square */
 /* carefully during an error recovery. This will protect us from roundoff */
-/* errors up to 0.6. */
+/* errors up to (1.0 - 0.40625). */
 
 		gwstartnextfft (&gwdata,
 				!saving && !maxerr_recovery_mode &&

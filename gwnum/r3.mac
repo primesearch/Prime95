@@ -1,4 +1,4 @@
-; Copyright 2009-2010 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2009-2016 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -1298,15 +1298,15 @@ r3_h6r_h3c_djbfft_mem MACRO mem1,mem2,mem3,mem4,mem5,mem6,screg1,screg2,pre1,pre
 	movsd	xmm5, Q mem6[8]		;; I3
 	subsd	xmm4, xmm5		;; I2 - I3
 	addsd	xmm2, Q mem2[8]		;; R2 + R3
-	mulsd	xmm1, XMM_P866		;; 0.866 * (R2 - R3)
+	mulsd	xmm1, Q XMM_P866	;; 0.866 * (R2 - R3)
 	addsd	xmm5, Q mem5[8]		;; I2 + I3
-	mulsd	xmm4, XMM_P866		;; 0.866 * (I2 - I3)
-	movsd	xmm6, XMM_HALF
+	mulsd	xmm4, Q XMM_P866	;; 0.866 * (I2 - I3)
+	movsd	xmm6, Q XMM_HALF
 	mulsd	xmm6, xmm2		;; 0.5 * (R2 + R3)
 	movsd	xmm0, Q mem1[8]
 	addsd	xmm2, xmm0		;; R1 + R2 + R3 (final R1)
 	subsd	xmm0, xmm6		;; (R1-.5R2-.5R3)
-	movsd	xmm6, XMM_HALF
+	movsd	xmm6, Q XMM_HALF
 	mulsd	xmm6, xmm5		;; 0.5 * (I2 + I3)
 	movsd	xmm3, Q mem4[8]		;; I1
 	addsd	xmm5, xmm3		;; I1 + I2 + I3 (final I1)
@@ -1360,17 +1360,17 @@ r3_h6r_h3c_djbfft_mem MACRO mem1,mem2,mem3,mem4,mem5,mem6,screg1,screg2,pre1,pre
 	subsd	xmm3, xmm5		;; R2 - R6
 	addsd	xmm5, Q mem2		;; R2 + R6
 
-	movsd	xmm7, XMM_HALF
+	movsd	xmm7, Q XMM_HALF
 	mulsd	xmm7, xmm2		;; 0.5 * (R3 + R5)
 	movlpd	xmm4, Q mem1		;; R1
 	addsd	xmm2, xmm4		;; final R1 #1 = R1 + R3 + R5
-	movlpd	xmm0, XMM_HALF
+	movlpd	xmm0, Q XMM_HALF
 	mulsd	xmm0, xmm5		;; 0.5 * (R2 + R6)
 	movsd	xmm6, Q mem4		;; R4
 	addsd	xmm5, xmm6		;; final R1 #2 = R2 + R4 + R6
-	mulsd	xmm1, XMM_P866		;; new I3 = 0.866 * (R3 - R5)
+	mulsd	xmm1, Q XMM_P866	;; new I3 = 0.866 * (R3 - R5)
 	subsd	xmm4, xmm7		;; new R2 = R1 - 0.5 * (R3 + R5)
-	mulsd	xmm3, XMM_P866		;; new I2 = 0.866 * (R2 - R6)
+	mulsd	xmm3, Q XMM_P866	;; new I2 = 0.866 * (R2 - R6)
 	subsd	xmm0, xmm6		;; new R3 = 0.5 * (R2 + R6) - R4
 
 	movsd	xmm7, xmm4		;; Copy R2
@@ -1538,17 +1538,17 @@ r3_h6r_h3c_djbunfft_mem MACRO memr1_1,memr1_2,memr2,memi2,memr3,memi3,screg1,scr
 	movsd	xmm6, xmm2		;; Copy R2
 	subsd	xmm2, xmm4		;; R2 - R3
 	addsd	xmm4, xmm6		;; R2 + R3
-	mulsd	xmm2, XMM_P866		;; 0.866 * (R2 - R3)
+	mulsd	xmm2, Q XMM_P866	;; 0.866 * (R2 - R3)
 	movsd	xmm7, xmm3		;; Copy I2
 	subsd	xmm3, xmm5		;; I2 - I3
 	addsd	xmm5, xmm7		;; I2 + I3
-	mulsd	xmm3, XMM_P866		;; 0.866 * (I2 - I3)
-	movsd	xmm6, XMM_HALF
+	mulsd	xmm3, Q XMM_P866	;; 0.866 * (I2 - I3)
+	movsd	xmm6, Q XMM_HALF
 	mulsd	xmm6, xmm4		;; 0.5 * (R2 + R3)
 	movsd	xmm0, Q memr1_1[8]	;; R1
 	addsd	xmm4, xmm0		;; R1 + R2 + R3 (final R1)
 	subsd	xmm0, xmm6		;; (R1-.5R2-.5R3)
-	movsd	xmm6, XMM_HALF
+	movsd	xmm6, Q XMM_HALF
 	mulsd	xmm6, xmm5		;; 0.5 * (I2 + I3)
 	movsd	xmm1, Q memr1_2[8]	;; I1
 	addsd	xmm5, xmm1		;; I1 + I2 + I3 (final I1)
@@ -1597,12 +1597,12 @@ r3_h6r_h3c_djbunfft_mem MACRO memr1_1,memr1_2,memr2,memi2,memr3,memi3,screg1,scr
 	movsd	xmm2, xmm0		;; Copy I2
 	subsd	xmm0, xmm3		;; I2 - I3
 	addsd	xmm3, xmm2		;; I2 + I3
-	movlpd	xmm2, XMM_HALF
+	movlpd	xmm2, Q XMM_HALF
 	mulsd	xmm2, xmm6		;; 0.5 * (R2 - R3)
-	movsd	xmm7, XMM_HALF
+	movsd	xmm7, Q XMM_HALF
 	mulsd	xmm7, xmm4		;; 0.5 * (R2 + R3)
-	mulsd	xmm0, XMM_P866		;; 0.866 * (I2 - I3)
-	mulsd	xmm3, XMM_P866		;; 0.866 * (I2 + I3)
+	mulsd	xmm0, Q XMM_P866	;; 0.866 * (I2 - I3)
+	mulsd	xmm3, Q XMM_P866	;; 0.866 * (I2 + I3)
 	movlpd	xmm5, Q memr1_2		;; R1#2
 	addsd	xmm2, xmm5		;; R1#2 + 0.5 * (R2 - R3)
 	movlpd	xmm1, Q memr1_1		;; R1#1

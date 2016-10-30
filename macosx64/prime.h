@@ -1,4 +1,4 @@
-/* Copyright 1995-2014 Mersenne Research, Inc. */
+/* Copyright 1995-2016 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -87,6 +87,8 @@ extern int NO_GUI;
 #include "common.h"
 #include "cpuid.h"
 #include "gwnum.h"
+#include "gwini.h"
+#include "gwutil.h"
 #include "commona.h"
 #include "commonc.h"
 #include "commonb.h"
@@ -94,7 +96,7 @@ extern int NO_GUI;
 
 /* Global variables */
 
-extern int volatile THREAD_KILL;	/* TRUE if program should terminate */
+extern int volatile KILL_MENUS;		/* TRUE if program should terminate */
 extern int MENUING;			/* TRUE when main menu active */
 
 /* Internal routines */

@@ -1,4 +1,6 @@
 // Prime95.h : main header file for the PRIME95 application
+// 
+//  Copyright 1995-2016 Mersenne Research, Inc.  All rights reserved.
 //
 
 #ifdef _WIN64
@@ -15,6 +17,8 @@
 #include "common.h"
 #include "cpuid.h"
 #include "gwnum.h"
+#include "gwini.h"
+#include "gwutil.h"
 #include "commona.h"
 #include "commonb.h"
 #include "commonc.h"

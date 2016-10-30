@@ -1,4 +1,4 @@
-; Copyright 1995-2012 Mersenne Research, Inc., all rights reserved
+; Copyright 1995-2016 Mersenne Research, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -5272,9 +5272,9 @@ aqloop:	sse2_fac 74
 ; If result = factor + 1, then we found a divisor of 2**p - 1
 ;
 
-	pcmpeqd	xmm2, XMM_COMPARE_VAL3	; See if remainder is factor + 1
-	pcmpeqd	xmm1, XMM_COMPARE_VAL2
-	pcmpeqd	xmm0, XMM_COMPARE_VAL1
+	pcmpeqd	xmm2, XMMWORD PTR XMM_COMPARE_VAL3	; See if remainder is factor + 1
+	pcmpeqd	xmm1, XMMWORD PTR XMM_COMPARE_VAL2
+	pcmpeqd	xmm0, XMMWORD PTR XMM_COMPARE_VAL1
 	pand	xmm2, xmm1
 	pand	xmm2, xmm0
 	pmovmskb ecx, xmm2
@@ -5421,9 +5421,9 @@ bqloop:	sse2_fac 86
 ; If result = factor + 1, then we found a divisor of 2**p - 1
 ;
 
-	pcmpeqd	xmm2, XMM_COMPARE_VAL3	; See if remainder is factor + 1
-	pcmpeqd	xmm1, XMM_COMPARE_VAL2
-	pcmpeqd	xmm0, XMM_COMPARE_VAL1
+	pcmpeqd	xmm2, XMMWORD PTR XMM_COMPARE_VAL3	; See if remainder is factor + 1
+	pcmpeqd	xmm1, XMMWORD PTR XMM_COMPARE_VAL2
+	pcmpeqd	xmm0, XMMWORD PTR XMM_COMPARE_VAL1
 	pand	xmm2, xmm1
 	pand	xmm2, xmm0
 	pmovmskb ecx, xmm2

@@ -1,4 +1,4 @@
-; Copyright 2001-2009 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2001-2016 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -7757,7 +7757,7 @@ xsub_7_words MACRO dist4
 	xstore	[rsi+dist4], xmm0
 	movsd	xmm0, Q [rsi+dist4+64]	;; Subtract 7th word
 	movsd	xmm1, ZPAD6		;; Load ZPAD data
-	mulsd	xmm1, XMM_NORM012_FF	;; Scale by FFTLEN/2
+	mulsd	xmm1, Q XMM_NORM012_FF	;; Scale by FFTLEN/2
 	subsd	xmm0, xmm1
 	addsd	xmm7, xmm1		;; Adjust sumout
 	movsd	Q [rsi+dist4+64], xmm0

@@ -48,9 +48,4 @@
 #define strcpy(d,s)	assert((d) >= ((s)+strlen(s)+1) || (s) >= (d)+strlen(s)+1), safe_strcpy(d,s)
 #endif
 
-/* Utility routines in commonc.c */
-
-void truncated_strcpy (char *buf, unsigned int bufsize, const char *val);
-void truncated_strcpy_with_len (char *buf, unsigned int bufsize, const char *val, unsigned int valsize);
-
 #endif

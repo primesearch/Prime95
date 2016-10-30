@@ -1,9 +1,13 @@
-# Assembler command lines, without and with listings
+# Assembler command lines
+#
+# HJWasm is a MASM-compatible assembler that is supported much better than MASM.
+# It can be downloaded at http://www.terraspace.co.uk/hjwasm.html
 #
 # objconv comes courtesy of Agner Fog.  Download available at
 # http://www.agner.org/optimize/#objconv
 
-masm=ml /c /coff /I..\gwnum
+masm=HJWasm32 /c -coff /I..\gwnum
+#masm=ml /c /coff /I..\gwnum
 #masm=ml /c /coff /I..\gwnum /Fl /Sf /Sa
 
 # C compiler options - optimization is not necessary

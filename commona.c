@@ -217,7 +217,7 @@ int min_cores_for_work_type (
 
 // If LL testing 100M digit numbers, use at least 4 cores (or all cores)
 
-	if (work_type == PRIMENET_WP_LL_100M && cores < 4) {
+	if (work_type == PRIMENET_WP_LL_100M) {
 		if (NUM_CPUS < 8) cores = NUM_CPUS;
 		else cores = 4;
 	}

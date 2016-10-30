@@ -1,4 +1,4 @@
-; Copyright 2009-2010 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2009-2016 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -10210,8 +10210,8 @@ r4_h8r_h4c_2sc_djbfft_mem MACRO mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,screg1,s
 	subsd	xmm5, xmm6		;; new R6 = R2 - R6
 	addsd	xmm6, Q mem2		;; new R2 = R2 + R6
 
-	mulsd	xmm1, XMM_SQRTHALF	;; R8 = R8 * square root
-	mulsd	xmm5, XMM_SQRTHALF	;; R6 = R6 * square root
+	mulsd	xmm1, Q XMM_SQRTHALF	;; R8 = R8 * square root
+	mulsd	xmm5, Q XMM_SQRTHALF	;; R6 = R6 * square root
 
 	movsd	xmm2, Q mem1		;; R1
 	movlpd	xmm3, Q mem5		;; R5
@@ -10511,8 +10511,8 @@ r4_h8r_h4c_2sc_djbunfft_mem MACRO mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,screg1
 	addsd	xmm4, xmm5		;; R6 = R6 + R8
 	subsd	xmm5, xmm6		;; R8 = R8 - R6
 
-	mulsd	xmm4, XMM_SQRTHALF	;; R6 = R6 * square root of 1/2
-	mulsd	xmm5, XMM_SQRTHALF	;; R8 = R8 * square root of 1/2
+	mulsd	xmm4, Q XMM_SQRTHALF	;; R6 = R6 * square root of 1/2
+	mulsd	xmm5, Q XMM_SQRTHALF	;; R8 = R8 * square root of 1/2
 
 	movsd	xmm2, Q mem2		;; R2
 	subsd	xmm2, xmm3		;; R2 = R2 - R4 (new R4)
@@ -10800,8 +10800,8 @@ r4_h8r_h4c_simple_fft_mem MACRO mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,dst1,dst
 	subsd	xmm0, xmm6		;; new R6 = R2 - R6
 	addsd	xmm6, Q mem2		;; new R2 = R2 + R6
 
-	mulsd	xmm1, XMM_SQRTHALF	;; R8 = R8 * square root
-	mulsd	xmm0, XMM_SQRTHALF	;; R6 = R6 * square root
+	mulsd	xmm1, Q XMM_SQRTHALF	;; R8 = R8 * square root
+	mulsd	xmm0, Q XMM_SQRTHALF	;; R6 = R6 * square root
 
 	movlpd	xmm5, Q mem1		;; R1
 	movlpd	xmm2, Q mem5		;; R5
@@ -10912,8 +10912,8 @@ r4_h8r_h4c_simple_unfft_mem MACRO mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,pre1,p
 	addsd	xmm4, xmm5		;; R6 = R6 + R8
 	subsd	xmm5, xmm6		;; R8 = R8 - R6
 
-	mulsd	xmm4, XMM_SQRTHALF	;; R6 = R6 * square root of 1/2
-	mulsd	xmm5, XMM_SQRTHALF	;; R8 = R8 * square root of 1/2
+	mulsd	xmm4, Q XMM_SQRTHALF	;; R6 = R6 * square root of 1/2
+	mulsd	xmm5, Q XMM_SQRTHALF	;; R8 = R8 * square root of 1/2
 
 	movlpd	xmm2, Q mem1		;; R1
 	movlpd	xmm6, Q mem2		;; R2

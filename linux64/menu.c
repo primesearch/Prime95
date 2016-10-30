@@ -7,10 +7,16 @@
 #ifdef __IBMC__
 #include <io.h>
 #endif
+#include <setjmp.h>
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include "prime.h"
+
+/* Global variables */
+
+jmp_buf	MENU_JMPBUF;				// Jmpbuf to abort program if a signal is encountered while in the menus or dialogs.
 
 /* Get line from the user (stdin) */
 
@@ -19,7 +25,8 @@ void get_line (
 {
 	int	len;
 	buf[0] = 0;
-	(void) fgets (buf, 80, stdin);
+	if (fgets (buf, 80, stdin) == NULL) sigterm_handler (SIGTERM);	// Treat EOF the same as a termination signal
+	if (KILL_MENUS) longjmp (MENU_JMPBUF, 1); // If a signal occurred while waiting for user input, longjmp to exit menus
 	len = strlen (buf);
 	if (len > 0 && buf[len-1] == '\n') buf[len-1] = 0;
 }
@@ -59,14 +66,18 @@ void askNum (
 {
 	char	buf[80];
 	unsigned long newval;
+	if (min && min >= max) {
+		printf ("%s: %ld\n", str, min);
+		*val = min;
+		return;
+	}
 	printf ("%s (%ld): ", str, *val);
 loop:	get_line (buf);
 	if (buf[0] == 0) return;
 	newval = atol (buf);
 	if (min || max) {
 		if (newval < min || newval > max) {
-			printf ("Please enter a value between %ld and %ld: ",
-				min, max);
+			printf ("Please enter a value between %ld and %ld: ", min, max);
 			goto loop;
 		}
 	}
@@ -84,13 +95,17 @@ void askInt (
 	char	buf[80];
 	long	newval;
 	printf ("%s (%ld): ", str, *val);
+	if (min && min >= max) {
+		printf ("%s: %ld\n", str, min);
+		*val = min;
+		return;
+	}
 loop:	get_line (buf);
 	if (buf[0] == 0) return;
 	newval = atol (buf);
 	if (min || max) {
 		if (newval < min || newval > max) {
-			printf ("Please enter a value between %ld and %ld. ",
-				min, max);
+			printf ("Please enter a value between %ld and %ld. ", min, max);
 			goto loop;
 		}
 	}
@@ -136,8 +151,7 @@ loop:	get_line (buf);
 	newval = atof (buf);
 	if (min != 0.0 || max != 0.0) {
 		if (newval < min || newval > max) {
-			printf ("Please enter a value between %g and %g. ",
-				min, max);
+			printf ("Please enter a value between %g and %g. ", min, max);
 			goto loop;
 		}
 	}
@@ -155,13 +169,17 @@ void askNumNoDflt (
 	char	buf[80];
 	unsigned long newval;
 	printf ("%s: ", str);
+	if (min && min >= max) {
+		printf ("%s: %ld\n", str, min);
+		*val = min;
+		return;
+	}
 loop:	get_line (buf);
 	if (buf[0] == 0) goto loop;
 	newval = atol (buf);
 	if (min || max) {
 		if (newval < min || newval > max) {
-			printf ("Please enter a value between %ld and %ld. ",
-				min, max);
+			printf ("Please enter a value between %ld and %ld. ", min, max);
 			goto loop;
 		}
 	}
@@ -194,7 +212,6 @@ loop:	get_line (buf);
 void askOK (void)
 {
 	char	str[80];
-	if (THREAD_KILL) return;
 	printf ("\nHit enter to continue: ");
 	get_line (str);
 }
@@ -204,7 +221,6 @@ void askOK (void)
 int askOkCancel (void)
 {
 	char	buf[80];
-	if (THREAD_KILL) return (FALSE);
 	printf ("\nAccept the answers above? (Y): ");
 	get_line (buf);
 	return (buf[0] == 0 || buf[0] == 'Y' || buf[0] == 'y');
@@ -216,7 +232,6 @@ int askYesNo (
 	char	dflt)
 {
 	char	buf[80];
-	if (THREAD_KILL) return (FALSE);
 	printf (" (%c): ", dflt);
 	get_line (buf);
 	if (buf[0] == 0) buf[0] = dflt;
@@ -229,7 +244,6 @@ int askYesNoCancel (
 	char	dflt)
 {
 	char	buf[80];
-	if (THREAD_KILL) return (FALSE);
 	printf (" Y=Yes, N=No, C=Cancel (%c): ", dflt);
 	get_line (buf);
 	if (buf[0] == 0) buf[0] = dflt;
@@ -453,6 +467,8 @@ again:	if (max_num_workers () > 1)
 			min_cores = min_cores_for_work_type (m_work_pref[i]);
 			max_cores = NUM_CPUS * user_configurable_hyperthreads () - m_num_thread + 1;
 			if (max_cores < min_cores) max_cores = min_cores;
+			if (m_numcpus[i] < min_cores) m_numcpus[i] = min_cores;
+			if (m_numcpus[i] > max_cores) m_numcpus[i] = max_cores;
 			askNum ("CPUs to use (multithreading)", &m_numcpus[i], min_cores, max_cores);
 		} else
 			m_numcpus[i] = 1;
@@ -1099,9 +1115,12 @@ void main_menu (void)
 {
 	unsigned long choice;
 
-mloop:	if (THREAD_KILL) return;
+	if (setjmp (MENU_JMPBUF)) return;		// Exit menus if a signal received while in the menus
+	
+	for ( ; ; ) {
+
 	printf ("\t     Main Menu\n");
-loop:	printf ("\n");
+	printf ("\n");
 	printf ("\t 1.  Test/Primenet\n");
 	printf ("\t 2.  Test/Worker threads\n");
 	printf ("\t 3.  Test/Status\n");
@@ -1128,8 +1147,8 @@ loop:	printf ("\n");
 	printf ("Your choice: ");
 	choice = get_number (0);
 	if (choice <= 0 || choice >= 19) {
-		printf ("\t     Invalid choice\n");
-		goto loop;
+		printf ("\n\t     Invalid choice\n\n");
+		continue;
 	}
 
 /* Display the main menu and switch off the users choice */
@@ -1266,5 +1285,6 @@ loop:	printf ("\n");
 		help_about_server ();
 		break;
 	}
-	goto mloop;
+
+	}
 }

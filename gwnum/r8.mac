@@ -1,4 +1,4 @@
-; Copyright 2009-2010 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2009-2016 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -3170,8 +3170,8 @@ r8_h16r_simple_fft_part1 MACRO srcreg,d1,d2,d4,dst
 	subsd	xmm4, xmm6			;; R11 = R11 - I11
 	multwos	xmm6
 	addsd	xmm6, xmm4			;; I11 = R11 + I11
-	mulsd	xmm4, XMM_SQRTHALF		;; R11 = R11 * SQRTHALF
-	mulsd	xmm6, XMM_SQRTHALF		;; I11 = I11 * SQRTHALF
+	mulsd	xmm4, Q XMM_SQRTHALF		;; R11 = R11 * SQRTHALF
+	mulsd	xmm6, Q XMM_SQRTHALF		;; I11 = I11 * SQRTHALF
 
 	;; Odd level 3
 
@@ -3244,22 +3244,22 @@ r8_h16r_simple_fft_part1 MACRO srcreg,d1,d2,d4,dst
 
 						; mul R10/I10 by w^1 = .924 + .383i
 	movsd	xmm1, xmm0			; Copy R10
-	mulsd	xmm0, XMM_P924
+	mulsd	xmm0, Q XMM_P924
 	movsd	xmm3, xmm2			; Copy I10
-	mulsd	xmm3, XMM_P383
+	mulsd	xmm3, Q XMM_P383
 	subsd	xmm0, xmm3			; Twiddled R10
-	mulsd	xmm1, XMM_P383
-	mulsd	xmm2, XMM_P924
+	mulsd	xmm1, Q XMM_P383
+	mulsd	xmm2, Q XMM_P924
 	addsd	xmm2, xmm1			; Twiddled I10
 
 						; mul R12/I12 by w^3 = .383 + .924i
 	movsd	xmm1, xmm4			; Copy R12
-	mulsd	xmm4, XMM_P383
+	mulsd	xmm4, Q XMM_P383
 	movsd	xmm3, xmm6			; Copy I12
-	mulsd	xmm3, XMM_P924
+	mulsd	xmm3, Q XMM_P924
 	subsd	xmm4, xmm3			; Twiddled R12
-	mulsd	xmm1, XMM_P924
-	mulsd	xmm6, XMM_P383
+	mulsd	xmm1, Q XMM_P924
+	mulsd	xmm6, Q XMM_P383
 	addsd	xmm6, xmm1			; Twiddled I12
 
 	movsd	xmm1, Q dst[16]
@@ -3287,8 +3287,8 @@ r8_h16r_simple_fft_part1 MACRO srcreg,d1,d2,d4,dst
 	subsd	xmm1, xmm5			;; R6 = R6 - I6
 	multwos	xmm5
 	addsd	xmm5, xmm1			;; I6 = R6 + I6
-	mulsd	xmm1, XMM_SQRTHALF		;; R6 = R6 * SQRTHALF (final R6)
-	mulsd	xmm5, XMM_SQRTHALF		;; I6 = I6 * SQRTHALF (final I6)
+	mulsd	xmm1, Q XMM_SQRTHALF		;; R6 = R6 * SQRTHALF (final R6)
+	mulsd	xmm5, Q XMM_SQRTHALF		;; I6 = I6 * SQRTHALF (final I6)
 
 	movsd	Q dst[16], xmm7			;; Save R2
 	movsd	Q dst[48], xmm3			;; Save R4
@@ -3401,7 +3401,7 @@ r8_h16r_simple_fft_part1 MACRO srcreg,d1,d2,d4,dst
 	movsd	xmm7, xmm0			;; Copy R6
 	subsd	xmm0, xmm1			;; R6 = R6 - I6
 	addsd	xmm1, xmm7			;; I6 = R6 + I6
-	movsd	xmm3, XMM_SQRTHALF
+	movsd	xmm3, Q XMM_SQRTHALF
 	mulsd	xmm0, xmm3			;; R6 = R6 * SQRTHALF (final R6)
 	mulsd	xmm1, xmm3			;; I6 = I6 * SQRTHALF (final I6)
 
@@ -3809,8 +3809,8 @@ r8_h16r_simple_unfft MACRO src,dstreg,d1,d2
 	subsd	xmm5, xmm1			;; I6 = I6 - R6
 	multwos	xmm1
 	addsd	xmm1, xmm5			;; R6 = I6 + R6
-	mulsd	xmm5, XMM_SQRTHALF		;; I6 = I6 * SQRTHALF
-	mulsd	xmm1, XMM_SQRTHALF		;; R6 = R6 * SQRTHALF
+	mulsd	xmm5, Q XMM_SQRTHALF		;; I6 = I6 * SQRTHALF
+	mulsd	xmm1, Q XMM_SQRTHALF		;; R6 = R6 * SQRTHALF
 
 	;; Even level 3
 
@@ -3842,22 +3842,22 @@ r8_h16r_simple_unfft MACRO src,dstreg,d1,d2
 
 						; mul R10/I10 by w^1 = .924 - .383i
 	movsd	xmm1, xmm0			; Copy R10
-	mulsd	xmm0, XMM_P924
+	mulsd	xmm0, Q XMM_P924
 	movsd	xmm3, xmm2			; Copy I10
-	mulsd	xmm3, XMM_P383
+	mulsd	xmm3, Q XMM_P383
 	addsd	xmm0, xmm3			; Twiddled R10
-	mulsd	xmm1, XMM_P383
-	mulsd	xmm2, XMM_P924
+	mulsd	xmm1, Q XMM_P383
+	mulsd	xmm2, Q XMM_P924
 	subsd	xmm2, xmm1			; Twiddled I10
 
 						; mul R12/I12 by w^3 = .383 - .924i
 	movsd	xmm1, xmm4			; Copy R12
-	mulsd	xmm4, XMM_P383
+	mulsd	xmm4, Q XMM_P383
 	movsd	xmm3, xmm6			; Copy I12
-	mulsd	xmm3, XMM_P924
+	mulsd	xmm3, Q XMM_P924
 	addsd	xmm4, xmm3			; Twiddled R12
-	mulsd	xmm1, XMM_P924
-	mulsd	xmm6, XMM_P383
+	mulsd	xmm1, Q XMM_P924
+	mulsd	xmm6, Q XMM_P383
 	subsd	xmm6, xmm1			; Twiddled I12
 
 	movsd	xmm1, Q [dstreg]
@@ -3934,8 +3934,8 @@ r8_h16r_simple_unfft MACRO src,dstreg,d1,d2
 	subsd	xmm6, xmm4			;; I11 = I11 - R11
 	multwos	xmm4
 	addsd	xmm4, xmm6			;; R11 = I11 + R11
-	mulsd	xmm6, XMM_SQRTHALF		;; I11 = I11 * SQRTHALF
-	mulsd	xmm4, XMM_SQRTHALF		;; R11 = R11 * SQRTHALF
+	mulsd	xmm6, Q XMM_SQRTHALF		;; I11 = I11 * SQRTHALF
+	mulsd	xmm4, Q XMM_SQRTHALF		;; R11 = R11 * SQRTHALF
 
 	;; Odd level 2
 
@@ -4045,7 +4045,7 @@ r8_h16r_simple_unfft MACRO src,dstreg,d1,d2
 	subsd	xmm1, xmm2			;; I8 = I8 - R8
 	addsd	xmm2, xmm7			;; R8 = R8 + I8
 
-	movsd	xmm5, XMM_SQRTHALF
+	movsd	xmm5, Q XMM_SQRTHALF
 	mulsd	xmm0, xmm5			;; I6 = I6 * SQRTHALF (new I6)
 	mulsd	xmm4, xmm5			;; R6 = R6 * SQRTHALF (new R6)
 	mulsd	xmm1, xmm5			;; I8 = I8 * SQRTHALF (new I8)
@@ -4520,9 +4520,9 @@ r8_h16r_simple_fft_with_mulf MACRO srcreg,d1,d2,dst
 	subsd	xmm4, xmm3			;; I3 = I3 - I4 (new R4)
 	addsd	xmm3, xmm7			;; I4 = I3 + I4 (new I3)
 
-	movsd	dst[d1+48][8], xmm6		;; Save I4
-	movsd	dst[d1][8], xmm5		;; Save R3
-	movsd	dst[d1+16][8], xmm4		;; Save R4
-	movsd	dst[d1+32][8], xmm3		;; Save I3
+	movsd	Q dst[d1+48][8], xmm6		;; Save I4
+	movsd	Q dst[d1][8], xmm5		;; Save R3
+	movsd	Q dst[d1+16][8], xmm4		;; Save R4
+	movsd	Q dst[d1+32][8], xmm3		;; Save I3
 	ENDM
 

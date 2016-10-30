@@ -1,8 +1,12 @@
-# Assembler command lines, without and with listings
+# Assembler command lines
+#
+# HJWasm is a MASM-compatible assembler that is supported much better than MASM.
+# It can be downloaded at http://www.terraspace.co.uk/hjwasm.html
 #
 # objconv comes courtesy of Agner Fog.  Download available at
 # http://www.agner.org/optimize/#objconv
 
+#masm=HJWasm32 /c -coff
 masm=ml /c /coff
 #masm=ml /c /coff /Fl /Sf /Sa
 
@@ -19,7 +23,7 @@ all:	gwnumd.lib gwnum.lib linux\gwnum.a macosx\gwnum.a release\ecmstag1.obj debu
 
 # Make libraries out of the object files
 
-gwnumd.lib: debug\cpuid.obj debug\gwnum.obj debug\gwtables.obj debug\gwthread.obj debug\gwutil.obj debug\gwdbldbl.obj \
+gwnumd.lib: debug\cpuid.obj debug\gwnum.obj debug\gwtables.obj debug\gwthread.obj debug\gwini.obj debug\gwutil.obj debug\gwdbldbl.obj \
 	    debug\giants.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2aux.obj \
 	    mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj \
 	    xmult1ax.obj xmult2.obj xmult2a_core.obj xmult2a_k8.obj xmult2ax.obj xmult3.obj xmult3a_core.obj xmult3a_k8.obj xmult3ax.obj \
@@ -38,7 +42,7 @@ gwnumd.lib: debug\cpuid.obj debug\gwnum.obj debug\gwtables.obj debug\gwthread.ob
     del gwnumd.lib
     lib /OUT:gwnumd.lib debug\*.obj *.obj
 
-gwnum.lib: release\cpuid.obj release\gwnum.obj release\gwtables.obj release\gwthread.obj release\gwutil.obj release\gwdbldbl.obj \
+gwnum.lib: release\cpuid.obj release\gwnum.obj release\gwtables.obj release\gwthread.obj release\gwini.obj release\gwutil.obj release\gwdbldbl.obj \
 	   release\giants.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2aux.obj \
 	   mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj \
 	   xmult1ax.obj xmult2.obj xmult2a_core.obj xmult2a_k8.obj xmult2ax.obj xmult3.obj xmult3a_core.obj xmult3a_k8.obj xmult3ax.obj \
@@ -141,6 +145,12 @@ release\gwthread.obj: gwthread.c gwthread.h
 
 debug\gwthread.obj: gwthread.c gwthread.h
     $(cld) /Fodebug\gwthread.obj gwthread.c
+
+release\gwini.obj: gwini.c gwini.h
+    $(cl) /Forelease\gwini.obj gwini.c
+
+debug\gwini.obj: gwini.c gwini.h
+    $(cld) /Fodebug\gwini.obj gwini.c
 
 release\gwutil.obj: gwutil.c gwutil.h
     $(cl) /Forelease\gwutil.obj gwutil.c

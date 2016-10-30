@@ -1,4 +1,4 @@
-; Copyright 2001-2010 Mersenne Research, Inc.  All rights reserved
+; Copyright 2001-2016 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -816,11 +816,11 @@ idn:	mov	rsi, DESTARG		; Address of squared number
 
 cmnend:	mov	rsi, DESTARG		; Address of squared number
 	xstore	XMM_TMP1, xmm7		; Add together the two partial sumouts
-	addsd	xmm7, XMM_TMP1+8
+	addsd	xmm7, Q XMM_TMP1+8
 	mulsd	xmm7, ttmp_ff_inv
 	movsd	Q [rsi-24], xmm7	; Save sum of FFT outputs
 	xstore	XMM_TMP1, xmm6		; Compute new maximum error
-	maxsd	xmm6, XMM_TMP1+8
+	maxsd	xmm6, Q XMM_TMP1+8
 	movsd	MAXERR, xmm6
 
 ; Return

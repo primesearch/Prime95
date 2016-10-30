@@ -53,15 +53,22 @@ typedef double *gwnum;
 +---------------------------------------------------------------------*/
 
 /* This is the version number for the gwnum libraries. It changes whenever */
-/* there is a change to the gwnum code and will match the corresponding */
-/* prime95 version.  Thus, you may see some strange jumps in version */
-/* numbers.  This version number is also embedded in the assembly code and */
+/* there is a change to the gwnum code.  Since Prime95 also uses the same */
+/* version numbering scheme, you will see some strange jumps in gwnum version */
+/* numbers when there are new prime95 versions without any changes in the gwnum code. */
+/* This version number is also embedded in the assembly code and */
 /* gwsetup verifies that the version numbers match.  This prevents bugs */
 /* from accidentally linking in the wrong gwnum library. */
 
-#define GWNUM_VERSION		"28.9"
+#define GWNUM_VERSION		"28.10"
 #define GWNUM_MAJOR_VERSION	28
-#define GWNUM_MINOR_VERSION	9
+#define GWNUM_MINOR_VERSION	10
+#define GWNUM_FFT_IMPL_VERSION	"28.10"		/* This version number changes whenever FFT implementations change. */
+						/* By default, gwnum picks a default FFT implementation based on the CPU architecture. */
+						/* You can fine-tune performance by benchmarking the different FFT implementations */
+						/* on the end user machine looking for an FFT implementation that is faster than the */
+						/* default selection.  Any changes to this version number means you must */
+						/* discard old benchmarking data for your fine-tuning. */
 
 /* Error codes returned by the three gwsetup routines */
 

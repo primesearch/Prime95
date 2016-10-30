@@ -1,4 +1,4 @@
-; Copyright 2001-2010 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2001-2016 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -15,11 +15,11 @@
 ;; packed doubles with the movaps instruction.
 
 xload	MACRO	reg, mem
-	movaps	reg, DWORD PTR mem
+	movaps	reg, XPTR mem
 	ENDM
 
 xstore	MACRO	mem, reg
-	movaps	DWORD PTR mem, reg
+	movaps	XPTR mem, reg
 	ENDM
 
 xcopy	MACRO	reg1, reg2
@@ -45,12 +45,12 @@ mulhalf	MACRO	r
 	ENDM
 
 multwos	MACRO	r
-;	mulsd	r, XMM_TWO
+;	mulsd	r, Q XMM_TWO
 	addsd	r, r
 	ENDM
 
 mulhalfs MACRO	r
-	mulsd	r, XMM_HALF
+	mulsd	r, Q XMM_HALF
 	ENDM
 
 ; No noticeable difference between these two identical unpack instructions.
@@ -88,8 +88,8 @@ low_load MACRO reg, mem1, mem2
 	movsd	reg, Q mem1
 	movhpd	reg, Q mem2
 	ELSE
-	xload	reg, mem1
-	unpcklo reg, Q mem2
+	xload	reg, XPTR mem1
+	unpcklo reg, XPTR mem2
 	ENDIF
 	ENDM
 
@@ -98,7 +98,7 @@ high_load MACRO reg, mem1, mem2
 	movsd	reg, Q mem1[8]
 	movhpd	reg, Q mem2[8]
 	ELSE
-	xload	reg, mem2
+	xload	reg, XPTR mem2
 	movlpd	reg, Q mem1[8]
 	ENDIF
 	ENDM
@@ -110,8 +110,8 @@ shuffle_load MACRO reglo, reghi, mem1, mem2
 	movhpd	reglo, Q mem2
 	movhpd	reghi, Q mem2[8]
 	ELSE
-	xload	reglo, mem1
-	xload	reghi, mem2
+	xload	reglo, XPTR mem1
+	xload	reghi, XPTR mem2
 	unpcklo	reglo, reghi
 	movlpd	reghi, Q mem1[8]
 	ENDIF
@@ -121,9 +121,9 @@ shuffle_load_with_temp MACRO reglo, reghi, mem1, mem2, tmp
 	IF (@INSTR(,%xarch,<K8>) NE 0) OR (@INSTR(,%xarch,<K10>) NE 0)
 	shuffle_load reglo, reghi, mem1, mem2
 	ELSE
-	xload	reglo, mem1
+	xload	reglo, XPTR mem1
 	xcopy	reghi, reglo
-	xload	tmp, mem2
+	xload	tmp, XPTR mem2
 	unpcklo	reglo, tmp
 	unpckhi	reghi, tmp
 	ENDIF
@@ -279,18 +279,18 @@ xp4c_mulf MACRO r1,r2,r3,r4,r5,r6,r7,r8,m1,m2,m3,m4,m5,m6,m7,m8
 	ENDM
 
 xs4c_mulf MACRO r1,r2,r3,r4,r5,r6,r7,r8,m1,m2,m3,m4,m5,m6,m7,m8
-	movsd	XMM_TMP1, r7		;; Save r7
-	movsd	XMM_TMP2, r8		;; Save r8
+	movsd	Q XMM_TMP1, r7		;; Save r7
+	movsd	Q XMM_TMP2, r8		;; Save r8
 	xs_complex_mult r1, r2, Q m1[rbp], Q m2[rbp], r7, r8
 	xs_complex_mult r3, r4, Q m3[rbp], Q m4[rbp], r7, r8
-	movsd	r7, XMM_TMP1 		;; Restore r7
-	movsd	r8, XMM_TMP2	 	;; Restore r8
-	movsd	XMM_TMP1, r1		;; Save r1
-	movsd	XMM_TMP2, r2		;; Save r2
+	movsd	r7, Q XMM_TMP1 		;; Restore r7
+	movsd	r8, Q XMM_TMP2	 	;; Restore r8
+	movsd	Q XMM_TMP1, r1		;; Save r1
+	movsd	Q XMM_TMP2, r2		;; Save r2
 	xs_complex_mult r5, r6, Q m5[rbp], Q m6[rbp], r1, r2
 	xs_complex_mult r7, r8, Q m7[rbp], Q m8[rbp], r1, r2
-	movsd	r1, XMM_TMP1 		;; Restore r1
-	movsd	r2, XMM_TMP2	 	;; Restore r2
+	movsd	r1, Q XMM_TMP1 		;; Restore r1
+	movsd	r2, Q XMM_TMP2	 	;; Restore r2
 	ENDM
 
 ;; Do the brute-force multiplication of the 7 words near the half-way point.

@@ -1,4 +1,4 @@
-; Copyright 2011-2013 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2016 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -652,9 +652,9 @@ yr7_14cl_28_reals_fft MACRO srcreg,srcinc,d1,d2,screg,scinc,maxrpt,L1pt,L1pd
 IFDEF X86_64
 
 yr7_14cl_28_reals_fft_preload MACRO
-	vbroadcastsd ymm13, YMM_P223
-	vbroadcastsd ymm14, YMM_P623
-	vbroadcastsd ymm15, YMM_P901
+	vbroadcastsd ymm13, Q YMM_P223
+	vbroadcastsd ymm14, Q YMM_P623
+	vbroadcastsd ymm15, Q YMM_P901
 	ENDM
 
 yr7_14cl_28_reals_fft MACRO srcreg,srcinc,d1,d2,screg,scinc,maxrpt,L1pt,L1pd
@@ -837,13 +837,13 @@ yr7_14cl_28_reals_fft MACRO srcreg,srcinc,d1,d2,screg,scinc,maxrpt,L1pt,L1pd
 	vmulpd	ymm8, ymm15, ymm8		;; .901((r6+r24)+(r10+r20))							;	54-58
 
 	vaddpd	ymm7, ymm7, ymm6		;; .901((r2+r28)+(r14+r16))+.223((r4+r26)+(r12+r18))-(r8+r22)			; 58-60
-	vbroadcastsd ymm15, YMM_P975
+	vbroadcastsd ymm15, Q YMM_P975
 	vmulpd	ymm6, ymm15, ymm10		;; .975((r2+r28)-(r14+r16))							;	55-59
 
 	vsubpd	ymm0, ymm0, ymm2		;; .623((r2+r28)+(r14+r16))-.901((r4+r26)+(r12+r18))+(r8+r22)			; 59-61
-	vbroadcastsd ymm14, YMM_P782
+	vbroadcastsd ymm14, Q YMM_P782
 	vmulpd	ymm2, ymm14, ymm10		;; .782((r2+r28)-(r14+r16))							;	56-60
-	vbroadcastsd ymm13, YMM_P434
+	vbroadcastsd ymm13, Q YMM_P434
 	vmulpd	ymm10, ymm13, ymm10		;; .434((r2+r28)-(r14+r16))							;	57-61
 
 	vsubpd	ymm5, ymm5, ymm4		;; .223((r2+r28)+(r14+r16))-.623((r4+r26)+(r12+r18))-(r8+r22)			; 60-62
@@ -1019,15 +1019,15 @@ yr7_14cl_28_reals_fft MACRO srcreg,srcinc,d1,d2,screg,scinc,maxrpt,L1pt,L1pd
 	vmulpd	ymm2, ymm13, ymm2		;; .434((r6-r24)-(r10-r20))							;	110-114
 
 	vaddpd	ymm11, ymm11, ymm12		;; .782((r2-r28)-(r14-r16))+.434((r4-r26)-(r12-r18))				; 111-113
-	vbroadcastsd ymm13, YMM_P223
+	vbroadcastsd ymm13, Q YMM_P223
 	vmulpd	ymm12, ymm13, ymm10		;; .223((r2-r28)+(r14-r16))							;	111-115
 
 	vsubpd	ymm5, ymm5, ymm7		;; .975((r2-r28)-(r14-r16))-.782((r4-r26)-(r12-r18))				; 112-114
-	vbroadcastsd ymm14, YMM_P623
+	vbroadcastsd ymm14, Q YMM_P623
 	vmulpd	ymm7, ymm14, ymm10		;; .623((r2-r28)+(r14-r16))							;	112-116
 
 	vaddpd	ymm3, ymm3, ymm0		;; .434((r2-r28)-(r14-r16))+.975((r4-r26)-(r12-r18))+.782((r6-r24)-(r10-r20))	; 113-115
-	vbroadcastsd ymm15, YMM_P901
+	vbroadcastsd ymm15, Q YMM_P901
 	vmulpd	ymm10, ymm15, ymm10		;; .901((r2-r28)+(r14-r16))							;	113-117
 	vmovapd	ymm0, [screg+6*64+32]		;; cosine/sine
 
@@ -2472,9 +2472,9 @@ yr7_14cl_28_reals_unfft MACRO srcreg,srcinc,d1,d2,screg,scinc,maxrpt,L1pt,L1pd
 IFDEF X86_64
 
 yr7_14cl_28_reals_unfft_preload MACRO
-	vbroadcastsd ymm13, YMM_P223
-	vbroadcastsd ymm14, YMM_P623
-	vbroadcastsd ymm15, YMM_P901
+	vbroadcastsd ymm13, Q YMM_P223
+	vbroadcastsd ymm14, Q YMM_P623
+	vbroadcastsd ymm15, Q YMM_P901
 	ENDM
 
 yr7_14cl_28_reals_unfft MACRO srcreg,srcinc,d1,d2,screg,scinc,maxrpt,L1pt,L1pd
@@ -2786,15 +2786,15 @@ yr7_14cl_28_reals_unfft MACRO srcreg,srcinc,d1,d2,screg,scinc,maxrpt,L1pt,L1pd
 
 	vaddpd	ymm9, ymm9, ymm4		;; .901(i2+i14)+i8					; 73-75
 	vmulpd	ymm4, ymm13, ymm0		;; .223(i6+i10)						;	73-77
-	vbroadcastsd ymm13, YMM_P434
+	vbroadcastsd ymm13, Q YMM_P434
 
 	vaddpd	ymm5, ymm5, ymm11		;; .223(i2+i14)+.623(i4+i12)+i8				; 74-76
 	vmulpd	ymm11, ymm14, ymm0		;; .623(i6+i10)						;	74-78
-	vbroadcastsd ymm15, YMM_P975
+	vbroadcastsd ymm15, Q YMM_P975
 
 	vaddpd	ymm3, ymm3, ymm0		;; (i2+i14)-(i4+i12)+(i6+i10)-i8			; 75-77
 	vmulpd	ymm0, ymm13, ymm7		;; .434(i3+i13)						;	75-79
-	vbroadcastsd ymm14, YMM_P782
+	vbroadcastsd ymm14, Q YMM_P782
 
 	vaddpd	ymm2, ymm2, ymm12		;; .623(i2+i14)+.901(i4+i12)-i8				; 76-78
 	vmulpd	ymm12, ymm15, ymm7		;; .975(i3+i13)						;	76-80
@@ -2975,16 +2975,16 @@ yr7_14cl_28_reals_unfft MACRO srcreg,srcinc,d1,d2,screg,scinc,maxrpt,L1pt,L1pd
 
 	vaddpd	ymm3, ymm3, ymm2		;; .975(i2-i14)-.782(i4-i12)+.434(i6-i10)		; 124-126
 	vmulpd	ymm2, ymm14, ymm10		;; .782(i7-i9)						;	124-128
-	vbroadcastsd ymm14, YMM_P623
+	vbroadcastsd ymm14, Q YMM_P623
 
 	;; Calculate odd columns derived from imaginary inputs (odd rows)
 
 	vaddpd	ymm12, ymm12, ymm0		;; .782(i3-i13)+.975(i5-i11)				; 125-127
 	vmulpd	ymm10, ymm15, ymm10		;; .975(i7-i9)						;	125-129
-	vbroadcastsd ymm13, YMM_P223
+	vbroadcastsd ymm13, Q YMM_P223
 
 	vsubpd	ymm9, ymm9, ymm4		;; .975(i3-i13)-.434(i5-i11)				; 126-128
-	vbroadcastsd ymm15, YMM_P901
+	vbroadcastsd ymm15, Q YMM_P901
 
 	vsubpd	ymm6, ymm6, ymm5		;; .434(i3-i13)-.782(i5-i11)				; 127-129
 	vmovapd	ymm0, [srcreg]			;; r1+r15

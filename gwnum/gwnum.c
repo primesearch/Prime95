@@ -712,7 +712,7 @@ struct gwasm_jmptab *choose_one_pass_or_two_pass_impl (
 /* Loop through the FFT implementations to see if we find a one-pass implementation */
 /* that matches our desired "bif" value.  Otherwise, return first two-pass implementation. */
 
-	orig_jmptab = jmptab;	
+	orig_jmptab = jmptab;
 	while (jmptab->flags & 0x80000000) {
 		if ((jmptab->flags & 0x1FF) != 0) return (jmptab);
 		if (((jmptab->flags >> 13) & 0xF) == desired_bif) return (orig_jmptab);
@@ -2349,6 +2349,7 @@ int internal_gwsetup (
 	}
 	gwdata->asm_data = (char *) asm_data_alloc + NEW_STACK_SIZE;
 	asm_data = (struct gwasm_data *) gwdata->asm_data;
+	memset (asm_data, 0, sizeof (struct gwasm_data));
 
 /* Select the proper FFT size for this k,b,n,c combination */
 

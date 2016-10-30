@@ -1,4 +1,4 @@
-; Copyright 2001-2010 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2001-2016 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -2443,14 +2443,14 @@ s2cl_eight_reals_with_square_2 MACRO srcreg,srcinc,d1
 
 	xs4c_fft xmm0, xmm1, xmm4, xmm5, xmm2, xmm3, xmm6, xmm7, [srcreg+d1+56]
 
-	movsd	XMM_TMP1, xmm0
+	movsd	Q XMM_TMP1, xmm0
 	xs_complex_square xmm5, xmm1, xmm0	;; Square R1, R2
 	xs_complex_square xmm7, xmm6, xmm0	;; Square R3, R4
-	movsd	xmm0, XMM_TMP1
-	movsd	XMM_TMP1, xmm5
+	movsd	xmm0, Q XMM_TMP1
+	movsd	Q XMM_TMP1, xmm5
 	xs_complex_square xmm0, xmm4, xmm5	;; Square R5, R6
 	xs_complex_square xmm3, xmm2, xmm5	;; Square R7, R8
-	movsd	xmm5, XMM_TMP1
+	movsd	xmm5, Q XMM_TMP1
 
 	xs4c_unfft xmm5, xmm1, xmm7, xmm6, xmm0, xmm4, xmm3, xmm2
 
@@ -2575,8 +2575,8 @@ s2cl_eight_reals_with_mulf_2 MACRO srcreg,srcinc,d1
 ;; Perform last two fft levels, results returned in
 ;; R1=xmm3,R2=xmm2,R3=xmm0,R4=xmm1,R5=xmm5,R6=xmm7,R7=xmm4,R8=xmm6
 xs8r_fft MACRO r0, r1, r2, r3, r4, r5, r6, r7
-	mulsd	r5, XMM_SQRTHALF	;; R6 = R6 * square root of 1/2
-	mulsd	r7, XMM_SQRTHALF	;; R8 = R8 * square root of 1/2
+	mulsd	r5, Q XMM_SQRTHALF	;; R6 = R6 * square root of 1/2
+	mulsd	r7, Q XMM_SQRTHALF	;; R8 = R8 * square root of 1/2
 	subsd	r0, r2			;; new R3 = R1 - R3 (final R3)
 	multwos	r2
 	addsd	r2, r0			;; new R1 = R1 + R3
@@ -2604,11 +2604,11 @@ xs8r_mulf MACRO r1, r2, r3, r4, r5, r6, r7, r8, m1, m2, m3, m4, m5, m6, m7, m8
 	mulsd	r1, Q m1[rbp]		;; R11
 	mulsd	r2, Q m2[rbp]		;; R22
 	movsd	Q [rsi-16], r1		;; Save product of sum of FFT values
-	movsd	XMM_TMP1, r2		;; Save xmm2
+	movsd	Q XMM_TMP1, r2		;; Save xmm2
 	xs_complex_mult r3, r4, Q m3[rbp], Q m4[rbp], r2, r1
 	xs_complex_mult r5, r6, Q m5[rbp], Q m6[rbp], r2, r1
 	xs_complex_mult r7, r8, Q m7[rbp], Q m8[rbp], r2, r1
-	movsd	r2, XMM_TMP1		;; Restore xmm2
+	movsd	r2, Q XMM_TMP1		;; Restore xmm2
 	movsd	r1, Q [rsi-16]		;; Restore xmm3
 	ENDM
 
@@ -2632,8 +2632,8 @@ xs8r_unfft MACRO r1, r2, r3, r4, r5, r6, r7, r8
 	subsd	r6, r5			;; R8 = R8 - R6
 	multwos	r5			;; R6 = R6 * 2
 	addsd	r5, r6			;; R6 = R6 + R8
-	mulsd	r5, XMM_SQRTHALF	;; R6 = R6 * square root of 1/2
-	mulsd	r6, XMM_SQRTHALF	;; R8 = R8 * square root of 1/2
+	mulsd	r5, Q XMM_SQRTHALF	;; R6 = R6 * square root of 1/2
+	mulsd	r6, Q XMM_SQRTHALF	;; R8 = R8 * square root of 1/2
 
 	subsd	r2, r3			;; R1 = R1 - R3 (new R3)
 	multwos	r3			;; R3 = R3 * 2
@@ -2717,17 +2717,17 @@ xs4c_unfft MACRO r1, r2, r3, r4, r5, r6, r7, r8
 	multwos	r7			;; I4 = I4 * 2
 	addsd	r7, r2			;; I4 = I2 + I4 (new I2)
 	subsd	r3, r5			;; R1 = R1 - R3 (new R3)
-	movsd	XMM_TMP1, r6		;; Save new R2
+	movsd	Q XMM_TMP1, r6		;; Save new R2
 	mulsd	r2, Q [rdi+64+8]	;; B4 = new I4 * sine
-	movsd	XMM_TMP2, r3		;; Save new R3
+	movsd	Q XMM_TMP2, r3		;; Save new R3
 	mulsd	r1, Q [rdi+64+8]	;; A4 = new R4 * sine
 	mulsd	r6, Q [rdi+0+24]	;; A2 = new R2 * cosine/sine
-	movsd	XMM_TMP3, r2		;; Save B4
+	movsd	Q XMM_TMP3, r2		;; Save B4
 	mulsd	r3, Q [rdi+32+24]	;; A3 = new R3 * cosine/sine
 	subsd	r4, r8			;; I1 = I1 - I3 (new I3)
 	mulsd	r2, Q [rdi+64+24]	;; C4 = B4 * cosine/sine
 	multwos	r8			;; I3 = I3 * 2
-	movsd	XMM_TMP4, r4		;; Save I1
+	movsd	Q XMM_TMP4, r4		;; Save I1
 	addsd	r6, r7			;; A2 = A2 + new I2
 	mulsd	r7, Q [rdi+0+24]	;; B2 = new I2 * cosine/sine
 	addsd	r3, r4			;; A3 = A3 + new I3
@@ -2735,15 +2735,15 @@ xs4c_unfft MACRO r1, r2, r3, r4, r5, r6, r7, r8
 	multwos	r5			;; R3 = R3 * 2
 	subsd	r2, r1			;; C4 = C4 - A4 (final I4)
 	mulsd	r1, Q [rdi+64+24]	;; A4 = A4 * cosine/sine
-	subsd	r7, XMM_TMP1		;; B2 = B2 - new R2
+	subsd	r7, Q XMM_TMP1		;; B2 = B2 - new R2
 	mulsd	r6, Q [rdi+8]		;; A2 = A2 * sine (final R2)
-	subsd	r4, XMM_TMP2		;; B3 = B3 - new R3
+	subsd	r4, Q XMM_TMP2		;; B3 = B3 - new R3
 	mulsd	r3, Q [rdi+40]		;; A3 = A3 * sine (final R3)
-	addsd	r8, XMM_TMP4		;; I3 = I1 + I3 (new & final I1)
+	addsd	r8, Q XMM_TMP4		;; I3 = I1 + I3 (new & final I1)
 	mulsd	r7, Q [rdi+8]		;; B2 = B2 * sine (final I2)
-	addsd	r1, XMM_TMP3		;; A4 = B4 + A4 (final R4)
+	addsd	r1, Q XMM_TMP3		;; A4 = B4 + A4 (final R4)
 	mulsd	r4, Q [rdi+40]		;; B3 = B3 * sine (final I3)
-	addsd	r5, XMM_TMP2		;; R3 = R1 + R3 (new & final R1)
+	addsd	r5, Q XMM_TMP2		;; R3 = R1 + R3 (new & final R1)
 	ENDM
 
 

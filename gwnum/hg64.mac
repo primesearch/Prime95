@@ -1,4 +1,4 @@
-; Copyright 2001-2010 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2001-2016 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -1266,8 +1266,8 @@ x4c_unfft MACRO r1, r2, r3, r4, r5, r6, r7, r8
 	ENDM
 
 xs8r_fft MACRO r0, r1, r2, r3, r4, r5, r6, r7
-	mulsd	r5, XMM_SQRTHALF	;; R6 = R6 * square root of 1/2
-	mulsd	r7, XMM_SQRTHALF	;; R8 = R8 * square root of 1/2
+	mulsd	r5, Q XMM_SQRTHALF	;; R6 = R6 * square root of 1/2
+	mulsd	r7, Q XMM_SQRTHALF	;; R8 = R8 * square root of 1/2
 	subsd	r0, r2			;; new R3 = R1 - R3 (final R3)
 	multwos	r2
 	addsd	r2, r0			;; new R1 = R1 + R3
@@ -1304,8 +1304,8 @@ xs8r_unfft MACRO r1, r2, r3, r4, r5, r6, r7, r8
 	subsd	r6, r5			;; R8 = R8 - R6
 	multwos	r5			;; R6 = R6 * 2
 	addsd	r5, r6			;; R6 = R6 + R8
-	mulsd	r5, XMM_SQRTHALF	;; R6 = R6 * square root of 1/2
-	mulsd	r6, XMM_SQRTHALF	;; R8 = R8 * square root of 1/2
+	mulsd	r5, Q XMM_SQRTHALF	;; R6 = R6 * square root of 1/2
+	mulsd	r6, Q XMM_SQRTHALF	;; R8 = R8 * square root of 1/2
 
 	subsd	r2, r3			;; R1 = R1 - R3 (new R3)
 	multwos	r3			;; R3 = R3 * 2

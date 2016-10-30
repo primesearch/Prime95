@@ -76,8 +76,6 @@ int	STARTUP_IN_PROGRESS = 0;/* True if displaying startup dialog boxes */
 
 unsigned long NUM_CPUS = 1;	/* Number of CPUs/Cores in the computer */
 
-gwmutex	INI_MUTEX;		/* Lock for accessing INI files */
-gwmutex	INI_ADD_MUTEX;		/* Lock for accessing INI add-in files */
 gwmutex	OUTPUT_MUTEX;		/* Lock for screen and results file access */
 gwmutex	LOG_MUTEX;		/* Lock for prime.log access */
 gwmutex	WORKTODO_MUTEX;		/* Lock for accessing worktodo structure */
@@ -675,8 +673,6 @@ void nameAndReadIniFiles (
 
 /* Initialize mutexes */
 
-	gwmutex_init (&INI_MUTEX);
-	gwmutex_init (&INI_ADD_MUTEX);
 	gwmutex_init (&OUTPUT_MUTEX);
 	gwmutex_init (&LOG_MUTEX);
 	gwmutex_init (&WORKTODO_MUTEX);
@@ -684,18 +680,18 @@ void nameAndReadIniFiles (
 /* Figure out the names of the INI files */
 
 	if (named_ini_files < 0) {
-		strcpy (INI_FILE, "prime.ini");
-		strcpy (LOCALINI_FILE, "local.ini");
-		strcpy (SPOOL_FILE, "prime.spl");
-		strcpy (WORKTODO_FILE, "worktodo.ini");
+		strcpy (INI_FILE, "prime.txt");
+		strcpy (LOCALINI_FILE, "local.txt");
+		strcpy (WORKTODO_FILE, "worktodo.txt");
 		strcpy (RESFILE, "results.txt");
+		strcpy (SPOOL_FILE, "prime.spl");
 		strcpy (LOGFILE, "prime.log");
 	} else {
-		sprintf (INI_FILE, "prim%04d.ini", named_ini_files);
-		sprintf (LOCALINI_FILE, "loca%04d.ini", named_ini_files);
-		sprintf (SPOOL_FILE, "prim%04d.spl", named_ini_files);
-		sprintf (WORKTODO_FILE, "work%04d.ini", named_ini_files);
+		sprintf (INI_FILE, "prim%04d.txt", named_ini_files);
+		sprintf (LOCALINI_FILE, "loca%04d.txt", named_ini_files);
+		sprintf (WORKTODO_FILE, "work%04d.txt", named_ini_files);
 		sprintf (RESFILE, "resu%04d.txt", named_ini_files);
+		sprintf (SPOOL_FILE, "prim%04d.spl", named_ini_files);
 		sprintf (LOGFILE, "prim%04d.log", named_ini_files);
 	}
 
@@ -703,9 +699,9 @@ void nameAndReadIniFiles (
 
 	IniGetString (INI_FILE, "WorkingDir", buf, sizeof(buf), NULL);
 	IniGetString (INI_FILE, "local.ini", LOCALINI_FILE, 80, LOCALINI_FILE);
-	IniGetString (INI_FILE, "prime.spl", SPOOL_FILE, 80, SPOOL_FILE);
 	IniGetString (INI_FILE, "worktodo.ini", WORKTODO_FILE, 80, WORKTODO_FILE);
 	IniGetString (INI_FILE, "results.txt", RESFILE, 80, RESFILE);
+	IniGetString (INI_FILE, "prime.spl", SPOOL_FILE, 80, SPOOL_FILE);
 	IniGetString (INI_FILE, "prime.log", LOGFILE, 80, LOGFILE);
 	IniGetString (INI_FILE, "prime.ini", INI_FILE, 80, INI_FILE);
 	if (buf[0]) {
@@ -716,7 +712,7 @@ void nameAndReadIniFiles (
 /* Merge an old primenet.ini file into a special section of prime.ini */
 
 	if (fileExists ("primenet.ini"))
-		iniAddFileMerge (INI_FILE, "primenet.ini", "PrimeNet");
+		IniAddFileMerge (INI_FILE, "primenet.ini", "PrimeNet");
 
 /* Perform other one-time initializations */
 
@@ -1000,888 +996,6 @@ int readIniFiles (void)
 	return (0);
 }
 
-/****************************************************************************/
-/*          Portable routines to read and write INI files.                  */
-/****************************************************************************/
-
-/*----------------------------------------------------------------------
-| NOTE:  These only work if you open no more than 10 ini files.  Also you must
-| not change the working directory at any time during program execution.
-+---------------------------------------------------------------------*/
-
-#define INI_LINE_NORMAL		0	/* A normal keyword=value INI line */
-#define INI_LINE_COMMENT	2	/* A comment line */
-#define INI_LINE_HEADER		3	/* A section header line */
-
-struct IniLine {
-	char	*keyword;
-	char	*value;
-	int	line_type;
-};
-struct IniCache {
-	char	*filename;
-	int	immediate_writes;
-	int	dirty;
-	unsigned int num_lines;
-	unsigned int array_size;
-	struct IniLine **lines;
-};
-
-void growIniLineArray (
-	struct IniCache *p)
-{
-	struct IniLine **newlines;
-
-	if (p->num_lines != p->array_size) return;
-
-	newlines = (struct IniLine **)
-		malloc ((p->num_lines + 100) * sizeof (struct IniLine *));
-	if (p->num_lines) {
-		memcpy (newlines, p->lines, p->num_lines * sizeof (struct IniLine *));
-		free (p->lines);
-	}
-	p->lines = newlines;
-	p->array_size = p->num_lines + 100;
-}
-
-/* We used to name files xxxx.ini.  unfortunately, Windows backup/restore */
-/* thought these files should be restored to there old values when you */
-/* rollback a driver and/or some other reasons.  Now we name our files */
-/* xxxx.txt.  This routine converts an old ini name to a new txt name. */
-
-void mangleIniFileName (
-	const char *inputFileName,
-	char	*outputFileName,
-	int	*mangled)	/* Return TRUE if output name != input name */
-{
-	int	len;
-	strcpy (outputFileName, inputFileName);
-	len = (int) strlen (outputFileName);
-	if (len >= 4 &&
-	    outputFileName[len-4] == '.' &&
-	    (outputFileName[len-3] == 'I' || outputFileName[len-3] == 'i') &&
-	    (outputFileName[len-2] == 'N' || outputFileName[len-2] == 'n') &&
-	    (outputFileName[len-1] == 'I' || outputFileName[len-1] == 'i')) {
-		strcpy (outputFileName+len-3, "txt");
-		*mangled = TRUE;
-	} else
-		*mangled = FALSE;
-}
-
-struct IniCache *openIniFile (
-	const char *filename,
-	int	forced_read)
-{
-static	struct IniCache *cache[10] = {0};
-	struct IniCache *p;
-	FILE	*fd;
-	unsigned int i;
-	char	line[1024], newFileName[80];
-	char	*val;
-	int	mangled;
-
-/* See if file is cached */
-
-	for (i = 0; i < 10; i++) {
-		p = cache[i];
-		if (p == NULL) {
-			p = (struct IniCache *) malloc (sizeof (struct IniCache));
-			p->filename = (char *) malloc (strlen (filename) + 1);
-			strcpy (p->filename, filename);
-			p->immediate_writes = 1;
-			p->dirty = 0;
-			p->num_lines = 0;
-			p->array_size = 0;
-			p->lines = NULL;
-			forced_read = 1;
-			cache[i] = p;
-			break;
-		}
-		if (strcmp (filename, p->filename) == 0)
-			break;
-	}
-
-/* Skip reading the ini file if appropriate */
-
-	if (!forced_read) return (p);
-	if (p->dirty) return (p);
-
-/* Free the data if we've already read some in */
-
-	for (i = 0; i < p->num_lines; i++) {
-		free (p->lines[i]->keyword);
-		free (p->lines[i]->value);
-		free (p->lines[i]);
-	}
-	p->num_lines = 0;
-
-/* Read the IniFile */
-
-	mangleIniFileName (filename, newFileName, &mangled);
-	fd = fopen (newFileName, "r");
-	if (fd == NULL && mangled) fd = fopen (filename, "r");
-	if (fd == NULL) return (p);
-
-	while (fgets (line, sizeof (line), fd)) {
-		if (line[strlen(line)-1] == '\n') line[strlen(line)-1] = 0;
-		if (line[0] && line[strlen(line)-1] == '\r') line[strlen(line)-1] = 0;
-
-/* Allocate and fill in a new line structure */
-
-		growIniLineArray (p);
-		i = p->num_lines++;
-		p->lines[i] = (struct IniLine *) malloc (sizeof (struct IniLine));
-
-/* Flag section headers */
-
-		if (line[0] == '[') {
-			char	*q;
-
-			p->lines[i]->keyword = (char *) malloc (strlen (line) + 1);
-			p->lines[i]->value = (char *) malloc (strlen (line) + 1);
-			p->lines[i]->line_type = INI_LINE_HEADER;
-			strcpy (p->lines[i]->value, line);
-			strcpy (p->lines[i]->keyword, line+1);
-			for (q = p->lines[i]->keyword; *q; q++)
-				if (*q == ']') {
-					*q = 0;
-					break;
-				}
-		}
-
-/* Save comment lines - any line that doesn't begin with a letter */
-
-		else if ((line[0] < 'A' || line[0] > 'Z') &&
-			 (line[0] < 'a' || line[0] > 'z')) {
-			p->lines[i]->keyword = NULL;
-			p->lines[i]->value = (char *) malloc (strlen (line) + 1);
-			p->lines[i]->line_type = INI_LINE_COMMENT;
-			strcpy (p->lines[i]->value, line);
-		}
-
-/* Otherwise, parse keyword=value lines */
-
-		else {
-			val = strchr (line, '=');
-			if (val == NULL) {
-				char	buf[1200];
-				sprintf (buf, "Illegal line in %s: %s\n", newFileName, line);
-				OutputSomewhere (MAIN_THREAD_NUM, buf);
-				p->lines[i]->keyword = NULL;
-				p->lines[i]->value = (char *) malloc (strlen (line) + 1);
-				p->lines[i]->line_type = INI_LINE_COMMENT;
-				strcpy (p->lines[i]->value, line);
-			} else {
-				*val++ = 0;
-				p->lines[i]->keyword = (char *) malloc (strlen (line) + 1);
-				p->lines[i]->value = (char *) malloc (strlen (val) + 1);
-				p->lines[i]->line_type = INI_LINE_NORMAL;
-				strcpy (p->lines[i]->keyword, line);
-				strcpy (p->lines[i]->value, val);
-			}
-		}
-	}
-	fclose (fd);
-
-	return (p);
-}
-
-/* Write a changed INI file to disk */
-
-void writeIniFile (
-	struct IniCache *p)
-{
-	int	fd, mangled;
-	unsigned int j;
-	char	buf[2000], newFileName[80];
-
-/* Delay writing the file unless this INI file is written */
-/* to immediately */
-
-	if (!p->immediate_writes) {
-		p->dirty = 1;
-		return;
-	}
-
-/* Create and write out the INI file */
-
-	mangleIniFileName (p->filename, newFileName, &mangled);
-	fd = _open (newFileName, _O_CREAT | _O_TRUNC | _O_WRONLY | _O_TEXT, CREATE_FILE_ACCESS);
-	if (fd < 0) return;
-	for (j = 0; j < p->num_lines; j++) {
-		if (p->lines[j]->line_type == INI_LINE_COMMENT) {
-			strcpy (buf, p->lines[j]->value);
-		} else if (p->lines[j]->line_type == INI_LINE_HEADER) {
-			strcpy (buf, p->lines[j]->value);
-		} else {
-			strcpy (buf, p->lines[j]->keyword);
-			strcat (buf, "=");
-			strcat (buf, p->lines[j]->value);
-		}
-		strcat (buf, "\n");
-		(void) _write (fd, buf, (unsigned int) strlen (buf));
-	}
-	p->dirty = 0;
-	_close (fd);
-	if (mangled) _unlink (p->filename);
-}
-
-/* Routines to help analyze a timed line in an INI file */
-
-void parseTimeLine (
-	const char **line,
-	int	*start_day,
-	int	*end_day,
-	int	*start_time,
-	int	*end_time)
-{
-	const char *p;
-
-/* Get the days of the week, e.g. 1-5 */
-
-	p = *line;
-	*start_day = atoi (p); while (isdigit (*p)) p++;
-	if (*p == '-') {
-		p++;
-		*end_day = atoi (p); while (isdigit (*p)) p++;
-	} else
-		*end_day = *start_day;
-
-/* Now do time portion.  If none present, then assume the numbers we */
-/* parsed above were times, not days of the week. */
-
-	if (*p == '/')
-		p++;
-	else {
-		p = *line;
-		*start_day = 1;
-		*end_day = 7;
-	} 
-	*start_time = atoi (p) * 60; while (isdigit (*p)) p++;
-	if (*p == ':') {
-		p++;
-		*start_time += atoi (p); while (isdigit (*p)) p++;
-	}
-	if (*p == '-') p++;			/* Skip '-' */
-	*end_time = atoi (p) * 60; while (isdigit (*p)) p++;
-	if (*p == ':') {
-		p++;
-		*end_time += atoi (p); while (isdigit (*p)) p++;
-	}
-
-/* Return ptr to next time interval on the line */
-
-	if (*p++ == ',') *line = p;
-	else *line = NULL;
-}
-
-int analyzeTimeLine (
-	const char *line,
-	time_t	current_t,
-	unsigned int *wakeup_time)
-{
-	struct tm *x;
-	int	current_time;
-	const char *p;
-	int	day, start_day, end_day, start_time, end_time;
-	int	full_start_time, full_end_time;
-	int	wakeup_t, min_wakeup_t;
-
-/* Break current time into a more easily maniupulated form */
-
-	x = localtime (&current_t);
-	current_time = (x->tm_wday ? x->tm_wday : 7) * 24 * 60;
-	current_time += x->tm_hour * 60 + x->tm_min;
-
-/* Process each interval on the line */
-
-	p = line;
-	min_wakeup_t = 0;
-	while (p != NULL) {
-		parseTimeLine (&p, &start_day, &end_day, &start_time, &end_time);
-
-/* Treat each day in the range as a separate time interval to process */
-
-		for (day = start_day; day <= end_day; day++) {
-
-/* We allow end_time to be less than start_time.  We treat this as */
-/* the next day.  Thus 15:00-01:00 means 3PM to 1AM the next day. */
-
-			full_start_time = day * 24 * 60 + start_time;
-			full_end_time = day * 24 * 60 + end_time;
-			if (end_time < start_time) full_end_time += 24 * 60;
-
-/* Is the current time in this interval? */
-
-			if (current_time >= full_start_time &&
-			    current_time < full_end_time)
-				goto winner;
-
-/* Now check for the really sick case, where end_time was less than */
-/* start_time and we've wrapped from day 7 back to day 1 */
-
-			if (end_time < start_time && day == 7 &&
-			    current_time < full_end_time - 7 * 24 * 60)
-				goto winner;
-
-/* No, see if this start time should be our new wakeup time. */
-
-			if (full_start_time >= current_time)
-				wakeup_t = (full_start_time - current_time) * 60;
-			else
-				wakeup_t = (full_start_time + 7 * 24 * 60 - current_time) * 60;
-			if (min_wakeup_t == 0 || min_wakeup_t > wakeup_t)
-				min_wakeup_t = wakeup_t;
-		}
-	}
-
-/* Current time was not in any of the intervals */
-
-	*wakeup_time = min_wakeup_t;
-	return (FALSE);
-
-/* Current time is in this interval, compute the wakeup time */
-
-winner:	wakeup_t = (full_end_time - current_time) * 60;
-
-/* Also, look for a start time that matches the end time and replace */
-/* the end time.  For example, if current time is 18:00 and the */
-/* Time= entry is 0:00-8:00,17:00-24:00, then the */
-/* end time of 24:00 should be replaced with 8:00 of the next day. */
-/* Be sure not to infinite loop in this time entry: 0:00-8:00,8:00-24:00 */
-
-	p = line;
-	while (p != NULL && wakeup_t < 10 * 24 * 60) {
-		parseTimeLine (&p, &start_day, &end_day, &start_time, &end_time);
-
-/* Treat each day in the range as a separate time interval to process */
-
-		for (day = start_day; day <= end_day; day++) {
-			int	this_full_start_time, this_full_end_time;
-
-/* If this start time is the same as the winning end time, then set the new */
-/* wakeup time to be the end of this interval.  Be sure to handle the tricky */
-/* wrap around that occurs when end_time < start_time. */
-
-			this_full_start_time = day * 24 * 60 + start_time;
-			if (this_full_start_time != full_end_time &&
-			    this_full_start_time != full_end_time - 7 * 24 * 60) continue;
-
-			this_full_end_time = day * 24 * 60 + end_time;
-			if (end_time < start_time) this_full_end_time += 24 * 60;
-			wakeup_t += (this_full_end_time - this_full_start_time) * 60;
-			full_end_time = this_full_end_time;
-			p = line;
-			break;
-		}
-	}
-
-/* Return indicator that current time was covered by one of the intervals */
-
-	*wakeup_time = wakeup_t + 1;
-	return (TRUE);
-}
-
-/* INI file values can contain be conditional based on the day of the */
-/* week and the time of day.  For example, this INI file value is */
-/* file has different properties during the work week and weekend. */
-/*	Priority=1 during 1-5/8:30-17:30 else 5			*/
-
-void parse_timed_ini_value (
-	const char *line,		/* INI value line to analyze */
-	unsigned int *start_offset,	/* Returned start offset */
-	unsigned int *len,		/* Returned length */
-	unsigned int *seconds_valid)	/* Returned length of time */
-					/* value is good for */
-{
-	time_t	current_time;
-	const char *rest_of_line, *during_clause, *else_clause;
-	unsigned int min_wakeup_time, wakeup_time;
-
-/* Get the current time - so that we compare each timed section */
-/* with the same current_time value */
-
-	time (&current_time);
-
-/* Loop processing each timed section in the line */
-
-	rest_of_line = line;
-	min_wakeup_time = 0;
-	for ( ; ; ) {
-
-/* If we don't see a "during" clause, then either there are no timed sections */
-/* or we've reached the final else clause.  Return the else clause value. */
-
-		during_clause = strstr (rest_of_line, " during ");
-		if (during_clause == NULL) {
-			*start_offset = (unsigned int) (rest_of_line - line);
-			*len = (unsigned int) strlen (rest_of_line);
-			*seconds_valid = min_wakeup_time;
-			break;
-		}
-
-/* We've got a timed section, see if the current time is */
-/* within this timed section. */
-
-		if (analyzeTimeLine (during_clause+8, current_time, &wakeup_time)) {
-			*start_offset = (unsigned int) (rest_of_line - line);
-			*len = (unsigned int) (during_clause - rest_of_line);
-			*seconds_valid = wakeup_time;
-			break;
-		}
-
-/* We're not in this timed section, remember which timed section */
-/* will come into effect first.  This will be the end time of the "else" */
-/* section. */
-
-		if (min_wakeup_time == 0 || wakeup_time < min_wakeup_time)
-			min_wakeup_time = wakeup_time;
-
-/* Move on to the next timed section. */
-
-		else_clause = strstr (during_clause, " else ");
-		if (else_clause != NULL) rest_of_line = else_clause + 6;
-		else rest_of_line += strlen (rest_of_line);
-	}
-}
-
-/* Utility routines used in copying an INI setting value */
-
-void truncated_strcpy_with_len (
-	char	*buf,
-	unsigned int bufsize,
-	const char *val,
-	unsigned int valsize)
-{
-	if (valsize >= bufsize) valsize = bufsize - 1;
-	memcpy (buf, val, valsize);
-	buf[valsize] = 0;
-}
-
-void truncated_strcpy (
-	char	*buf,
-	unsigned int bufsize,
-	const char *val)
-{
-	truncated_strcpy_with_len (buf, bufsize, val, (unsigned int) strlen (val));
-}
-
-/* Get a keyword's value from a specific section of the INI file. */
-/* Do not process any timed sections. */
-
-const char *IniSectionGetStringRaw (
-	const char *filename,
-	const char *section,
-	const char *keyword)
-{
-	struct IniCache *p;
-	unsigned int i;
-	const char *retval;
-
-/* Open ini file */
-
-	gwmutex_lock (&INI_MUTEX);
-	p = openIniFile (filename, 0);
-
-/* Skip to the correct section */
-
-	i = 0;
-	if (section != NULL) {
-		for ( ; i < p->num_lines; i++) {
-			if (p->lines[i]->line_type == INI_LINE_HEADER &&
-			    _stricmp (section, p->lines[i]->keyword) == 0) {
-				i++;
-				break;
-			}
-		}
-	}
-
-/* Look for the keyword within this section */
-
-	for ( ; ; i++) {
-		if (i == p->num_lines ||
-		    p->lines[i]->line_type == INI_LINE_HEADER) {
-			retval = NULL;
-			break;
-		}
-		if (p->lines[i]->line_type == INI_LINE_NORMAL &&
-		    _stricmp (keyword, p->lines[i]->keyword) == 0) {
-			retval = p->lines[i]->value;
-			break;
-		}
-	}
-
-/* Unlock and return */
-
-	gwmutex_unlock (&INI_MUTEX);
-	return (retval);
-}
-
-/* Get a keyword's value from a specific section of the INI file. */
-/* Return length of time this timed INI setting is good for. */
-
-void IniSectionGetTimedString (
-	const char *filename,
-	const char *section,
-	const char *keyword,
-	char	*val,
-	unsigned int val_bufsize,
-	const char *default_val,
-	unsigned int *seconds)
-{
-	const char *p;
-	unsigned int start, len;
-
-/* Lookup the keyword */
-
-	p = IniSectionGetStringRaw (filename, section, keyword);
-
-/* If we found the keyword in the INI file, then */
-/* support different return values based on the time of day. */
-
-	if (p != NULL) {
-		parse_timed_ini_value (p, &start, &len, seconds);
-		if (len) {
-			truncated_strcpy_with_len (val, val_bufsize, p+start, len);
-			return;
-		}
-	} else {
-		*seconds = 0;
-	}
-
-/* Copy the default value to the caller's buffer */
-
-	if (default_val)
-		truncated_strcpy (val, val_bufsize, default_val);
-	else
-		val[0] = 0;
-}
-
-/* Get a keyword's value from a specific section of the INI file. */
-
-void IniSectionGetString (
-	const char *filename,
-	const char *section,
-	const char *keyword,
-	char	*val,
-	unsigned int val_bufsize,
-	const char *default_val)
-{
-	unsigned int seconds;
-	IniSectionGetTimedString (filename, section, keyword, val, val_bufsize, default_val, &seconds);
-}
-
-long IniSectionGetTimedInt (
-	const char *filename,
-	const char *section,
-	const char *keyword,
-	long	default_val,
-	unsigned int *seconds)
-{
-	char	buf[20], defval[20];
-	sprintf (defval, "%ld", default_val);
-	IniSectionGetTimedString (filename, section, keyword, buf, 20, defval, seconds);
-	return (atol (buf));
-}
-
-long IniSectionGetInt (
-	const char *filename,
-	const char *section,
-	const char *keyword,
-	long	default_val)
-{
-	unsigned int seconds;
-	return (IniSectionGetTimedInt (filename, section, keyword, default_val, &seconds));
-}
-
-float IniSectionGetTimedFloat (
-	const char *filename,
-	const char *section,
-	const char *keyword,
-	float	default_val,
-	unsigned int *seconds)
-{
-	char	buf[20], defval[20];
-	sprintf (defval, "%f", default_val);
-	IniSectionGetTimedString (filename, section, keyword, buf, 20, defval, seconds);
-	return ((float) atof (buf));
-}
-
-float IniSectionGetFloat (
-	const char *filename,
-	const char *section,
-	const char *keyword,
-	float	default_val)
-{
-	unsigned int seconds;
-	return (IniSectionGetTimedFloat (filename, section, keyword, default_val, &seconds));
-}
-
-void IniSectionWriteString (
-	const char *filename,
-	const char *section,
-	const char *keyword,
-	const char *val)
-{
-	struct IniCache *p;
-	unsigned int i, j, insertion_point;
-
-/* Open ini file */
-
-	gwmutex_lock (&INI_MUTEX);
-	p = openIniFile (filename, 0);
-
-/* Skip to the correct section.  If the section does not exist, create it */
-
-	i = 0;
-	if (section != NULL) {
-		for ( ; ; i++) {
-			if (i == p->num_lines) {
-				if (val == NULL) goto done;
-				growIniLineArray (p);
-				p->lines[i] = (struct IniLine *)
-					malloc (sizeof (struct IniLine));
-				p->lines[i]->line_type = INI_LINE_COMMENT;
-				p->lines[i]->keyword = NULL;
-				p->lines[i]->value = (char *) malloc (1);
-				p->lines[i]->value[0] = 0;
-				p->num_lines++;
-				i++;
-				growIniLineArray (p);
-				p->lines[i] = (struct IniLine *)
-					malloc (sizeof (struct IniLine));
-				p->lines[i]->line_type = INI_LINE_HEADER;
-				p->lines[i]->keyword = (char *)
-					malloc (strlen (section) + 1);
-				strcpy (p->lines[i]->keyword, section);
-				p->lines[i]->value = (char *)
-					malloc (strlen (section) + 3);
-				sprintf (p->lines[i]->value, "[%s]", section);
-				p->num_lines++;
-				i++;
-				break;
-			}
-			if (p->lines[i]->line_type == INI_LINE_HEADER &&
-			    _stricmp (section, p->lines[i]->keyword) == 0) {
-				i++;
-				break;
-			}
-		}
-	}
-
-/* Look for the keyword within this section */
-
-	insertion_point = i;
-	for ( ; ; i++) {
-		if (i == p->num_lines ||
-		    p->lines[i]->line_type == INI_LINE_HEADER ||
-		    (p->lines[i]->line_type != INI_LINE_COMMENT &&
-		     _stricmp (p->lines[i]->keyword, "Time") == 0)) {
-
-/* Ignore request if we are deleting line */
-
-			if (val == NULL) goto done;
-
-/* Make sure the line array has room for the new line */
-
-			growIniLineArray (p);
-
-/* Shuffle entries down to make room for this entry */
-
-			i = insertion_point;
-			for (j = p->num_lines; j > i; j--)
-				p->lines[j] = p->lines[j-1];
-
-/* Allocate and fill in a new line structure */
-
-			p->lines[i] = (struct IniLine *) malloc (sizeof (struct IniLine));
-			p->lines[i]->line_type = INI_LINE_NORMAL;
-			p->lines[i]->keyword = (char *) malloc (strlen (keyword) + 1);
-			strcpy (p->lines[i]->keyword, keyword);
-			p->lines[i]->value = NULL;
-			p->num_lines++;
-			break;
-		}
-
-/* If this is not a blank line, then if we need to insert a new line, */
-/* insert it after this line.  In other words, insert new entries before */
-/* any blank lines at the end of a section */
-
-		if (p->lines[i]->line_type != INI_LINE_COMMENT ||
-		    p->lines[i]->value[0]) {
-			insertion_point = i + 1;
-		}
-
-/* If this is the keyword we are looking for, then we will replace the */
-/* value if it has changed. */
-
-		if (p->lines[i]->line_type == INI_LINE_NORMAL &&
-		    _stricmp (keyword, p->lines[i]->keyword) == 0) {
-			if (val != NULL &&
-			    strcmp (val, p->lines[i]->value) == 0) goto done;
-			break;
-		}
-	}
-
-/* Delete the line if requested */
-
-	if (val == NULL) {
-
-/* Free the data associated with the given line */
-
-		free (p->lines[i]->keyword);
-		free (p->lines[i]->value);
-		free (p->lines[i]);
-
-/* Delete the line from the lines array */
-
-		for (i++; i < p->num_lines; i++) p->lines[i-1] = p->lines[i];
-		p->num_lines--;
-	}
-
-/* Replace the value associated with the keyword */
-
-	else {
-		free (p->lines[i]->value);
-		p->lines[i]->value = (char *) malloc (strlen (val) + 1);
-		strcpy (p->lines[i]->value, val);
-	}
-
-/* Write the INI file back to disk */
-
-	writeIniFile (p);
-
-/* Unlock and return */
-
-done:	gwmutex_unlock (&INI_MUTEX);
-}
-
-void IniSectionWriteInt (
-	const char *filename,
-	const char *section,
-	const char *keyword,
-	long	val)
-{
-	char	buf[20];
-	sprintf (buf, "%ld", val);
-	IniSectionWriteString (filename, section, keyword, buf);
-}
-
-void IniSectionWriteFloat (
-	const char *filename,
-	const char *section,
-	const char *keyword,
-	float	val)
-{
-	/* Assume FLT_MAX is 3.40282e+038, the maximum significant digits that */
-	/* can be stored in this buf is 12. ((sizeof(buf))-sizeof("-.E+038")) */
- 	char	buf[20];
-	sprintf (buf, "%11g", val);
- 	IniSectionWriteString (filename, section, keyword, buf);
-}
-
-/* Shorthand routines for reading and writing from the global section */
-
-void IniGetTimedString (
-	const char *filename,
-	const char *keyword,
-	char	*val,
-	unsigned int val_bufsize,
-	const char *default_val,
-	unsigned int *seconds)
-{
-	IniSectionGetTimedString (filename, NULL, keyword, val, val_bufsize, default_val, seconds);
-}
-
-void IniGetString (
-	const char *filename,
-	const char *keyword,
-	char	*val,
-	unsigned int val_bufsize,
-	const char *default_val)
-{
-	IniSectionGetString (filename, NULL, keyword, val, val_bufsize, default_val);
-}
-
-long IniGetTimedInt (
-	const char *filename,
-	const char *keyword,
-	long	default_val,
-	unsigned int *seconds)	     
-{
-	return (IniSectionGetTimedInt (filename, NULL, keyword, default_val, seconds));
-}
-
-long IniGetInt (
-	const char *filename,
-	const char *keyword,
-	long	default_val)
-{
-	return (IniSectionGetInt (filename, NULL, keyword, default_val));
-}
-
-float IniGetTimedFloat (
-	const char *filename,
-	const char *keyword,
-	float	default_val,
-	unsigned int *seconds)	     
-{
-	return (IniSectionGetTimedFloat (filename, NULL, keyword, default_val, seconds));
-}
-
-float IniGetFloat (
-	const char *filename,
-	const char *keyword,
-	float	default_val)
-{
-	return (IniSectionGetFloat (filename, NULL, keyword, default_val));
-}
-
-/* Write a string to the INI file. */
-
-void IniWriteString (
-	const char *filename,
-	const char *keyword,
-	const char *val)
-{
-	IniSectionWriteString (filename, NULL, keyword, val);
-}
-
-/* Write an integer to the INI file. */
-
-void IniWriteInt (
-	const char *filename,
-	const char *keyword,
-	long	val)
-{
-	IniSectionWriteInt (filename, NULL, keyword, val);
-}
-
-/* Write a float to the INI file. */
-
-void IniWriteFloat (
-	const char *filename,
-	const char *keyword,
-	float	val)
-{
-	IniSectionWriteFloat (filename, NULL, keyword, val);
-}
-
-/* Reread the INI file. */
-
-void IniFileReread (
-	const char *filename)
-{
-	struct IniCache *p;
-	gwmutex_lock (&INI_MUTEX);
-	p = openIniFile (filename, 1);
-	gwmutex_unlock (&INI_MUTEX);
-}
-
-//
-//bug - do we want to offer two new routines:  immediate_writes_on and
-// immediate_writes_off?  This would speed up bulk changes to the INI file.
-//
 
 /****************************************************************************/
 /*               Utility routines to work with ".add" files                 */
@@ -1927,62 +1041,6 @@ int addFileExists (void)
 	return (FALSE);
 }
 
-/* Merge one "add file" into an ini file.  Assumes the ini file has been */
-/* freshly re-read from disk.  This also is used to copy an old primenet.ini */
-/* to a [PrimeNet] section of prime.ini */
-
-void iniAddFileMerge (
-	char	*ini_filename,
-	char	*add_filename,
-	char	*section_to_copy_to)
-{
-	struct IniCache *p, *q;
-	char	*section;
-	unsigned int j;
-
-/* Obtain a lock so that only one thread adds to the INI file.  We will release */
-/* lock once we've deleted the add file. */
-	
-	gwmutex_lock (&INI_ADD_MUTEX);
-
-/* Open ini files */
-
-	p = openIniFile (ini_filename, 0);
-	q = openIniFile (add_filename, 1);
-
-/* Save up all the writes */
-
-	p->immediate_writes = FALSE;
-
-/* Loop through all the lines in the add file, adding them to the */
-/* base ini file */
-
-	section = section_to_copy_to;
-	for (j = 0; j < q->num_lines; j++) {
-		if (q->lines[j]->line_type == INI_LINE_HEADER) {
-			if (section_to_copy_to == NULL)
-				section = q->lines[j]->keyword;
-		}
-		else if (q->lines[j]->line_type != INI_LINE_COMMENT)
-			IniSectionWriteString (ini_filename, section,
-						q->lines[j]->keyword,
-						q->lines[j]->value);
-	}
-
-/* Output all the saved up writes */
-
-	p->immediate_writes = TRUE;
-	writeIniFile (p);
-	
-/* Delete the add file */
-
-	_unlink (add_filename);
-
-/* Unlock and return */
-
-	gwmutex_unlock (&INI_ADD_MUTEX);
-}
-
 /* Merge all INI ".add files" into their corresponding base files */
 
 void incorporateIniAddFiles (void)
@@ -1997,10 +1055,10 @@ void incorporateIniAddFiles (void)
 	if (dot != NULL) {
 		strcpy (dot, ".add");
 		if (fileExists (filename))
-			iniAddFileMerge (INI_FILE, filename, NULL);
+			IniAddFileMerge (INI_FILE, filename, NULL);
 		strcpy (dot, ".add.txt");
 		if (fileExists (filename))
-			iniAddFileMerge (INI_FILE, filename, NULL);
+			IniAddFileMerge (INI_FILE, filename, NULL);
 	}
 
 /* Merge additions to local.ini */
@@ -2010,10 +1068,10 @@ void incorporateIniAddFiles (void)
 	if (dot != NULL) {
 		strcpy (dot, ".add");
 		if (fileExists (filename))
-			iniAddFileMerge (LOCALINI_FILE, filename, NULL);
+			IniAddFileMerge (LOCALINI_FILE, filename, NULL);
 		strcpy (dot, ".add.txt");
 		if (fileExists (filename))
-			iniAddFileMerge (LOCALINI_FILE, filename, NULL);
+			IniAddFileMerge (LOCALINI_FILE, filename, NULL);
 	}
 }
 
@@ -2607,8 +1665,8 @@ int readWorkToDoFile (void)
 {
 	FILE	*fd;
 	unsigned int tnum, i, linenum;
-	int	rc, mangled;
-	char	line[16384], newFileName[80];
+	int	rc;
+	char	line[16384];
 
 /* Grab the lock so that comm thread cannot try to add work units while */
 /* file is being read in. */
@@ -2660,9 +1718,7 @@ int readWorkToDoFile (void)
 /* Read the lines of the work file.  It is OK if the worktodo.txt file */
 /* does not exist. */
 
-	mangleIniFileName (WORKTODO_FILE, newFileName, &mangled);
-	fd = fopen (newFileName, "r");
-	if (fd == NULL && mangled) fd = fopen (WORKTODO_FILE, "r");
+	fd = fopen (WORKTODO_FILE, "r");
 	if (fd == NULL) goto done;
 
 	tnum = 0;
@@ -3224,8 +2280,7 @@ nomem:	fclose (fd);
 int writeWorkToDoFile (
 	int	force)		/* Force writing file even if WELL_BEHAVED */
 {
-	char	newFileName[80];
-	int	fd, mangled, last_line_was_blank;
+	int	fd, last_line_was_blank;
 	unsigned int tnum;
 
 /* If work to do hasn't changed, then don't write the file */
@@ -3252,8 +2307,7 @@ int writeWorkToDoFile (
 
 /* Create the WORKTODO.TXT file */
 
-	mangleIniFileName (WORKTODO_FILE, newFileName, &mangled);
-	fd = _open (newFileName, _O_CREAT | _O_TRUNC | _O_WRONLY | _O_TEXT, CREATE_FILE_ACCESS);
+	fd = _open (WORKTODO_FILE, _O_CREAT | _O_TRUNC | _O_WRONLY | _O_TEXT, CREATE_FILE_ACCESS);
 	if (fd < 0) {
 		OutputBoth (MAIN_THREAD_NUM, "Error creating worktodo.txt file\n");
 		return (STOP_FILE_IO_ERROR);
@@ -3418,7 +2472,6 @@ write_error:		OutputBoth (MAIN_THREAD_NUM,
 /* Close file, unlock, and return success */
 
 	_close (fd);
-	if (mangled) _unlink (WORKTODO_FILE);
 	WORKTODO_CHANGED = FALSE;
 	gwmutex_unlock (&WORKTODO_MUTEX);
 	return (0);
@@ -5971,7 +5024,8 @@ retry:
 		if (header_words[1] & HEADER_FLAG_QUIT_GIMPS ||
 		    (est >= work_to_get + unreserve_threshold &&
 		     ! isWorkUnitActive (w) &&
-		     w->pct_complete == 0.0)) {
+		     w->pct_complete == 0.0 &&
+		     num_work_units >= IniGetInt (INI_FILE, "UnreserveExponents", 4))) {
 
 			if (w->assignment_uid[0]) {
 				struct primenetAssignmentUnreserve pkt;

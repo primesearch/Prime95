@@ -1,4 +1,4 @@
-; Copyright 2009-2010 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2009-2016 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -1905,25 +1905,25 @@ r5_h10r_h5c_djbfft_mem MACRO src,mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,mem9,me
 	subsd	xmm2, Q mem10[8]		;; i25s=i2-i5
 	movsd	xmm3, Q [src+mem8+8]
 	subsd	xmm3, Q mem9[8]			;; i34s=i3-i4
-	movsd	xmm4, XMM_P309
+	movsd	xmm4, Q XMM_P309
 	mulsd	xmm4, xmm0			;; cos2*r25a
-	movsd	xmm5, XMM_M809
+	movsd	xmm5, Q XMM_M809
 	mulsd	xmm5, xmm1			;; cos4*r34a
-	movsd	xmm6, XMM_P951
+	movsd	xmm6, Q XMM_P951
 	mulsd	xmm6, xmm2			;; sin2*i25s
-	movsd	xmm7, XMM_P588
+	movsd	xmm7, Q XMM_P588
 	mulsd	xmm7, xmm3			;; sin4*i34s
 	addsd	xmm4, xmm5			;; cos2*r25a + cos4*r34a
 	addsd	xmm6, xmm7			;; t2=sin2*i25s + sin4*i34s
-	movsd	xmm5, XMM_M809
+	movsd	xmm5, Q XMM_M809
 	mulsd	xmm5, xmm0			;; cos4*r25a
 	addsd	xmm0, xmm1			;; r25a + r34a
 	movsd	xmm7, Q [src+mem1+8]
 	addsd	xmm4, xmm7			;; t1=cos2*r25a + cos4*r34a + r1
 	addsd	xmm0, xmm7			;; outr(0) = r1 + r25a + r34a
-	mulsd	xmm1, XMM_P309			;; cos2*r34a
-	mulsd	xmm2, XMM_P588			;; sin4*i25s
-	mulsd	xmm3, XMM_P951			;; sin2*i34s
+	mulsd	xmm1, Q XMM_P309		;; cos2*r34a
+	mulsd	xmm2, Q XMM_P588		;; sin4*i25s
+	mulsd	xmm3, Q XMM_P951		;; sin2*i34s
 	addsd	xmm5, xmm1			;; cos4*r25a+cos2*r34a
 	subsd	xmm2, xmm3			;; t4=sin4*i25s-sin2*i34s
 	addsd	xmm5, xmm7			;; t3=cos4*r25a+cos2*r34a+r1
@@ -1934,10 +1934,10 @@ r5_h10r_h5c_djbfft_mem MACRO src,mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,mem9,me
 	subsd	xmm5, xmm2			;; outr(2)=t3-t4
 	addsd	xmm2, xmm7			;; outr(3)=t3+t4
 
-	movsd	XMM_TMP1, xmm4			;; Save new r2
-	movsd	XMM_TMP2, xmm5			;; Save new r3
-	movsd	XMM_TMP3, xmm2			;; Save new r4
-	movsd	XMM_TMP4, xmm6			;; Save new r5
+	movsd	Q XMM_TMP1, xmm4		;; Save new r2
+	movsd	Q XMM_TMP2, xmm5		;; Save new r3
+	movsd	Q XMM_TMP3, xmm2		;; Save new r4
+	movsd	Q XMM_TMP4, xmm6		;; Save new r5
 
 	movsd	xmm2, Q [src+mem7+8]
 	addsd	xmm2, Q mem10[8]		;; i25a=i2+i5
@@ -1952,19 +1952,19 @@ r5_h10r_h5c_djbfft_mem MACRO src,mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,mem9,me
 
 	movsd	xmm5, xmm2
 	addsd	xmm5, xmm3			;; i25a+i34a
-	movsd	xmm6, XMM_P309
+	movsd	xmm6, Q XMM_P309
 	mulsd	xmm6, xmm2			;; cos2*i25a
-	movsd	xmm7, XMM_M809
+	movsd	xmm7, Q XMM_M809
 	mulsd	xmm2, xmm7			;; cos4*i25a
 	mulsd	xmm7, xmm3			;; cos4*i34a
-	mulsd	xmm3, XMM_P309			;; cos2*i34a
-	movsd	xmm0, XMM_P951
+	mulsd	xmm3, Q XMM_P309		;; cos2*i34a
+	movsd	xmm0, Q XMM_P951
 	mulsd	xmm0, xmm4			;; sin2*r25s
 	addsd	xmm6, xmm7			;; cos2*i25a + cos4*i34a
-	movsd	xmm7, XMM_P588
+	movsd	xmm7, Q XMM_P588
 	mulsd	xmm4, xmm7			;; sin4*r25s
 	mulsd	xmm7, xmm1			;; sin4*r34s
-	mulsd	xmm1, XMM_P951			;; sin2*r34s
+	mulsd	xmm1, Q XMM_P951		;; sin2*r34s
 	addsd	xmm2, xmm3			;; cos4*i25a + cos2*i34a
 	movsd	xmm3, Q [src+mem6+8]
 	addsd	xmm6, xmm3			;; t5=cos2*i25a + cos4*i34a + i1
@@ -1980,17 +1980,17 @@ r5_h10r_h5c_djbfft_mem MACRO src,mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,mem9,me
 	addsd	xmm4, xmm1			;; outi(2)=t7+t8
 	addsd	xmm5, xmm3			;; outi(0)=i1+i25a+i34a
 
-	movsd	xmm7, XMM_TMP4			;; Load R5
+	movsd	xmm7, Q XMM_TMP4		;; Load R5
 	movsd	xmm3, Q [screg1+16]		;; Cosine/sine for w^n
 	mulsd	xmm7, xmm3			;; A5 = R5 * cosine/sine
-	movsd	xmm1, XMM_TMP1			;; Load R2
+	movsd	xmm1, Q XMM_TMP1		;; Load R2
 	mulsd	xmm1, xmm3			;; A2 = R2 * cosine/sine
 	addsd	xmm7, xmm6			;; A5 = A5 + I5
 	subsd	xmm1, xmm0			;; A2 = A2 - I2
 	mulsd	xmm6, xmm3			;; B5 = I5 * cosine/sine
 	mulsd	xmm0, xmm3			;; B2 = I2 * cosine/sine
-	subsd	xmm6, XMM_TMP4			;; B5 = B5 - R5
-	addsd	xmm0, XMM_TMP1			;; B2 = B2 + R2
+	subsd	xmm6, Q XMM_TMP4		;; B5 = B5 - R5
+	addsd	xmm0, Q XMM_TMP1		;; B2 = B2 + R2
 	movsd	Q dst2[8], xmm5
 	movsd	xmm5, Q [screg1]
 	mulsd	xmm7, xmm5			;; A5 = A5 * sine (new R5)
@@ -1999,17 +1999,17 @@ r5_h10r_h5c_djbfft_mem MACRO src,mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,mem9,me
 	mulsd	xmm6, xmm5			;; B5 = B5 * sine (new I5)
 	mulsd	xmm0, xmm5			;; B2 = B2 * sine (new I2)
 
-	movsd	xmm3, XMM_TMP2			;; Load R3
+	movsd	xmm3, Q XMM_TMP2		;; Load R3
 	movsd	xmm7, Q [screg2+16]		;; Cosine/sine for w^2n
 	mulsd	xmm3, xmm7	 		;; A3 = R3 * cosine/sine
-	movsd	xmm5, XMM_TMP3			;; Load R4
+	movsd	xmm5, Q XMM_TMP3		;; Load R4
 	mulsd	xmm5, xmm7			;; A4 = R4 * cosine/sine
 	subsd	xmm3, xmm4			;; A3 = A3 - I3
 	mulsd	xmm4, xmm7			;; B3 = I3 * cosine/sine
 	addsd	xmm5, xmm2			;; A4 = A4 + I4
 	mulsd	xmm2, xmm7			;; B4 = I4 * cosine/sine
-	addsd	xmm4, XMM_TMP2			;; B3 = B3 + R3
-	subsd	xmm2, XMM_TMP3			;; B4 = B4 - R4
+	addsd	xmm4, Q XMM_TMP2		;; B3 = B3 + R3
+	subsd	xmm2, Q XMM_TMP3		;; B4 = B4 - R4
 	movsd	xmm7, Q [screg2]
 	mulsd	xmm3, xmm7			;; A3 = A3 * sine (new R3)
 	mulsd	xmm5, xmm7			;; A4 = A4 * sine (new R4)
@@ -2029,18 +2029,18 @@ r5_h10r_h5c_djbfft_mem MACRO src,mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,mem9,me
 	addsd	xmm3, Q mem9		;; R3+R9
 	movlpd	xmm2, Q mem5		;; R5
 	addsd	xmm2, Q [src+mem7]	;; R5+R7
-	movlpd	xmm0, XMM_P309
+	movlpd	xmm0, Q XMM_P309
 	mulsd	xmm0, xmm3		;; new oddR2 = .309*(R3+R9)
 	movlpd	xmm4, Q [src+mem1]	;; R1
 	addsd	xmm0, xmm4		;; new oddR2 += R1
-	movlpd	xmm5, XMM_M809
+	movlpd	xmm5, Q XMM_M809
 	mulsd	xmm5, xmm3		;; new oddR3 = -.809*(R3+R9)
 	addsd	xmm3, xmm4		;; new oddR1 = R1+R3+R9
 	addsd	xmm5, xmm4		;; new oddR3 += R1
-	movlpd	xmm4, XMM_M809
+	movlpd	xmm4, Q XMM_M809
 	mulsd	xmm4, xmm2		;; -.809*(R5+R7)
 	addsd	xmm3, xmm2		;; new oddR1 = R1+R3+R5+R7+R9
-	mulsd	xmm2, XMM_P309		;; .309*(R5+R7)
+	mulsd	xmm2, Q XMM_P309	;; .309*(R5+R7)
 	addsd	xmm0, xmm4		;; new oddR2 += -.809*(R5+R7)
 	addsd	xmm5, xmm2		;; new oddR3 += .309*(R5+R7)
 
@@ -2048,18 +2048,18 @@ r5_h10r_h5c_djbfft_mem MACRO src,mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,mem9,me
 	addsd	xmm6, Q mem10		;; R2+R10
 	movlpd	xmm2, Q mem4		;; R4
 	addsd	xmm2, Q [src+mem8]	;; R4+R8
-	movlpd	xmm1, XMM_P309
+	movlpd	xmm1, Q XMM_P309
 	mulsd	xmm1, xmm6		;; new evenR3 = .309*(R2+R10)
 	movlpd	xmm4, Q [src+mem6]	;; R6
 	addsd	xmm1, xmm4		;; new evenR3 += R6
-	movsd	xmm7, XMM_M809
+	movsd	xmm7, Q XMM_M809
 	mulsd	xmm7, xmm6		;; new evenR5 = -.809*(R2+R10)
 	addsd	xmm6, xmm4		;; new evenR1 = R6+R2+R10
 	addsd	xmm7, xmm4		;; new evenR5 += R6
-	movlpd	xmm4, XMM_M809
+	movlpd	xmm4, Q XMM_M809
 	mulsd	xmm4, xmm2		;; -.809*(R4+R8)
 	addsd	xmm6, xmm2		;; new evenR1 = R6+R2+R4+R8+R10
-	mulsd	xmm2, XMM_P309		;; .309*(R4+R8)
+	mulsd	xmm2, Q XMM_P309	;; .309*(R4+R8)
 	addsd	xmm1, xmm4		;; new evenR3 += -.809*(R4+R8)
 	addsd	xmm7, xmm2		;; new evenR5 += .309*(R4+R8)
 
@@ -2071,20 +2071,20 @@ r5_h10r_h5c_djbfft_mem MACRO src,mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,mem9,me
 	subsd	xmm5, xmm1		;; New R4 = oddR3 - evenR3
 	addsd	xmm1, xmm2		;; New R3 = oddR3 + evenR3
 
-	movsd	XMM_TMP1, xmm0		;; Temporarily save new R2
-	movsd	XMM_TMP2, xmm1		;; Temporarily save new R3
+	movsd	Q XMM_TMP1, xmm0	;; Temporarily save new R2
+	movsd	Q XMM_TMP2, xmm1	;; Temporarily save new R3
 
 	movlpd	xmm4, Q [src+mem3]	;; R3
 	subsd	xmm4, Q mem9		;; R3-R9
 	movsd	Q dst1, xmm3		;; Save oddR1, WARNING: dst1 may be alias to mem1 or mem3
 	movlpd	xmm3, Q mem5		;; R5
 	subsd	xmm3, Q [src+mem7]	;; R5-R7
-	movlpd	xmm0, XMM_P951
+	movlpd	xmm0, Q XMM_P951
 	mulsd	xmm0, xmm4		;; new oddI2 = .951*(R3-R9)
-	movlpd	xmm2, XMM_P588
+	movlpd	xmm2, Q XMM_P588
 	mulsd	xmm4, xmm2		;; new oddI3 = .588*(R3-R9)
 	mulsd	xmm2, xmm3		;; .588*(R5-R7)
-	mulsd	xmm3, XMM_P951		;; .951*(R5-R7)
+	mulsd	xmm3, Q XMM_P951	;; .951*(R5-R7)
 	addsd	xmm0, xmm2		;; new oddI2 += .588*(R5-R7)
 	subsd	xmm4, xmm3		;; new oddI3 -= .951*(R5-R7)
 
@@ -2093,12 +2093,12 @@ r5_h10r_h5c_djbfft_mem MACRO src,mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,mem9,me
 	movsd	Q dst2, xmm6		;; Save evenR1, WARNING: dst2 may be alias to mem6 or mem8
 	movlpd	xmm6, Q [src+mem2]	;; R2
 	subsd	xmm6, Q mem10		;; R2-R10
-	movlpd	xmm2, XMM_P951
+	movlpd	xmm2, Q XMM_P951
 	mulsd	xmm2, xmm6		;; new evenI3 = .951*(R2-R10)
-	movlpd	xmm1, XMM_P588
+	movlpd	xmm1, Q XMM_P588
 	mulsd	xmm6, xmm1		;; new evenI2 = .588*(R2-R10)
 	mulsd	xmm1, xmm3		;; .588*(R4-R8)
-	mulsd	xmm3, XMM_P951		;; .951*(R4-R8)
+	mulsd	xmm3, Q XMM_P951	;; .951*(R4-R8)
 	subsd	xmm2, xmm1		;; new evenI3 -= .588*(R4-R8)
 	addsd	xmm6, xmm3		;; new evenI2 += .951*(R4-R8)
 
@@ -2136,16 +2136,16 @@ r5_h10r_h5c_djbfft_mem MACRO src,mem1,mem2,mem3,mem4,mem5,mem6,mem7,mem8,mem9,me
 	movsd	Q dstr5, xmm7		;; Save R5
 
 	movlpd	xmm3, Q [screg1+16]	;; cosine/sine for w^2
-	mulsd	xmm3, XMM_TMP2		;; A3 = R3 * cosine/sine
+	mulsd	xmm3, Q XMM_TMP2	;; A3 = R3 * cosine/sine
 	subsd	xmm3, xmm4		;; A3 = A3 - I3
 	mulsd	xmm4, Q [screg1+16]	;; B3 = I3 * cosine/sine
-	addsd	xmm4, XMM_TMP2		;; B3 = B3 + R3
+	addsd	xmm4, Q XMM_TMP2	;; B3 = B3 + R3
 
 	movlpd	xmm1, Q [screg3+8]	;; cosine/sine for w^1
-	mulsd	xmm1, XMM_TMP1		;; A2 = R2 * cosine/sine
+	mulsd	xmm1, Q XMM_TMP1	;; A2 = R2 * cosine/sine
 	subsd	xmm1, xmm0		;; A2 = A2 - I2
 	mulsd	xmm0, Q [screg3+8]	;; B2 = I2 * cosine/sine
-	addsd	xmm0, XMM_TMP1		;; B2 = B2 + R2
+	addsd	xmm0, Q XMM_TMP1	;; B2 = B2 + R2
 
 	mulsd	xmm3, Q [screg1]	;; A3 = A3 * sine (new R3)
 	mulsd	xmm4, Q [screg1]	;; B3 = B3 * sine (new I3)
@@ -2545,8 +2545,8 @@ r5_h10r_h5c_djbunfft_mem MACRO src,memr1,memi1,memr2,memi2,memr3,memi3,memr4,mem
 	subsd	xmm4, xmm6			;; i25s=i2-i5
 	addsd	xmm6, xmm2			;; i25a=i2+i5
 
-	movsd	XMM_TMP1, xmm1			;; Save r2-r5
-	movsd	XMM_TMP2, xmm6			;; Save i2+i5
+	movsd	Q XMM_TMP1, xmm1		;; Save r2-r5
+	movsd	Q XMM_TMP2, xmm6		;; Save i2+i5
 
 	movsd	xmm5, Q memr4[8]		;; Load R4
 	movsd	xmm1, Q [screg2+16]		;; Load cosine/sine for w^2n
@@ -2570,31 +2570,31 @@ r5_h10r_h5c_djbunfft_mem MACRO src,memr1,memi1,memr2,memi2,memr3,memi3,memr4,mem
 	movsd	xmm1, xmm3			;; Copy R3
 	subsd	xmm3, xmm5			;; r34s=r3-r4
 	addsd	xmm5, xmm1			;; r34a=r3+r4
-	movsd	XMM_TMP3, xmm3
+	movsd	Q XMM_TMP3, xmm3
 	movsd	xmm6, xmm0			;; Copy I3
 	subsd	xmm0, xmm2			;; i34s=i3-i4
 	addsd	xmm2, xmm6			;; i34a=i3+i4
-	movsd	XMM_TMP4, xmm2
+	movsd	Q XMM_TMP4, xmm2
 
-	movsd	xmm1, XMM_P309
+	movsd	xmm1, Q XMM_P309
 	mulsd	xmm1, xmm7			;; cos2*r25a
-	movsd	xmm2, XMM_M809
+	movsd	xmm2, Q XMM_M809
 	mulsd	xmm2, xmm5			;; cos4*r34a
-	movsd	xmm3, XMM_P951
+	movsd	xmm3, Q XMM_P951
 	mulsd	xmm3, xmm4			;; sin2*i25s
-	movsd	xmm6, XMM_P588
+	movsd	xmm6, Q XMM_P588
 	mulsd	xmm6, xmm0			;; sin4*i34s
 	addsd	xmm1, xmm2			;; cos2*r25a + cos4*r34a
 	addsd	xmm3, xmm6			;; t2=sin2*i25s + sin4*i34s
-	movsd	xmm2, XMM_M809
+	movsd	xmm2, Q XMM_M809
 	mulsd	xmm2, xmm7			;; cos4*r25a
 	addsd	xmm7, xmm5			;; r25a + r34a
 	movsd	xmm6, Q [src+memr1+8]
 	addsd	xmm1, xmm6			;; t1=cos2*r25a + cos4*r34a + r1
 	addsd	xmm7, xmm6			;; outr(0) = r1 + r25a + r34a
-	mulsd	xmm5, XMM_P309			;; cos2*r34a
-	mulsd	xmm4, XMM_P588			;; sin4*i25s
-	mulsd	xmm0, XMM_P951			;; sin2*i34s
+	mulsd	xmm5, Q XMM_P309		;; cos2*r34a
+	mulsd	xmm4, Q XMM_P588		;; sin4*i25s
+	mulsd	xmm0, Q XMM_P951		;; sin2*i34s
 	addsd	xmm2, xmm5			;; cos4*r25a+cos2*r34a
 	subsd	xmm4, xmm0			;; t4=sin4*i25s-sin2*i34s
 	addsd	xmm2, xmm6			;; t3=cos4*r25a+cos2*r34a+r1
@@ -2611,26 +2611,26 @@ r5_h10r_h5c_djbunfft_mem MACRO src,memr1,memi1,memr2,memi2,memr3,memi3,memr4,mem
 	movsd	Q dstr4[8], xmm2		;; Save new r4
 	movsd	Q dstr5[8], xmm1		;; Save new r5
 
-	movsd	xmm0, XMM_TMP1			;; r25s=r2-r5
-	movsd	xmm2, XMM_TMP2			;; i25a=i2+i5
-	movsd	xmm1, XMM_TMP3			;; r34s=r3-r4
-	movsd	xmm3, XMM_TMP4			;; i34a=i3+i4
+	movsd	xmm0, Q XMM_TMP1		;; r25s=r2-r5
+	movsd	xmm2, Q XMM_TMP2		;; i25a=i2+i5
+	movsd	xmm1, Q XMM_TMP3		;; r34s=r3-r4
+	movsd	xmm3, Q XMM_TMP4		;; i34a=i3+i4
 
 	movsd	xmm5, xmm2
 	addsd	xmm5, xmm3			;; i25a+i34a
-	movsd	xmm6, XMM_P309
+	movsd	xmm6, Q XMM_P309
 	mulsd	xmm6, xmm2			;; cos2*i25a
-	movsd	xmm7, XMM_M809
+	movsd	xmm7, Q XMM_M809
 	mulsd	xmm2, xmm7			;; cos4*i25a
 	mulsd	xmm7, xmm3			;; cos4*i34a
-	mulsd	xmm3, XMM_P309			;; cos2*i34a
-	movsd	xmm4, XMM_P951
+	mulsd	xmm3, Q XMM_P309		;; cos2*i34a
+	movsd	xmm4, Q XMM_P951
 	mulsd	xmm4, xmm0			;; sin2*r25s
 	addsd	xmm6, xmm7			;; cos2*i25a + cos4*i34a
-	movsd	xmm7, XMM_P588
+	movsd	xmm7, Q XMM_P588
 	mulsd	xmm0, xmm7			;; sin4*r25s
 	mulsd	xmm7, xmm1			;; sin4*r34s
-	mulsd	xmm1, XMM_P951			;; sin2*r34s
+	mulsd	xmm1, Q XMM_P951		;; sin2*r34s
 	addsd	xmm2, xmm3			;; cos4*i25a + cos2*i34a
 	movsd	xmm3, Q [src+memi1+8]		;; I1
 	addsd	xmm6, xmm3			;; t5=cos2*i25a + cos4*i34a + i1
@@ -2700,18 +2700,18 @@ r5_h10r_h5c_djbunfft_mem MACRO src,memr1,memi1,memr2,memi2,memr3,memi3,memr4,mem
 	addsd	xmm7, Q [src+memr5]	;; R2+R5
 	movsd	xmm1, Q [src+memr3]	;; R3
 	addsd	xmm1, Q memr4		;; R3+R4
-	movlpd	xmm0, XMM_P309
+	movlpd	xmm0, Q XMM_P309
 	mulsd	xmm0, xmm7		;; new R3 = .309*(R2+R5)
 	movsd	xmm3, Q [src+memr1]	;; R1_1
 	addsd	xmm0, xmm3		;; new R3 += R1_1
-	movlpd	xmm6, XMM_M809
+	movlpd	xmm6, Q XMM_M809
 	mulsd	xmm6, xmm7		;; new R5 = -.809*(R2+R5)
 	addsd	xmm7, xmm3		;; new R1 = R1_1+R2+R5
 	addsd	xmm6, xmm3		;; new R5 += R1_1
-	movsd	xmm3, XMM_M809
+	movsd	xmm3, Q XMM_M809
 	mulsd	xmm3, xmm1		;; -.809*(R3+R4)
 	addsd	xmm7, xmm1		;; final R1 = R1_1+R2+R5+R3+R4
-	mulsd	xmm1, XMM_P309		;; .309*(R3+R4)
+	mulsd	xmm1, Q XMM_P309	;; .309*(R3+R4)
 	addsd	xmm0, xmm3		;; new R3 += -.809*(R3+R4)
 	addsd	xmm6, xmm1		;; new R5 += .309*(R3+R4)
 	movsd	Q dstr1, xmm7		;; Save final R1
@@ -2720,12 +2720,12 @@ r5_h10r_h5c_djbunfft_mem MACRO src,memr1,memi1,memr2,memi2,memr3,memi3,memr4,mem
 	subsd	xmm3, Q [src+memi5]	;; I2-I5
 	movsd	xmm1, Q [src+memi3]	;; I3
 	subsd	xmm1, Q memi4		;; I3-I4
-	movsd	xmm7, XMM_P951
+	movsd	xmm7, Q XMM_P951
 	mulsd	xmm7, xmm3		;; tmp1 = .951*(I2-I5)
-	movlpd	xmm4, XMM_P588
+	movlpd	xmm4, Q XMM_P588
 	mulsd	xmm3, xmm4		;; tmp2 = .588*(I2-I5)
 	mulsd	xmm4, xmm1		;; .588*(I3-I4)
-	mulsd	xmm1, XMM_P951		;; .951*(I3-I4)
+	mulsd	xmm1, Q XMM_P951	;; .951*(I3-I4)
 	addsd	xmm7, xmm4		;; tmp1 += .588*(I3-I4)
 	subsd	xmm3, xmm1		;; tmp2 -= .951*(I3-I4)
 
@@ -2741,19 +2741,19 @@ r5_h10r_h5c_djbunfft_mem MACRO src,memr1,memi1,memr2,memi2,memr3,memi3,memr4,mem
 	subsd	xmm5, Q memr4		;; R3-R4
 	movsd	xmm1, Q memr2		;; R2
 	subsd	xmm1, Q [src+memr5]	;; R2-R5
-	movlpd	xmm4, XMM_P309
+	movlpd	xmm4, Q XMM_P309
 	mulsd	xmm4, xmm5		;; new R2 = .309*(R3-R4)
 	movsd	Q dstr3, xmm7		;; Save final R3
 	movsd	xmm7, Q [src+memi1]	;; R1_2
 	addsd	xmm4, xmm7		;; new R2 += R1_2
-	movlpd	xmm2, XMM_M809
+	movlpd	xmm2, Q XMM_M809
 	mulsd	xmm2, xmm5		;; new R4 = -.809*(R3-R4)
 	addsd	xmm5, xmm7		;; new R6 = R1_2+(R3-R4)
 	addsd	xmm2, xmm7		;; new R4 += R1_2
-	movsd	xmm7, XMM_M809
+	movsd	xmm7, Q XMM_M809
 	mulsd	xmm7, xmm1		;; -.809*(R2-R5)
 	subsd	xmm5, xmm1		;; final R6 = R6+(R3-R4)-(R2-R5)
-	mulsd	xmm1, XMM_P309		;; .309*(R2-R5)
+	mulsd	xmm1, Q XMM_P309	;; .309*(R2-R5)
 	subsd	xmm4, xmm7		;; new R2 -= -.809*(R2-R5)
 	subsd	xmm2, xmm1		;; new R4 -= .309*(R2-R5)
 
@@ -2762,13 +2762,13 @@ r5_h10r_h5c_djbunfft_mem MACRO src,memr1,memi1,memr2,memi2,memr3,memi3,memr4,mem
 	addsd	xmm3, Q [src+memi5]	;; I2+I5
 	movsd	xmm1, Q [src+memi3]	;; I3
 	addsd	xmm1, Q memi4		;; I3+I4
-	movsd	xmm7, XMM_P951
+	movsd	xmm7, Q XMM_P951
 	mulsd	xmm7, xmm3		;; tmp2 = .951*(I2+I5)
 	xstore	dstr6, xmm5		;; Save final R6
-	movsd	xmm5, XMM_P588
+	movsd	xmm5, Q XMM_P588
 	mulsd	xmm3, xmm5		;; tmp1 = .588*(I2+I5)
 	mulsd	xmm5, xmm1		;; .588*(I3+I4)
-	mulsd	xmm1, XMM_P951		;; .951*(I3+I4)
+	mulsd	xmm1, Q XMM_P951	;; .951*(I3+I4)
 	subsd	xmm7, xmm5		;; tmp2 -= .588*(I3+I4)
 	addsd	xmm3, xmm1		;; tmp1 += .951*(I3+I4)
 

@@ -1,4 +1,4 @@
-; Copyright 2011-2012 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2016 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -70,53 +70,53 @@ ysub_7_words MACRO dist1, dist2, dist3, dist4, dist5, dist6
 	ELSE
 	vmovsd	xmm0, Q [rsi]			;; Subtract 1st word
 	vmovsd	xmm1, ZPAD0			;; Load ZPAD data
-	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Scale by FFTLEN/2
+	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Scale by FFTLEN/2
 	vsubsd	xmm0, xmm0, xmm1
 	vaddsd	xmm7, xmm7, xmm1		;; Adjust sumout
 	vmovsd	Q [rsi], xmm0
 	vmovsd	xmm0, Q [rsi+dist1]		;; Subtract 2nd word
 	vmovsd	xmm1, ZPAD1			;; Load ZPAD data
-	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Scale by FFTLEN/2
+	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Scale by FFTLEN/2
 	vsubsd	xmm0, xmm0, xmm1
 	vaddsd	xmm7, xmm7, xmm1		;; Adjust sumout
 	vmovsd	Q [rsi+dist1], xmm0
 	vmovsd	xmm0, Q [rsi+dist2]		;; Subtract 3rd word
 	vmovsd	xmm1, ZPAD2			;; Load ZPAD data
-	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Scale by FFTLEN/2
+	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Scale by FFTLEN/2
 	vsubsd	xmm0, xmm0, xmm1
 	vaddsd	xmm7, xmm7, xmm1		;; Adjust sumout
 	vmovsd	Q [rsi+dist2], xmm0
 	vmovsd	xmm0, Q [rsi+dist3]		;; Subtract 4th word
 	vmovsd	xmm1, ZPAD3			;; Load ZPAD data
-	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Scale by FFTLEN/2
+	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Scale by FFTLEN/2
 	vsubsd	xmm0, xmm0, xmm1
 	vaddsd	xmm7, xmm7, xmm1		;; Adjust sumout
 	vmovsd	Q [rsi+dist3], xmm0
 	ENDIF
 	IF dist5-dist4 EQ 8
 	vmovapd	xmm0, [rsi+dist4]		;; Subtract 5th-6th word
-	vmovapd	xmm1, ZPAD4			;; Load ZPAD data
-	vmulpd	xmm1, xmm1, YMM_NORM012_FF	;; Scale by FFTLEN/2
+	vmovapd	xmm1, XPTR ZPAD4		;; Load ZPAD data
+	vmulpd	xmm1, xmm1, XPTR YMM_NORM012_FF	;; Scale by FFTLEN/2
 	vsubpd	xmm0, xmm0, xmm1
 	vaddpd	ymm7, ymm7, ymm1		;; Adjust sumout
 	vmovapd	[rsi+dist4], xmm0
 	ELSE
 	vmovsd	xmm0, Q [rsi+dist4]		;; Subtract 5th word
 	vmovsd	xmm1, ZPAD4			;; Load ZPAD data
-	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Scale by FFTLEN/2
+	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Scale by FFTLEN/2
 	vsubsd	xmm0, xmm0, xmm1
 	vaddpd	ymm7, ymm7, ymm1		;; Adjust sumout
 	vmovsd	Q [rsi+dist4], xmm0
 	vmovsd	xmm0, Q [rsi+dist5]		;; Subtract 6th word
 	vmovsd	xmm1, ZPAD5			;; Load ZPAD data
-	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Scale by FFTLEN/2
+	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Scale by FFTLEN/2
 	vsubsd	xmm0, xmm0, xmm1
 	vaddpd	ymm7, ymm7, ymm1		;; Adjust sumout
 	vmovsd	Q [rsi+dist5], xmm0
 	ENDIF
 	vmovsd	xmm0, Q [rsi+dist6]		;; Subtract 7th word
 	vmovsd	xmm1, ZPAD6			;; Load ZPAD data
-	vmulsd	xmm1, xmm1, YMM_NORM012_FF	;; Scale by FFTLEN/2
+	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Scale by FFTLEN/2
 	vsubsd	xmm0, xmm0, xmm1
 	vaddpd	ymm7, ymm7, ymm1		;; Adjust sumout
 	vmovsd	Q [rsi+dist6], xmm0

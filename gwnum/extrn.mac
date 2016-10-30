@@ -1,4 +1,4 @@
-; Copyright 1995-2014 Mersenne Research, Inc.  All rights reserved
+; Copyright 1995-2016 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -12,8 +12,8 @@
 BPTR	EQU	<BYTE PTR>
 DPTR	EQU	<DWORD PTR>
 QPTR	EQU	<QWORD PTR>
-XPTR	EQU	<QWORD PTR>
-YPTR	EQU	<QWORD PTR>
+XPTR	EQU	<XMMWORD PTR>
+YPTR	EQU	<YMMWORD PTR>
 IFNDEF	X86_64
 PPTR	EQU	<DWORD PTR>
 ELSE
