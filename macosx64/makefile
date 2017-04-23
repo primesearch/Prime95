@@ -1,5 +1,8 @@
 # Makefile for Mac OS X 64-bit mprime
 #
+# Hwloc can be downloaded from https://www.open-mpi.org/projects/hwloc/
+# Configure hwloc with --enable-static --disable-shared --disable-pci --disable-cuda --disable-gl
+#
 
 ENVP= MACOSX_DEPLOYMENT_TARGET=10.4
 
@@ -9,8 +12,8 @@ CFLAGS = -I.. -I../gwnum -I../linux -O2 -DX86_64 -DCOMMAND_LINE_MPRIME -m64
 CPP = g++
 CPPFLAGS = -I.. -I../gwnum -I../linux -O2 -DX86_64 -DCOMMAND_LINE_MPRIME -m64
 
-LFLAGS = -m64 -Wl,-no_pie
-LIBS   = ../gwnum/amd64/release/gwnum.a -lm -lpthread -lcurl -framework IOKit -framework CoreFoundation -lstdc++
+LFLAGS = -m64 -Wl,-no_pie -L/usr/local/lib
+LIBS   = ../gwnum/amd64/release/gwnum.a -lm -lpthread -lhwloc -lcurl -framework IOKit -framework CoreFoundation -lstdc++
 
 FACTOROBJ = ../prime95/macosx64/factor64.o
 OBJS = prime.o menu.o

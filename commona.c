@@ -8,7 +8,7 @@
 | Commonb contains information used only during execution
 | Commonc contains information used during setup and execution
 |
-| Copyright 1995-2016 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved
 +---------------------------------------------------------------------*/
 
 /* Routine to eliminate odd puctuation characters from user ID */
@@ -66,7 +66,7 @@ void rangeStatusMessage (
 	    int truncated_status_msg;
 
 /* Init line formatting info */
-	    
+
 	    lines_output = 0;
 	    truncated_status_msg = FALSE;
 
@@ -164,12 +164,12 @@ void rangeStatusMessage (
 		buf += strlen (buf);
 
 		time (&this_time);
-		if (est + this_time < 2147483640) {
+		if (est + (double) this_time < 2147483640.0) {
 			this_time += (long) est;
 			strcpy (timebuf, ctime (&this_time));
 			safe_strcpy (timebuf+16, timebuf+19);
 		} else
-			strcpy (timebuf, "after Jan 1 2038\n");
+			strcpy (timebuf, "after Jan 19 2038\n");
 		sprintf (buf, ", %s", timebuf);
 		buf += strlen (buf);
 		lines_output++;
@@ -189,18 +189,6 @@ void rangeStatusMessage (
 		sprintf (buf+strlen(buf), STAT1a, (long) (1.0 / prob));
 	if (ll_cnt > 1)
 		sprintf (buf+strlen(buf), STAT1, ll_cnt, (long) (1.0 / prob));
-}
-
-// We used to allow assigning hyperthreads in the Worker Windows dialog box.  However,
-// hyperthreads rarely, if ever, help in prime95's performance.  Newbies would sometimes
-// use hyperthreads to their own detriment.  Now, by default, prime95 will not allow
-// assigning hyperthreads unless the user turns on an undoc.txt feature.
-
-unsigned int user_configurable_hyperthreads ()
-{
-	if (CPU_HYPERTHREADS > 1 && IniGetInt (INI_FILE, "ConfigureHyperthreads", 0))
-		return (CPU_HYPERTHREADS);
-	return (1);
 }
 
 /* Return the suggested minimum number of cores that should be used for a work type. */

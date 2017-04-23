@@ -1,4 +1,4 @@
-/* Copyright 1995-2016 Mersenne Research, Inc. */
+/* Copyright 1995-2017 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -13,6 +13,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include "prime.h"
+
+/* Forward declarations */
+
+void sigterm_handler(int);
 
 /* Global variables */
 
@@ -287,20 +291,19 @@ void getProxyInfo (char *, unsigned short *, char *, char *);
 
 void test_primenet (void)
 {
-	int	m_primenet, m_dialup;
+	int	m_primenet, m_dialup, m_use_proxy;
 	unsigned long m_proxy_port, m_debug;
-	char	m_userid[21], m_compid[21], m_proxy_host[121];
-	char	m_proxy_user[51], m_proxy_pwd[51], orig_proxy_pwd[51];
+	char	m_userid[21], m_compid[21], m_proxy_host[120];
+	char	m_proxy_user[50], m_proxy_pwd[50], orig_proxy_pwd[50];
 	unsigned short proxy_port;
 	int	update_computer_info, primenet_debug;
-	char	m_username[81], m_userpwd[14];
 
 	update_computer_info = FALSE;
 	primenet_debug = IniSectionGetInt (INI_FILE, "PrimeNet", "Debug", 0);
 
 	m_primenet = USE_PRIMENET;
-	if (strcmp (USERID, "ANONYMOUS") == 0)
-		m_userid[0] = 0;
+	if (USERID[0] == 0)
+		strcpy (m_userid, "ANONYMOUS");
 	else
 		strcpy (m_userid, USERID);
 	strcpy (m_compid, COMPID);
@@ -313,18 +316,26 @@ void test_primenet (void)
 	askYN ("Use PrimeNet to get work and report results", &m_primenet);
 	if (!m_primenet) goto done;
 
-	outputLongLine ("\nYou must first create your user ID at mersenne.org or leave user ID blank to run anonymously.  See the readme.txt file for details.\n");
-	askStr ("Optional user ID", m_userid, 20);
+	outputLongLine ("\nCreate a user account at https://mersenne.org/update/ or you may join GIMPS anonymously but it is not recommended.  See the readme.txt file for details.\n");
+	askStr ("Your user ID or \"ANONYMOUS\"", m_userid, 20);
 	askStr ("Optional computer name", m_compid, 20);
 
 	askYN ("Computer uses a dial-up connection to the Internet", &m_dialup);
 
-	askStr ("Optional proxy host name", m_proxy_host, 120);
-	if (!m_proxy_host[0]) goto done;
-
-	askNum ("Proxy port number", &m_proxy_port, 1, 65535);
-	askStr ("Optional proxy user name", m_proxy_user, 50);
-	askStr ("Optional proxy password", m_proxy_pwd, 50);
+	m_use_proxy = (m_proxy_host[0] != 0);
+	askYN ("Use a proxy server", &m_use_proxy);
+	if (m_use_proxy) {
+		/* Sorry but we can only ask for up to 79 chars for this */
+		/* field on the console. User that needs a longer host name */
+		/* have to write it in INI directly. */
+		askStr ("Proxy host name", m_proxy_host, 79);
+		askNum ("Proxy port number", &m_proxy_port, 1, 65535);
+		askStr ("Optional proxy user name", m_proxy_user, 49);
+		askStr ("Optional proxy password", m_proxy_pwd, 49);
+	} else {
+		m_proxy_host[0] = 0;
+	}
+ 
 	askNum ("Output debug info to prime.log (0=none, 1=some, 2=lots)", &m_debug, 0, 2);
 
 done:	if (askOkCancel ()) {
@@ -347,9 +358,6 @@ done:	if (askOkCancel ()) {
 			IniSectionWriteInt (INI_FILE, "PrimeNet", "Debug",
 					    m_debug);
 		}
-
-		if (m_userid[0] == 0)
-			strcpy (m_userid, "ANONYMOUS");
 
 		if (strcmp (USERID, m_userid) != 0) {
 			strcpy (USERID, m_userid);
@@ -404,27 +412,31 @@ int AreAllTheSame (
 
 unsigned int max_num_workers (void)
 {
-	if (NUM_WORKER_THREADS >= NUM_CPUS * user_configurable_hyperthreads ())
+	if (NUM_WORKER_THREADS >= NUM_CPUS)
 		return (NUM_WORKER_THREADS);
 	else
-		return (NUM_CPUS * user_configurable_hyperthreads ());
+		return (NUM_CPUS);
 }
 
 void test_worker_threads (void)
 {
 	unsigned long m_num_thread, m_priority;
 	unsigned long m_work_pref[MAX_NUM_WORKER_THREADS];
-	unsigned long m_affinity[MAX_NUM_WORKER_THREADS];
 	unsigned long m_numcpus[MAX_NUM_WORKER_THREADS];
-	int	i;
+	int	i, m_hyper_tf, m_hyper_ll, cores_assigned;
 
 	m_num_thread = NUM_WORKER_THREADS;
 	m_priority = PRIORITY;
-	for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+	for (i = 0; i < NUM_WORKER_THREADS; i++) {
 		m_work_pref[i] = WORK_PREFERENCE[i];
-		m_affinity[i] = CPU_AFFINITY[i];
-		m_numcpus[i] = THREADS_PER_TEST[i];
+		m_numcpus[i] = CORES_PER_TEST[i];
 	}
+	for ( ; i < MAX_NUM_WORKER_THREADS; i++) {
+		m_work_pref[i] = WORK_PREFERENCE[i];
+		m_numcpus[i] = 0;
+	}
+	m_hyper_tf = HYPERTHREAD_TF;
+	m_hyper_ll = HYPERTHREAD_LL;
 
 again:	if (max_num_workers () > 1)
 		askNum ("Number of workers to run", &m_num_thread, 1, max_num_workers ());
@@ -433,10 +445,11 @@ again:	if (max_num_workers () > 1)
 	askNum ("Priority", &m_priority, 1, 10);
 
 	if (USE_PRIMENET) {
-		outputLongLine ("\nUse the following values to select a work type:\n  0 - Whatever makes the most sense\n  2 - Trial factoring\n 100 - First time primality tests\n  101 - Double-checking\n  102 - World record primality tests\n  4 - P-1 factoring\n  104 - 100 million digit primality tests\n  1 - Trial factoring to low limits\n  5 - ECM on small Mersenne numbers\n  6 - ECM on Fermat numbers\n");
+		outputLongLine ("\nUse the following values to select a work type:\n  0 - Whatever makes the most sense\n  2 - Trial factoring\n  100 - First time primality tests\n  101 - Double-checking\n  102 - World record primality tests\n  4 - P-1 factoring\n  104 - 100 million digit primality tests\n  1 - Trial factoring to low limits\n  5 - ECM on small Mersenne numbers\n  6 - ECM on Fermat numbers\n");
 	}
 
-	if (USE_PRIMENET || NUM_CPUS * user_configurable_hyperthreads () > 1) {
+	if (USE_PRIMENET || NUM_CPUS > 1) {
+	    cores_assigned = 0;
 	    for (i = 0; i < m_num_thread; i++) {
 		if (m_num_thread > 1)
 			printf ("\nOptions for worker #%d\n\n", i+1);
@@ -449,30 +462,25 @@ again:	if (max_num_workers () > 1)
 				m_numcpus[i] = min_cores_for_work_type (m_work_pref[i]);
 		}
 
-		if (NUM_CPUS * user_configurable_hyperthreads () > 1) {
-			char question[200];
-			unsigned long affinity;
-			sprintf (question,
-				 "CPU affinity (1-%d=specific CPU, 99=any CPU, 100=smart assignment)",
-				 (int) (NUM_CPUS * CPU_HYPERTHREADS));
-			affinity = m_affinity[i];
-			if (affinity < 99) affinity++;
-			askNum (question, &affinity, 1, 100);
-			if (affinity < 99) affinity--;
-			m_affinity[i] = affinity;
-		}
-
-		if (NUM_CPUS * user_configurable_hyperthreads () > 1) {
-			int min_cores, max_cores;
+		if (NUM_CPUS > 1) {
+			int	min_cores, max_cores;
 			min_cores = min_cores_for_work_type (m_work_pref[i]);
-			max_cores = NUM_CPUS * user_configurable_hyperthreads () - m_num_thread + 1;
+			// Max cores = num_cores_unassigned - num_workers_unconfigured + 1
+			max_cores = ((int) NUM_CPUS - cores_assigned) - ((int) m_num_thread - i) + 1;
 			if (max_cores < min_cores) max_cores = min_cores;
 			if (m_numcpus[i] < min_cores) m_numcpus[i] = min_cores;
 			if (m_numcpus[i] > max_cores) m_numcpus[i] = max_cores;
-			askNum ("CPUs to use (multithreading)", &m_numcpus[i], min_cores, max_cores);
+			askNum ("CPU cores to use (multithreading)", &m_numcpus[i], min_cores, max_cores);
 		} else
 			m_numcpus[i] = 1;
+
+		cores_assigned += m_numcpus[i];
 	    }
+	}
+
+	if (CPU_HYPERTHREADS > 1 && OS_CAN_SET_AFFINITY) {
+		askYN ("Use hyperthreading for trial factoring (recommended)", &m_hyper_tf);
+		askYN ("Use hyperthreading for LL, P-1, ECM (not recommended)", &m_hyper_ll);
 	}
 
 /* Ask user if they are happy with their answers */
@@ -480,32 +488,29 @@ again:	if (max_num_workers () > 1)
 	if (askOkCancel ()) {
 		int	restart = FALSE;
 		int	new_options = FALSE;
-		unsigned long i, total_num_threads;
+		unsigned long i, total_num_cores;
 
-/* If the user has allocated more threads than there are CPUs, raise a */
-/* severe warning. */
+/* If the user has allocated too many cores then raise a severe warning. */
 
-		total_num_threads = 0;
-		for (i = 0; i < m_num_thread; i++)
-			total_num_threads += m_numcpus[i];
-		if (total_num_threads > NUM_CPUS * user_configurable_hyperthreads ()) {
+		total_num_cores = 0;
+		for (i = 0; i < m_num_thread; i++) total_num_cores += m_numcpus[i];
+		if (total_num_cores > NUM_CPUS) {
 			outputLongLine (MSG_THREADS);
 			if (askYesNo ('Y')) goto again;
 		}
 
-/* If user is changing the number of worker threads, then make the */
+/* If user changed the number of worker threads, then make the */
 /* necessary changes.  Restart worker threads so that we are running */
 /* the correct number of worker threads. */
 
 		if (m_num_thread != NUM_WORKER_THREADS) {
-//bug= do something with orphaned work units?
-//bug- tell server of the change?
 			NUM_WORKER_THREADS = m_num_thread;
 			IniWriteInt (LOCALINI_FILE, "WorkerThreads", NUM_WORKER_THREADS);
+			new_options = TRUE;
 			restart = TRUE;
 		}
 
-/* If user is changing the priority of worker threads, then change */
+/* If user changed the priority of worker threads, then change */
 /* the INI file.  Restart worker threads so that they are running at */
 /* the new priority. */
 
@@ -516,49 +521,40 @@ again:	if (max_num_workers () > 1)
 			restart = TRUE;
 		}
 
-/* If the user changes any of the work preferences record it in the INI file */
+/* If the user changed any of the work preferences record it in the INI file */
 /* and tell the server */
 
 		if (AreAllTheSame (m_work_pref, m_num_thread)) {
-			if (! PTOIsGlobalOption (WORK_PREFERENCE) ||
-			    WORK_PREFERENCE[0] != m_work_pref[0]) {
-				PTOSetAll (INI_FILE, "WorkPreference", NULL,
-					   WORK_PREFERENCE, m_work_pref[0]);
+			if (! PTOIsGlobalOption (WORK_PREFERENCE) || WORK_PREFERENCE[0] != m_work_pref[0]) {
+				PTOSetAll (INI_FILE, "WorkPreference", NULL, WORK_PREFERENCE, m_work_pref[0]);
 				new_options = TRUE;
 			}
 		} else {
 			for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
-				if (WORK_PREFERENCE[i] == m_work_pref[i])
-					continue;
-				PTOSetOne (INI_FILE, "WorkPreference", NULL,
-					   WORK_PREFERENCE, i,
-					   m_work_pref[i]);
+				if (WORK_PREFERENCE[i] == m_work_pref[i]) continue;
+				PTOSetOne (INI_FILE, "WorkPreference", NULL, WORK_PREFERENCE, i, m_work_pref[i]);
 				new_options = TRUE;
 			}
 		}
 
-/* If the user changes any of the affinities record it in the INI file. */
+/* If the user changed any of the cores_per_test record it in the INI file */
 
-		if (AreAllTheSame (m_affinity, m_num_thread)) {
-			PTOSetAll (LOCALINI_FILE, "Affinity", NULL,
-				   CPU_AFFINITY, m_affinity[0]);
-		} else {
-			for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
-				PTOSetOne (LOCALINI_FILE, "Affinity", NULL,
-					   CPU_AFFINITY, i, m_affinity[i]);
-			}
+		if (AreAllTheSame (m_numcpus, m_num_thread))
+			PTOSetAll (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, m_numcpus[0]);
+		else for (i = 0; i < (int) NUM_WORKER_THREADS; i++)
+			PTOSetOne (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, m_numcpus[i]);
+
+/* If user changed the hyperthreading options, then save the options to the INI file */
+
+		if (m_hyper_tf != HYPERTHREAD_TF) {
+			HYPERTHREAD_TF = m_hyper_tf;
+			IniWriteInt (LOCALINI_FILE, "HyperthreadTF", HYPERTHREAD_TF);
+			restart = TRUE;
 		}
-
-/* If the user changes any of the threads_per_test record it in the INI file */
-
-		if (AreAllTheSame (m_numcpus, m_num_thread)) {
-			PTOSetAll (LOCALINI_FILE, "ThreadsPerTest", NULL,
-				   THREADS_PER_TEST, m_numcpus[0]);
-		} else {
-			for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
-				PTOSetOne (LOCALINI_FILE, "ThreadsPerTest", NULL,
-					   THREADS_PER_TEST, i, m_numcpus[i]);
-			}
+		if (m_hyper_ll != HYPERTHREAD_LL) {
+			HYPERTHREAD_LL = m_hyper_ll;
+			IniWriteInt (LOCALINI_FILE, "HyperthreadLL", HYPERTHREAD_LL);
+			restart = TRUE;
 		}
 
 /* Send new settings to the server */
@@ -845,9 +841,7 @@ void options_cpu (void)
 	char m_end_time[13];
 	char buf[512];
 
-	m_memory_editable =
-		read_memory_settings (&day_memory, &night_memory,
-				      &day_start_time, &day_end_time);
+	m_memory_editable = read_memory_settings (&day_memory, &night_memory, &day_start_time, &day_end_time);
 //again:
 	m_hours = CPU_HOURS;
 	m_day_memory = day_memory;
@@ -866,8 +860,8 @@ void options_cpu (void)
 		askNum ("Daytime P-1/ECM stage 2 memory in MB", &m_day_memory, 8, max_mem);
 		askNum ("Nighttime P-1/ECM stage 2 memory in MB", &m_night_memory, 8, max_mem);
 		if (m_day_memory != m_night_memory) {
-			askStr ("Daytime begins at", (char *) &m_start_time, 12);
-			askStr ("Daytime ends at", (char *) &m_end_time, 12);
+			askStr ("Daytime begins at", m_start_time, 12);
+			askStr ("Daytime ends at", m_end_time, 12);
 		}
 	}
 
@@ -887,8 +881,8 @@ void options_cpu (void)
 			delete_timed_event (TE_COMM_SERVER);
 			UpdateEndDates ();
 		}
-		new_day_start_time = strToMinutes ((char *) &m_start_time);
-		new_day_end_time = strToMinutes ((char *) &m_end_time);
+		new_day_start_time = strToMinutes (m_start_time);
+		new_day_end_time = strToMinutes (m_end_time);
 		if (m_memory_editable &&
 		    (day_memory != m_day_memory ||
 		     night_memory != m_night_memory ||
@@ -979,7 +973,7 @@ void options_preferences (void)
 
 /* Options/Torture test dialog */
 
-void torture (void)
+void options_torture (void)
 {
 	unsigned long m_thread, m_type, m_minfft, m_maxfft;
 	unsigned long m_memory, m_timefft;
@@ -1041,6 +1035,80 @@ void torture (void)
 	}
 }
 
+/* Options/Benchmark */
+
+void options_benchmark (void)
+{
+	unsigned long m_bench_type, m_minFFT, m_maxFFT;
+	int	m_all_FFT_sizes, m_bench_one_core, m_bench_all_cores, m_bench_in_between_cores, m_hyperthreading;
+	int	m_bench_one_worker, m_bench_max_workers, m_bench_in_between_workers;
+	unsigned long m_bench_time;
+
+	m_bench_type = 0;
+	m_minFFT = IniGetInt (INI_FILE, "MinBenchFFT", 2048);
+	m_maxFFT = IniGetInt (INI_FILE, "MaxBenchFFT", 8192);
+	m_all_FFT_sizes = !IniGetInt (INI_FILE, "OnlyBench5678", 1);
+
+	m_bench_one_core = IniGetInt (INI_FILE, "BenchOneCore", 0);
+	m_bench_all_cores = IniGetInt (INI_FILE, "BenchAllCores", 1);
+	m_bench_in_between_cores = IniGetInt (INI_FILE, "BenchInBetweenCores", 0);
+	m_hyperthreading = IniGetInt (INI_FILE, "BenchHyperthreads", 1);
+
+	m_bench_one_worker = IniGetInt (INI_FILE, "BenchOneWorkerCase", 1);
+	m_bench_max_workers = IniGetInt (INI_FILE, "BenchMaxWorkersCase", 1);
+	m_bench_in_between_workers = IniGetInt (INI_FILE, "BenchInBetweenWorkerCases", 0);
+	m_bench_time = IniGetInt (INI_FILE, "BenchTime", 15);
+
+	askNum ("Benchmark type (0 = Throughput, 1 = FFT timings, 2 = Trial factoring)", &m_bench_type, 0, 2);
+	if (m_bench_type != 2) {
+		printf ("\nFFT sizes to benchmark\n");
+		askNum ("Minimum FFT size (in K)", &m_minFFT, 1, 32768);
+		askNum ("Maximum FFT size (in K)", &m_maxFFT, m_minFFT, 32768);
+		if (m_minFFT != m_maxFFT)
+			askYN ("Benchmark every FFT size in the range", &m_all_FFT_sizes);
+	}
+
+	if (NUM_CPUS > 1 || CPU_HYPERTHREADS > 1) {
+		printf ("\nCPU cores to benchmark\n");
+		if (NUM_CPUS > 1) {
+			askYN ("Benchmark using one CPU core", &m_bench_one_core);
+			askYN ("Benchmark using all CPU cores", &m_bench_all_cores);
+		}
+		if (NUM_CPUS > 2)
+			askYN ("Benchmark using remaining CPU core combinations", &m_bench_in_between_cores);
+		if (CPU_HYPERTHREADS > 1)
+			askYN ("Benchmark hyperthreading", &m_hyperthreading);
+	}
+
+	if (m_bench_type == 0) {
+		printf ("\nThroughput benchmark options\n");
+		if (NUM_CPUS > 1) {
+			askYN ("Benchmark one worker case", &m_bench_one_worker);
+			askYN ("Benchmark maximum workers case", &m_bench_max_workers);
+		}
+		if (NUM_CPUS > 2)
+			askYN ("Benchmark other worker/core combinations", &m_bench_in_between_workers);
+		askNum ("Time to run each benchmark (in seconds)", &m_bench_time, 5, 60);
+	}
+
+	if (askOkCancel ()) {
+		IniWriteInt (INI_FILE, "MinBenchFFT", m_minFFT);
+		IniWriteInt (INI_FILE, "MaxBenchFFT", m_maxFFT);
+		IniWriteInt (INI_FILE, "OnlyBench5678", !m_all_FFT_sizes);
+
+		IniWriteInt (INI_FILE, "BenchOneCore", m_bench_one_core);
+		IniWriteInt (INI_FILE, "BenchAllCores", m_bench_all_cores);
+		IniWriteInt (INI_FILE, "BenchInBetweenCores", m_bench_in_between_cores);
+		IniWriteInt (INI_FILE, "BenchHyperthreads", m_hyperthreading);
+
+		IniWriteInt (INI_FILE, "BenchOneWorkerCase", m_bench_one_worker);
+		IniWriteInt (INI_FILE, "BenchMaxWorkerCase", m_bench_max_workers);
+		IniWriteInt (INI_FILE, "BenchInBetweenWorkerCases", m_bench_in_between_workers);
+		IniWriteInt (INI_FILE, "BenchTime", m_bench_time);
+		LaunchBench (m_bench_type);
+	}
+}
+
 /* Help/About */
 
 void help_about (void)
@@ -1051,7 +1119,7 @@ void help_about (void)
 	printf ("GIMPS: Mersenne Prime Search\n");
 	printf ("Web site: http://mersenne.org\n");
 	printf ("%s\n", app_string);
-	printf ("Copyright 1996-2016 Mersenne Research, Inc.\n");
+	printf ("Copyright 1996-2017 Mersenne Research, Inc.\n");
 	printf ("Author: George Woltman\n");
 	printf ("Email:  woltman@alum.mit.edu\n");
 	askOK ();
@@ -1104,7 +1172,7 @@ void test_welcome (void)
 		USE_PRIMENET = 0;
 		IniWriteInt (INI_FILE, "UsePrimenet", USE_PRIMENET = 0);
 		STARTUP_IN_PROGRESS = 0;
-		torture ();
+		options_torture ();
 	}
 	main_menu ();
 }
@@ -1262,15 +1330,14 @@ void main_menu (void)
 /* Options/Torture Test */
 
 	case 15:
-		torture ();
+		options_torture ();
 		askOK ();
 		break;
 
 /* Options/Benchmark Test */
 
 	case 16:
-		LaunchBench ();
-		askOK ();
+		options_benchmark ();
 		break;
 
 /* Help/About */

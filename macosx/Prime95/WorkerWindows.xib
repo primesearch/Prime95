@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="6751" systemVersion="13F1603" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none">
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="6751" systemVersion="13F1911" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none">
     <dependencies>
         <deployment version="1050" identifier="macosx"/>
         <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="6751"/>
@@ -93,6 +93,34 @@
                             <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
                         </textFieldCell>
                     </textField>
+                    <button verticalHuggingPriority="750" id="174">
+                        <rect key="frame" x="407" y="12" width="96" height="32"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="push" title="Cancel" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="177">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="system"/>
+                            <connections>
+                                <action selector="performClose:" target="1" id="181"/>
+                            </connections>
+                        </buttonCell>
+                        <connections>
+                            <outlet property="nextKeyView" destination="175" id="178"/>
+                        </connections>
+                    </button>
+                    <button verticalHuggingPriority="750" id="175">
+                        <rect key="frame" x="507" y="12" width="96" height="32"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="push" title="Apply" bezelStyle="rounded" alignment="center" state="on" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="176">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="system"/>
+                            <string key="keyEquivalent" base64-UTF8="YES">
+DQ
+</string>
+                        </buttonCell>
+                        <connections>
+                            <action selector="ok:" target="-2" id="182"/>
+                        </connections>
+                    </button>
                     <scrollView autohidesScrollers="YES" horizontalLineScroll="19" horizontalPageScroll="10" verticalLineScroll="19" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="59">
                         <rect key="frame" x="20" y="158" width="577" height="246"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
@@ -101,7 +129,7 @@
                             <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                             <subviews>
                                 <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" columnSelection="YES" multipleSelection="NO" autosaveColumns="NO" headerView="63" id="62">
-                                    <rect key="frame" x="0.0" y="0.0" width="593" height="19"/>
+                                    <rect key="frame" x="0.0" y="0.0" width="570" height="19"/>
                                     <autoresizingMask key="autoresizingMask"/>
                                     <size key="intercellSpacing" width="3" height="2"/>
                                     <color key="backgroundColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
@@ -129,7 +157,7 @@
                                                 <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
                                                 <color key="backgroundColor" white="0.33333299" alpha="1" colorSpace="calibratedWhite"/>
                                             </tableHeaderCell>
-                                            <popUpButtonCell key="dataCell" type="bevel" title="100,000,000 digit numbers to test" bezelStyle="rounded" alignment="left" controlSize="small" lineBreakMode="truncatingTail" state="on" borderStyle="bezel" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" selectedItem="157" id="109">
+                                            <popUpButtonCell key="dataCell" type="bevel" bezelStyle="rounded" alignment="left" controlSize="small" lineBreakMode="truncatingTail" borderStyle="bezel" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="109">
                                                 <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
                                                 <font key="font" metaFont="smallSystem"/>
                                                 <menu key="menu" title="OtherViews" id="110">
@@ -143,7 +171,7 @@
                                                         <menuItem title="Trial factoring to low limits" id="132"/>
                                                         <menuItem title="ECM on small Mersenne numbers" id="155"/>
                                                         <menuItem title="ECM on Fermat numbers" id="156"/>
-                                                        <menuItem title="100,000,000 digit numbers to test" state="on" id="157"/>
+                                                        <menuItem title="100,000,000 digit numbers to test" id="157"/>
                                                     </items>
                                                 </menu>
                                             </popUpButtonCell>
@@ -152,35 +180,8 @@
                                                 <binding destination="85" name="selectedIndex" keyPath="arrangedObjects.typeOfWork" id="136"/>
                                             </connections>
                                         </tableColumn>
-                                        <tableColumn width="110" minWidth="10" maxWidth="3.4028229999999999e+38" id="68">
-                                            <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="CPU Affinity">
-                                                <font key="font" metaFont="smallSystem"/>
-                                                <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
-                                                <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
-                                            </tableHeaderCell>
-                                            <popUpButtonCell key="dataCell" type="bevel" title="Run on any CPU" bezelStyle="rounded" alignment="left" controlSize="small" lineBreakMode="truncatingTail" state="on" borderStyle="bezel" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" selectedItem="140" id="138">
-                                                <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
-                                                <font key="font" metaFont="smallSystem"/>
-                                                <menu key="menu" title="OtherViews" id="139">
-                                                    <items>
-                                                        <menuItem title="Run on any CPU" state="on" id="140"/>
-                                                        <menuItem title="Smart assignment" id="141"/>
-                                                        <menuItem title="CPU #1" id="142"/>
-                                                        <menuItem title="CPU #2" id="143"/>
-                                                    </items>
-                                                </menu>
-                                                <connections>
-                                                    <binding destination="-2" name="contentValues" keyPath="affinityValues" id="169"/>
-                                                </connections>
-                                            </popUpButtonCell>
-                                            <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
-                                            <connections>
-                                                <binding destination="85" name="selectedIndex" keyPath="arrangedObjects.affinity" id="154"/>
-                                                <binding destination="85" name="enabled" keyPath="arrangedObjects.affinityEnabled" id="166"/>
-                                            </connections>
-                                        </tableColumn>
-                                        <tableColumn width="170" minWidth="10" maxWidth="3.4028229999999999e+38" id="70">
-                                            <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="CPUs to use (multithreading)">
+                                        <tableColumn width="280" minWidth="10" maxWidth="3.4028229999999999e+38" id="70">
+                                            <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="CPU cores to use (multithreading)">
                                                 <font key="font" metaFont="smallSystem"/>
                                                 <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
                                                 <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
@@ -231,34 +232,6 @@
                             <outlet property="nextKeyView" destination="174" id="180"/>
                         </connections>
                     </scrollView>
-                    <button verticalHuggingPriority="750" id="174">
-                        <rect key="frame" x="407" y="12" width="96" height="32"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                        <buttonCell key="cell" type="push" title="Cancel" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="177">
-                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
-                            <font key="font" metaFont="system"/>
-                            <connections>
-                                <action selector="performClose:" target="1" id="181"/>
-                            </connections>
-                        </buttonCell>
-                        <connections>
-                            <outlet property="nextKeyView" destination="175" id="178"/>
-                        </connections>
-                    </button>
-                    <button verticalHuggingPriority="750" id="175">
-                        <rect key="frame" x="507" y="12" width="96" height="32"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                        <buttonCell key="cell" type="push" title="Apply" bezelStyle="rounded" alignment="center" state="on" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="176">
-                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
-                            <font key="font" metaFont="system"/>
-                            <string key="keyEquivalent" base64-UTF8="YES">
-DQ
-</string>
-                        </buttonCell>
-                        <connections>
-                            <action selector="ok:" target="-2" id="182"/>
-                        </connections>
-                    </button>
                 </subviews>
             </view>
             <connections>

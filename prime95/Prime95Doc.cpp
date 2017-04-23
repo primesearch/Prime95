@@ -1,6 +1,6 @@
 // Prime95Doc.cpp : implementation of the CPrime95Doc class
 //
-// Copyright 1995-2016 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved
 //
 
 #include "stdafx.h"
@@ -12,6 +12,7 @@
 #include <direct.h>
 #include "math.h"
 
+#include "BenchmarkDlg.h"
 #include "CpuDlg.h"
 #include "EcmDlg.h"
 #include "ManualCommDlg.h"
@@ -327,40 +328,38 @@ void CPrime95Doc::OnWorkerThreads()
 
 	dlg.m_num_thread = NUM_WORKER_THREADS;
 	dlg.m_priority = PRIORITY;
+	dlg.m_hyper_tf = HYPERTHREAD_TF;
+	dlg.m_hyper_ll = HYPERTHREAD_LL;
 	for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
 		dlg.m_work_pref[i] = WORK_PREFERENCE[i];
-		dlg.m_affinity[i] = CPU_AFFINITY[i];
-		dlg.m_numcpus[i] = THREADS_PER_TEST[i];
+		dlg.m_numcpus[i] = CORES_PER_TEST[i];
 	}
 
 again:	if (dlg.DoModal () == IDOK) {
 		int	restart = FALSE;
 		int	new_options = FALSE;
-		unsigned long i, total_num_threads;
+		unsigned long i, total_num_cores;
 
-/* If the user has allocated more threads than there are CPUs, raise a */
-/* severe warning. */
+/* If the user has allocated too many cores then raise a severe warning. */
 
-		total_num_threads = 0;
-		for (i = 0; i < dlg.m_num_thread; i++)
-			total_num_threads += dlg.m_numcpus[i];
-		if (total_num_threads > NUM_CPUS * user_configurable_hyperthreads () &&
+		total_num_cores = 0;
+		for (i = 0; i < dlg.m_num_thread; i++) total_num_cores += dlg.m_numcpus[i];
+		if (total_num_cores > NUM_CPUS &&
 		    AfxMessageBox (MSG_THREADS, MB_YESNO | MB_ICONQUESTION) == IDYES)
 			goto again;
 
-/* If user is changing the number of worker threads, then make the */
+/* If user changed the number of worker threads, then make the */
 /* necessary changes.  Restart worker threads so that we are running */
 /* the correct number of worker threads. */
 
 		if (dlg.m_num_thread != NUM_WORKER_THREADS) {
-//bug- do something with orphaned work units?  
-//bug- tell server of the change?
 			NUM_WORKER_THREADS = dlg.m_num_thread;
 			IniWriteInt (LOCALINI_FILE, "WorkerThreads", NUM_WORKER_THREADS);
+			new_options = TRUE;
 			restart = TRUE;
 		}
 
-/* If user is changing the priority of worker threads, then change */
+/* If user changed the priority of worker threads, then change */
 /* the INI file.  Restart worker threads so that they are running at */
 /* the new priority. */
 
@@ -371,49 +370,40 @@ again:	if (dlg.DoModal () == IDOK) {
 			restart = TRUE;
 		}
 
-/* If the user changes any of the work preferences record it in the INI file */
+/* If the user changed any of the work preferences record it in the INI file */
 /* and tell the server */
 
 		if (dlg.AreAllTheSame (dlg.m_work_pref)) {
-			if (! PTOIsGlobalOption (WORK_PREFERENCE) ||
-			    WORK_PREFERENCE[0] != dlg.m_work_pref[0]) {
-				PTOSetAll (INI_FILE, "WorkPreference", NULL,
-					   WORK_PREFERENCE, dlg.m_work_pref[0]);
+			if (! PTOIsGlobalOption (WORK_PREFERENCE) || WORK_PREFERENCE[0] != dlg.m_work_pref[0]) {
+				PTOSetAll (INI_FILE, "WorkPreference", NULL, WORK_PREFERENCE, dlg.m_work_pref[0]);
 				new_options = TRUE;
 			}
 		} else {
 			for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
-				if (WORK_PREFERENCE[i] == dlg.m_work_pref[i])
-					continue;
-				PTOSetOne (INI_FILE, "WorkPreference", NULL,
-					   WORK_PREFERENCE, i,
-					   dlg.m_work_pref[i]);
+				if (WORK_PREFERENCE[i] == dlg.m_work_pref[i]) continue;
+				PTOSetOne (INI_FILE, "WorkPreference", NULL, WORK_PREFERENCE, i, dlg.m_work_pref[i]);
 				new_options = TRUE;
 			}
 		}
 
-/* If the user changes any of the affinities record it in the INI file. */
+/* If user changed any of the cores_per_test, then record it in the INI file */
 
-		if (dlg.AreAllTheSame (dlg.m_affinity)) {
-			PTOSetAll (LOCALINI_FILE, "Affinity", NULL,
-				   CPU_AFFINITY, dlg.m_affinity[0]);
-		} else {
-			for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
-				PTOSetOne (LOCALINI_FILE, "Affinity", NULL,
-					   CPU_AFFINITY, i, dlg.m_affinity[i]);
-			}
+		if (dlg.AreAllTheSame (dlg.m_numcpus))
+			PTOSetAll (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, dlg.m_numcpus[0]);
+		else for (i = 0; i < (int) NUM_WORKER_THREADS; i++)
+			PTOSetOne (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, dlg.m_numcpus[i]);
+
+/* If user changed the hyperthreading options, then save the options to the INI file */
+
+		if (dlg.m_hyper_tf != HYPERTHREAD_TF) {
+			HYPERTHREAD_TF = dlg.m_hyper_tf;
+			IniWriteInt (LOCALINI_FILE, "HyperthreadTF", HYPERTHREAD_TF);
+			restart = TRUE;
 		}
-
-/* If the user changes any of the threads_per_test record it in the INI file */
-
-		if (dlg.AreAllTheSame (dlg.m_numcpus)) {
-			PTOSetAll (LOCALINI_FILE, "ThreadsPerTest", NULL,
-				   THREADS_PER_TEST, dlg.m_numcpus[0]);
-		} else {
-			for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
-				PTOSetOne (LOCALINI_FILE, "ThreadsPerTest", NULL,
-					   THREADS_PER_TEST, i, dlg.m_numcpus[i]);
-			}
+		if (dlg.m_hyper_ll != HYPERTHREAD_LL) {
+			HYPERTHREAD_LL = dlg.m_hyper_ll;
+			IniWriteInt (LOCALINI_FILE, "HyperthreadLL", HYPERTHREAD_LL);
+			restart = TRUE;
 		}
 
 /* Send new settings to the server */
@@ -781,7 +771,38 @@ void CPrime95Doc::OnUpdateBenchmark(CCmdUI* pCmdUI)
 
 void CPrime95Doc::OnBenchmark() 
 {
-	LaunchBench ();
+	CBenchmarkDlg dlg;
+
+	dlg.m_minFFT = IniGetInt (INI_FILE, "MinBenchFFT", 2048);
+	dlg.m_maxFFT = IniGetInt (INI_FILE, "MaxBenchFFT", 8192);
+	dlg.m_all_FFT_sizes = !IniGetInt (INI_FILE, "OnlyBench5678", 1);
+
+	dlg.m_bench_one_core = IniGetInt (INI_FILE, "BenchOneCore", 0);
+	dlg.m_bench_all_cores = IniGetInt (INI_FILE, "BenchAllCores", 1);
+	dlg.m_bench_in_between_cores = IniGetInt (INI_FILE, "BenchInBetweenCores", 0);
+	dlg.m_hyperthreading = IniGetInt (INI_FILE, "BenchHyperthreads", 1);
+
+	dlg.m_bench_one_worker = IniGetInt (INI_FILE, "BenchOneWorkerCase", 1);
+	dlg.m_bench_max_workers = IniGetInt (INI_FILE, "BenchMaxWorkersCase", 1);
+	dlg.m_bench_in_between_workers = IniGetInt (INI_FILE, "BenchInBetweenWorkerCases", 0);
+	dlg.m_bench_time = IniGetInt (INI_FILE, "BenchTime", 15);
+
+	if (dlg.DoModal () == IDOK) {
+		IniWriteInt (INI_FILE, "MinBenchFFT", dlg.m_minFFT);
+		IniWriteInt (INI_FILE, "MaxBenchFFT", dlg.m_maxFFT);
+		IniWriteInt (INI_FILE, "OnlyBench5678", !dlg.m_all_FFT_sizes);
+
+		IniWriteInt (INI_FILE, "BenchOneCore", dlg.m_bench_one_core);
+		IniWriteInt (INI_FILE, "BenchAllCores", dlg.m_bench_all_cores);
+		IniWriteInt (INI_FILE, "BenchInBetweenCores", dlg.m_bench_in_between_cores);
+		IniWriteInt (INI_FILE, "BenchHyperthreads", dlg.m_hyperthreading);
+
+		IniWriteInt (INI_FILE, "BenchOneWorkerCase", dlg.m_bench_one_worker);
+		IniWriteInt (INI_FILE, "BenchMaxWorkersCase", dlg.m_bench_max_workers);
+		IniWriteInt (INI_FILE, "BenchInBetweenWorkerCases", dlg.m_bench_in_between_workers);
+		IniWriteInt (INI_FILE, "BenchTime", dlg.m_bench_time);
+		LaunchBench (dlg.m_bench_type);
+	}
 }
 
 void CPrime95Doc::OnUpdateTorture(CCmdUI* pCmdUI)

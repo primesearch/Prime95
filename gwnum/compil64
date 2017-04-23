@@ -6,11 +6,12 @@
 # objconv comes courtesy of Agner Fog.  Download available at
 # http://www.agner.org/optimize/#objconv
 
-#masm64=HJWasm32 /c /DX86_64 /DWINDOWS64 -win64
-masm64=ml64 /c /DX86_64 /DWINDOWS64
+masm64=HJWasm32 /c /DX86_64 /DWINDOWS64 -win64
+#masm64=HJWasm32 /c /DX86_64 /DWINDOWS64 /Fl /Sf /Sa /Sg  -win64
+#masm64=ml64 /c /DX86_64 /DWINDOWS64
 #masm64=ml64 /c /DX86_64 /DWINDOWS64 /Fl /Sf /Sa
-#masm64lx=HJWasm32 /c /DX86_64 /DLINUX64 -win64
-masm64lx=ml64 /c /DX86_64 /DLINUX64
+masm64lx=HJWasm32 /c /DX86_64 /DLINUX64 -win64
+#masm64lx=ml64 /c /DX86_64 /DLINUX64
 objconv=c:\objconv\objconv
 
 # Use the 64-bit C compiler

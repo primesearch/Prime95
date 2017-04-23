@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2016 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -11,7 +11,7 @@
 | Commonc contains information used during setup and execution
 +---------------------------------------------------------------------*/
 
-static const char JUNK[]="Copyright 1996-2016 Mersenne Research, Inc. All rights reserved";
+static const char JUNK[]="Copyright 1996-2017 Mersenne Research, Inc. All rights reserved";
 
 char	INI_FILE[80] = {0};
 char	LOCALINI_FILE[80] = {0};
@@ -33,12 +33,11 @@ int	STRESS_TESTER = 0;
 int volatile ERRCHK = 0;
 int volatile SUM_INPUTS_ERRCHK = 0;	/* 1 to turn on sum(inputs) != sum(outputs) error checking */
 unsigned int PRIORITY = 1;
-unsigned int NUM_WORKER_THREADS = 1; /* Number of work threads to launch */
+unsigned int NUM_WORKER_THREADS = 1;	/* Number of work threads to launch */
 unsigned int WORK_PREFERENCE[MAX_NUM_WORKER_THREADS] = {0};
-unsigned int CPU_AFFINITY[MAX_NUM_WORKER_THREADS] = {100};
-unsigned int THREADS_PER_TEST[MAX_NUM_WORKER_THREADS] = {1};
-				/* Number of threads gwnum can use in */
-				/* computations. */
+unsigned int CORES_PER_TEST[MAX_NUM_WORKER_THREADS] = {1}; /* Number of threads gwnum can use in computations. */
+int	HYPERTHREAD_TF = 1;		/* TRUE if trial factoring should use hyperthreads */
+int	HYPERTHREAD_LL = 0;		/* TRUE if FFTs (LL, P-1, ECM, PRP) should use hyperthreads */
 int	MANUAL_COMM = 0;
 unsigned int volatile CPU_HOURS = 0;
 int	CLASSIC_OUTPUT = 0;
@@ -91,6 +90,9 @@ unsigned int WORKTODO_COUNT = 0;/* Count of valid work lines */
 unsigned int WORKTODO_IN_USE_COUNT = 0;/* Count of work units in use */
 int	WORKTODO_CHANGED = 0;	/* Flag indicating worktodo file needs */
 				/* writing */
+
+hwloc_topology_t hwloc_topology;	/* Hardware topology */
+int	OS_CAN_SET_AFFINITY = 1;	/* hwloc supports setting CPU affinity (known exception is Apple) */
 
 #include "md5.c"
 
@@ -344,12 +346,19 @@ void getCpuInfo (void)
 /* Get the CPU info using CPUID instruction */	
 
 	guessCpuType ();
+	NUM_CPUS = CPU_CORES;
+
+/* New in version 29!  Use hwloc info to determine NUM_CPUS and CPU_HYPERTHREADS. */
+/* We still allow overriding this with INI file settings below */
+
+	NUM_CPUS = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_CORE);
+	CPU_HYPERTHREADS = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PU) / NUM_CPUS;
 
 /* Allow overriding the number of physical processors.  For historical */
 /* reasons, this code uses a variable called NUM_CPUS rather */
 /* than the CPU_CORES value set by guessCpuType. */
 
-	NUM_CPUS = IniGetInt (LOCALINI_FILE, "NumCPUs", CPU_CORES);
+	NUM_CPUS = IniGetInt (LOCALINI_FILE, "NumCPUs", NUM_CPUS);
 	temp = IniGetInt (LOCALINI_FILE, "NumPhysicalCores", 9999);
 	if (temp != 9999) {
 		CPU_HYPERTHREADS = NUM_CPUS / temp;
@@ -384,13 +393,9 @@ void getCpuInfo (void)
 	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsSSE", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_SSE;
 	if (temp == 1) CPU_FLAGS |= CPU_SSE;
-#ifndef X86_64
 	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsSSE2", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_SSE2;
 	if (temp == 1) CPU_FLAGS |= CPU_SSE2;
-#else
-	CPU_FLAGS |= CPU_SSE2;
-#endif
 	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsSSE4", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_SSE41;
 	if (temp == 1) CPU_FLAGS |= CPU_SSE41;
@@ -409,24 +414,21 @@ void getCpuInfo (void)
 	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsAVX2", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_AVX2;
 	if (temp == 1) CPU_FLAGS |= CPU_AVX2;
+	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsAVX512F", 99);
+	if (temp == 0) CPU_FLAGS &= ~CPU_AVX512F;
+	if (temp == 1) CPU_FLAGS |= CPU_AVX512F;
 
 /* Let the user override the L2 cache size in local.ini file */
 
-	CPU_L2_CACHE_SIZE =
-		IniGetInt (LOCALINI_FILE, "CpuL2CacheSize", CPU_L2_CACHE_SIZE);
-	CPU_L2_CACHE_LINE_SIZE =
-		IniGetInt (LOCALINI_FILE, "CpuL2CacheLineSize", CPU_L2_CACHE_LINE_SIZE);
-	CPU_L2_SET_ASSOCIATIVE =
-		IniGetInt (LOCALINI_FILE, "CpuL2SetAssociative", CPU_L2_SET_ASSOCIATIVE);
+	CPU_L2_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL2CacheSize", CPU_L2_CACHE_SIZE);
+	CPU_L2_CACHE_LINE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL2CacheLineSize", CPU_L2_CACHE_LINE_SIZE);
+	CPU_L2_SET_ASSOCIATIVE = IniGetInt (LOCALINI_FILE, "CpuL2SetAssociative", CPU_L2_SET_ASSOCIATIVE);
 
 /* Let the user override the L3 cache size in local.ini file */
 
-	CPU_L3_CACHE_SIZE =
-		IniGetInt (LOCALINI_FILE, "CpuL3CacheSize", CPU_L3_CACHE_SIZE);
-	CPU_L3_CACHE_LINE_SIZE =
-		IniGetInt (LOCALINI_FILE, "CpuL3CacheLineSize", CPU_L3_CACHE_LINE_SIZE);
-	CPU_L3_SET_ASSOCIATIVE =
-		IniGetInt (LOCALINI_FILE, "CpuL3SetAssociative", CPU_L3_SET_ASSOCIATIVE);
+	CPU_L3_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL3CacheSize", CPU_L3_CACHE_SIZE);
+	CPU_L3_CACHE_LINE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL3CacheLineSize", CPU_L3_CACHE_LINE_SIZE);
+	CPU_L3_SET_ASSOCIATIVE = IniGetInt (LOCALINI_FILE, "CpuL3SetAssociative", CPU_L3_SET_ASSOCIATIVE);
 
 /* Let the user override the CPUID brand string.  It should never be necessary. */
 /* However, one Athlon owner's brand string became corrupted with illegal characters. */
@@ -435,8 +437,7 @@ void getCpuInfo (void)
 
 /* Let user override the number of hyperthreads */
 
-	CPU_HYPERTHREADS =
-		IniGetInt (LOCALINI_FILE, "CpuNumHyperthreads", CPU_HYPERTHREADS);
+	CPU_HYPERTHREADS = IniGetInt (LOCALINI_FILE, "CpuNumHyperthreads", CPU_HYPERTHREADS);
 	if (CPU_HYPERTHREADS == 0) CPU_HYPERTHREADS = 1;
 
 /* Let user override the CPU architecture */
@@ -485,6 +486,7 @@ void getCpuDescription (
 		if (CPU_FLAGS & CPU_AVX) strcat (buf, "AVX, ");
 		if (CPU_FLAGS & CPU_AVX2) strcat (buf, "AVX2, ");
 		if (CPU_FLAGS & (CPU_FMA3 | CPU_FMA4)) strcat (buf, "FMA, ");
+		if (CPU_FLAGS & CPU_AVX512F) strcat (buf, "AVX512F, ");
 		strcpy (buf + strlen (buf) - 2, "\n");
 	}
 	strcat (buf, "L1 cache size: ");
@@ -519,6 +521,34 @@ void getCpuDescription (
 			 CPU_L2_DATA_TLBS);
 }
 
+/* Print the machine topology as discovered by hwloc library */
+
+void topology_print_children (
+	hwloc_obj_t obj,
+        int depth)
+{
+	char type[32], attr[1024], cpuset[256], buf[1500];
+	unsigned int i;
+	if (obj == NULL) return;  // Shouldn't happen
+	hwloc_obj_type_snprintf (type, sizeof(type), obj, 0);
+	sprintf (buf, "%*s%s", 2*depth, " ", type);
+	if (obj->os_index != (unsigned) -1)
+		sprintf (buf+strlen(buf), "#%u", obj->os_index);
+	hwloc_obj_attr_snprintf (attr, sizeof(attr), obj, ", ", 1 /* verbose */);
+	if (obj->type == HWLOC_OBJ_CORE || obj->type == HWLOC_OBJ_PU)
+		hwloc_bitmap_snprintf (cpuset, sizeof(cpuset), obj->cpuset);
+	else
+		cpuset[0] = 0;
+	if (attr[0] && cpuset[0]) sprintf (buf+strlen(buf), " (%s, cpuset: %s)", attr, cpuset);
+	else if (attr[0]) sprintf (buf+strlen(buf), " (%s)", attr);
+	else if (cpuset[0]) sprintf (buf+strlen(buf), " (cpuset: %s)", cpuset);
+	strcat (buf, "\n");
+	writeResults (buf);
+	for (i = 0; i < obj->arity; i++) {
+		topology_print_children (obj->children[i], depth + 1);
+	}
+}
+
 /* Determine if a number is prime */
 
 int isPrime (
@@ -528,6 +558,205 @@ int isPrime (
 	for (i = 2; i < 0xFFFF && i * i <= p; i = (i + 1) | 1)
 		if (p % i == 0) return (FALSE);
 	return (TRUE);
+}
+
+
+/* Routines that use a simple sieve to find "may be prime" numbers.  That is, numbers without any small factors. */
+/* This is used by ECM and P-1.  Also, used by 64-bit trial factoring setup code. */
+
+#define MAX_PRIMES	6542		/* Num primes < 2^16 */
+typedef struct {
+	unsigned int *primes;
+	uint64_t first_number;
+	unsigned int bit_number;
+	unsigned int num_primes;
+	unsigned int num_elimination_primes;
+	uint64_t start;
+	char	array[4096];
+} sieve_info;
+
+/* Internal routine to fill up the sieve array */
+
+void fill_sieve (
+	sieve_info *si)
+{
+	unsigned int i, fmax;
+
+/* Determine the first bit to clear */
+
+	fmax = (unsigned int)
+		sqrt ((double) (si->first_number + sizeof (si->array) * 8 * 2));
+	for (i = si->num_primes; i < si->num_elimination_primes * 2; i += 2) {
+		unsigned long f, r, bit;
+		f = si->primes[i];
+		if (f > fmax) break;
+		if (si->first_number == 3) {
+			bit = (f * f - 3) >> 1;
+		} else {
+			r = (unsigned long) (si->first_number % f);
+			if (r == 0) bit = 0;
+			else if (r & 1) bit = (f - r) / 2;
+			else bit = (f + f - r) / 2;
+			if (f == si->first_number + 2 * bit) bit += f;
+		}
+		si->primes[i+1] = bit;
+	}
+	si->num_primes = i;
+
+/* Fill the sieve with ones, then zero out the composites */
+
+	memset (si->array, 0xFF, sizeof (si->array));
+	for (i = 0; i < si->num_primes; i += 2) {
+		unsigned int f, bit;
+		f = si->primes[i];
+		for (bit = si->primes[i+1];
+		     bit < sizeof (si->array) * 8;
+		     bit += f)
+			bitclr (si->array, bit);
+		si->primes[i+1] = bit - sizeof (si->array) * 8;
+	}
+	si->bit_number = 0;
+}
+
+/* Either:  1) Recycle a sieve_info structure using the same number of small primes, OR 2) Allocate a new sieve_info structure. */
+/* In both cases, reset the sieve to start returning primes at the specified point. */
+
+int start_sieve (
+	int	thread_num,	 
+	uint64_t start,
+	void	**si_to_recycle_or_returned_new_si)	/* Recycled or returned sieving structure */
+{
+	// Default sieve eliminates numbers with factors < 64K
+	return (start_sieve_with_limit (thread_num, start, 65536, si_to_recycle_or_returned_new_si));
+}
+
+int start_sieve_with_limit (
+	int	thread_num,	 
+	uint64_t start,					/* Starting point for the sieve */
+	uint32_t max_elimination_factor,		/* Sieve eliminates composites with any factors less than this number */
+	void	**si_to_recycle_or_returned_new_si)	/* Returned sieving structure */
+{
+	sieve_info *si;
+	unsigned int i;
+
+/* Re-use or allocate the sieve structure */
+
+	if (*si_to_recycle_or_returned_new_si != NULL)
+		si = (sieve_info *) *si_to_recycle_or_returned_new_si;
+	else {
+		si = (sieve_info *) malloc (sizeof (sieve_info));
+		if (si == NULL) goto oom;
+		*si_to_recycle_or_returned_new_si = si;
+		memset (si, 0, sizeof (sieve_info));
+	}
+
+/* Remember starting point (in case its 2) and make real start odd */
+
+	if (start < 2) start = 2;
+	si->start = start;
+	start |= 1;
+
+/* See if we can just reuse the existing sieve */
+
+	if (si->first_number &&
+	    start >= si->first_number &&
+	    start < si->first_number + sizeof (si->array) * 8 * 2) {
+		si->bit_number = (unsigned int) (start - si->first_number) / 2;
+		return (0);
+	}
+
+/* Initialize sieving primes */
+
+	if (si->primes == NULL) {
+		unsigned int f;
+		unsigned int estimated_num_primes;
+		estimated_num_primes = (unsigned int) ((double) max_elimination_factor / (log ((double) max_elimination_factor) - 1.0) * 1.01);
+		si->primes = (unsigned int *) malloc (estimated_num_primes * 2 * sizeof (unsigned int));
+		if (si->primes == NULL) goto oom;
+		for (i = 0, f = 3; f <= max_elimination_factor && i < estimated_num_primes; f += 2)
+			if (isPrime (f)) si->primes[i*2] = f, i++;
+		si->num_elimination_primes = i;
+	}
+
+	si->first_number = start;
+	si->num_primes = 0;
+	fill_sieve (si);
+	return (0);
+
+/* Out of memory exit path */
+
+oom:	*si_to_recycle_or_returned_new_si = NULL;
+	free (si);
+	return (OutOfMemory (thread_num));
+}
+
+/* Return next prime from the sieve */
+
+uint64_t sieve (
+	void	*si_arg)
+{
+	sieve_info *si = (sieve_info *) si_arg;
+
+	if (si->start == 2) {
+		si->start = 3;
+		return (2);
+	}
+	for ( ; ; ) {
+		unsigned int bit;
+		if (si->bit_number == sizeof (si->array) * 8) {
+			si->first_number += 2 * sizeof (si->array) * 8;
+			fill_sieve (si);
+		}
+		bit = si->bit_number++;
+		if (bittst (si->array, bit))
+			return (si->first_number + 2 * bit);
+	}
+}
+
+/* Return next "may be prime" from the sieve */
+
+void end_sieve (
+	void	*si_arg)
+{
+	sieve_info *si = (sieve_info *) si_arg;
+	if (si == NULL) return;
+	free (si->primes);
+	free (si);
+}
+
+/* Simple routine to determine if two numbers are relatively prime */
+
+int relatively_prime (
+	unsigned long i,
+	unsigned long D)
+{
+	unsigned long f;
+	for (f = 3; f * f <= i; f += 2) {
+		if (i % f != 0) continue;
+		if (D % f == 0) return (FALSE);
+		do {
+			i = i / f;
+		} while (i % f == 0);
+	}
+	return (i == 1 || D % i != 0);
+}
+
+/* Calculate the modular inverse - no error checking is performed */
+
+uint64_t modinv (uint64_t x, uint64_t f)		/* Compute 1/x mod f */
+{
+	uint64_t u = x % f;
+	uint64_t v = f;
+	uint64_t tmp, q;
+	int64_t c = 0, d = 1, stmp;
+
+	while (u > 1) {
+		q = u / v;
+		tmp = v; v = u % v; u = tmp;
+		stmp = c; c = d - q * c; d = stmp;
+	}
+	if (d < 0) d += f;
+	return (d);
 }
 
 /* Upper case a string */
@@ -663,6 +892,18 @@ int read_memory_settings (
 	return (strstr (p, " during ") == NULL);
 }
 
+/* Callback routine when illegal line read from INI file. */
+
+void ini_error_handler (
+	const char *filename,
+	int	line_number,
+	const char *line_text)
+{
+	char	buf[1200];
+	sprintf (buf, "File %s, line number %d is not valid: %s\n", filename, line_number, line_text);
+	OutputSomewhere (MAIN_THREAD_NUM, buf);
+}
+
 /* Determine the names of the INI files, then read them.  This is also the */
 /* perfect time to initialize mutexes and do other initializations. */
 
@@ -670,6 +911,21 @@ void nameAndReadIniFiles (
 	int	named_ini_files)
 {
 	char	buf[513];
+
+/* Determine the hardware topology using the hwloc library.  This library is much more */
+/* advanced than the information we previously garnered from CPUID instructions and thread timings. */
+
+	hwloc_topology_init (&hwloc_topology);
+	hwloc_topology_load (hwloc_topology);
+
+/* See if setting CPU affinity is supported */
+
+	{
+		const struct hwloc_topology_support *support;
+		OS_CAN_SET_AFFINITY = 1;
+		support = hwloc_topology_get_support (hwloc_topology);
+		if (support == NULL || ! support->cpubind->set_thread_cpubind) OS_CAN_SET_AFFINITY = 0;
+	}
 
 /* Initialize mutexes */
 
@@ -726,13 +982,18 @@ void nameAndReadIniFiles (
 	create_window (MAIN_THREAD_NUM);
 	base_title (MAIN_THREAD_NUM, "Main thread");
 
+/* Set error handler for printing errors while reading INI files once the main window is created. */
+/* Yes, we did ignore errors above reading prime.txt.  However, we will reread prime.txt */
+/* and will print the error message then. */
+
+	IniSetErrorCallback (ini_error_handler);
+
 /* Output a startup message */
 
 	sprintf (buf, "Mersenne number primality test program version %s\n", VERSION);
 	OutputStr (MAIN_THREAD_NUM, buf);
 
-/* Now that we have the proper file name, read the ini file into */
-/* global variables. */
+/* Now that we have the proper file name, read the ini file into global variables. */
 
 	readIniFiles ();
 
@@ -761,11 +1022,13 @@ void nameAndReadIniFiles (
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_CORE ? "Core Solo/Duo" :
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_CORE_2 ? "Core 2" :
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_CORE_I7 ? "Core i3/i5/i7" :
+		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_PHI ? "Xeon Phi" :
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_ATOM ? "Atom" :
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_INTEL_OTHER ? "Unknown Intel" :
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_K8 ? "AMD K8" :
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_K10 ? "AMD K10" :
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_BULLDOZER ? "AMD Bulldozer" :
+		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_ZEN ? "AMD Zen" :
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_OTHER ? "Not Intel and not AMD" : "Undefined");
 	strcat (buf, "L2 cache size: ");
 	if (CPU_L2_CACHE_SIZE < 0) strcat (buf, "unknown");
@@ -781,10 +1044,7 @@ void nameAndReadIniFiles (
 	}
 	strcat (buf, "\n");
 	OutputStr (MAIN_THREAD_NUM, buf);
-
-/* Dynamically determine which logical hyperthreaded CPUs map to physical CPUs */
-
-	generate_affinity_scramble ();
+	if (!OS_CAN_SET_AFFINITY) OutputStr (MAIN_THREAD_NUM, "OS does not support setting CPU affinity.\n");
 
 /* Start some initial timers */
 
@@ -816,6 +1076,129 @@ void initCommCode (void) {
 
 	if (USE_PRIMENET && USERID[0] == 0)
 		spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
+}
+
+/* Compute a good default value for number of workers based on NUMA / cache information from hwloc */
+
+int good_default_for_num_workers (void)
+{
+	int	packages, cores_per_package;
+
+// bug -- very likely need much more sophisticated hwloc code here.  such as factoring in sharing L3 caches,
+// NUMA, asymetric package core counts
+// warning: we'll need to mimic the more sophisticated code in read_cores_per_test
+
+/* Get a count of CPUs (not cores).  Our simple goal is to not split a worker across two physical chips. */
+
+	packages = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PACKAGE);
+	if (packages < 1 || NUM_CPUS % packages != 0) packages = 1;
+
+/* Default to roughly 4 workers per worker */
+
+	cores_per_package = NUM_CPUS / packages;
+	return (packages * (cores_per_package <= 6 ? 1 : ((cores_per_package + 3) / 4)));
+}
+
+/* Read CoresPerTest values.  This may require upgrading ThreadsPerTest to CoresPerTest. */
+/* This INI setting changed from threads to cores in version 29.1. */
+
+void read_cores_per_test (void)
+{
+	int	i, all_the_same;
+	unsigned int temp[MAX_NUM_WORKER_THREADS];
+
+/* Get the old ThreadsPerTest values that we used to support */
+
+	PTOGetAll (LOCALINI_FILE, "ThreadsPerTest", temp, 0);
+
+/* If we found some old settings then delete them from the INI file, */
+/* convert from threads to cores as best we can, and write out the new settings */
+
+	if (temp[0] != 0) {
+		int	total_threads, trim;
+		// Sum up the number of threads, see if each worker has the same number of threads
+		for (i = 0, total_threads = 0; i < (int) NUM_WORKER_THREADS; i++) {
+			if (temp[i] <= 0) temp[i] = 1;  // In theory, can't happen
+			total_threads += temp[i];
+		}
+		// If there are more threads than cores, then some hyperthreading was probably
+		// going on.  In the new scheme of things using hyperthreading is handled via
+		// a different INI setting.  Reduce the array values until we are not
+		// oversubscribing cores.
+		for (i = 0; total_threads > (int) NUM_CPUS && i < (int) NUM_WORKER_THREADS; i++) {
+			trim = temp[i] / 2;
+			if (total_threads - trim < (int) NUM_CPUS) trim = total_threads - NUM_CPUS;
+			temp[i] -= trim;
+			total_threads -= trim;
+		}
+		// See if each worker has the same number of cores
+		for (i = 0, all_the_same = TRUE; i < (int) NUM_WORKER_THREADS; i++) {
+			if (i && temp[i] != temp[i-1]) all_the_same = FALSE;
+		}
+		// Write out the new settings
+		memset (CORES_PER_TEST, 0xFF, sizeof (CORES_PER_TEST));
+		if (all_the_same)
+			PTOSetAll (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, temp[0]);
+		else for (i = 0; i < (int) NUM_WORKER_THREADS; i++)
+			PTOSetOne (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, temp[i]);
+		// Clear old settings
+		PTOSetAll (LOCALINI_FILE, "ThreadsPerTest", NULL, temp, 0);
+		IniWriteString (LOCALINI_FILE, "ThreadsPerTest", NULL);
+	}
+
+/* Read in the CoresPerTest values that we support as of version 29.1 */
+
+	PTOGetAll (LOCALINI_FILE, "CoresPerTest", CORES_PER_TEST, 0);
+
+/* If we did not find any settings, use hwloc's information to give us a good default setting. */
+/* For example, consider a dual CPU Xeon system with 9 cores per CPU.  A good setting for four */
+/* workers would be 4 cores, 5 cores, 4 cores, 5 cores.  That way, we do not have an LL test */
+/* spanning across CPUs. */
+
+	if (CORES_PER_TEST[0] == 0) {
+		int	packages, cores_per_package, workers, workers_this_package, cores_this_package;
+
+// bug -- very likely need much more sophisticated hwloc code here.  such as factoring in sharing L3 caches,
+// NUMA, asymetric package core counts
+// warning: we'll need to mimic the more sophisticated code in good_default_for_num_workers
+
+/* Get a count of CPUs (not cores).  Our simple goal is to not split a worker across two physical chips. */
+
+		packages = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PACKAGE);
+		if (packages < 1 || NUM_CPUS % packages != 0) packages = 1;
+		cores_per_package = NUM_CPUS / packages;
+
+/* Decide how many workers will run on each package.  Then distribute the package's cores among those workers. */
+
+		i = 0;
+		workers = NUM_WORKER_THREADS;
+		for ( ; packages; packages--) {
+			cores_this_package = cores_per_package;
+			workers_this_package = workers / packages; workers -= workers_this_package;
+			for ( ; workers_this_package; workers_this_package--) {
+				temp[i] = cores_this_package / workers_this_package;
+				cores_this_package -= temp[i];
+				i++;
+			}
+		}
+
+		// See if each worker has the same number of cores
+		for (i = 0, all_the_same = TRUE; i < (int) NUM_WORKER_THREADS; i++) {
+			if (i && temp[i] != temp[i-1]) all_the_same = FALSE;
+		}
+		// Write out the new settings
+		if (all_the_same)
+			PTOSetAll (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, temp[0]);
+		else for (i = 0; i < (int) NUM_WORKER_THREADS; i++)
+			PTOSetOne (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, temp[i]);
+	}
+
+/* Sanity check the CoresPerTest.  In case user hand-edited local.txt */
+
+	for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+		if (CORES_PER_TEST[i] < 1) CORES_PER_TEST[i] = 1;
+		if (CORES_PER_TEST[i] > NUM_CPUS) CORES_PER_TEST[i] = NUM_CPUS;
+	}
 }
 
 /* Read or re-read the INI files & and do other initialization */
@@ -914,15 +1297,17 @@ int readIniFiles (void)
 	ERRCHK = (temp != 0);
 	temp = (int) IniGetInt (INI_FILE, "SumInputsErrorCheck", 0);
 	SUM_INPUTS_ERRCHK = (temp != 0);
-	NUM_WORKER_THREADS = IniGetInt (LOCALINI_FILE, "WorkerThreads", (NUM_CPUS <= 6) ? 1 : ((NUM_CPUS + 3) / 4));
+	NUM_WORKER_THREADS = IniGetInt (LOCALINI_FILE, "WorkerThreads", good_default_for_num_workers ());
 	if (NUM_WORKER_THREADS < 1) NUM_WORKER_THREADS = 1;
 	if (NUM_WORKER_THREADS > MAX_NUM_WORKER_THREADS) NUM_WORKER_THREADS = MAX_NUM_WORKER_THREADS;
+	IniWriteInt (LOCALINI_FILE, "WorkerThreads", NUM_WORKER_THREADS); // Write in case future prime95 changes good_default_for_num_workers
 	PRIORITY = (unsigned int) IniGetInt (INI_FILE, "Priority", 1);
 	if (PRIORITY < 1) PRIORITY = 1;
 	if (PRIORITY > 10) PRIORITY = 10;
 	PTOGetAll (INI_FILE, "WorkPreference", WORK_PREFERENCE, 0);
-	PTOGetAll (LOCALINI_FILE, "Affinity", CPU_AFFINITY, 100);
-	PTOGetAll (LOCALINI_FILE, "ThreadsPerTest", THREADS_PER_TEST, NUM_CPUS / NUM_WORKER_THREADS);
+	read_cores_per_test ();		// Get CORES_PER_TEST array, may require upgrading old INI settings
+	HYPERTHREAD_TF = IniGetInt (LOCALINI_FILE, "HyperthreadTF", OS_CAN_SET_AFFINITY);
+	HYPERTHREAD_LL = IniGetInt (LOCALINI_FILE, "HyperthreadLL", 0);
 	MANUAL_COMM = (int) IniGetInt (INI_FILE, "ManualComm", 0);
 	HIDE_ICON = (int) IniGetInt (INI_FILE, "HideIcon", 0);
 	TRAY_ICON = (int) IniGetInt (INI_FILE, "TrayIcon", 1);
@@ -1206,8 +1591,8 @@ retrc:	fclose (fd);
 /****************************************************************************/
 
 void PTOGetAll (
-	char	*ini_filename,		/* Ini file containing the options */
-	char	*keyword,		/* Ini file keyword */
+	const char *ini_filename,	/* Ini file containing the options */
+	const char *keyword,		/* Ini file keyword */
 	unsigned int *array,		/* Options array */
 	unsigned int def_val)		/* Default value */
 {
@@ -1216,25 +1601,23 @@ void PTOGetAll (
 
 /* Copy the global option setting to the entire array */
 
-	global_val = IniGetInt (ini_filename, keyword, -1);
+	global_val = IniGetInt (ini_filename, keyword, def_val);
 	for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
-		if (global_val == -1) array[i] = def_val;
-		else array[i] = global_val;
+		array[i] = global_val;
 	}
 
 /* Now look for any section specific overrides */
 
 	for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
 		sprintf (section_name, "Worker #%d", i+1);
-		array[i] = IniSectionGetInt (ini_filename, section_name,
-					     keyword, array[i]);
+		array[i] = IniSectionGetInt (ini_filename, section_name, keyword, array[i]);
 	}
 }
 
 void PTOSetAll (
-	char	*ini_filename,		/* Ini file containing the options */
-	char	*keyword,		/* Ini file keyword */
-	char	*shadow_keyword,	/* Ini file keyword for value the */
+	const char *ini_filename,	/* Ini file containing the options */
+	const char *keyword,		/* Ini file keyword */
+	const char *shadow_keyword,	/* Ini file keyword for value the */
 					/* server has stored for this option */
 	unsigned int *array,		/* Options array */
 	unsigned int new_val)		/* New option value */
@@ -1257,15 +1640,14 @@ void PTOSetAll (
 		sprintf (section_name, "Worker #%d", i+1);
 		IniSectionWriteString (ini_filename, section_name, keyword, NULL);
 		if (shadow_keyword != NULL)
-			IniSectionWriteString (LOCALINI_FILE, section_name,
-					       shadow_keyword, NULL);
+			IniSectionWriteString (LOCALINI_FILE, section_name, shadow_keyword, NULL);
 	}
 }
 
 void PTOSetOne (
-	char	*ini_filename,		/* Ini file containing the options */
-	char	*keyword,		/* Ini file keyword */
-	char	*shadow_keyword,	/* Ini file keyword for value the */
+	const char *ini_filename,	/* Ini file containing the options */
+	const char *keyword,		/* Ini file keyword */
+	const char *shadow_keyword,	/* Ini file keyword for value the */
 					/* server has stored for this option */
 	unsigned int *array,		/* Options array */
 	int	tnum,			/* Thread number */
@@ -1291,11 +1673,9 @@ void PTOSetOne (
 			IniWriteString (LOCALINI_FILE, shadow_keyword, NULL);
 		for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
 			sprintf (section_name, "Worker #%d", i+1);
-			IniSectionWriteInt (ini_filename, section_name,
-					    keyword, array[i]);
+			IniSectionWriteInt (ini_filename, section_name, keyword, array[i]);
 			if (shadow_keyword != NULL)
-				IniSectionWriteInt (LOCALINI_FILE, section_name,
-						    shadow_keyword, array[i]);
+				IniSectionWriteInt (LOCALINI_FILE, section_name, shadow_keyword, array[i]);
 		}
 	}
 
@@ -1305,8 +1685,7 @@ void PTOSetOne (
 	sprintf (section_name, "Worker #%d", tnum+1);
 	IniSectionWriteInt (ini_filename, section_name, keyword, new_val);
 	if (shadow_keyword != NULL)
-		IniSectionWriteInt (LOCALINI_FILE, section_name,
-				    shadow_keyword, new_val);
+		IniSectionWriteInt (LOCALINI_FILE, section_name, shadow_keyword, new_val);
 }
 
 int PTOIsGlobalOption (
@@ -1320,7 +1699,7 @@ int PTOIsGlobalOption (
 }
 
 int PTOHasOptionChanged (
-	char	*shadow_keyword,	/* Ini file keyword for value the */
+	const char *shadow_keyword,	/* Ini file keyword for value the */
 					/* server has stored for this option */
 	unsigned int *array,		/* Options array */
 	int	tnum)			/* Thread number */
@@ -1489,7 +1868,7 @@ int OutOfMemory (
 /* Count commas in a string */
 
 unsigned int countCommas (
-	char *p)
+	const char *p)
 {
 	unsigned int cnt;
 	for (cnt = 0; ; cnt++) {
@@ -2144,7 +2523,7 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		OutputBoth (MAIN_THREAD_NUM, buf);
 		goto illegal_line;
 	    }
-	    if (w->work_type == WORK_FACTOR && w->n > MAX_FACTOR) {
+	    if (w->work_type == WORK_FACTOR && w->n > MAX_FACTOR && !IniGetInt (INI_FILE, "LargeTFexponents", 0)) {
 		char	buf[100];
 		sprintf (buf, "Error: Worktodo.txt file contained bad factoring assignment: %ld\n", w->n);
 		OutputBoth (MAIN_THREAD_NUM, buf);
@@ -2700,7 +3079,7 @@ double work_estimate (
 {
 	double	timing, est, pct_complete;
 	int	can_use_multiple_threads;
-	unsigned int i, total_threads;
+	unsigned int i, total_cores;
 
 /* I suppose there are race conditions where a deleted work unit could */
 /* get here.  Return an estimate of 0.0. */
@@ -2835,7 +3214,11 @@ double work_estimate (
 	if (w->work_type == WORK_FACTOR) {
 		int	i, tf_level;
 
+#ifdef X86_64
+		can_use_multiple_threads = TRUE;
+#else
 		can_use_multiple_threads = FALSE;
+#endif
 
 		if (w->stage[0]) tf_level = atoi (&w->stage[2]);
 		else tf_level = 0;
@@ -2852,6 +3235,27 @@ double work_estimate (
 				est += timing;
 		}
 		est = est * 2000.0 / CPU_SPEED;
+
+/* Core 2 and Core I7 CPUs are faster than the Pentium 4 I benchmarked.  I presume all later Intel CPUs are as well. */
+/* AMD CPUs are faster than the Pentium 4 as well.  From the CPU benchmarks page, we find: */
+/* Our original P4, TF to 65 bits -- 2.0 GHz P4 = 20.2 ms */
+/* A 2.8 GHz Core 2 is 5.8 ms, which is 8.1 ms adjusting for different clock rates, or 2.5 times faster */
+/* A 3.3 GHz i7 980 is 4.0 ms, which is 6.6 ms adjusting for different clock rates, or 3.1 times faster */
+/* A 3.2 GHz Phenom 840 is 4.2 ms, which is 6.7 ms adjusting for different clock rates, or 3.0 times faster */
+
+		if (CPU_ARCHITECTURE == CPU_ARCHITECTURE_CORE_2) est /= 2.5;
+		if (CPU_ARCHITECTURE == CPU_ARCHITECTURE_CORE_I7 ||
+		    CPU_ARCHITECTURE == CPU_ARCHITECTURE_PHI ||
+		    CPU_ARCHITECTURE == CPU_ARCHITECTURE_INTEL_OTHER) est /= 3.1;
+		if (CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_K8 ||
+		    CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_K10 ||
+		    CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_BULLDOZER ||
+		    CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_OTHER) est /= 3.0;
+
+/* Factor in the algorithmic improvements since the Pentium 4 TF benchmark was taken */
+
+		if (CPU_FLAGS & CPU_AVX512F) est /= 4.0;
+		else if (CPU_FLAGS & CPU_AVX2) est /= 2.0;
 	}
 
 /* If testing add in the Lucas-Lehmer testing time */
@@ -2877,30 +3281,25 @@ double work_estimate (
 
 /* If the worker uses multiple CPUs to execute the FFT, then adjust the */
 /* time estimate.  As a rough estimate, assume the first additional CPU */
-/* reduces the time by a factor of 1.7.  Also assume each additional CPU */
-/* is less beneficial. */
+/* reduces the time by a factor of 1.9.  Also assume each additional CPU */
+/* is less beneficial.  Trial factoring is an exception -- it scales quite nicely. */
 
-	if (can_use_multiple_threads &&
-	    THREADS_PER_TEST[thread_num] > CPU_HYPERTHREADS) {
+	if (can_use_multiple_threads && CORES_PER_TEST[thread_num] > 1) {
 		double	effective_num_cpus, cpu_value;
 		effective_num_cpus = 0.0;
 		cpu_value = 1.0;
-		for (i = 0; i < THREADS_PER_TEST[thread_num]; i += CPU_HYPERTHREADS) {
+		for (i = 0; i < CORES_PER_TEST[thread_num]; i++) {
 			effective_num_cpus += cpu_value;
-			cpu_value *= 0.7;
+			cpu_value *= (w->work_type == WORK_FACTOR ? 1.0 : 0.9);
 		}
 		est = est / effective_num_cpus;
 	}
 
-/* If the user is unwisely running more threads than there are logical */
-/* CPUs, then increase the time estimate */
+/* If the user unwisely oversubscribed the CPU cores, then increase the time estimate */
 
-	total_threads = 0;
-	for (i = 0; i < NUM_WORKER_THREADS; i++)
-		total_threads += THREADS_PER_TEST[i];
-	if (total_threads > NUM_CPUS * CPU_HYPERTHREADS)
-		est *= (double) total_threads /
-		       (double) (NUM_CPUS * CPU_HYPERTHREADS);
+	total_cores = 0;
+	for (i = 0; i < NUM_WORKER_THREADS; i++) total_cores += CORES_PER_TEST[i];
+	if (total_cores > NUM_CPUS) est *= (double) total_cores / (double) NUM_CPUS;
 
 /* Return the total estimated time in seconds */
 
@@ -2972,7 +3371,7 @@ unsigned int factorLimit (
 /* Convert a string to a hash value */
 
 unsigned long string_to_hash (
-	char	*str)		/* String to hash */
+	const char *str)		/* String to hash */
 {
 	char	md5val[33];
 	int	i, j;
@@ -3273,7 +3672,7 @@ void tempFileName (
 /* See if the given file exists */
 
 int fileExists (
-	char	*filename)
+	const char *filename)
 {
 	int	fd;
 	fd = _open (filename, _O_RDONLY | _O_BINARY);
@@ -3303,7 +3702,7 @@ int read_array (
 
 int write_array (
 	int	fd,
-	char	*buf,
+	const char *buf,
 	unsigned long len,
 	unsigned long *sum)
 {
@@ -4841,6 +5240,7 @@ retry:
 		if (CPU_FLAGS & CPU_AVX) strcat (pkt.cpu_features, "AVX,");
 		if (CPU_FLAGS & CPU_AVX2) strcat (pkt.cpu_features, "AVX2,");
 		if (CPU_FLAGS & (CPU_FMA3 | CPU_FMA4)) strcat (pkt.cpu_features, "FMA, ");
+		if (CPU_FLAGS & CPU_AVX512F) strcat (pkt.cpu_features, "AVX512F,");
 		if (pkt.cpu_features[0])
 			pkt.cpu_features[strlen (pkt.cpu_features) - 1] = 0;
 		pkt.L1_cache_size = CPU_L1_CACHE_SIZE;

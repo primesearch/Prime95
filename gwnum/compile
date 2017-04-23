@@ -6,8 +6,10 @@
 # objconv comes courtesy of Agner Fog.  Download available at
 # http://www.agner.org/optimize/#objconv
 
-#masm=HJWasm32 /c -coff
-masm=ml /c /coff
+masm=HJWasm32 /c -coff
+#masm=HJWasm32 /c -Fl -coff
+#masm=HJWasm32 /c -Fl -Sf -Sa -Sg -coff
+#masm=ml /c /coff
 #masm=ml /c /coff /Fl /Sf /Sa
 
 # Use the MSVC 8 C compiler

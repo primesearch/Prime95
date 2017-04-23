@@ -1,5 +1,7 @@
 # Makefile for Haiku mprime
 #
+# Hwloc can be downloaded from https://www.open-mpi.org/projects/hwloc/
+#
 
 CC = gcc
 CFLAGS = -I.. -I../gwnum -O2 -march=i586 -malign-double
@@ -7,8 +9,8 @@ CFLAGS = -I.. -I../gwnum -O2 -march=i586 -malign-double
 CPP = g++
 CPPFLAGS = -I.. -I../gwnum -O2 -march=i586 -malign-double
 
-LFLAGS = -Wl,-M
-LIBS   = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lnetwork -lcurl -lstdc++
+LFLAGS = -Wl,-M -L/usr/local/lib
+LIBS   = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lnetwork -lhwloc -lcurl -lstdc++
 
 FACTOROBJ = factor32.o
 HAIKUOBJS = prime.o menu.o

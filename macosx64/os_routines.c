@@ -294,9 +294,8 @@ void raiseAllWorkerThreadPriority (void)
 /* (linux's lowest priority).  Map eight (prime95's normal priority) to */
 /* 0 (linux's normal priority). */
 
-void setThreadPriorityAndAffinity (
-	int	priority,		/* Priority, 1=low, 9=high */
-	int	*mask)			/* Affinity mask (32-bits per array entry) */
+void setOsThreadPriority (
+	int	priority)		/* Priority, 1=low, 9=high */
 {
 #ifdef __IBMC__
 	DosSetPriority(PRTYS_PROCESS,
@@ -309,9 +308,8 @@ void setThreadPriorityAndAffinity (
 		       0);
 #endif
 #ifdef __linux__
-	int	linux_priority, i, errcode;
+	int	linux_priority, errcode;
 	pid_t	thread_id;
-	cpu_set_t linux_mask;
 
 /* I couldn't get the standard syscall0 declaration of gettid to */
 /* work in my Linux distro.  Use the direct system call instead. */
@@ -322,20 +320,8 @@ void setThreadPriorityAndAffinity (
 /* (linux's lowest priority).  Map eight (prime95's normal priority) to */
 /* 0 (linux's normal priority). */
 
-	if (IniGetInt (INI_FILE, "EnableLinuxSetPriority", 1)) {
-		linux_priority = (8 - (int) priority) * 19 / 7;
-		errcode = setpriority (PRIO_PROCESS, thread_id, linux_priority);
-	}
-
-/* Set affinity for this thread.  It is the callers responsibility to */
-/* determine which logical hyperthreaded CPUs map to a single physical CPU. */
-
-	if (IniGetInt (INI_FILE, "EnableLinuxSetAffinity", 1)) {
-		CPU_ZERO (&linux_mask);
-		for (i = 0; i < MAX_NUM_WORKER_THREADS && i < CPU_SETSIZE; i++)
-			if (mask[i/32] & (1 << (i & 31))) CPU_SET (i, &linux_mask);
-		errcode = sched_setaffinity (thread_id, sizeof (linux_mask), &linux_mask);
-	}
+	linux_priority = (8 - (int) priority) * 19 / 7;
+	errcode = setpriority (PRIO_PROCESS, thread_id, linux_priority);
 #endif
 
 #if defined (__APPLE__) || defined (__FreeBSD__)
@@ -344,10 +330,6 @@ void setThreadPriorityAndAffinity (
 	static	int	min_priority = 0;
 	static	int	max_priority = 0;
 	struct sched_param sp;
-#ifdef __FreeBSD__
-	int	i;
-	cpuset_t cset;
-#endif
 
 /* My latest MacBook Pro running OS X Mavericks changes Prime95's priority to background. */
 /* This wouldn't be a problem except that the scheduler feels free to invoke SpeedStep */
@@ -396,15 +378,6 @@ void setThreadPriorityAndAffinity (
 	memset (&sp, 0, sizeof(struct sched_param));
 	sp.sched_priority = min_priority + (priority - 1) * (default_priority - min_priority) / 7;
 	pthread_setschedparam (pthread_self(), default_policy, &sp);
-
-/* Set affinity for FreeBSD threads */
-
-#ifdef __FreeBSD__
-	CPU_ZERO (&cset);
-	for (i = 0; i < MAX_NUM_WORKER_THREADS && i < CPU_SETSIZE; i++)
-		if (mask[i/32] & (1 << (i & 31))) CPU_SET (i, &cset);
-	cpuset_setaffinity (CPU_LEVEL_WHICH, CPU_WHICH_TID, -1, sizeof (cset), &cset);
-#endif
 #endif
 }
 

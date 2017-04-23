@@ -1,4 +1,4 @@
-; Copyright 1995-2014 Mersenne Research, Inc.  All rights reserved
+; Copyright 1995-2016 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -31,6 +31,11 @@ X87_CASES	EQU	13
 ENDIF
 SSE2_CASES	EQU	216
 AVX_CASES	EQU	300
+IFDEF X86_64
+AVX512_CASES	EQU	12
+ELSE
+AVX512_CASES	EQU	0
+ENDIF
 
 loopent	MACRO	y,z		; Create a entry in the loop entry table
 	DP	&y&z
@@ -112,6 +117,23 @@ loop1:  vmovapd  ymm0, [rsi]		;; Read cache lines
 	jnz	loop2
 	ENDM
 
+read8	MACRO	mem, c			;; Bytes to read
+	LOCAL loop1, loop2
+        cnt = mem/(4*64)                ;; 4 cache lines per iteration
+	mov	edx, c
+loop2:	mov     ecx, cnt
+loop1:  vmovapd  zmm0, [rsi]		;; Read cache lines
+        vmovapd  zmm1, [rsi+64]
+        vmovapd  zmm2, [rsi+128]
+        vmovapd  zmm3, [rsi+192]
+        add     rsi, 4*64		;; Next cache lines
+        sub     ecx, 1
+        jnz     loop1
+        sub     rsi, cnt*4*64
+	dec	edx
+	jnz	loop2
+	ENDM
+
 write1	MACRO	mem, c			;; Bytes to write
 	LOCAL loop1, loop2
         cnt = mem/64                    ; 64 bytes per iteration
@@ -176,6 +198,23 @@ loop1:  vmovapd  [rsi], ymm0		;; Write cache lines
 	jnz	loop2
 	ENDM
 
+write8	MACRO	mem, c			;; Bytes to write
+	LOCAL loop1, loop2
+        cnt = mem/(4*64)                ;; 4 cache lines per iteration
+	mov	edx, c
+loop2:	mov     ecx, cnt
+loop1:  vmovapd  [rsi], zmm0		;; Write cache lines
+        vmovapd  [rsi+64], zmm1
+        vmovapd  [rsi+128], zmm2
+        vmovapd  [rsi+192], zmm3
+        add     rsi, 4*64		;; Next cache lines
+        sub     ecx, 1
+        jnz     loop1
+        sub     rsi, cnt*4*64
+	dec	edx
+	jnz	loop2
+	ENDM
+
 readwrite1 MACRO mem, c			;; Bytes to write
 	LOCAL loop1, loop2
         cnt = mem/64
@@ -222,6 +261,27 @@ loop1:  vmovapd  ymm0, [rsi]		;; Read cache lines
         vmovapd  [rsi+160], ymm5
         vmovapd  [rsi+192], ymm6
         vmovapd  [rsi+224], ymm7
+        add     rsi, 4*64		;; Next cache lines
+        sub     ecx, 1
+        jnz     loop1
+        sub     rsi, cnt*4*64
+	dec	edx
+	jnz	loop2
+	ENDM
+
+readwrite8 MACRO mem, c			;; Bytes to read/write
+	LOCAL loop1, loop2
+        cnt = mem/(4*64)                ;; 4 cache lines per iteration
+	mov	edx, c
+loop2:	mov     ecx, cnt
+loop1:  vmovapd  zmm0, [rsi]		;; Read cache lines
+        vmovapd  zmm2, [rsi+64]
+        vmovapd  zmm4, [rsi+128]
+        vmovapd  zmm6, [rsi+192]
+	vmovapd  [rsi], zmm0		;; Write cache lines
+        vmovapd  [rsi+64], zmm2
+        vmovapd  [rsi+128], zmm4
+        vmovapd  [rsi+192], zmm6
         add     rsi, 4*64		;; Next cache lines
         sub     ecx, 1
         jnz     loop1
@@ -624,6 +684,7 @@ _TEXT	SEGMENT
 x87table: looptab case, X87_CASES
 sse2table: looptab sscase, SSE2_CASES
 avxtable: looptab avcase, AVX_CASES
+avx512table: looptab av512case, AVX512_CASES
 
 ; gwtimeit (asm_data)
 ;	Time a mini benchmark
@@ -656,6 +717,9 @@ PROCFL	gwtimeit
 	mov	eax, AVX_CASES
 	cmp	edx, -3			; -3 = get num avx cases
 	je	exit
+	mov	eax, AVX512_CASES
+	cmp	edx, -4			; -4 = get num avx512 cases
+	je	exit
 
 	cmp	edx, 1000		; Tests below 1000 are x87 code
 	jl	x87
@@ -663,9 +727,20 @@ PROCFL	gwtimeit
 	cmp	edx, 2000		; Tests below 2000 are SSE2 code
 	jl	short sse2
 
+	cmp	edx, 3000		; Tests below 3000 are AVX code
+	jl	short avx
+
 ; Init registers and jump to desired AVX test case
 
-	vzeroall			; Clear YMM registers
+	vzeroall			; Clear ZMM registers
+	sub	rdx, 3000
+	mov	rax, OFFSET avx512table
+	mov	rax, [rax+rdx*SZPTR]; Get address of test to execute
+	jmp	rax
+
+; Init registers and jump to desired AVX test case
+
+avx:	vzeroall			; Clear YMM registers
 	sub	rdx, 2000
 	mov	rax, OFFSET avxtable
 	mov	rax, [rax+rdx*SZPTR]; Get address of test to execute
@@ -1454,6 +1529,69 @@ avcase11:	readwrite4 32768*1024, 2 ; Read/write 32MB
 	avxmac 512*1, 100000, 0, yr8_rsc_sg8cl_2sc_sixteen_reals_fft8 rsi, 8*64, 64, 2*64, 4*64, rdx, 8*64, 64, 2*64, 4*64, rdi, 0, rdi, YMM_SCD8, 1
 	avxmac 512*1, 8192, 0, yr8_rsc_sg8cl_2sc_sixteen_reals_unfft8 rsi, 8*64, 64, 2*64, 4*64, rdx, 8*64, 64, 2*64, 4*64, rdi, 0, rdi, YMM_SCD8, 1
 	avxmac 512*1, 100000, 0, yr8_rsc_sg8cl_2sc_sixteen_reals_unfft8 rsi, 8*64, 64, 2*64, 4*64, rdx, 8*64, 64, 2*64, 4*64, rdi, 0, rdi, YMM_SCD8, 1
+
+
+
+; Time ~10000 iterations of the AVX-512 macros in L1 and L2 caches
+
+IFDEF X86_64
+;INCLUDE zarch.mac
+;INCLUDE zbasics.mac
+;INCLUDE zmult.mac
+;INCLUDE zr4.mac
+;INCLUDE znormal.mac
+
+; This code reads/writes 64MB (1M cache lines) in contiguous blocks.  Timings are done
+; on 4 memory sizes.  4KB will operate on the L1 cache only, 128KB will operate on the
+; L2 cache only, 2MB will operate on the L3 cache and 32MB will operate on main memory.
+
+av512case0:	read8	4096, 16384	; Read 4KB
+		jmp	exit
+av512case1:	read8	128*1024, 512	; Read 128KB
+		jmp	exit
+av512case2:	read8	2048*1024, 32	; Read 2MB
+		jmp	exit
+av512case3:	read8	32768*1024, 2	; Read 32MB
+		jmp	exit
+
+av512case4:	write8	4096, 16384	; Write 4KB
+		jmp	exit
+av512case5:	write8	128*1024, 512	; Write 128KB
+		jmp	exit
+av512case6:	write8	2048*1024, 32	; Write 2MB
+		jmp	exit
+av512case7:	write8	32768*1024, 2	; Write 32MB
+		jmp	exit
+
+av512case8:	readwrite8 4096, 16384	; Read/write 4KB
+		jmp	exit
+av512case9:	readwrite8 128*1024, 512 ; Read/write 128KB
+		jmp	exit
+av512case10:	readwrite8 2048*1024, 32 ; Read/write 2MB
+		jmp	exit
+av512case11:	readwrite8 32768*1024, 2 ; Read/write 32MB
+		jmp	exit
+
+IFDEF QQQQ
+	zloop_init 32			;; Dummy call to zloop_init
+
+	avx512_case_num = 12
+
+;;12
+	avx512mac 256*1, 8192, 0, zr4_4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 1
+	avx512mac 256*2, 8192, 0, zr4_4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 2
+	avx512mac 256*1, 100000, 0, zr4_4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 1
+	avx512mac 256*2, 100000, 0, zr4_4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 2
+	avx512mac 256*1, 8192, 0, zr4_s4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 1
+	avx512mac 256*1, 100000, 0, zr4_s4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 1
+	avx512macbx 256*1, 8192, 0, zr4_fs4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 1
+	avx512macbx 256*1, 100000, 0, zr4_fs4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 1
+	avx512mac 256, 8192, 0, zr4_b4cl_csc_wpn_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, 0, rdi, ZMM_SCND4, 1
+	avx512mac 256, 100000, 0, zr4_b4cl_csc_wpn_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, 0, rdi, ZMM_SCND4, 1
+	avx512mac 256*1, 8192, 0, zr4_sg4cl_2sc_eight_reals_fft4 rsi, 4*64, 64, 2*64, rdx, 4*64, 64, 2*64, rdi, ZMM_SCD4, rdi, ZMM_SCD2, 1
+	avx512mac 256*1, 100000, 0, zr4_sg4cl_2sc_eight_reals_fft4 rsi, 4*64, 64, 2*64, rdx, 4*64, 64, 2*64, rdi, ZMM_SCD4, rdi, ZMM_SCD2, 1
+ENDIF
+ENDIF
 
 ; Exit the timing code
 

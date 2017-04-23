@@ -11,7 +11,7 @@
 
 /* Common global variables */
 
-#define MAX_THREAD_HANDLES	128
+#define MAX_THREAD_HANDLES	1024
 HANDLE	THREAD_HANDLES[MAX_THREAD_HANDLES] = {0};
 int	NUM_THREAD_HANDLES = 0;
 
@@ -71,15 +71,10 @@ void clearThreadHandleArray (void)
 /* background.  In selecting the proper thread priority I've assumed the */
 /* program usually runs in the background. */ 
 
-/* Set affinity for this thread.  It is the callers responsibility to */
-/* determine which logical hyperthreaded CPUs map to a single physical CPU. */
-
-void setThreadPriorityAndAffinity (
-	int	priority,		/* Priority, 1=low, 9=high */
-	int	*mask)			/* Affinity mask (32-bits per array entry) */
+void setOsThreadPriority (
+	int	priority)		/* Priority, 1=low, 9=high */
 {
 	HANDLE	h;
-	DWORD_PTR winmask;
 	int	pri_class, thread_pri;
 
 /* Get and remember the thread handle */
@@ -106,19 +101,6 @@ void setThreadPriorityAndAffinity (
 /* Disable thread priority boost */
 
 	SetThreadPriorityBoost (h, TRUE);
-
-/* Windows 95 does not support affinity settings */
-
-	if (isWindows95 ()) return;
-
-/* Set the affinity */
-
-#ifdef X86_64
-	winmask = (((DWORD_PTR) mask[1]) << 32) + (DWORD_PTR) mask[0];
-#else
-	winmask = (DWORD_PTR) mask[0];
-#endif
-	SetThreadAffinityMask (h, winmask);
 }
 
 /* Register a thread termination.  We remove the thread handle from the */
@@ -150,7 +132,7 @@ void raiseAllWorkerThreadPriority (void)
 	SetPriorityClass (GetCurrentProcess (), NORMAL_PRIORITY_CLASS);
 
 /* Loop through the thread handle array raising priority and */
-/* setting affinity */
+/* setting affinity to run on any CPU. */
 
 	for (i = 0; i < NUM_THREAD_HANDLES; i++) {
 		SetThreadPriority (THREAD_HANDLES[i],

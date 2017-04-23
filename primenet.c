@@ -9,7 +9,7 @@
 // THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
 // PARTICULAR PURPOSE.
 //
-// Copyright (c) 1997-2015 Mersenne Research, Inc. All Rights Reserved.
+// Copyright (c) 1997-2017 Mersenne Research, Inc. All Rights Reserved.
 //
 //  MODULE:   primenet.c
 //
@@ -209,11 +209,16 @@ void getProxyInfo (
 {
 	char	*colon;
 
+/* Initialize return variables in case we return early */
+
+	*nProxyPort = 8080;
+	*szProxyUser = 0;
+	*szProxyPassword = 0;
+
 /* Get the host name of the optional proxy server.  If using a proxy */
 /* server strip the optional http:// prefix. */
 
-	IniSectionGetString (INI_FILE, iniSection, "ProxyHost",
-			     szProxyHost, PROXY_HOST_BUFSIZE, NULL);
+	IniSectionGetString (INI_FILE, iniSection, "ProxyHost", szProxyHost, PROXY_HOST_BUFSIZE, NULL);
 	if (szProxyHost[0] == 0) return;
 
 	if ((szProxyHost[0] == 'H' || szProxyHost[0] == 'h') &&
@@ -222,7 +227,7 @@ void getProxyInfo (
 	    (szProxyHost[3] == 'P' || szProxyHost[3] == 'p') &&
 	    szProxyHost[4] == ':' && szProxyHost[5] == '/' &&
 	    szProxyHost[6] == '/')
-		strcpy (szProxyHost, szProxyHost + 7);
+		safe_strcpy (szProxyHost, szProxyHost + 7);
 
 /* Get optional port number */
 
@@ -234,17 +239,14 @@ void getProxyInfo (
 
 /* Secure proxy - get username and password to negotiate access */
 
-	IniSectionGetString (INI_FILE, iniSection, "ProxyUser",
-			     szProxyUser, PROXY_USER_BUFSIZE, NULL);
-	IniSectionGetString (INI_FILE, iniSection, "ProxyPass",
-			     szProxyPassword, PROXY_PASSWORD_BUFSIZE, NULL);
+	IniSectionGetString (INI_FILE, iniSection, "ProxyUser", szProxyUser, PROXY_USER_BUFSIZE, NULL);
+	IniSectionGetString (INI_FILE, iniSection, "ProxyPass", szProxyPassword, PROXY_PASSWORD_BUFSIZE, NULL);
 
 /* Scramble or unscramble the password as necessary */
 
 	if (!IniSectionGetInt (INI_FILE, iniSection, "ProxyMask", 0)) {
 		scramble (szProxyPassword);
-		IniSectionWriteString (INI_FILE, iniSection,
-					"ProxyPass", szProxyPassword);
+		IniSectionWriteString (INI_FILE, iniSection, "ProxyPass", szProxyPassword);
 		IniSectionWriteInt (INI_FILE, iniSection, "ProxyMask", 1);
 	}
 	unscramble (szProxyPassword);
@@ -290,8 +292,7 @@ int pnHttpServer (char *pbuf, unsigned cbuf, char* postargs)
 /* Use MersenneIP setting so that SeventeenOrBust can use the */
 /* UseCurl=0 option. */
 
-	IniSectionGetString (INI_FILE, iniSection, "MersenneIP",
-			     szSITE, sizeof (szSITE), szSITEstr);
+	IniSectionGetString (INI_FILE, iniSection, "MersenneIP", szSITE, sizeof (szSITE), szSITEstr);
 
 /* Get information about the optional proxy server */
 
@@ -336,8 +337,7 @@ redirect:
 	}
 
 	if (debug) {
-		sprintf (buf, "IP-addr = %s\n",
-			 inet_ntoa (*(struct in_addr *)hp->h_addr));
+		sprintf (buf, "IP-addr = %s\n", inet_ntoa (*(struct in_addr *)hp->h_addr));
 		LogMsg (buf);
 	}
 
@@ -353,23 +353,21 @@ redirect:
 
 rel_url:
 	if ((s = socket (hp->h_addrtype, SOCK_STREAM, 0)) < 0) {
-		sprintf (buf, "Error in socket call: %d\n",
-			 getLastSocketError ());
+		sprintf (buf, "Error in socket call: %d\n", getLastSocketError ());
 		if (debug) LogMsg (buf);
 		else OutputStr (COMM_THREAD_NUM, buf);
 		return (PRIMENET_ERROR_CONNECT_FAILED);
 	}
 
 	if (connect (s, (struct sockaddr *) &sn, sizeof (sn)) < 0) {
-		sprintf (buf, "Error in connect call: %d\n",
-			 getLastSocketError ());
+		sprintf (buf, "Error in connect call: %d\n", getLastSocketError ());
 		if (debug) LogMsg (buf);
 		else OutputStr (COMM_THREAD_NUM, buf);
 		closesocket (s);
 		return (PRIMENET_ERROR_CONNECT_FAILED);
 	}
 
-/* Prevent SIGPIPE signals in Linux (and other) environments */
+/* Prevent SIGPIPE signals in OS X, BSD and other environments */
 
 #ifdef SO_NOSIGPIPE
 	{
@@ -377,8 +375,7 @@ rel_url:
 		res = setsockopt (s, SOL_SOCKET, SO_NOSIGPIPE, &i, sizeof(i));
 		if (res < 0) {
 			if (debug) {
-				sprintf (buf, "Error in NOSIGPIPE call: %d\n",
-					 getLastSocketError ());
+				sprintf (buf, "Error in NOSIGPIPE call: %d\n", getLastSocketError ());
 				LogMsg (buf);
 			}
 		}
@@ -433,19 +430,20 @@ rel_url:
 /* Send the URL request */
 
 	timeout = 90000;		/* 90 seconds */
-	res = setsockopt (s, SOL_SOCKET, SO_SNDTIMEO, (char *) &timeout,
-			  sizeof (timeout));
+	res = setsockopt (s, SOL_SOCKET, SO_SNDTIMEO, (char *) &timeout, sizeof (timeout));
 	if (res < 0) {
 		if (debug) {
-			sprintf (buf, "Error in send timeout call: %d\n",
-				 getLastSocketError ());
+			sprintf (buf, "Error in send timeout call: %d\n", getLastSocketError ());
 			LogMsg (buf);
 		}
 	}
-	res = send (s, szURL, (int) strlen (szURL), 0);
+	res = send (s, szURL, (int) strlen (szURL), 0
+#ifdef MSG_NOSIGNAL /* Prevent SIGPIPE in Linux (and others) */
+		    | MSG_NOSIGNAL
+#endif
+		    );
 	if (res < 0) {
-		sprintf (buf, "Error in send call: %d\n",
-			 getLastSocketError ());
+		sprintf (buf, "Error in send call: %d\n", getLastSocketError ());
 		if (debug) LogMsg (buf);
 		else OutputStr (COMM_THREAD_NUM, buf);
 		closesocket (s);
@@ -460,12 +458,10 @@ rel_url:
 /* Now accumulate the response */
 
 	timeout = 90000;		/* 90 seconds */
-	res = setsockopt (s, SOL_SOCKET, SO_RCVTIMEO, (char *) &timeout,
-			  sizeof (timeout));
+	res = setsockopt (s, SOL_SOCKET, SO_RCVTIMEO, (char *) &timeout, sizeof (timeout));
 	if (res < 0) {
 		if (debug) {
-			sprintf (buf, "Error in receive timeout call: %d\n",
-				 getLastSocketError ());
+			sprintf (buf, "Error in receive timeout call: %d\n", getLastSocketError ());
 			LogMsg (buf);
 		}
 	}
@@ -473,8 +469,7 @@ rel_url:
 	while (count < cbuf) {
 		res = recv (s, szBuffer, 999, 0);
 		if (res < 0) {
-			sprintf (buf, "Error in recv call: %d\n",
-				 getLastSocketError ());
+			sprintf (buf, "Error in recv call: %d\n", getLastSocketError ());
 			if (debug) LogMsg (buf);
 			else OutputStr (COMM_THREAD_NUM, buf);
 			closesocket (s);
@@ -525,7 +520,7 @@ rel_url:
 			    (location[3] == 'P' || location[3] == 'p') &&
 			    location[4] == ':' && location[5] == '/' &&
 			    location[6] == '/')
-				strcpy (location, location + 7);
+				safe_strcpy (location, location + 7);
 			con_host = location;
 
 /* Get optional port number */

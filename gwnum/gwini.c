@@ -8,7 +8,7 @@
 | NOTE:  These routines only work if you open no more than 10 ini files.  Also,
 | you must not change the working directory at any time during program execution.
 |
-| Copyright 2016 Mersenne Research, Inc.  All rights reserved
+| Copyright 2016-2017 Mersenne Research, Inc.  All rights reserved
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -90,6 +90,8 @@ struct IniCache {
 
 gwmutex	INI_MUTEX = NULL;		/* Lock for accessing INI files */
 gwmutex	INI_ADD_MUTEX = NULL;		/* Lock for accessing INI add-in files */
+void (*INI_ERROR_CALLBACK)(const char *, int, const char *);	/* Callback routine when illegal line read from INI file. */
+								/* Arguments are file name, line number, text on the line */
 
 /* Forward declarations of internal routines */
 
@@ -390,6 +392,7 @@ void IniSectionWriteNthString (		/* Write keyword's Nth string value to a specif
 {
 	struct IniCache *p;
 	unsigned int i, j, insertion_point;
+	int	lines_were_deleted;
 
 /* Open ini file */
 
@@ -403,7 +406,7 @@ void IniSectionWriteNthString (		/* Write keyword's Nth string value to a specif
 	if (section != NULL) {
 		for ( ; ; i++) {
 			if (i == p->num_lines) {
-				if (val == NULL) goto done;
+				if (val == NULL) goto nowrite_done;
 				growIniLineArray (p);
 				p->lines[i] = (struct IniLine *) malloc (sizeof (struct IniLine));
 				p->lines[i]->line_type = INI_LINE_COMMENT;
@@ -434,6 +437,7 @@ void IniSectionWriteNthString (		/* Write keyword's Nth string value to a specif
 /* Look for the keyword within this section */
 
 	insertion_point = i;
+	lines_were_deleted = FALSE;
 	for ( ; ; i++) {
 		if (i == p->num_lines ||
 		    p->lines[i]->line_type == INI_LINE_HEADER ||
@@ -442,7 +446,10 @@ void IniSectionWriteNthString (		/* Write keyword's Nth string value to a specif
 
 /* Ignore request if we are deleting line */
 
-			if (val == NULL) goto done;
+			if (val == NULL) {
+				if (lines_were_deleted) goto write_done;
+				goto nowrite_done;
+			}
 
 /* Make sure the line array has room for the new line */
 
@@ -495,12 +502,13 @@ void IniSectionWriteNthString (		/* Write keyword's Nth string value to a specif
 				for (j = i + 1; j < p->num_lines; j++) p->lines[j-1] = p->lines[j];
 				p->num_lines--;
 				i--;
+				lines_were_deleted = TRUE;
 			}
 
 /* Replace the entry if this is the nth occurrence */
 
 			else if (--nth == 0) {
-				if (strcmp (val, p->lines[i]->value) == 0) goto done;
+				if (strcmp (val, p->lines[i]->value) == 0) goto nowrite_done;
 				break;
 			}
 		}
@@ -516,11 +524,13 @@ void IniSectionWriteNthString (		/* Write keyword's Nth string value to a specif
 
 /* Write the INI file back to disk */
 
+write_done:
 	writeIniFile (p);
 
 /* Unlock and return */
 
-done:	gwmutex_unlock (&INI_MUTEX);
+nowrite_done:
+	gwmutex_unlock (&INI_MUTEX);
 }
 
 /****************************************************************************/
@@ -750,9 +760,9 @@ static	struct IniCache *cache[10] = {0};
 		else {
 			val = strchr (line, '=');
 			if (val == NULL) {
-//BUG				char	buf[1200];
-//BUG				sprintf (buf, "Illegal line in %s: %s\n", newFileName, line);
-//BUG				OutputSomewhere (MAIN_THREAD_NUM, buf);
+				/* Unparseable line, call user error handling routine */
+				if (INI_ERROR_CALLBACK != NULL) (*INI_ERROR_CALLBACK)(filename, p->num_lines, line);
+				/* Save unparseable line as a comment */
 				p->lines[i]->keyword = NULL;
 				p->lines[i]->value = (char *) malloc (strlen (line) + 1);
 				p->lines[i]->line_type = INI_LINE_COMMENT;

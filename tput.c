@@ -1,4 +1,13 @@
-	if (!lldata->gwdata.bench_pick_nth_fft) {
+#define GWNUM_FFT_IMPL_VERSION	"28.9"		/* This version number changes whenever FFT implementations change. */
+						/* By default, gwnum picks a default FFT implementation based on the CPU architecture. */
+						/* You can fine-tune performance by benchmarking the different FFT implementations */
+						/* on the end user machine looking for an FFT implementation that is faster than the */
+						/* default selection.  Any changes to this version number means you must */
+						/* discard old benchmarking data for your fine-tuning. */
+
+
+
+if (!lldata->gwdata.bench_pick_nth_fft) {
 tput_use_larger_FFTlen_if_faster (); ???
 tput_use_larger_FFTlen_if_faster_factoring_in_error_checking_cost (); ???
 		tput_select_fastest_fft_impl (gwdata, 1.0, 2, p, c);

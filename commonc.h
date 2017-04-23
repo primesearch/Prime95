@@ -1,9 +1,9 @@
-/* Copyright 1995-2016 Mersenne Research, Inc.  All rights reserved */
+/* Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved */
 
 /* Constants */
 
-#define VERSION		"28.10"
-#define BUILD_NUM	"1"
+#define VERSION		"29.1"
+#define BUILD_NUM	"16"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -22,22 +22,11 @@
 #define MAX_FACTOR	2000000000	/* Largest factorable Mersenne number*/
 #define ERROR_RATE	0.018		/* Estimated error rate on clean run */
 
-/* We want to increase the max number of worker threads to 64, but 32-bit Windows */
-/* SetThreadAffinityMask only supports 32-bit masks.  So we'll assume any user that */
-/* has a machine powerful enough to need more than 32 workers will run a 64-bit OS. */
-/* 2014 UPDATE: Machines with more than 64 logical CPUs are in the works.  Windows has */
-/* a bizarre affinity mechanism so we'll keep the 64 worker restriction there. */
-/* On other OSes, we'll increase the limit to 512. */
+/* Hopefully, hwloc has no limitations regarding setting affinity.  Due to */
+/* limitations in our own old affinity code, we used to limit */
+/* Windows 32-bit to 32 workers, Windows 64-bit to 64 workers. */
 
-#ifdef X86_64
-#ifdef _WINDOWS_
-#define MAX_NUM_WORKER_THREADS 64	/* Number of launchable work threads */
-#else
-#define MAX_NUM_WORKER_THREADS 512	/* Number of launchable work threads */
-#endif
-#else
-#define MAX_NUM_WORKER_THREADS 32	/* Number of launchable work threads */
-#endif
+#define MAX_NUM_WORKER_THREADS 1024	/* Number of launchable work threads */
 
 /* Factoring limits based on complex formulas given the speed of the */
 /* factoring code vs. the speed of the Lucas-Lehmer code */
@@ -151,11 +140,11 @@ extern unsigned int NUM_WORKER_THREADS; /* Number of work threads to launch */
 extern unsigned int WORK_PREFERENCE[MAX_NUM_WORKER_THREADS];
 					/* Type of work (factoring, testing, */
 					/* etc.) to get from the server. */
-extern unsigned int CPU_AFFINITY[MAX_NUM_WORKER_THREADS];
-					/* NT Processor affinity */
-extern unsigned int THREADS_PER_TEST[MAX_NUM_WORKER_THREADS];
+extern unsigned int CORES_PER_TEST[MAX_NUM_WORKER_THREADS];
 					/* Number of threads gwnum can use */
 					/* in computations. */
+extern int HYPERTHREAD_TF;		/* TRUE if trial factoring should use hyperthreads */
+extern int HYPERTHREAD_LL;		/* TRUE if FFTs (LL, P-1, ECM, PRP) should use hyperthreads */
 extern unsigned int DAYS_OF_WORK;	/* How much work to retrieve from */
 					/* the primenet server */
 extern int STRESS_TESTER;		/* 1 if stress testing */
@@ -236,6 +225,12 @@ extern int GIMPS_QUIT;			/* TRUE if we just successfully */
 extern gwthread COMMUNICATION_THREAD;	/* Handle for comm thread.  Set when */
 					/* comm thread is active. */
 
+/* Topology variables and routines */
+
+extern hwloc_topology_t hwloc_topology;	/* Hardware topology */
+extern int OS_CAN_SET_AFFINITY;		/* hwloc supports setting CPU affinity (known exception is Apple) */
+void topology_print_children (hwloc_obj_t obj, int);
+
 /* Common routines */
 
 void generate_application_string (char *);
@@ -243,7 +238,14 @@ void getCpuInfo (void);
 void getCpuDescription (char *, int);
 
 int isPrime (unsigned long p);
-unsigned int strToMinutes (const char	*);
+int start_sieve (int thread_num, uint64_t start, void **returned_si);		// Default sieve eliminates numbers with factors < 64K
+int start_sieve_with_limit (int thread_num, uint64_t start, uint32_t max_elimination_factor, void **returned_si);
+uint64_t sieve (void *si);
+void end_sieve (void *si);
+uint64_t modinv (uint64_t x, uint64_t f);
+int relatively_prime (unsigned long, unsigned long);
+
+unsigned int strToMinutes (const char *);
 void minutesToStr (unsigned int, char *);
 void write_memory_settings (unsigned int, unsigned int, unsigned int, unsigned int);
 int read_memory_settings (unsigned int *, unsigned int *, unsigned int *, unsigned int *);
@@ -258,14 +260,14 @@ int addFileExists (void);
 void incorporateIniAddFiles (void);
 int incorporateWorkToDoAddFile (void);
 
-void PTOGetAll (char *ini_filename, char *keyword, unsigned int *array,
+void PTOGetAll (const char *ini_filename, const char *keyword, unsigned int *array,
 		unsigned int def_val);
-void PTOSetAll (char *ini_filename, char *keyword, char	*shadow_keyword,
+void PTOSetAll (const char *ini_filename, const char *keyword, const char *shadow_keyword,
 		unsigned int *array, unsigned int new_val);
-void PTOSetOne (char *ini_filename, char *keyword, char *shadow_keyword,
+void PTOSetOne (const char *ini_filename, const char *keyword, const char *shadow_keyword,
 		unsigned int *array, int tnum, unsigned int new_val);
 int PTOIsGlobalOption (unsigned int *array);
-int PTOHasOptionChanged (char *shadow_keyword, unsigned int *array, int tnum);
+int PTOHasOptionChanged (const char *shadow_keyword, unsigned int *array, int tnum);
 
 
 #define MAIN_THREAD_NUM		-2
@@ -368,10 +370,10 @@ void guess_pminus1_bounds (int, double, unsigned long, unsigned long, signed lon
 
 void strupper (char *);
 void tempFileName (struct work_unit *, char *);
-int fileExists (char *);
+int fileExists (const char *);
 
 int read_array (int fd, char *buf, unsigned long len, unsigned long *sum);
-int write_array (int fd, char *buf, unsigned long len, unsigned long *sum);
+int write_array (int fd, const char *buf, unsigned long len, unsigned long *sum);
 int read_gwnum (int fd, gwhandle *gwdata, gwnum g, unsigned long *sum);
 int write_gwnum (int fd, gwhandle *gwdata, gwnum g, unsigned long *sum);
 int read_short (int fd, short *val);
@@ -384,10 +386,8 @@ int write_longlong (int fd, uint64_t val, unsigned long *sum);
 int read_double (int fd, double *val, unsigned long *sum);
 int write_double (int fd, double dbl, unsigned long *sum);
 int read_magicnum (int fd, unsigned long magicnum);
-int read_header (int fd, unsigned long *version,
-		 struct work_unit *w, unsigned long *sum);
-int write_header (int fd, unsigned long magicnum, unsigned long version,
-		  struct work_unit *w);
+int read_header (int fd, unsigned long *version, struct work_unit *w, unsigned long *sum);
+int write_header (int fd, unsigned long magicnum, unsigned long version, struct work_unit *w);
 int read_checksum (int fd, unsigned long *sum);
 int write_checksum (int fd, unsigned long sum);
 

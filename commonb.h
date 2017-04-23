@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2014 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved
 +---------------------------------------------------------------------*/
 
 //#define SERVER_TESTING
@@ -22,7 +22,7 @@
 #define ALL_WORKERS 8888	// Special value for first arg of LaunchWorkerThreads
 int LaunchWorkerThreads (int, int);
 int LaunchTortureTest (unsigned long, int);
-int LaunchBench (void);
+int LaunchBench (int);
 int LaunchAdvancedTime (unsigned long, unsigned long);
 
 /* Callback routines */
@@ -42,14 +42,34 @@ void checkPauseListCallback (void);
 
 #define SET_PRIORITY_NORMAL_WORK	1
 #define SET_PRIORITY_BENCHMARKING	2
-#define SET_PRIORITY_BENCHMARKING_HYPER	3
-#define SET_PRIORITY_TORTURE		4
+#define SET_PRIORITY_TORTURE		3
+#define SET_PRIORITY_TIME		4
 #define SET_PRIORITY_QA			5
+#define SET_PRIORITY_BUSY_LOOP		6
 struct PriorityInfo {
- 	int	type;		/* Type defined above */
-	int	thread_num;	/* Worker thread number */
-	int	aux_thread_num;	/* Set when gwnum launches auxiliary threads */
-	int	num_threads;	/* Total number of torture test threads */
+ 	int	type;			/* Type defined above */
+	int	worker_num;		/* Worker number -- output informative messages to this worker's window */
+	int	verbose_flag;		/* Output affinity messages to the worker window */
+	int	aux_thread_num;		/* Set when gwnum launches auxiliary threads */
+	union {
+		struct {		/* Normal work info */
+			int	normal_work_hyperthreads;	/* Number of hyperthreads to be assigned to same core */
+		};
+		struct {		/* Torture test info */
+			int	torture_num_workers;		/* Total number of torture test worker windows */
+			int	torture_threads_per_test;	/* Number of threads per torture test (usually one) */
+		};
+		struct {		/* Advanced/Time info */
+			int	time_hyperthreads;		/* Number of hyperthreads to be assigned to same core */
+		};
+		struct {		/* Benchmark info */
+			int	bench_base_cpu_num;		/* First CPU core to set affinity to */
+			int	bench_hyperthreads;		/* Number of hyperthreads to be assigned to same core */
+		};
+		struct {		/* Busy loop info */
+			int	busy_loop_cpu;			/* CPU core to keep busy */
+		};
+	};
 };
 void SetPriority (struct PriorityInfo *);
 
@@ -62,7 +82,7 @@ int primeContinue (int);
 int tortureTest (int, int);
 int selfTest (int, struct PriorityInfo *, struct work_unit *);
 int primeTime (int, unsigned long, unsigned long);
-int primeBench (int);
+int primeBench (int, int);
 int primeFactor (int, struct PriorityInfo *, struct work_unit *, unsigned int);
 int prime (int, struct PriorityInfo *, struct work_unit *, int);
 int prp (int, struct PriorityInfo *, struct work_unit *, int);
@@ -177,7 +197,7 @@ void implementThrottle (int thread_num);
 /* Routines called by common routines */
 
 void clearThreadHandleArray (void);
-void setThreadPriorityAndAffinity (int, int *);
+void setOsThreadPriority (int);
 void registerThreadTermination (void);
 void raiseAllWorkerThreadPriority (void);
 void flashWindowAndBeep (void);

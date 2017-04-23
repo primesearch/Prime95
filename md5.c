@@ -328,7 +328,7 @@ void md5_raw_input (
 /* Digests a string and converts to 32 byte hex string output. */
 void md5 (
 	char output[33],
-	char *string)
+	const char *string)
 {
 	md5_raw_input (output,
 		       (unsigned char *) string,

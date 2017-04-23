@@ -3,11 +3,12 @@
 //  Prime95
 //
 //  Created by George Woltman on 4/17/09.
-//  Copyright 2009-2010 Mersenne Research, Inc. All rights reserved.
+//  Copyright 2009-2017 Mersenne Research, Inc. All rights reserved.
 //
 
 #import <Cocoa/Cocoa.h>
 @class AboutController;
+@class BenchmarkController;
 @class ContinueController;
 @class CPUController;
 @class ECMController;
@@ -27,6 +28,7 @@
 
 @interface AppController : NSObject {
 	AboutController *aboutController;
+	BenchmarkController *benchmarkController;
 	ContinueController *continueController;
 	CPUController *cpuController;
 	ECMController *ecmController;

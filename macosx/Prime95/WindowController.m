@@ -332,9 +332,7 @@ static	int	partial_line_output[MAX_VIEWS] = {FALSE};
 	if (thread_num != MAIN_THREAD_NUM &&
 	    thread_num != COMM_THREAD_NUM &&
 	    IniGetInt (INI_FILE, "FrequentSetPriority", 0)) {
-		int	mask[MAX_NUM_WORKER_THREADS/32];
-		memset (mask, 0xFF, sizeof (mask));
-		setThreadPriorityAndAffinity (PRIORITY, mask);
+		setOsThreadPriority (PRIORITY);
 	}
 
 // Create an autorelease pool.  This routine is probably called from

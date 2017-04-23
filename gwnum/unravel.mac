@@ -24,19 +24,9 @@ rsp	EQU	esp
 ENDIF
 
 IFDEF	X86_64
+OPTION	EVEX:1
 INCLUDE ksamd64.inc
 ENDIF
-
-; MASM version 14 (MSVC 2015) does not recognize the PREFETCHWT1 instruction
-; Trick the assembler to output the proper instruction.
-
-prefetchwt1 MACRO ops:vararg
-	LOCAL	x, y
-x:	prefetcht1 &ops
-y:	org x+1
-	DB	0Dh
-	org y
-	ENDM
 
 ;; We must be very careful to obey the various ABIs on the OSes we run.
 ;; These macros help us do just that.

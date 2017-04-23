@@ -3,7 +3,7 @@
 |
 | This file contains handy #defines that I use in all my projects
 | 
-|  Copyright 2005-2014 Mersenne Research, Inc.
+|  Copyright 2005-2016 Mersenne Research, Inc.
 |  All Rights Reserved.
 +---------------------------------------------------------------------*/
 
@@ -37,6 +37,12 @@
 #else
 #define ASSERTG(a)
 #endif
+
+/* Bit manipulation macros */
+
+#define bitset(a,i)	{ ((char *)a)[(i) >> 3] |= (1 << ((i) & 7)); }
+#define bitclr(a,i)	{ ((char *)a)[(i) >> 3] &= ~(1 << ((i) & 7)); }
+#define bittst(a,i)	(((char *)a)[(i) >> 3] & (1 << ((i) & 7)))
 
 /* Define a "safe" strcpy.  The official C runtime library says that overlapping */
 /* buffers produce undefined results.  This safe strcpy allows overlapping */

@@ -1,5 +1,13 @@
 # Makefile for Linux 64-bit mprime
 #
+# NOTES: libcurl built by downloading latest sources and:
+#	./configure --without-ssl --without-libssh2 --without-libidn --disable-ldap --disable-ldaps --without-gssapi --enable-ipv6 --without-krb4
+#	make
+#	make install
+#
+# Hwloc can be downloaded from https://www.open-mpi.org/projects/hwloc/
+# Configure hwloc with --enable-static --disable-shared --disable-pci --disable-cuda --disable-gl
+#
 #  Ugh, different linux variants require different makefiles.
 #  The current makefile is for CentOS 5.10.  We prefer to link against
 #  older Linux versions because linking on the latest, greatest version
@@ -10,7 +18,7 @@
 #	"export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig"
 #	CFLAGS = -I.. -I../gwnum -DX86_64 -O2 -Wno-unused-result
 #	LFLAGS = -Wl,-M
-#	LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -Wl,-Bstatic $(shell pkg-config --static --libs libcurl) -lstdc++ -Wl,-Bdynamic -ldl
+#	LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -Wl,-Bstatic $(shell pkg-config --static --libs libhwloc) -Wl,-Bstatic $(shell pkg-config --static --libs libcurl) -lstdc++ -Wl,-Bdynamic -ldl
 
 CC = gcc
 CFLAGS = -I.. -I../gwnum -I/usr/local/include -DX86_64 -O2 
@@ -19,7 +27,7 @@ CPP = g++
 CPPFLAGS = -I.. -I../gwnum -DX86_64 -O2
 
 LFLAGS = -Wl,-M -Wl,-L/usr/local/lib
-LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -Wl,-Bstatic -lcurl -Wl,-Bdynamic -lrt -lstdc++ -ldl
+LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -Wl,-Bstatic -lhwloc -Wl,-Bstatic -lcurl -Wl,-Bdynamic -lrt -lstdc++ -lz -lxml2 -ldl
 
 FACTOROBJ = factor64.o
 LINUXOBJS = prime.o menu.o

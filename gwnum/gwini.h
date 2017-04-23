@@ -11,7 +11,7 @@
 | ALSO NOTE:  Sorry, memory allocation errors are not handled properly and
 | documentation is incredibly poor.
 |
-|  Copyright 2016 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2016-2017 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWINI_H
@@ -59,6 +59,10 @@ void IniWriteFloat (const char *, const char *, float);
 void IniSectionWriteFloat (const char *, const char *, const char *, float);
 
 /* More obscure INI file routines */
+
+extern void (*INI_ERROR_CALLBACK)(const char *, int, const char *);	/* Callback routine when illegal line read from INI file. */
+									/* Arguments are file name, line number, text on the line. */
+#define IniSetErrorCallback(n)	(INI_ERROR_CALLBACK = n)
 
 void IniFileReread (const char *);					/* Force the INI file to be re-read from disk */
 void IniAddFileMerge (const char *, const char *, const char *);	/* Merge one INI file into another.  Prime95 calls these .add files */

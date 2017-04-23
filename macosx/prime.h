@@ -1,4 +1,4 @@
-/* Copyright 1995-2016 Mersenne Research, Inc. */
+/* Copyright 1995-2017 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -81,6 +81,16 @@
 
 /* The common include files */
 
+#ifndef X86_64
+#pragma pack(push)
+#pragma pack(4)			// Hwloc library was (likely) built without -malign-double
+#include <hwloc.h>
+#pragma pack(pop)
+#endif
+#ifdef X86_64
+#include <hwloc.h>
+#endif
+
 #include <time.h>
 /*#define SERVER_TESTING*/
 extern int NO_GUI;
@@ -101,6 +111,7 @@ extern int MENUING;			/* TRUE when main menu active */
 
 /* Internal routines */
 
+void sigterm_handler(int);
 void main_menu (void);
 void linuxContinue (char *, int, int);
 void Sleep (long);

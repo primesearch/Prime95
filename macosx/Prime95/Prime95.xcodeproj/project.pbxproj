@@ -49,6 +49,8 @@
 		5ED7EE5D0FA552ED00BC5767 /* WorkerWindows.xib in Resources */ = {isa = PBXBuildFile; fileRef = 5ED7EE5C0FA552ED00BC5767 /* WorkerWindows.xib */; };
 		5ED7EFF80FAB893E00BC5767 /* QuitGIMPSController.m in Sources */ = {isa = PBXBuildFile; fileRef = 5ED7EFF70FAB893E00BC5767 /* QuitGIMPSController.m */; };
 		5ED7EFFA0FAB895600BC5767 /* QuitGIMPS.xib in Resources */ = {isa = PBXBuildFile; fileRef = 5ED7EFF90FAB895600BC5767 /* QuitGIMPS.xib */; };
+		5EEE1F681E398AEB00F3DC82 /* Benchmark.xib in Resources */ = {isa = PBXBuildFile; fileRef = 5EEE1F661E398AEB00F3DC82 /* Benchmark.xib */; };
+		5EEE1F6C1E398F8000F3DC82 /* BenchmarkController.m in Sources */ = {isa = PBXBuildFile; fileRef = 5EEE1F6B1E398F8000F3DC82 /* BenchmarkController.m */; };
 		8D11072B0486CEB800E47090 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 089C165CFE840E0CC02AAC07 /* InfoPlist.strings */; };
 		8D11072D0486CEB800E47090 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 29B97316FDCFA39411CA2CEA /* main.m */; settings = {ATTRIBUTES = (); }; };
 		8D11072F0486CEB800E47090 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1058C7A1FEA54F0111CA2CBB /* Cocoa.framework */; };
@@ -125,6 +127,9 @@
 		5ED7EFF60FAB893E00BC5767 /* QuitGIMPSController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = QuitGIMPSController.h; sourceTree = "<group>"; };
 		5ED7EFF70FAB893E00BC5767 /* QuitGIMPSController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = QuitGIMPSController.m; sourceTree = "<group>"; };
 		5ED7EFF90FAB895600BC5767 /* QuitGIMPS.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = QuitGIMPS.xib; sourceTree = "<group>"; };
+		5EEE1F661E398AEB00F3DC82 /* Benchmark.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = Benchmark.xib; sourceTree = "<group>"; };
+		5EEE1F6A1E398F8000F3DC82 /* BenchmarkController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BenchmarkController.h; sourceTree = "<group>"; };
+		5EEE1F6B1E398F8000F3DC82 /* BenchmarkController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BenchmarkController.m; sourceTree = "<group>"; };
 		8D1107310486CEB800E47090 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		8D1107320486CEB800E47090 /* Prime95.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Prime95.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -152,6 +157,8 @@
 				5ED7EE410FA4DD8F00BC5767 /* ConnectionController.h */,
 				5ED7EE420FA4DD8F00BC5767 /* ConnectionController.m */,
 				5ED7EA460F9C03B600BC5767 /* ContinueController.h */,
+				5EEE1F6A1E398F8000F3DC82 /* BenchmarkController.h */,
+				5EEE1F6B1E398F8000F3DC82 /* BenchmarkController.m */,
 				5ED7EA470F9C03B600BC5767 /* ContinueController.m */,
 				5ED7ED060FA387EA00BC5767 /* CPUController.h */,
 				5ED7ED070FA387EA00BC5767 /* CPUController.m */,
@@ -251,6 +258,7 @@
 				8D1107310486CEB800E47090 /* Info.plist */,
 				089C165CFE840E0CC02AAC07 /* InfoPlist.strings */,
 				1DDD58140DA1D0A300B32029 /* MainMenu.xib */,
+				5EEE1F661E398AEB00F3DC82 /* Benchmark.xib */,
 				5ED7ECE60FA36CBB00BC5767 /* ManualCommunication.xib */,
 				5EBA78AF0F96D6B900F79624 /* Mersenne.icns */,
 				5ED7EBDF0FA245B600BC5767 /* Pminus1.xib */,
@@ -354,6 +362,7 @@
 				5ED7EE450FA4DDA800BC5767 /* Connection.xib in Resources */,
 				5ED7EE5D0FA552ED00BC5767 /* WorkerWindows.xib in Resources */,
 				5ED7EFFA0FAB895600BC5767 /* QuitGIMPS.xib in Resources */,
+				5EEE1F681E398AEB00F3DC82 /* Benchmark.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -377,6 +386,7 @@
 				5ED7EC680FA2A70C00BC5767 /* TimeController.m in Sources */,
 				5ED7EC7C0FA2ACC100BC5767 /* UnreserveController.m in Sources */,
 				5ED7EC9A0FA32CD100BC5767 /* StatusController.m in Sources */,
+				5EEE1F6C1E398F8000F3DC82 /* BenchmarkController.m in Sources */,
 				5ED7ECE50FA36C9E00BC5767 /* ManualCommunicationController.m in Sources */,
 				5ED7ED080FA387EA00BC5767 /* CPUController.m in Sources */,
 				5ED7ED710FA3AB9400BC5767 /* TortureTestController.m in Sources */,
@@ -437,11 +447,16 @@
 					"$(SRCROOT)/../../gwnum",
 					"$(SRCROOT)/../..",
 					"$(SRCROOT)/../../linux",
+					/usr/local/include,
 				);
 				INFOPLIST_FILE = Info.plist;
 				INSTALL_PATH = "$(HOME)/Applications";
 				LD_MAP_FILE_PATH = "$(BUILD_DIR)/$(PRODUCT_NAME)-LinkMap-$(CURRENT_VARIANT)-$(CURRENT_ARCH).txt";
-				LIBRARY_SEARCH_PATHS = "$(inherited)";
+				LIBRARY_SEARCH_PATHS = (
+					/usr/lib,
+					/usr/local/lib,
+					"$(inherited)",
+				);
 				LINK_WITH_STANDARD_LIBRARIES = YES;
 				MACOSX_DEPLOYMENT_TARGET = 10.9;
 				ONLY_ACTIVE_ARCH = NO;
@@ -449,12 +464,14 @@
 				"OTHER_LDFLAGS[arch=i386]" = (
 					../../prime95/macosx/factor32.o,
 					../../gwnum/debug/gwnum.a,
+					"-lhwloc",
 					"-lcurl",
 					"-lstdc++",
 				);
 				"OTHER_LDFLAGS[arch=x86_64]" = (
 					../../prime95/macosx64/factor64.o,
 					../../gwnum/amd64/debug/gwnum.a,
+					"-lhwloc",
 					"-lcurl",
 					"-lstdc++",
 				);
@@ -490,21 +507,28 @@
 					"$(SRCROOT)/../../gwnum",
 					"$(SRCROOT)/../..",
 					"$(SRCROOT)/../../linux",
+					/usr/local/include,
 				);
 				INFOPLIST_FILE = Info.plist;
 				INSTALL_PATH = "$(HOME)/Applications";
 				LD_MAP_FILE_PATH = "$(BUILD_DIR)/$(PRODUCT_NAME)-LinkMap-$(CURRENT_VARIANT)-$(CURRENT_ARCH).txt";
-				LIBRARY_SEARCH_PATHS = "$(inherited)";
+				LIBRARY_SEARCH_PATHS = (
+					/usr/lib,
+					/usr/local/lib,
+					"$(inherited)",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 10.9;
 				OTHER_LDFLAGS = "";
 				"OTHER_LDFLAGS[arch=i386]" = (
 					../../prime95/macosx/factor32.o,
 					../../gwnum/release/gwnum.a,
+					"-lhwloc",
 					"-lcurl",
 				);
 				"OTHER_LDFLAGS[arch=x86_64]" = (
 					../../prime95/macosx64/factor64.o,
 					../../gwnum/amd64/release/gwnum.a,
+					"-lhwloc",
 					"-lcurl",
 					"-lstdc++",
 				);
@@ -525,12 +549,16 @@
 				"GCC_MODEL_PPC64[arch=i386]" = NO;
 				"GCC_MODEL_PPC64[arch=x86_64]" = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
+				"GCC_OPTIMIZATION_LEVEL[arch=*]" = 0;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 10.9;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = "";
-				"OTHER_CFLAGS[arch=i386]" = "-malign-double";
+				"OTHER_CFLAGS[arch=i386]" = (
+					"-malign-double",
+					"-GDEBUG",
+				);
 				PREBINDING = NO;
 				SDKROOT = macosx10.9;
 				VALID_ARCHS = "i386 x86_64";

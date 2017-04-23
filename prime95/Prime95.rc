@@ -112,7 +112,7 @@ BEGIN
         MENUITEM "&Preferences...",             IDM_PREFERENCES
         MENUITEM SEPARATOR
         MENUITEM "&Torture Test...",            IDM_TORTURE
-        MENUITEM "&Benchmark",                  IDM_BENCHMARK
+        MENUITEM "&Benchmark...",               IDM_BENCHMARK
         MENUITEM SEPARATOR
         MENUITEM "Tray &Icon",                  IDM_TRAY
         MENUITEM "&No Icon",                    IDM_HIDE
@@ -177,7 +177,7 @@ BEGIN
         MENUITEM "&Preferences...",             IDM_PREFERENCES
         MENUITEM SEPARATOR
         MENUITEM "&Torture Test...",            IDM_TORTURE
-        MENUITEM "&Benchmark",                  IDM_BENCHMARK
+        MENUITEM "&Benchmark...",               IDM_BENCHMARK
         MENUITEM SEPARATOR
         MENUITEM "Tray &Icon",                  IDM_TRAY
         MENUITEM "&No Icon",                    IDM_HIDE
@@ -257,7 +257,7 @@ BEGIN
     LTEXT           "GIMPS: Mersenne Prime Search",IDC_STATIC,40,9,155,8,SS_NOPREFIX
     LTEXT           "Web site: http://mersenne.org",IDC_LINK,40,19,114,10
     LTEXT           "app string",IDC_APP_STRING,40,31,185,8
-    LTEXT           "Copyright © 1996-2016 Mersenne Research, Inc.",IDC_STATIC,40,41,179,8
+    LTEXT           "Copyright © 1996-2017 Mersenne Research, Inc.",IDC_STATIC,40,41,179,8
     LTEXT           "Author: George Woltman",IDC_STATIC,40,51,128,8
     LTEXT           "Email:  woltman@alum.mit.edu",IDC_STATIC,40,61,161,8
     DEFPUSHBUTTON   "OK",IDOK,199,7,32,14,WS_GROUP
@@ -338,6 +338,38 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,122,203,10
     DEFPUSHBUTTON   "OK",IDOK,183,6,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,183,23,50,14
+END
+
+IDD_BENCHMARK DIALOGEX 0, 0, 260, 257
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Benchmark"
+FONT 8, "MS Sans Serif", 0, 0, 0x0
+BEGIN
+    LTEXT           "Type of &benchmark:",IDC_STATIC,7,18,68,10
+    COMBOBOX        IDC_COMBO1,78,16,111,84,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    GROUPBOX        "FFT sizes to benchmark",IDC_STATIC,7,41,241,55
+    LTEXT           "Mi&nimum FFT size (in K):",IDC_MINFFT_TEXT,15,53,80,10
+    EDITTEXT        IDC_MINFFT,98,51,42,12
+    LTEXT           "Ma&ximum FFT size (in K):",IDC_MAXFFT_TEXT,15,66,80,10
+    EDITTEXT        IDC_MAXFFT,98,64,42,12
+    CONTROL         "Benchmark &every FFT size in the range",IDC_ALL_FFT_SIZES,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,15,79,144,10
+
+    GROUPBOX        "CPU cores to benchmark",IDC_STATIC,7,103,241,68
+    CONTROL         "Benchmark using &one CPU core",IDC_ONE_CORE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,15,115,144,10
+    CONTROL         "Benchmark using &all CPU cores",IDC_ALL_CORES,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,15,128,144,10
+    CONTROL         "Benchmark using &remaining CPU core combinations",IDC_OTHER_CORES,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,15,141,184,10
+    CONTROL         "Benchmark &hyperthreading",IDC_HYPERTHREADING,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,15,154,144,10
+
+    GROUPBOX        "Throughput benchmark options",IDC_STATIC,7,179,241,68
+    CONTROL         "Benchmark one &worker case",IDC_ONE_WORKER,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,15,191,144,10
+    CONTROL         "Benchmark &maximum workers case",IDC_MAX_WORKERS,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,15,204,144,10
+    CONTROL         "Benchmark other worker/core &combinations",IDC_OTHER_WORKERS,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,15,217,144,10
+    LTEXT           "&Time to run each benchmark (in seconds):",IDC_TIMEFFT_TEXT,15,230,157,10
+    EDITTEXT        IDC_TIMEFFT,173,228,34,12
+
+    DEFPUSHBUTTON   "OK",IDOK,203,6,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,203,23,50,14
 END
 
 IDD_PRIMENET DIALOGEX 0, 0, 247, 87
@@ -492,27 +524,27 @@ BEGIN
     PUSHBUTTON      "Cancel",IDCANCEL,295,24,50,14
 END
 
-IDD_WORKER_THREADS DIALOGEX 0, 0, 309, 207
+IDD_WORKER_THREADS DIALOGEX 0, 0, 309, 199
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Worker Windows"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
-    LTEXT           "Number of worker &windows to run:",IDC_THREAD_TEXT,7,12,112,10
-    EDITTEXT        IDC_THREAD,126,11,36,12
-    LTEXT           "&Priority (see warnings below):",IDC_STATIC,7,30,103,8
-    EDITTEXT        IDC_PRIORITY,126,29,36,12,ES_AUTOHSCROLL
-    GROUPBOX        "Worker-specific options",IDC_WORKGROUP,3,47,302,90
-    LTEXT           "Worker &number:",IDC_THREADNUM_TEXT,9,62,57,8
-    COMBOBOX        IDC_COMBO1,90,60,105,84,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "Type of &work to get:",IDC_WORK_TYPE_TEXT,9,80,66,8
-    COMBOBOX        IDC_COMBO2,90,78,200,81,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "CPU &affinity:",IDC_AFFINITY_TEXT,9,98,45,8
-    COMBOBOX        IDC_COMBO3,90,96,200,67,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "&CPUs to use (multithreading):",IDC_NUMCPUS_TEXT,9,116,102,8
-    EDITTEXT        IDC_NUMCPUS,126,114,36,12
-    LTEXT           "WARNING: It is strongly recommended that you use the default priority of 1.  This program is unlikely to run any faster at a higher priority.",IDC_WARN1,7,143,293,18
-    LTEXT           "Pick a priority between 1 and 10 where 1 is the lowest priority and 10 is the highest.  Screen savers run at priority 4.  Most applications run at priority 7 or 9.",IDC_WARN2,7,162,293,18
-    LTEXT           "The only time you should raise the priority is when another process, such as a screen saver, is stealing CPU cycles from this program.",IDC_WARN3,7,181,293,18
+    LTEXT           "Number of worker &windows to run:",IDC_THREAD_TEXT,7,10,112,10
+    EDITTEXT        IDC_THREAD,126,8,36,12
+    LTEXT           "&Priority (see warning below):",IDC_STATIC,7,25,103,8
+    EDITTEXT        IDC_PRIORITY,126,23,36,12,ES_AUTOHSCROLL
+    GROUPBOX        "Worker-specific options",IDC_WORKGROUP,3,40,302,72
+    LTEXT           "Worker &number:",IDC_THREADNUM_TEXT,9,55,57,8
+    COMBOBOX        IDC_COMBO1,90,53,105,84,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Type of work to &get:",IDC_WORK_TYPE_TEXT,9,73,66,8
+    COMBOBOX        IDC_COMBO2,90,71,200,81,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "&CPU cores to use (multithreading):",IDC_NUMCPUS_TEXT,9,91,118,8
+    EDITTEXT        IDC_NUMCPUS,129,89,36,12
+    CONTROL         "Use &hyperthreading for trial factoring (recommended, requires 64-bit Windows)",IDC_HYPER_TF,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,116,290,10
+    CONTROL         "Use h&yperthreading for LL, P-1, ECM (not recommended)",IDC_HYPER_LL,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,128,200,10
+    LTEXT           "WARNING: It is strongly recommended that you use the default priority of 1.  This program is unlikely to run any faster at a higher priority.",IDC_WARN1,7,141,293,18
+    LTEXT           "Pick a priority between 1 and 10 where 1 is the lowest priority and 10 is the highest.  Screen savers run at priority 4.  Most applications run at priority 7 or 9.",IDC_WARN2,7,158,293,18
+    LTEXT           "The only time you should raise the priority is when another process, such as a screen saver, is stealing CPU cycles from this program.",IDC_WARN3,7,175,293,18
     DEFPUSHBUTTON   "OK",IDOK,255,7,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,255,24,50,14
 END
@@ -548,8 +580,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 28,10,1,0
- PRODUCTVERSION 28,10,0,0
+ FILEVERSION 29,1,1,0
+ PRODUCTVERSION 29,1,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -565,12 +597,12 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "FileDescription", "PRIME95 Application"
-            VALUE "FileVersion", "28, 10, 1, 0"
+            VALUE "FileVersion", "29, 1, 1, 0"
             VALUE "InternalName", "PRIME95"
-            VALUE "LegalCopyright", "Copyright © 1996-2016, Mersenne Research Inc."
+            VALUE "LegalCopyright", "Copyright © 1996-2017, Mersenne Research Inc."
             VALUE "OriginalFilename", "PRIME95.EXE"
             VALUE "ProductName", "PRIME95 Application"
-            VALUE "ProductVersion", "28, 10, 0, 0"
+            VALUE "ProductVersion", "29, 1, 0, 0"
         END
     END
     BLOCK "VarFileInfo"

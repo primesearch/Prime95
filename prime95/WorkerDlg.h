@@ -1,6 +1,6 @@
 // WorkerDlg.h : header file
 //
-// Copyright 1995-2016 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved
 //
 
 /////////////////////////////////////////////////////////////////////////////
@@ -25,12 +25,13 @@ public:
 	CStatic	c_work_pref_text;
 	CComboBox c_work_pref;
 	int	m_work_pref[MAX_NUM_WORKER_THREADS];
-	CStatic	c_affinity_text;
-	CComboBox c_affinity;
-	int	m_affinity[MAX_NUM_WORKER_THREADS];
 	CStatic	c_numcpus_text;
 	CEdit	c_numcpus;
 	int	m_numcpus[MAX_NUM_WORKER_THREADS];
+	CButton c_hyper_tf;
+	BOOL	m_hyper_tf;
+	CButton c_hyper_ll;
+	BOOL	m_hyper_ll;
 	CStatic c_warn1_text;
 	CStatic c_warn2_text;
 	CStatic c_warn3_text;
@@ -60,7 +61,6 @@ protected:
 	afx_msg void OnEnKillfocusPriority();
 	afx_msg void OnCbnKillfocusThreadNum();
 	afx_msg void OnCbnKillfocusWorkType();
-	afx_msg void OnCbnKillfocusAffinity();
 	afx_msg void OnEnKillfocusNumCpus();
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()

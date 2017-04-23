@@ -1,4 +1,4 @@
-; Copyright 1995-2016 Mersenne Research, Inc., all rights reserved
+; Copyright 1995-2017 Mersenne Research, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -7,11 +7,10 @@
 ; This only runs on 64-bit CPUs.  For 32-bit CPUs see factor32.asm
 ;
 
-; IDEAS:
-; test where primearray loses effectiveness 
-
 TITLE   factor64
 
+INCLUDE	yarch.mac
+INCLUDE	ybasics.mac
 INCLUDE	unravel.mac
 INCLUDE	factor64.mac
 
@@ -27,26 +26,29 @@ AD_BASE		EQU	<r11>
 ;
 
 p			EQU	QWORD PTR [AD_BASE+0*8]		; Exponent of Mersenne number being trial factored
-twop			EQU	QWORD PTR [AD_BASE+1*8]		; 2*p -- useful since we factors are 1 more than multiples of 2*p
-facdists		EQU	QWORD PTR [AD_BASE+2*8]		; 64 distances between sieve factors
-facdist64		EQU	QWORD PTR [AD_BASE+66*8]	
-facdist12K		EQU	QWORD PTR [AD_BASE+67*8]	; Distance to first factor in next sieve
-savefac1		EQU	QWORD PTR [AD_BASE+68*8]	; LSW of the first factor in the sieve
-savefac0		EQU	QWORD PTR [AD_BASE+69*8]	; MSW of the first factor in the sieve
-sieve			EQU	[AD_BASE+70*8]			; Area to sieve, or an already sieved area to TF
-primearray		EQU	[AD_BASE+71*8]			; Array of primes and offsets
+facdists		EQU	QWORD PTR [AD_BASE+1*8]		; 64 distances between sieve factors
+facdist64		EQU	QWORD PTR [AD_BASE+65*8]	
+facdist12K		EQU	QWORD PTR [AD_BASE+66*8]	; Distance to first factor in next sieve
+savefac1		EQU	QWORD PTR [AD_BASE+67*8]	; LSW of the first factor in the sieve
+savefac0		EQU	QWORD PTR [AD_BASE+68*8]	; MSW of the first factor in the sieve
+sieve			EQU	[AD_BASE+69*8]			; Area to sieve, or an already sieved area to TF
+primearray		EQU	[AD_BASE+70*8]			; Array of primes
+offsetarray		EQU	[AD_BASE+71*8]			; Array of bit-to-clear offsets
 initsieve		EQU	[AD_BASE+72*8]			; Array used to initialize sieve
-initlookup		EQU	[AD_BASE+73*8]			; Lookup table into initsieve
+TWO_TO_FACSIZE_PLUS_62	EQU	QWORD PTR [AD_BASE+73*8]
 
-TWO_TO_FACSIZE_PLUS_62	EQU	QWORD PTR [AD_BASE+74*8]
+FACHSW			EQU	DWORD PTR [AD_BASE+74*8+0*4]
+FACMSW			EQU	DWORD PTR [AD_BASE+74*8+1*4]
+FACLSW			EQU	DWORD PTR [AD_BASE+74*8+2*4]
+CPU_FLAGS		EQU	DWORD PTR [AD_BASE+74*8+3*4]
+SSE2_LOOP_COUNTER	EQU	DWORD PTR [AD_BASE+74*8+4*4]
+FMA_INITVAL_TYPE	EQU	DWORD PTR [AD_BASE+74*8+5*4]
+FMA_64_MINUS_LOW_BITS	EQU	DWORD PTR [AD_BASE+74*8+6*4]
+initstart		EQU	DWORD PTR [AD_BASE+74*8+7*4]	; First byte in initsieve to copy
+alternate_sieve_count	EQU	DWORD PTR [AD_BASE+74*8+8*4]	; Number of AVX2 13-prime seive sections to process
 
-FACPASS			EQU	DWORD PTR [AD_BASE+75*8+0*4]
-FACHSW			EQU	DWORD PTR [AD_BASE+75*8+1*4]
-FACMSW			EQU	DWORD PTR [AD_BASE+75*8+2*4]
-FACLSW			EQU	DWORD PTR [AD_BASE+75*8+3*4]
-CPU_FLAGS		EQU	DWORD PTR [AD_BASE+75*8+4*4]
-SSE2_LOOP_COUNTER	EQU	DWORD PTR [AD_BASE+75*8+5*4]
-initstart		EQU	DWORD PTR [AD_BASE+75*8+6*4]	; First dword in initsieve to copy
+;; Common constants set in C code for SSE2, AVX2 when using
+;; factoring algorithm that uses 30-bit integer arithmetic.
 
 ;;pad to next cache line to match facasm_data structure defined in commonb.c
 YMM_INITVAL		EQU	DWORD PTR [AD_BASE+80*8]
@@ -61,83 +63,297 @@ XMM_SHIFTER		EQU	DWORD PTR [AD_BASE+87*8]	; 32 quad word shifter values
 ;; AVX2 supports 256-bit operations on integers (eight trial factors simultaneouly)
 ;; Use the YMM registers and the memory area below
 
-XMM_INVFAC		EQU	DWORD PTR [AD_BASE+120*8]
-XMM_INVFACa		EQU	DWORD PTR [AD_BASE+122*8]
-XMM_I1			EQU	DWORD PTR [AD_BASE+124*8]
-XMM_I1a			EQU	DWORD PTR [AD_BASE+126*8]
-XMM_I2			EQU	DWORD PTR [AD_BASE+128*8]
-XMM_I2a			EQU	DWORD PTR [AD_BASE+130*8]
-XMM_F1			EQU	DWORD PTR [AD_BASE+132*8]
-XMM_F1a			EQU	DWORD PTR [AD_BASE+134*8]
-XMM_F2			EQU	DWORD PTR [AD_BASE+136*8]
-XMM_F2a			EQU	DWORD PTR [AD_BASE+138*8]
-XMM_F3			EQU	DWORD PTR [AD_BASE+140*8]
-XMM_F3a			EQU	DWORD PTR [AD_BASE+142*8]
-XMM_TWO_120_MODF1	EQU	DWORD PTR [AD_BASE+144*8]
-XMM_TWO_120_MODF1a	EQU	DWORD PTR [AD_BASE+146*8]
-XMM_TWO_120_MODF2	EQU	DWORD PTR [AD_BASE+148*8]
-XMM_TWO_120_MODF2a	EQU	DWORD PTR [AD_BASE+150*8]
-XMM_TWO_120_MODF3	EQU	DWORD PTR [AD_BASE+152*8]
-XMM_TWO_120_MODF3a	EQU	DWORD PTR [AD_BASE+154*8]
+XMM_INVFAC		EQU	DWORD PTR [AD_BASE+128*8]	;; Start at next cache line
+XMM_INVFACa		EQU	DWORD PTR [AD_BASE+130*8]
+XMM_I1			EQU	DWORD PTR [AD_BASE+132*8]
+XMM_I1a			EQU	DWORD PTR [AD_BASE+134*8]
+XMM_I2			EQU	DWORD PTR [AD_BASE+136*8]
+XMM_I2a			EQU	DWORD PTR [AD_BASE+138*8]
+XMM_F1			EQU	DWORD PTR [AD_BASE+140*8]
+XMM_F1a			EQU	DWORD PTR [AD_BASE+142*8]
+XMM_F2			EQU	DWORD PTR [AD_BASE+144*8]
+XMM_F2a			EQU	DWORD PTR [AD_BASE+146*8]
+XMM_F3			EQU	DWORD PTR [AD_BASE+148*8]
+XMM_F3a			EQU	DWORD PTR [AD_BASE+150*8]
+XMM_TWO_120_MODF1	EQU	DWORD PTR [AD_BASE+152*8]
+XMM_TWO_120_MODF1a	EQU	DWORD PTR [AD_BASE+154*8]
+XMM_TWO_120_MODF2	EQU	DWORD PTR [AD_BASE+156*8]
+XMM_TWO_120_MODF2a	EQU	DWORD PTR [AD_BASE+158*8]
+XMM_TWO_120_MODF3	EQU	DWORD PTR [AD_BASE+160*8]
+XMM_TWO_120_MODF3a	EQU	DWORD PTR [AD_BASE+162*8]
 
-YMM_INVFAC		EQU	DWORD PTR [AD_BASE+120*8]
-YMM_INVFACa		EQU	DWORD PTR [AD_BASE+124*8]
-YMM_I1			EQU	DWORD PTR [AD_BASE+128*8]
-YMM_I1a			EQU	DWORD PTR [AD_BASE+132*8]
-YMM_I2			EQU	DWORD PTR [AD_BASE+136*8]
-YMM_I2a			EQU	DWORD PTR [AD_BASE+140*8]
-YMM_F1			EQU	DWORD PTR [AD_BASE+144*8]
-YMM_F1a			EQU	DWORD PTR [AD_BASE+148*8]
-YMM_F2			EQU	DWORD PTR [AD_BASE+152*8]
-YMM_F2a			EQU	DWORD PTR [AD_BASE+156*8]
-YMM_F3			EQU	DWORD PTR [AD_BASE+160*8]
-YMM_F3a			EQU	DWORD PTR [AD_BASE+164*8]
-YMM_TWO_120_MODF1	EQU	DWORD PTR [AD_BASE+168*8]
-YMM_TWO_120_MODF1a	EQU	DWORD PTR [AD_BASE+172*8]
-YMM_TWO_120_MODF2	EQU	DWORD PTR [AD_BASE+176*8]
-YMM_TWO_120_MODF2a	EQU	DWORD PTR [AD_BASE+180*8]
-YMM_TWO_120_MODF3	EQU	DWORD PTR [AD_BASE+184*8]
-YMM_TWO_120_MODF3a	EQU	DWORD PTR [AD_BASE+188*8]
+YMM_INVFAC		EQU	DWORD PTR [AD_BASE+128*8]
+YMM_INVFACa		EQU	DWORD PTR [AD_BASE+132*8]
+YMM_I1			EQU	DWORD PTR [AD_BASE+136*8]
+YMM_I1a			EQU	DWORD PTR [AD_BASE+140*8]
+YMM_I2			EQU	DWORD PTR [AD_BASE+144*8]
+YMM_I2a			EQU	DWORD PTR [AD_BASE+148*8]
+YMM_F1			EQU	DWORD PTR [AD_BASE+152*8]
+YMM_F1a			EQU	DWORD PTR [AD_BASE+156*8]
+YMM_F2			EQU	DWORD PTR [AD_BASE+160*8]
+YMM_F2a			EQU	DWORD PTR [AD_BASE+164*8]
+YMM_F3			EQU	DWORD PTR [AD_BASE+168*8]
+YMM_F3a			EQU	DWORD PTR [AD_BASE+172*8]
+YMM_TWO_120_MODF1	EQU	DWORD PTR [AD_BASE+176*8]
+YMM_TWO_120_MODF1a	EQU	DWORD PTR [AD_BASE+180*8]
+YMM_TWO_120_MODF2	EQU	DWORD PTR [AD_BASE+184*8]
+YMM_TWO_120_MODF2a	EQU	DWORD PTR [AD_BASE+188*8]
+YMM_TWO_120_MODF3	EQU	DWORD PTR [AD_BASE+192*8]
+YMM_TWO_120_MODF3a	EQU	DWORD PTR [AD_BASE+196*8]
 
-;; Non-SSE2 and non-AVX2 queues can share the SSE2/AVX2 memory
+;; Now the variables needed when using factoring algorithm that uses two doubles.
+;;
+;; AVX-FMA supports 256-bit operations on doubles (12 trial factors simultaneouly)
+;; Use the YMM registers and the memory area below
+;; AVX512-FMA supports 512-bit operations on doubles (32 trial factors simultaneouly)
+;; Use the YMM registers and the memory area below
 
-fac1			EQU	QWORD PTR [AD_BASE+120*8]	; Queued factors to test
-fac2			EQU	QWORD PTR [AD_BASE+121*8]
-fac3			EQU	QWORD PTR [AD_BASE+122*8]
-fac4			EQU	QWORD PTR [AD_BASE+123*8]
-fac1hi			EQU	QWORD PTR [AD_BASE+124*8]	; High word of queued factors to test
-fac2hi			EQU	QWORD PTR [AD_BASE+125*8]
-fac3hi			EQU	QWORD PTR [AD_BASE+126*8]
-fac4hi			EQU	QWORD PTR [AD_BASE+127*8]
+;;pad to next cache line to match facasm_data structure defined in commonb.c
+FMA_SHIFTER			EQU	DWORD PTR [AD_BASE+80*8]	; Up to 32 dword shifter values
+YMM_FMA_LOW_MASK		EQU	QWORD PTR [AD_BASE+96*8]
+YMM_FMA_RND_CONST0		EQU	QWORD PTR [AD_BASE+100*8]	; 3 * 2^(51 + SPLIT_POINT)
+YMM_FMA_RND_CONST1		EQU	QWORD PTR [AD_BASE+104*8]	; 3 * 2^(51 + BITS_IN_LO_WORD*2)
+YMM_FMA_RND_CONST2		EQU	QWORD PTR [AD_BASE+108*8]	; 3 * 2^(51 + BITS_IN_LO_WORD)
+YMM_FMA_RND_CONST4		EQU	QWORD PTR [AD_BASE+112*8]	; 3 * 2^(51 - SPLIT_POINT)
+YMM_FMA_RND_CONST5		EQU	QWORD PTR [AD_BASE+116*8]	; 3 * 2^(51 + BITS_IN_LO_WORD - SPLIT_POINT)
+YMM_FMA_INITVAL			EQU	QWORD PTR [AD_BASE+120*8]	; Initial squared value (a power of two)
+YMM_FMA_TWOPOW_SPLIT		EQU	QWORD PTR [AD_BASE+124*8]	; 2^SPLIT_POINT
+YMM_FMA_TWO_TO_LO		EQU	QWORD PTR [AD_BASE+128*8]	; 2^LOW_BITS
+YMM_FMA_INVFAC			EQU	QWORD PTR [AD_BASE+132*8]
+YMM_FMA_INVFACa			EQU	QWORD PTR [AD_BASE+136*8]
+YMM_FMA_INVFACb			EQU	QWORD PTR [AD_BASE+140*8]
+YMM_FMA_FAC_HI			EQU	QWORD PTR [AD_BASE+144*8]
+YMM_FMA_FAC_HIa			EQU	QWORD PTR [AD_BASE+148*8]
+YMM_FMA_FAC_HIb			EQU	QWORD PTR [AD_BASE+152*8]
+YMM_FMA_FAC_LO			EQU	QWORD PTR [AD_BASE+156*8]
+YMM_FMA_FAC_LOa			EQU	QWORD PTR [AD_BASE+160*8]
+YMM_FMA_FAC_LOb			EQU	QWORD PTR [AD_BASE+164*8]
+YMM_FMA_TWOPOW1_MODF_HI		EQU	QWORD PTR [AD_BASE+168*8]
+YMM_FMA_TWOPOW2_MODF_HI		EQU	QWORD PTR [AD_BASE+172*8]
+YMM_FMA_TWOPOW1_MODF_HIa	EQU	QWORD PTR [AD_BASE+176*8]
+YMM_FMA_TWOPOW2_MODF_HIa	EQU	QWORD PTR [AD_BASE+180*8]
+YMM_FMA_TWOPOW1_MODF_HIb	EQU	QWORD PTR [AD_BASE+184*8]
+YMM_FMA_TWOPOW2_MODF_HIb	EQU	QWORD PTR [AD_BASE+188*8]
+YMM_FMA_TWOPOW1_MODF_LO		EQU	QWORD PTR [AD_BASE+192*8]
+YMM_FMA_TWOPOW2_MODF_LO		EQU	QWORD PTR [AD_BASE+196*8]
+YMM_FMA_TWOPOW1_MODF_LOa	EQU	QWORD PTR [AD_BASE+200*8]
+YMM_FMA_TWOPOW2_MODF_LOa	EQU	QWORD PTR [AD_BASE+204*8]
+YMM_FMA_TWOPOW1_MODF_LOb	EQU	QWORD PTR [AD_BASE+208*8]
+YMM_FMA_TWOPOW2_MODF_LOb	EQU	QWORD PTR [AD_BASE+212*8]
+YMM_FMA_FAC_HI_INT		EQU	QWORD PTR [AD_BASE+216*8]
+YMM_FMA_FAC_HI_INTa		EQU	QWORD PTR [AD_BASE+220*8]
+YMM_FMA_FAC_HI_INTb		EQU	QWORD PTR [AD_BASE+224*8]
+YMM_FMA_FAC_LO_INT		EQU	QWORD PTR [AD_BASE+228*8]
+YMM_FMA_FAC_LO_INTa		EQU	QWORD PTR [AD_BASE+232*8]
+YMM_FMA_FAC_LO_INTb		EQU	QWORD PTR [AD_BASE+236*8]
+YMM_FMA_SAVE			EQU	QWORD PTR [AD_BASE+240*8]
+YMM_FMA_SAVEa			EQU	QWORD PTR [AD_BASE+244*8]
+YMM_FMA_SAVEb			EQU	QWORD PTR [AD_BASE+248*8]
+YMM_FMA_SAVE2			EQU	QWORD PTR [AD_BASE+252*8]
+YMM_FMA_SAVE2a			EQU	QWORD PTR [AD_BASE+256*8]
+YMM_FMA_SAVE2b			EQU	QWORD PTR [AD_BASE+260*8]
 
-;; Other variables (start after the AVX2 variables)
+;;pad to next cache line to match facasm_data structure defined in commonb.c
+FMA_SHIFTER			EQU	DWORD PTR [AD_BASE+80*8]	; Up to 32 dword shifter values
+ZMM_FMA_LOW_MASK		EQU	QWORD PTR [AD_BASE+96*8]
+ZMM_FMA_RND_CONST0		EQU	QWORD PTR [AD_BASE+97*8]	; 3 * 2^(51 + SPLIT_POINT)
+ZMM_FMA_RND_CONST1		EQU	QWORD PTR [AD_BASE+98*8]	; 3 * 2^(51 + BITS_IN_LO_WORD*2)
+ZMM_FMA_RND_CONST2		EQU	QWORD PTR [AD_BASE+99*8]	; 3 * 2^(51 + BITS_IN_LO_WORD)
+ZMM_FMA_RND_CONST4		EQU	QWORD PTR [AD_BASE+100*8]	; 3 * 2^(51 - SPLIT_POINT)
+ZMM_FMA_RND_CONST5		EQU	QWORD PTR [AD_BASE+101*8]	; 3 * 2^(51 + BITS_IN_LO_WORD - SPLIT_POINT)
+ZMM_FMA_INITVAL			EQU	QWORD PTR [AD_BASE+102*8]	; Initial squared value (a power of two)
+ZMM_FMA_TWOPOW_SPLIT		EQU	QWORD PTR [AD_BASE+103*8]	; 2^SPLIT_POINT
+ZMM_FMA_TWO_TO_LO		EQU	QWORD PTR [AD_BASE+104*8]	; 2^LOW_BITS
+ZMM_FMA_INVFAC			EQU	QWORD PTR [AD_BASE+112*8]
+ZMM_FMA_INVFACa			EQU	QWORD PTR [AD_BASE+120*8]
+ZMM_FMA_INVFACb			EQU	QWORD PTR [AD_BASE+128*8]
+ZMM_FMA_INVFACc			EQU	QWORD PTR [AD_BASE+136*8]
+ZMM_FMA_FAC_HI			EQU	QWORD PTR [AD_BASE+144*8]
+ZMM_FMA_FAC_HIa			EQU	QWORD PTR [AD_BASE+152*8]
+ZMM_FMA_FAC_HIb			EQU	QWORD PTR [AD_BASE+160*8]
+ZMM_FMA_FAC_HIc			EQU	QWORD PTR [AD_BASE+168*8]
+ZMM_FMA_FAC_LO			EQU	QWORD PTR [AD_BASE+176*8]
+ZMM_FMA_FAC_LOa			EQU	QWORD PTR [AD_BASE+184*8]
+ZMM_FMA_FAC_LOb			EQU	QWORD PTR [AD_BASE+192*8]
+ZMM_FMA_FAC_LOc			EQU	QWORD PTR [AD_BASE+200*8]
+ZMM_FMA_TWOPOW1_MODF_HI		EQU	QWORD PTR [AD_BASE+208*8]
+ZMM_FMA_TWOPOW2_MODF_HI		EQU	QWORD PTR [AD_BASE+216*8]
+ZMM_FMA_TWOPOW1_MODF_HIa	EQU	QWORD PTR [AD_BASE+224*8]
+ZMM_FMA_TWOPOW2_MODF_HIa	EQU	QWORD PTR [AD_BASE+232*8]
+ZMM_FMA_TWOPOW1_MODF_HIb	EQU	QWORD PTR [AD_BASE+240*8]
+ZMM_FMA_TWOPOW2_MODF_HIb	EQU	QWORD PTR [AD_BASE+248*8]
+ZMM_FMA_TWOPOW1_MODF_HIc	EQU	QWORD PTR [AD_BASE+256*8]
+ZMM_FMA_TWOPOW2_MODF_HIc	EQU	QWORD PTR [AD_BASE+264*8]
+ZMM_FMA_TWOPOW1_MODF_LO		EQU	QWORD PTR [AD_BASE+272*8]
+ZMM_FMA_TWOPOW2_MODF_LO		EQU	QWORD PTR [AD_BASE+280*8]
+ZMM_FMA_TWOPOW1_MODF_LOa	EQU	QWORD PTR [AD_BASE+288*8]
+ZMM_FMA_TWOPOW2_MODF_LOa	EQU	QWORD PTR [AD_BASE+296*8]
+ZMM_FMA_TWOPOW1_MODF_LOb	EQU	QWORD PTR [AD_BASE+304*8]
+ZMM_FMA_TWOPOW2_MODF_LOb	EQU	QWORD PTR [AD_BASE+312*8]
+ZMM_FMA_TWOPOW1_MODF_LOc	EQU	QWORD PTR [AD_BASE+320*8]
+ZMM_FMA_TWOPOW2_MODF_LOc	EQU	QWORD PTR [AD_BASE+328*8]
+ZMM_FMA_FAC_HI_INT		EQU	QWORD PTR [AD_BASE+336*8]
+ZMM_FMA_FAC_HI_INTa		EQU	QWORD PTR [AD_BASE+344*8]
+ZMM_FMA_FAC_HI_INTb		EQU	QWORD PTR [AD_BASE+352*8]
+ZMM_FMA_FAC_HI_INTc		EQU	QWORD PTR [AD_BASE+360*8]
+ZMM_FMA_FAC_LO_INT		EQU	QWORD PTR [AD_BASE+368*8]
+ZMM_FMA_FAC_LO_INTa		EQU	QWORD PTR [AD_BASE+376*8]
+ZMM_FMA_FAC_LO_INTb		EQU	QWORD PTR [AD_BASE+384*8]
+ZMM_FMA_FAC_LO_INTc		EQU	QWORD PTR [AD_BASE+392*8]
 
-primearray12		EQU	[AD_BASE+192*8]			; Ptr into primearray
-shifter			EQU	QWORD PTR [AD_BASE+193*8]
-shift66			EQU	QWORD PTR [AD_BASE+194*8]	; Two shift counts used in 66-bit factoring
-initval1		EQU	QWORD PTR [AD_BASE+195*8]	; Lower 64 bits of initial value for squarer
-initval0		EQU	QWORD PTR [AD_BASE+196*8]	; Upper 64 bits of initial value for squarer
-initshift		EQU	QWORD PTR [AD_BASE+197*8]	; Initial shift count to make first quotient
-initshift2		EQU	QWORD PTR [AD_BASE+198*8]	; Initial shift count to make first quotient
-initdiv0		EQU	QWORD PTR [AD_BASE+199*8]	; Value to compute 1 / factor
-shift_count		EQU	QWORD PTR [AD_BASE+200*8]	; Shift count used in squaring loop
-temp			EQU	QWORD PTR [AD_BASE+201*8]
-memshifter		EQU	QWORD PTR [AD_BASE+202*8]	; tlp66 case doesn't have a free register to store shifter
-SAVED_REG1		EQU	[AD_BASE+203*8]
-SAVED_REG2		EQU	[AD_BASE+204*8]
-SAVED_REG3		EQU	[AD_BASE+205*8]
-SAVED_REG4		EQU	[AD_BASE+206*8]
-SAVED_REG5		EQU	[AD_BASE+207*8]
-SAVED_REG6		EQU	[AD_BASE+208*8]
-facinv2_in_memory	EQU	QWORD PTR [AD_BASE+209*8]
+;; Non-SSE2 and non-AVX2 and non-AVX512 queues can share the SSE2/AVX2/AVX512/FMA memory
+
+fac1			EQU	QWORD PTR [AD_BASE+128*8]	; Queued factors to test
+fac2			EQU	QWORD PTR [AD_BASE+129*8]
+fac3			EQU	QWORD PTR [AD_BASE+130*8]
+fac4			EQU	QWORD PTR [AD_BASE+131*8]
+fac1hi			EQU	QWORD PTR [AD_BASE+132*8]	; High word of queued factors to test
+fac2hi			EQU	QWORD PTR [AD_BASE+133*8]
+fac3hi			EQU	QWORD PTR [AD_BASE+134*8]
+fac4hi			EQU	QWORD PTR [AD_BASE+135*8]
+
+;; Other variables (start after the AVX512 variables)
+
+shifter			EQU	QWORD PTR [AD_BASE+400*8]
+shift66			EQU	QWORD PTR [AD_BASE+401*8]	; Two shift counts used in 66-bit factoring
+initval1		EQU	QWORD PTR [AD_BASE+402*8]	; Lower 64 bits of initial value for squarer
+initval0		EQU	QWORD PTR [AD_BASE+403*8]	; Upper 64 bits of initial value for squarer
+initshift		EQU	QWORD PTR [AD_BASE+404*8]	; Initial shift count to make first quotient
+initshift2		EQU	QWORD PTR [AD_BASE+405*8]	; Initial shift count to make first quotient
+initdiv0		EQU	QWORD PTR [AD_BASE+406*8]	; Value to compute 1 / factor
+shift_count		EQU	QWORD PTR [AD_BASE+407*8]	; Shift count used in squaring loop
+temp			EQU	QWORD PTR [AD_BASE+408*8]
+memshifter		EQU	QWORD PTR [AD_BASE+409*8]	; tlp66 case doesn't have a free register to store shifter
+SAVED_REG1		EQU	[AD_BASE+410*8]
+SAVED_REG2		EQU	[AD_BASE+411*8]
+SAVED_REG3		EQU	[AD_BASE+412*8]
+SAVED_REG4		EQU	[AD_BASE+413*8]
+SAVED_REG5		EQU	[AD_BASE+414*8]
+SAVED_REG6		EQU	[AD_BASE+415*8]
+facinv2_in_memory	EQU	QWORD PTR [AD_BASE+416*8]
 
 ;
 ; Global variables
 ;
 
 _GWDATA SEGMENT PAGE
-rems		DQ	1,7,17,23,31,41,47,49,71,73,79,89,97,103,113,119
-smfacendpt	DQ	100000000000h					; Limit for brute force factoring code (2^44)
+	align 8
+smfacendpt		DQ	100000000000h					; Limit for brute force factoring code (2^44)
+
+masks19			DQ	(1 SHL 0) OR (1 SHL 19) OR (1 SHL 38) OR (1 SHL 57)
+			DQ	(1 SHL 1) OR (1 SHL 20) OR (1 SHL 39) OR (1 SHL 58)
+			DQ	(1 SHL 2) OR (1 SHL 21) OR (1 SHL 40) OR (1 SHL 59)
+			DQ	(1 SHL 3) OR (1 SHL 22) OR (1 SHL 41) OR (1 SHL 60)
+			DQ	(1 SHL 4) OR (1 SHL 23) OR (1 SHL 42) OR (1 SHL 61)
+			DQ	(1 SHL 5) OR (1 SHL 24) OR (1 SHL 43) OR (1 SHL 62)
+			DQ	(1 SHL 6) OR (1 SHL 25) OR (1 SHL 44) OR (1 SHL 63)
+			DQ	(1 SHL 7) OR (1 SHL 26) OR (1 SHL 45)
+			DQ	(1 SHL 8) OR (1 SHL 27) OR (1 SHL 46)
+			DQ	(1 SHL 9) OR (1 SHL 28) OR (1 SHL 47)
+			DQ	(1 SHL 10) OR (1 SHL 29) OR (1 SHL 48)
+			DQ	(1 SHL 11) OR (1 SHL 30) OR (1 SHL 49)
+			DQ	(1 SHL 12) OR (1 SHL 31) OR (1 SHL 50)
+			DQ	(1 SHL 13) OR (1 SHL 32) OR (1 SHL 51)
+			DQ	(1 SHL 14) OR (1 SHL 33) OR (1 SHL 52)
+			DQ	(1 SHL 15) OR (1 SHL 34) OR (1 SHL 53)
+			DQ	(1 SHL 16) OR (1 SHL 35) OR (1 SHL 54)
+			DQ	(1 SHL 17) OR (1 SHL 36) OR (1 SHL 55)
+			DQ	(1 SHL 18) OR (1 SHL 37) OR (1 SHL 56)
+
+masks23			DQ	(1 SHL 0) OR (1 SHL 23) OR (1 SHL 46)
+			DQ	(1 SHL 1) OR (1 SHL 24) OR (1 SHL 47)
+			DQ	(1 SHL 2) OR (1 SHL 25) OR (1 SHL 48)
+			DQ	(1 SHL 3) OR (1 SHL 26) OR (1 SHL 49)
+			DQ	(1 SHL 4) OR (1 SHL 27) OR (1 SHL 50)
+			DQ	(1 SHL 5) OR (1 SHL 28) OR (1 SHL 51)
+			DQ	(1 SHL 6) OR (1 SHL 29) OR (1 SHL 52)
+			DQ	(1 SHL 7) OR (1 SHL 30) OR (1 SHL 53)
+			DQ	(1 SHL 8) OR (1 SHL 31) OR (1 SHL 54)
+			DQ	(1 SHL 9) OR (1 SHL 32) OR (1 SHL 55)
+			DQ	(1 SHL 10) OR (1 SHL 33) OR (1 SHL 56)
+			DQ	(1 SHL 11) OR (1 SHL 34) OR (1 SHL 57)
+			DQ	(1 SHL 12) OR (1 SHL 35) OR (1 SHL 58)
+			DQ	(1 SHL 13) OR (1 SHL 36) OR (1 SHL 59)
+			DQ	(1 SHL 14) OR (1 SHL 37) OR (1 SHL 60)
+			DQ	(1 SHL 15) OR (1 SHL 38) OR (1 SHL 61)
+			DQ	(1 SHL 16) OR (1 SHL 39) OR (1 SHL 62)
+			DQ	(1 SHL 17) OR (1 SHL 40) OR (1 SHL 63)
+			DQ	(1 SHL 18) OR (1 SHL 41)
+			DQ	(1 SHL 19) OR (1 SHL 42)
+			DQ	(1 SHL 20) OR (1 SHL 43)
+			DQ	(1 SHL 21) OR (1 SHL 44)
+			DQ	(1 SHL 22) OR (1 SHL 45)
+
+masks29			DQ	(1 SHL 0) OR (1 SHL 29) OR (1 SHL 58)
+			DQ	(1 SHL 1) OR (1 SHL 30) OR (1 SHL 59)
+			DQ	(1 SHL 2) OR (1 SHL 31) OR (1 SHL 60)
+			DQ	(1 SHL 3) OR (1 SHL 32) OR (1 SHL 61)
+			DQ	(1 SHL 4) OR (1 SHL 33) OR (1 SHL 62)
+			DQ	(1 SHL 5) OR (1 SHL 34) OR (1 SHL 63)
+			DQ	(1 SHL 6) OR (1 SHL 35)
+			DQ	(1 SHL 7) OR (1 SHL 36)
+			DQ	(1 SHL 8) OR (1 SHL 37)
+			DQ	(1 SHL 9) OR (1 SHL 38)
+			DQ	(1 SHL 10) OR (1 SHL 39)
+			DQ	(1 SHL 11) OR (1 SHL 40)
+			DQ	(1 SHL 12) OR (1 SHL 41)
+			DQ	(1 SHL 13) OR (1 SHL 42)
+			DQ	(1 SHL 14) OR (1 SHL 43)
+			DQ	(1 SHL 15) OR (1 SHL 44)
+			DQ	(1 SHL 16) OR (1 SHL 45)
+			DQ	(1 SHL 17) OR (1 SHL 46)
+			DQ	(1 SHL 18) OR (1 SHL 47)
+			DQ	(1 SHL 19) OR (1 SHL 48)
+			DQ	(1 SHL 20) OR (1 SHL 49)
+			DQ	(1 SHL 21) OR (1 SHL 50)
+			DQ	(1 SHL 22) OR (1 SHL 51)
+			DQ	(1 SHL 23) OR (1 SHL 52)
+			DQ	(1 SHL 24) OR (1 SHL 53)
+			DQ	(1 SHL 25) OR (1 SHL 54)
+			DQ	(1 SHL 26) OR (1 SHL 55)
+			DQ	(1 SHL 27) OR (1 SHL 56)
+			DQ	(1 SHL 28) OR (1 SHL 57)
+
+masks31			DQ	(1 SHL 0) OR (1 SHL 31) OR (1 SHL 62)
+			DQ	(1 SHL 1) OR (1 SHL 32) OR (1 SHL 63)
+			DQ	(1 SHL 2) OR (1 SHL 33)
+			DQ	(1 SHL 3) OR (1 SHL 34)
+			DQ	(1 SHL 4) OR (1 SHL 35)
+			DQ	(1 SHL 5) OR (1 SHL 36)
+			DQ	(1 SHL 6) OR (1 SHL 37)
+			DQ	(1 SHL 7) OR (1 SHL 38)
+			DQ	(1 SHL 8) OR (1 SHL 39)
+			DQ	(1 SHL 9) OR (1 SHL 40)
+			DQ	(1 SHL 10) OR (1 SHL 41)
+			DQ	(1 SHL 11) OR (1 SHL 42)
+			DQ	(1 SHL 12) OR (1 SHL 43)
+			DQ	(1 SHL 13) OR (1 SHL 44)
+			DQ	(1 SHL 14) OR (1 SHL 45)
+			DQ	(1 SHL 15) OR (1 SHL 46)
+			DQ	(1 SHL 16) OR (1 SHL 47)
+			DQ	(1 SHL 17) OR (1 SHL 48)
+			DQ	(1 SHL 18) OR (1 SHL 49)
+			DQ	(1 SHL 19) OR (1 SHL 50)
+			DQ	(1 SHL 20) OR (1 SHL 51)
+			DQ	(1 SHL 21) OR (1 SHL 52)
+			DQ	(1 SHL 22) OR (1 SHL 53)
+			DQ	(1 SHL 23) OR (1 SHL 54)
+			DQ	(1 SHL 24) OR (1 SHL 55)
+			DQ	(1 SHL 25) OR (1 SHL 56)
+			DQ	(1 SHL 26) OR (1 SHL 57)
+			DQ	(1 SHL 27) OR (1 SHL 58)
+			DQ	(1 SHL 28) OR (1 SHL 59)
+			DQ	(1 SHL 29) OR (1 SHL 60)
+			DQ	(1 SHL 30) OR (1 SHL 61)
+
+masks37			DQ	(1 SHL 0) OR (1 SHL 37)
+masks41			DQ	(1 SHL 0) OR (1 SHL 41)
+masks43			DQ	(1 SHL 0) OR (1 SHL 43)
+masks47			DQ	(1 SHL 0) OR (1 SHL 47)
+masks53			DQ	(1 SHL 0) OR (1 SHL 53)
+masks59			DQ	(1 SHL 0) OR (1 SHL 59)
+masks61			DQ	(1 SHL 0) OR (1 SHL 61)
+
 	align 16
 XMM_LOWONE		DD	1,0,0,0
 XMM_HIGHONE		DD	0,0,1,0
@@ -149,841 +365,330 @@ YMM_BITS28		DD	0FFFFFFFh,0,0FFFFFFFh,0,0FFFFFFFh,0,0FFFFFFFh,0
 YMM_BITS30		DD	3FFFFFFFh,0,3FFFFFFFh,0,3FFFFFFFh,0,3FFFFFFFh,0
 YMM_28TH_BIT		DD	08000000h,0,08000000h,0,08000000h,0,08000000h,0
 YMM_ONE			DD	1,0,1,0,1,0,1,0
+YMM_FMA_RND_CONST3	DQ 	6755399441055744.0,6755399441055744.0,6755399441055744.0,6755399441055744.0	; 3*2^51
+YMM_FMA_ONE_OR_TWO TEXTEQU <YMM_FMA_ONE>
+YMM_FMA_ONE		DQ	1.0,1.0,1.0,1.0
+YMM_FMA_TWO		DQ	2.0,2.0,2.0,2.0
+YMM_FMA_ZERO		DQ	0.0,0.0,0.0,0.0
 
-;
-; Prime data
-;
+YMM_INIT_SV19		DD	0, -(32 MOD 19), -(64 MOD 19), -(96 MOD 19), -(128 MOD 19), -(160 MOD 19), -(192 MOD 19), -(224 MOD 19)
+YMM_INIT_SV23		DD	0, -(32 MOD 23), -(64 MOD 23), -(96 MOD 23), -(128 MOD 23), -(160 MOD 23), -(192 MOD 23), -(224 MOD 23)
+YMM_INIT_SV29		DD	0, -(32 MOD 29), -(64 MOD 29), -(96 MOD 29), -(128 MOD 29), -(160 MOD 29), -(192 MOD 29), -(224 MOD 29)
+YMM_INIT_SV31		DD	0, -(32 MOD 31), -(64 MOD 31), -(96 MOD 31), -(128 MOD 31), -(160 MOD 31), -(192 MOD 31), -(224 MOD 31)
+YMM_INIT_SV37		DD	0, -(32 MOD 37), -(64 MOD 37), -(96 MOD 37), -(128 MOD 37), -(160 MOD 37), -(192 MOD 37), -(224 MOD 37)
+YMM_INIT_SV41		DD	0, -(32 MOD 41), -(64 MOD 41), -(96 MOD 41), -(128 MOD 41), -(160 MOD 41), -(192 MOD 41), -(224 MOD 41)
+YMM_INIT_SV43		DD	0, -(32 MOD 43), -(64 MOD 43), -(96 MOD 43), -(128 MOD 43), -(160 MOD 43), -(192 MOD 43), -(224 MOD 43)
+YMM_INIT_SV47		DD	0, -(32 MOD 47), -(64 MOD 47), -(96 MOD 47), -(128 MOD 47), -(160 MOD 47), -(192 MOD 47), -(224 MOD 47)
+YMM_INIT_SV53		DD	0, -(32 MOD 53), -(64 MOD 53), -(96 MOD 53), -(128 MOD 53), -(160 MOD 53), -(192 MOD 53), -(224 MOD 53)
+YMM_INIT_SV59		DD	0, -(32 MOD 59), -(64 MOD 59), -(96 MOD 59), -(128 MOD 59), -(160 MOD 59), -(192 MOD 59), -(224 MOD 59)
+YMM_INIT_SV61		DD	0, -(32 MOD 61), -(64 MOD 61), -(96 MOD 61), -(128 MOD 61), -(160 MOD 61), -(192 MOD 61), -(224 MOD 61)
+YMM_INIT_SV67		DD	0, -(32 MOD 67), -(64 MOD 67), -(96 MOD 67), -(128 MOD 67), -(160 MOD 67), -(192 MOD 67), -(224 MOD 67)
+YMM_INIT_SV71		DD	0, -(32 MOD 71), -(64 MOD 71), -(96 MOD 71), -(128 MOD 71), -(160 MOD 71), -(192 MOD 71), -(224 MOD 71)
+YMM_INIT_SV73		DD	0, -(32 MOD 73), -(64 MOD 73), -(96 MOD 73), -(128 MOD 73), -(160 MOD 73), -(192 MOD 73), -(224 MOD 73)
+ YMM_INIT_SV79		DD	0, -(32 MOD 79), -(64 MOD 79), -(96 MOD 79), -(128 MOD 79), -(160 MOD 79), -(192 MOD 79), -(224 MOD 79)
+ YMM_INIT_SV83		DD	0, -(32 MOD 83), -(64 MOD 83), -(96 MOD 83), -(128 MOD 83), -(160 MOD 83), -(192 MOD 83), -(224 MOD 83)
+YMM_INIT_SV89		DD	0, -(32 MOD 89), -(64 MOD 89), -(96 MOD 89), -(128 MOD 89), -(160 MOD 89), -(192 MOD 89), -(224 MOD 89)
+YMM_INIT_SV97		DD	0, -(32 MOD 97), -(64 MOD 97), -(96 MOD 97), -(128 MOD 97), -(160 MOD 97), -(192 MOD 97), -(224 MOD 97)
+YMM_INIT_SV101		DD	0, -(32 MOD 101), -(64 MOD 101), -(96 MOD 101), -(128 MOD 101), -(160 MOD 101), -(192 MOD 101), -(224 MOD 101)
+YMM_INIT_SV103		DD	0, -(32 MOD 103), -(64 MOD 103), -(96 MOD 103), -(128 MOD 103), -(160 MOD 103), -(192 MOD 103), -(224 MOD 103)
+YMM_INIT_SV107		DD	0, -(32 MOD 107), -(64 MOD 107), -(96 MOD 107), -(128 MOD 107), -(160 MOD 107), -(192 MOD 107), -(224 MOD 107)
+YMM_INIT_SV109		DD	0, -(32 MOD 109), -(64 MOD 109), -(96 MOD 109), -(128 MOD 109), -(160 MOD 109), -(192 MOD 109), -(224 MOD 109)
+YMM_INIT_SV113		DD	0, -(32 MOD 113), -(64 MOD 113), -(96 MOD 113), -(128 MOD 113), -(160 MOD 113), -(192 MOD 113), -(224 MOD 113)
+YMM_INIT_SV127		DD	0, -(32 MOD 127), -(64 MOD 127), -(96 MOD 127), -(128 MOD 127), -(160 MOD 127), -(192 MOD 127), -(224 MOD 127)
+YMM_INIT_SV131		DD	0, -(32 MOD 131), -(64 MOD 131), -(96 MOD 131), -(128 MOD 131), -(160 MOD 131), -(192 MOD 131), -(224 MOD 131)
+YMM_INIT_SV137		DD	0, -(32 MOD 137), -(64 MOD 137), -(96 MOD 137), -(128 MOD 137), -(160 MOD 137), -(192 MOD 137), -(224 MOD 137)
+YMM_INIT_SV139		DD	0, -(32 MOD 139), -(64 MOD 139), -(96 MOD 139), -(128 MOD 139), -(160 MOD 139), -(192 MOD 139), -(224 MOD 139)
+ YMM_INIT_SV149		DD	0, -(32 MOD 149), -(64 MOD 149), -(96 MOD 149), -(128 MOD 149), -(160 MOD 149), -(192 MOD 149), -(224 MOD 149)
+ YMM_INIT_SV151		DD	0, -(32 MOD 151), -(64 MOD 151), -(96 MOD 151), -(128 MOD 151), -(160 MOD 151), -(192 MOD 151), -(224 MOD 151)
+YMM_INIT_SV157		DD	0, -(32 MOD 157), -(64 MOD 157), -(96 MOD 157), -(128 MOD 157), -(160 MOD 157), -(192 MOD 157), -(224 MOD 157)
+YMM_INIT_SV163		DD	0, -(32 MOD 163), -(64 MOD 163), -(96 MOD 163), -(128 MOD 163), -(160 MOD 163), -(192 MOD 163), -(224 MOD 163)
+YMM_INIT_SV167		DD	0, -(32 MOD 167), -(64 MOD 167), -(96 MOD 167), -(128 MOD 167), -(160 MOD 167), -(192 MOD 167), -(224 MOD 167)
+YMM_INIT_SV173		DD	0, -(32 MOD 173), -(64 MOD 173), -(96 MOD 173), -(128 MOD 173), -(160 MOD 173), -(192 MOD 173), -(224 MOD 173)
+YMM_INIT_SV179		DD	0, -(32 MOD 179), -(64 MOD 179), -(96 MOD 179), -(128 MOD 179), -(160 MOD 179), -(192 MOD 179), -(224 MOD 179)
+YMM_INIT_SV181		DD	0, -(32 MOD 181), -(64 MOD 181), -(96 MOD 181), -(128 MOD 181), -(160 MOD 181), -(192 MOD 181), -(224 MOD 181)
+YMM_INIT_SV191		DD	0, -(32 MOD 191), -(64 MOD 191), -(96 MOD 191), -(128 MOD 191), -(160 MOD 191), -(192 MOD 191), -(224 MOD 191)
+YMM_INIT_SV193		DD	0, -(32 MOD 193), -(64 MOD 193), -(96 MOD 193), -(128 MOD 193), -(160 MOD 193), -(192 MOD 193), -(224 MOD 193)
+YMM_INIT_SV197		DD	0, -(32 MOD 197), -(64 MOD 197), -(96 MOD 197), -(128 MOD 197), -(160 MOD 197), -(192 MOD 197), -(224 MOD 197)
+YMM_INIT_SV199		DD	0, -(32 MOD 199), -(64 MOD 199), -(96 MOD 199), -(128 MOD 199), -(160 MOD 199), -(192 MOD 199), -(224 MOD 199)
+YMM_INIT_SV211		DD	0, -(32 MOD 211), -(64 MOD 211), -(96 MOD 211), -(128 MOD 211), -(160 MOD 211), -(192 MOD 211), -(224 MOD 211)
+ YMM_INIT_SV223		DD	0, -(32 MOD 223), -(64 MOD 223), -(96 MOD 223), -(128 MOD 223), -(160 MOD 223), -(192 MOD 223), -(224 MOD 223)
+ YMM_INIT_SV227		DD	0, -(32 MOD 227), -(64 MOD 227), -(96 MOD 227), -(128 MOD 227), -(160 MOD 227), -(192 MOD 227), -(224 MOD 227)
+YMM_INIT_SV229		DD	0, -(32 MOD 229), -(64 MOD 229), -(96 MOD 229), -(128 MOD 229), -(160 MOD 229), -(192 MOD 229), -(224 MOD 229)
+YMM_INIT_SV233		DD	0, -(32 MOD 233), -(64 MOD 233), -(96 MOD 233), -(128 MOD 233), -(160 MOD 233), -(192 MOD 233), -(224 MOD 233)
+YMM_INIT_SV239		DD	0, -(32 MOD 239), -(64 MOD 239), -(96 MOD 239), -(128 MOD 239), -(160 MOD 239), -(192 MOD 239), -(224 MOD 239)
+YMM_INIT_SV241		DD	0, -(32 MOD 241), -(64 MOD 241), -(96 MOD 241), -(128 MOD 241), -(160 MOD 241), -(192 MOD 241), -(224 MOD 241)
+YMM_INIT_SV251		DD	0, -(32 MOD 251), -(64 MOD 251), -(96 MOD 251), -(128 MOD 251), -(160 MOD 251), -(192 MOD 251), -(224 MOD 251)
+YMM_INIT_SV257		DD	0, -32, -64, -96, -128, -160, -192, -224
+YMM_INIT_SV263		DD	0, -32, -64, -96, -128, -160, -192, -224
+YMM_INIT_SV269		DD	0, -32, -64, -96, -128, -160, -192, -224
+YMM_INIT_SV271		DD	0, -32, -64, -96, -128, -160, -192, -224
+YMM_INIT_SV277		DD	0, -32, -64, -96, -128, -160, -192, -224
+YMM_INIT_SV281		DD	0, -32, -64, -96, -128, -160, -192, -224
+YMM_INIT_SV283		DD	0, -32, -64, -96, -128, -160, -192, -224
 
-sivinfo	DB	1, 2, 1, 2, 1, 2, 3, 1, 3, 2, 1, 2, 3
-	DB	3, 1, 3, 2, 1, 3, 2, 3, 4, 2, 1, 2, 1, 2, 7
-	DB	2, 3, 1, 5, 1, 3, 3, 2, 3, 3, 1, 5, 1, 2, 1
-	DB	6, 6, 2, 1, 2, 3, 1, 5, 3, 3, 3, 1, 3, 2, 1
-	DB	5, 7, 2, 1, 2, 7, 3, 5, 1, 2, 3, 4, 3, 3, 2
-	DB	3, 4, 2, 4, 5, 1, 5, 1, 3, 2, 3, 4, 2, 1, 2
-	DB	6, 4, 2, 4, 2, 3, 6, 1, 9, 3, 5, 3, 3, 1, 3
-	DB	5, 3, 3, 1, 3, 3, 2, 1, 6, 5, 1, 2, 3, 3, 1
-	DB	6, 2, 3, 4, 5, 4, 5, 4, 3, 3, 2, 4, 3, 2, 4
-	DB	2, 7, 5, 6, 1, 5, 1, 2, 1, 5, 7, 2, 1, 2, 7
-	DB	2, 1, 2, 10, 2, 4, 5, 4, 2, 3, 3, 7, 2, 3, 3
-	DB	4, 3, 6, 2, 3, 1, 5, 1, 3, 5, 1, 5, 1, 3, 9
-	DB	2, 1, 2, 3, 3, 4, 3, 3, 11, 1, 5, 4, 5, 3, 3
-	DB	4, 6, 2, 3, 3, 1, 3, 6, 5, 9, 1, 2, 3, 1, 3
-	DB	2, 1, 2, 6, 1, 3, 17, 3, 3, 4, 9, 5, 7, 2, 1
-	DB	2, 3, 4, 2, 1, 3, 6, 5, 1, 2, 1, 2, 3, 6, 6
-	DB	4, 6, 3, 2, 3, 4, 2, 4, 2, 7, 2, 3, 1, 2, 3
-	DB	1, 3, 5, 10, 3, 2, 1, 12, 2, 1, 5, 6, 1, 5, 4
-	DB	3, 3, 3, 9, 3, 2, 1, 6, 5, 6, 4, 8, 7, 3, 2
-	DB	1, 2, 1, 5, 6, 3, 3, 9, 1, 8, 1, 11, 3, 4, 3
-	DB	2, 1, 2, 4, 3, 5, 1, 5, 7, 5, 3, 6, 1, 2, 1
-	DB	5, 6, 1, 8, 1, 3, 2, 1, 5, 4, 9, 12, 2, 3, 4
-	DB	8, 1, 2, 4, 8, 1, 2, 4, 3, 3, 2, 6, 1, 11, 3
-	DB	1, 3, 2, 3, 7, 3, 2, 1, 3, 2, 3, 6, 3, 3, 7
-	DB	2, 3, 6, 4, 3, 2, 13, 9, 5, 4, 2, 3, 1, 3, 11
-	DB	6, 1, 8, 4, 2, 6, 7, 5, 1, 2, 4, 3, 3, 2, 1
-	DB	2, 3, 4, 2, 1, 3, 5, 1, 5, 4, 2, 7, 5, 6, 1
-	DB	3, 2, 1, 8, 7, 2, 3, 4, 3, 2, 9, 4, 5, 3, 3
-	DB	4, 5, 6, 7, 2, 3, 3, 1, 14, 1, 5, 4, 2, 7, 2
-	DB	4, 6, 3, 6, 2, 3, 10, 5, 1, 8, 13, 2, 1, 6, 3
-	DB	2, 6, 3, 4, 2, 4, 11, 1, 2, 1, 6, 14, 1, 3, 3
-	DB	3, 2, 3, 1, 6, 2, 6, 1, 5, 1, 8, 1, 8, 3, 10
-	DB	8, 4, 2, 1, 2, 1, 11, 4, 6, 3, 5, 1, 2, 3, 1
-	DB	3, 5, 1, 6, 5, 1, 5, 7, 3, 2, 3, 4, 3, 3, 8
-	DB	6, 1, 2, 7, 3, 2, 4, 5, 4, 3, 3, 11, 3, 1, 5
-	DB	7, 2, 3, 9, 1, 5, 7, 2, 1, 5, 7, 2, 4, 9, 2
-	DB	3, 1, 2, 3, 1, 6, 2, 10, 11, 6, 1, 2, 3, 3, 1
-	DB	3, 11, 1, 3, 8, 3, 6, 1, 3, 6, 8, 1, 2, 3, 7
-	DB	2, 1, 9, 12, 5, 3, 1, 5, 1, 5, 1, 5, 3, 1, 5
-	DB	1, 5, 3, 4, 15, 5, 1, 5, 4, 3, 5, 9, 3, 6, 6
-	DB	1, 9, 3, 2, 3, 3, 9, 1, 5, 7, 3, 2, 1, 2, 12
-	DB	1, 6, 3, 8, 4, 3, 3, 9, 8, 1, 2, 3, 1, 3, 3
-	DB	5, 3, 6, 6, 9, 1, 3, 2, 9, 4, 12, 2, 1, 2, 3
-	DB	1, 6, 2, 7, 15, 5, 3, 6, 7, 3, 5, 6, 1, 2, 3
-	DB	4, 3, 5, 1, 2, 7, 3, 3, 2, 3, 1, 5, 1, 8, 6
-	DB	4, 9, 2, 3, 6, 1, 3, 3, 3, 14, 3, 7, 2, 4, 5
-	DB	4, 6, 9, 2, 1, 2, 12, 6, 3, 1, 8, 3, 3, 7, 5
-	DB	7, 2, 15, 3, 3, 3, 4, 3, 2, 1, 6, 3, 2, 1, 3
-	DB	11, 3, 1, 2, 9, 1, 2, 6, 1, 3, 2, 13, 3, 3, 2
-	DB	4, 5, 16, 8, 1, 3, 2, 1, 2, 1, 5, 7, 3, 2, 4
-	DB	5, 3, 10, 2, 1, 3, 15, 2, 4, 5, 3, 3, 4, 3, 6
-	DB	2, 3, 1, 3, 2, 3, 1, 5, 1, 8, 3, 10, 2, 6, 7
-	DB	14, 3, 10, 2, 9, 4, 3, 2, 3, 7, 3, 3, 5, 1, 5
-	DB	6, 4, 5, 1, 5, 4, 6, 5, 12, 1, 2, 4, 3, 2, 4
-	DB	9, 5, 3, 3, 1, 3, 5, 6, 1, 5, 3, 3, 3, 4, 3
-	DB	5, 3, 1, 3, 3, 3, 5, 4, 12, 3, 11, 1, 9, 2, 4
-	DB	5, 15, 4, 9, 2, 1, 5, 3, 1, 3, 2, 9, 4, 6, 9
-	DB	8, 3, 1, 6, 3, 5, 1, 5, 1, 3, 5, 7, 2, 12, 1
-	DB	8, 1, 5, 1, 5, 10, 2, 1, 2, 4, 8, 3, 3, 1, 6
-	DB	8, 4, 2, 3, 15, 1, 5, 1, 3, 2, 3, 3, 4, 3, 2
-	DB	6, 3, 4, 6, 2, 7, 6, 5, 12, 3, 6, 3, 1, 11, 4
-	DB	9, 5, 3, 7, 2, 1, 3, 5, 4, 3, 2, 3, 15, 7, 5
-	DB	1, 6, 5, 1, 8, 1, 9, 12, 9, 3, 8, 9, 3, 1, 9
-	DB	2, 3, 1, 5, 4, 5, 3, 3, 4, 2, 3, 1, 5, 1, 6
-	DB	2, 3, 3, 1, 6, 2, 7, 9, 2, 3, 10, 2, 4, 3, 2
-	DB	4, 2, 7, 3, 2, 7, 6, 2, 1, 15, 2, 12, 3, 3, 6
-	DB	6, 7, 3, 2, 1, 2, 9, 3, 6, 4, 3, 2, 6, 1, 6
-	DB	15, 8, 1, 3, 11, 7, 3, 5, 6, 3, 1, 2, 4, 5, 3
-	DB	3, 12, 7, 3, 2, 4, 6, 9, 5, 1, 5, 1, 2, 3, 10
-	DB	3, 2, 7, 2, 1, 2, 7, 3, 6, 12, 5, 3, 4, 5, 1
-	DB	15, 2, 3, 1, 6, 2, 7, 3, 17, 6, 4, 3, 5, 1, 2
-	DB	10, 5, 4, 8, 1, 5, 7, 2, 1, 6, 3, 8, 3, 4, 2
-	DB	4, 2, 3, 4, 3, 3, 6, 3, 2, 3, 3, 4, 9, 2, 10
-	DB	2, 6, 1, 5, 3, 1, 5, 6, 1, 2, 10, 3, 15, 3, 2
-	DB	4, 5, 6, 3, 1, 14, 1, 3, 2, 1, 8, 6, 1, 3, 5
-	DB	4, 12, 6, 3, 9, 3, 2, 7, 3, 2, 6, 4, 3, 6, 2
-	DB	3, 6, 3, 6, 1, 8, 10, 2, 1, 5, 9, 4, 2, 7, 2
-	DB	1, 3, 11, 3, 7, 3, 3, 5, 3, 1, 5, 1, 2, 1, 11
-	DB	1, 2, 3, 3, 6, 3, 7, 5, 6, 3, 4, 2, 18, 7, 6
-	DB	3, 2, 3, 1, 6, 3, 6, 8, 1, 5, 4, 11, 1, 6, 3
-	DB	2, 3, 9, 1, 6, 3, 2, 6, 4, 3, 6, 2, 3, 6, 3
-	DB	1, 6, 6, 2, 7, 3, 8, 3, 1, 5, 4, 9, 3, 17, 1
-	DB	14, 1, 11, 3, 1, 5, 6, 1, 3, 2, 4, 11, 3, 1, 5
-	DB	4, 2, 3, 4, 2, 6, 9, 6, 10, 2, 3, 3, 4, 2, 1
-	DB	8, 6, 1, 5, 4, 5, 1, 2, 3, 7, 6, 11, 4, 14, 1
-	DB	2, 10, 2, 1, 2, 7, 5, 6, 1, 6, 8, 1, 14, 4, 11
-	DB	4, 2, 3, 3, 7, 2, 4, 6, 3, 3, 2, 10, 2, 9, 1
-	DB	6, 3, 2, 3, 7, 9, 5, 4, 5, 16, 3, 5, 3, 3, 1
-	DB	3, 8, 3, 1, 6, 3, 14, 1, 5, 4, 8, 3, 4, 3, 5
-	DB	12, 10, 5, 1, 5, 1, 6, 2, 3, 10, 2, 1, 6, 9, 5
-	DB	1, 5, 1, 2, 10, 8, 13, 2, 4, 3, 2, 6, 3, 4, 6
-	DB	6, 3, 2, 4, 11, 1, 8, 7, 5, 3, 6, 6, 7, 3, 2
-	DB	10, 2, 6, 3, 1, 3, 3, 8, 4, 11, 1, 14, 4, 3, 2
-	DB	10, 2, 6, 12, 10, 2, 4, 5, 1, 8, 1, 6, 6, 17, 1
-	DB	2, 3, 6, 3, 3, 4, 3, 2, 1, 3, 12, 2, 10, 5, 3
-	DB	3, 7, 2, 3, 3, 1, 6, 3, 5, 1, 5, 3, 10, 2, 13
-	DB	2, 1, 3, 11, 1, 12, 2, 3, 1, 2, 3, 12, 3, 4, 2
-	DB	1, 17, 3, 4, 8, 6, 1, 5, 1, 5, 3, 4, 2, 4, 6
-	DB	11, 3, 7, 2, 13, 2, 1, 6, 5, 4, 2, 4, 6, 2, 7
-	DB	3, 8, 3, 4, 2, 3, 3, 4, 3, 5, 6, 1, 3, 3, 8
-	DB	4, 3, 3, 6, 5, 1, 3, 9, 2, 3, 3, 3, 6, 9, 4
-	DB	3, 5, 4, 9, 2, 7, 3, 9, 5, 4, 5, 6, 1, 3, 6
-	DB	6, 18, 2, 3, 4, 2, 3, 1, 2, 9, 6, 3, 4, 3, 3
-	DB	2, 9, 1, 2, 1, 12, 2, 3, 3, 7, 15, 3, 2, 3, 6
-	DB	3, 10, 2, 4, 2, 4, 3, 3, 2, 15, 1, 5, 6, 4, 5
-	DB	4, 12, 3, 6, 2, 7, 2, 3, 1, 14, 7, 8, 1, 6, 3
-	DB	2, 10, 5, 3, 3, 3, 4, 5, 6, 7, 5, 7, 8, 7, 5
-	DB	7, 3, 8, 3, 4, 3, 8, 10, 5, 1, 3, 2, 1, 2, 6
-	DB	1, 5, 1, 3, 11, 3, 1, 2, 9, 4, 5, 4, 11, 1, 5
-	DB	9, 7, 2, 1, 2, 9, 1, 2, 3, 4, 5, 1, 15, 2, 15
-	DB	1, 5, 1, 9, 2, 9, 3, 7, 5, 1, 2, 10, 18, 3, 2
-	DB	3, 7, 2, 10, 5, 7, 11, 3, 1, 15, 6, 5, 9, 1, 2
-	DB	7, 3, 11, 9, 1, 6, 3, 2, 4, 2, 4, 3, 5, 1, 6
-	DB	9, 5, 7, 8, 7, 2, 3, 3, 1, 3, 2, 1, 14, 1, 14
-	DB	3, 1, 2, 3, 7, 2, 6, 7, 8, 7, 2, 3, 4, 3, 2
-	DB	3, 3, 3, 4, 2, 4, 2, 7, 8, 4, 3, 2, 6, 4, 8
-	DB	1, 5, 4, 2, 3, 13, 3, 5, 4, 2, 3, 6, 7, 15, 2
-	DB	7, 11, 4, 6, 2, 3, 4, 5, 3, 7, 5, 3, 1, 5, 6
-	DB	6, 7, 3, 3, 9, 5, 3, 4, 9, 2, 3, 1, 3, 5, 1
-	DB	5, 4, 3, 3, 5, 1, 9, 5, 1, 6, 2, 3, 4, 5, 6
-	DB	7, 6, 2, 4, 5, 3, 3, 10, 2, 7, 8, 7, 5, 4, 5
-	DB	6, 1, 9, 3, 6, 5, 6, 1, 2, 1, 6, 3, 2, 4, 2
-	DB	22, 2, 1, 2, 1, 5, 6, 3, 3, 7, 2, 3, 3, 3, 4
-	DB	3, 18, 9, 2, 3, 1, 6, 3, 3, 3, 2, 7, 11, 6, 1
-	DB	9, 5, 3, 13, 12, 2, 1, 2, 1, 2, 7, 2, 3, 3, 4
-	DB	8, 6, 1, 21, 2, 1, 2, 12, 3, 3, 1, 9, 2, 7, 3
-	DB	14, 9, 7, 3, 5, 6, 1, 3, 6, 15, 3, 2, 3, 3, 7
-	DB	2, 1, 12, 2, 3, 3, 13, 5, 9, 3, 4, 3, 3, 15, 2
-	DB	6, 6, 1, 8, 1, 3, 2, 6, 9, 1, 3, 2, 13, 6, 3
-	DB	6, 2, 12, 12, 6, 3, 1, 6, 14, 4, 2, 3, 6, 1, 9
-	DB	3, 2, 3, 3, 10, 8, 1, 3, 3, 9, 5, 3, 1, 2, 4
-	DB	3, 3, 12, 8, 3, 4, 5, 3, 7, 11, 4, 8, 3, 1, 6
-	DB	2, 1, 11, 4, 9, 17, 1, 3, 9, 2, 3, 3, 4, 5, 4
-	DB	9, 3, 2, 1, 2, 4, 8, 1, 6, 6, 3, 9, 2, 3, 3
-	DB	3, 1, 3, 6, 5, 10, 6, 9, 2, 3, 1, 8, 1, 5, 7
-	DB	2, 15, 1, 5, 6, 1, 12, 3, 8, 4, 5, 1, 6, 11, 3
-	DB	1, 8, 10, 5, 1, 6, 6, 9, 5, 6, 3, 1, 5, 1, 3
-	DB	5, 9, 1, 6, 3, 2, 3, 1, 12, 14, 1, 2, 1, 5, 1
-	DB	8, 6, 4, 11, 1, 3, 2, 1, 5, 3, 10, 6, 5, 4, 6
-	DB	3, 3, 3, 2, 9, 1, 2, 6, 9, 1, 6, 3, 2, 1, 8
-	DB	6, 6, 7, 2, 4, 9, 2, 6, 7, 3, 3, 2, 4, 3, 2
-	DB	10, 6, 5, 7, 2, 1, 8, 1, 6, 15, 2, 3, 12, 10, 12
-	DB	5, 4, 6, 5, 6, 3, 6, 6, 3, 4, 8, 7, 3, 2, 3
-	DB	18, 10, 5, 15, 6, 1, 2, 1, 14, 6, 7, 3, 11, 4, 2
-	DB	9, 3, 7, 9, 2, 3, 1, 3, 17, 9, 1, 8, 3, 9, 1
-	DB	12, 2, 1, 3, 6, 3, 6, 5, 4, 3, 8, 6, 4, 5, 7
-	DB	20, 3, 1, 3, 2, 6, 7, 2, 1, 2, 1, 2, 4, 3, 5
-	DB	3, 3, 1, 3, 3, 3, 6, 3, 12, 5, 1, 5, 3, 6, 3
-	DB	3, 7, 3, 3, 26, 10, 3, 5, 1, 5, 4, 5, 6, 6, 1
-	DB	3, 2, 7, 8, 4, 6, 3, 11, 1, 5, 4, 3, 11, 1, 11
-	DB	3, 4, 5, 6, 6, 1, 5, 3, 6, 1, 2, 7, 5, 1, 3
-	DB	9, 2, 6, 4, 9, 6, 3, 3, 2, 3, 3, 7, 2, 1, 6
-	DB	6, 2, 3, 9, 9, 6, 1, 8, 6, 4, 9, 5, 13, 2, 3
-	DB	4, 3, 3, 2, 1, 5, 10, 2, 3, 4, 2, 10, 5, 1, 17
-	DB	1, 2, 12, 1, 6, 6, 5, 3, 1, 6, 15, 3, 6, 8, 6
-	DB	1, 11, 9, 6, 7, 5, 1, 6, 6, 2, 1, 2, 3, 6, 1
-	DB	8, 9, 1, 20, 4, 8, 3, 4, 5, 1, 2, 9, 4, 5, 4
-	DB	6, 2, 9, 1, 9, 5, 1, 2, 1, 2, 4, 14, 1, 3, 11
-	DB	6, 3, 7, 9, 2, 3, 4, 3, 3, 5, 4, 2, 1, 9, 5
-	DB	3, 10, 11, 4, 3, 15, 2, 1, 2, 9, 3, 15, 1, 2, 4
-	DB	3, 2, 3, 6, 7, 17, 7, 3, 2, 1, 3, 2, 7, 2, 1
-	DB	3, 14, 1, 2, 3, 4, 5, 1, 5, 1, 5, 1, 2, 15, 1
-	DB	6, 6, 5, 9, 6, 7, 5, 1, 6, 3, 5, 3, 7, 6, 2
-	DB	7, 2, 9, 1, 5, 4, 2, 4, 5, 6, 9, 9, 4, 3, 9
-	DB	8, 7, 3, 3, 5, 7, 2, 3, 1, 6, 6, 2, 3, 3, 6
-	DB	1, 8, 1, 6, 3, 2, 7, 3, 2, 1, 6, 9, 2, 18, 9
-	DB	6, 6, 1, 2, 1, 2, 4, 6, 2, 18, 3, 9, 1, 6, 5
-	DB	3, 6, 12, 4, 3, 3, 8, 6, 1, 9, 5, 10, 5, 1, 3
-	DB	9, 2, 1, 20, 3, 1, 8, 1, 2, 4, 9, 5, 6, 3, 1
-	DB	5, 4, 2, 3, 6, 1, 5, 9, 4, 3, 2, 10, 2, 3, 18
-	DB	3, 1, 5, 3, 12, 3, 7, 8, 3, 9, 1, 5, 10, 5, 4
-	DB	3, 2, 3, 1, 5, 1, 6, 2, 1, 2, 4, 5, 3, 6, 9
-	DB	7, 6, 8, 4, 3, 8, 4, 2, 1, 3, 9, 12, 9, 5, 6
-	DB	1, 2, 7, 5, 3, 3, 3, 9, 6, 1, 14, 9, 7, 8, 6
-	DB	7, 12, 6, 11, 3, 1, 5, 4, 2, 1, 2, 7, 6, 3, 2
-	DB	3, 7, 2, 1, 2, 15, 3, 1, 3, 5, 1, 15, 11, 1, 2
-	DB	3, 4, 3, 3, 8, 6, 6, 3, 4, 2, 1, 12, 6, 2, 3
-	DB	4, 3, 3, 5, 1, 3, 6, 14, 7, 3, 2, 6, 4, 3, 6
-	DB	2, 3, 7, 3, 6, 5, 3, 3, 4, 3, 3, 2, 1, 2, 4
-	DB	6, 2, 7, 9, 5, 1, 8, 3, 10, 3, 5, 4, 2, 15, 18
-	DB	6, 4, 11, 6, 1, 3, 6, 8, 3, 3, 1, 9, 2, 13, 2
-	DB	4, 9, 5, 4, 5, 3, 7, 2, 10, 11, 9, 6, 4, 14, 6
-	DB	3, 3, 4, 3, 6, 12, 8, 7, 2, 7, 6, 3, 5, 6, 10
-	DB	3, 2, 4, 9, 6, 9, 5, 1, 2, 10, 5, 7, 2, 3, 1
-	DB	5, 12, 9, 1, 2, 10, 8, 7, 5, 7, 3, 2, 3, 10, 3
-	DB	5, 3, 1, 6, 3, 15, 5, 4, 3, 2, 3, 4, 20, 1, 2
-	DB	1, 6, 9, 2, 3, 4, 5, 3, 9, 9, 1, 6, 8, 4, 3
-	DB	2, 3, 3, 1, 26, 7, 2, 10, 8, 1, 2, 3, 6, 1, 3
-	DB	6, 6, 3, 2, 7, 5, 3, 3, 7, 5, 7, 8, 4, 3, 6
-	DB	2, 4, 11, 3, 1, 9, 11, 3, 1, 9, 3, 8, 7, 5, 3
-	DB	6, 1, 3, 2, 4, 9, 6, 8, 1, 2, 7, 2, 4, 6, 6
-	DB	15, 8, 4, 2, 1, 3, 11, 6, 4, 5, 3, 3, 3, 7, 3
-	DB	9, 5, 6, 1, 5, 1, 2, 13, 2, 6, 4, 2, 9, 4, 5
-	DB	7, 8, 3, 3, 4, 5, 3, 4, 3, 6, 5, 10, 5, 4, 2
-	DB	6, 13, 9, 2, 6, 9, 3, 15, 3, 4, 3, 11, 6, 1, 2
-	DB	3, 3, 1, 5, 1, 2, 3, 3, 1, 3, 11, 9, 3, 9, 6
-	DB	4, 6, 3, 5, 6, 1, 8, 1, 5, 1, 5, 9, 3, 10, 2
-	DB	1, 3, 11, 3, 3, 9, 3, 7, 6, 8, 1, 3, 3, 2, 7
-	DB	6, 2, 1, 9, 8, 18, 6, 3, 7, 14, 1, 6, 3, 6, 3
-	DB	2, 1, 8, 15, 4, 12, 3, 15, 5, 1, 9, 2, 3, 6, 4
-	DB	11, 1, 3, 11, 9, 1, 5, 1, 5, 15, 1, 14, 3, 7, 8
-	DB	3, 10, 8, 1, 3, 2, 16, 2, 1, 2, 3, 1, 6, 2, 3
-	DB	3, 6, 1, 3, 2, 3, 4, 3, 2, 10, 2, 16, 5, 4, 8
-	DB	1, 11, 1, 2, 3, 4, 3, 8, 7, 2, 9, 4, 2, 10, 3
-	DB	6, 6, 3, 5, 1, 5, 1, 6, 14, 6, 9, 1, 9, 5, 4
-	DB	5, 24, 1, 2, 3, 4, 5, 1, 5, 15, 1, 18, 3, 5, 3
-	DB	1, 9, 2, 3, 4, 8, 7, 8, 3, 7, 2, 10, 2, 3, 1
-	DB	5, 6, 1, 3, 6, 3, 3, 2, 6, 1, 3, 2, 6, 3, 4
-	DB	2, 1, 3, 9, 5, 3, 4, 6, 3, 11, 1, 3, 6, 9, 2
-	DB	7, 3, 2, 10, 3, 8, 4, 2, 4, 11, 4, 6, 3, 3, 8
-	DB	6, 9, 15, 4, 2, 1, 2, 3, 13, 2, 7, 12, 11, 3, 1
-	DB	3, 5, 3, 7, 3, 3, 6, 5, 3, 1, 6, 5, 6, 4, 9
-	DB	9, 5, 3, 4, 8, 3, 3, 4, 8, 10, 2, 1, 5, 1, 5
-	DB	6, 3, 4, 3, 5, 10, 5, 9, 13, 2, 3, 15, 1, 2, 4
-	DB	3, 6, 6, 9, 2, 4, 11, 3, 1, 6, 17, 3, 9, 6, 3
-	DB	1, 14, 7, 8, 7, 2, 7, 6, 2, 3, 3, 1, 18, 2, 3
-	DB	10, 6, 12, 3, 11, 1, 8, 9, 6, 6, 9, 1, 3, 3, 3
-	DB	2, 3, 7, 2, 1, 11, 4, 6, 3, 5, 3, 4, 6, 9, 6
-	DB	3, 5, 1, 11, 7, 3, 3, 2, 9, 3, 10, 11, 1, 6, 12
-	DB	2, 9, 9, 1, 11, 1, 2, 6, 4, 6, 5, 7, 2, 1, 9
-	DB	8, 19, 3, 3, 3, 6, 5, 3, 6, 4, 3, 2, 3, 7, 15
-	DB	3, 5, 4, 11, 3, 4, 6, 5, 1, 5, 1, 3, 5, 1, 5
-	DB	6, 9, 10, 3, 2, 4, 11, 3, 3, 15, 3, 7, 3, 6, 6
-	DB	3, 5, 1, 5, 15, 1, 8, 4, 2, 1, 3, 9, 2, 1, 3
-	DB	2, 13, 2, 4, 3, 5, 1, 2, 3, 4, 2, 3, 15, 6, 1
-	DB	3, 3, 2, 10, 11, 4, 2, 1, 2, 36, 4, 2, 4, 11, 1
-	DB	2, 7, 5, 1, 2, 10, 3, 5, 9, 3, 10, 8, 3, 4, 3
-	DB	2, 10, 6, 11, 1, 2, 1, 6, 5, 9, 1, 11, 3, 9, 15
-	DB	1, 5, 7, 5, 4, 8, 25, 3, 5, 4, 5, 6, 3, 9, 1
-	DB	11, 3, 1, 2, 3, 4, 3, 3, 5, 9, 1, 11, 1, 8, 7
-	DB	5, 3, 1, 6, 5, 10, 2, 7, 3, 2, 18, 1, 2, 3, 6
-	DB	1, 2, 7, 6, 3, 2, 3, 1, 3, 2, 10, 5, 1, 5, 3
-	DB	6, 1, 12, 6, 6, 3, 3, 2, 12, 1, 2, 12, 1, 3, 2
-	DB	3, 4, 8, 3, 1, 5, 6, 7, 3, 17, 3, 7, 3, 2, 1
-	DB	15, 11, 4, 2, 3, 4, 2, 1, 14, 1, 3, 2, 13, 9, 11
-	DB	1, 3, 8, 3, 1, 8, 6, 1, 6, 2, 3, 3, 7, 5, 3
-	DB	4, 6, 2, 9, 1, 5, 4, 8, 3, 3, 15, 1, 5, 9, 1
-	DB	5, 4, 2, 4, 6, 12, 20, 1, 6, 5, 3, 6, 1, 6, 2
-	DB	1, 2, 3, 9, 7, 6, 3, 2, 7, 15, 2, 4, 5, 4, 3
-	DB	5, 9, 4, 2, 7, 8, 3, 4, 2, 3, 1, 5, 1, 6, 2
-	DB	1, 2, 3, 4, 2, 3, 16, 12, 5, 4, 9, 5, 1, 3, 5
-	DB	1, 2, 9, 3, 6, 1, 8, 1, 11, 3, 3, 4, 9, 2, 9
-	DB	6, 4, 3, 2, 10, 3, 15, 11, 6, 1, 3, 9, 2, 31, 2
-	DB	1, 6, 3, 5, 1, 6, 6, 14, 1, 2, 7, 11, 3, 1, 3
-	DB	3, 5, 7, 2, 1, 5, 3, 4, 5, 7, 5, 3, 1, 6, 11
-	DB	9, 4, 5, 9, 6, 1, 6, 2, 6, 1, 5, 1, 3, 9, 3
-	DB	3, 17, 3, 1, 6, 2, 3, 9, 9, 1, 8, 3, 3, 4, 3
-	DB	5, 9, 4, 5, 4, 5, 1, 2, 9, 13, 6, 11, 1, 2, 1
-	DB	11, 3, 3, 7, 8, 3, 10, 5, 6, 1, 9, 21, 2, 12, 1
-	DB	3, 5, 6, 1, 3, 5, 4, 2, 3, 6, 6, 4, 2, 3, 6
-	DB	15, 10, 3, 12, 3, 5, 6, 1, 5, 10, 3, 3, 2, 6, 7
-	DB	5, 9, 6, 4, 3, 6, 2, 7, 5, 1, 6, 15, 8, 1, 6
-	DB	3, 2, 1, 2, 3, 13, 2, 9, 1, 2, 3, 7, 27, 3, 26
-	DB	1, 8, 3, 3, 6, 13, 2, 1, 3, 11, 3, 1, 6, 6, 3
-	DB	5, 9, 1, 6, 6, 5, 9, 6, 3, 4, 3, 5, 3, 4, 2
-	DB	1, 2, 10, 12, 3, 3, 5, 7, 5, 1, 11, 3, 7, 5, 13
-	DB	2, 9, 4, 6, 6, 5, 6, 3, 4, 8, 3, 4, 3, 3, 11
-	DB	1, 5, 10, 5, 3, 22, 9, 3, 5, 1, 2, 3, 7, 2, 13
-	DB	2, 1, 6, 5, 4, 2, 4, 6, 2, 6, 4, 11, 4, 3, 5
-	DB	9, 3, 3, 4, 3, 6, 2, 4, 9, 5, 6, 3, 6, 1, 3
-	DB	2, 1, 8, 6, 6, 7, 5, 7, 3, 5, 6, 1, 6, 3, 2
-	DB	3, 1, 6, 2, 13, 3, 9, 3, 5, 3, 1, 9, 5, 4, 2
-	DB	13, 5, 10, 3, 8, 10, 6, 5, 4, 5, 1, 8, 3, 10, 5
-	DB	10, 2, 15, 1, 2, 4, 8, 1, 9, 2, 1, 3, 5, 9, 6
-	DB	7, 9, 3, 8, 10, 3, 2, 4, 3, 2, 3, 6, 4, 5, 1
-	DB	6, 3, 2, 1, 3, 5, 1, 8, 6, 7, 5, 3, 4, 3, 14
-	DB	1, 3, 9, 15, 17, 1, 8, 6, 1, 9, 8, 3, 4, 5, 4
-	DB	5, 4, 5, 22, 3, 3, 2, 10, 2, 1, 2, 7, 14, 4, 3
-	DB	8, 7, 15, 3, 15, 2, 7, 5, 3, 3, 4, 2, 9, 6, 3
-	DB	1, 11, 6, 4, 3, 6, 2, 7, 2, 3, 1, 2, 9, 10, 3
-	DB	8, 19, 8, 1, 2, 3, 1, 20, 21, 7, 2, 3, 1, 12, 5
-	DB	3, 1, 9, 5, 6, 1, 8, 1, 3, 8, 3, 4, 2, 1, 5
-	DB	3, 4, 5, 1, 9, 8, 4, 6, 9, 6, 3, 6, 5, 3, 3
-	DB	9, 6, 7, 2, 1, 5, 10, 3, 6, 3, 8, 13, 2, 9, 1
-	DB	2, 16, 5, 4, 3, 2, 3, 3, 7, 3, 9, 2, 1, 9, 5
-	DB	4, 5, 4, 5, 1, 2, 3, 1, 5, 21, 4, 6, 2, 3, 9
-	DB	1, 8, 4, 2, 1, 5, 7, 6, 5, 10, 2, 4, 5, 19, 2
-	DB	3, 1, 5, 10, 5, 6, 3, 6, 13, 6, 2, 4, 14, 4, 2
-	DB	4, 12, 3, 5, 4, 3, 8, 6, 4, 5, 6, 4, 11, 3, 1
-	DB	5, 1, 3, 5, 3, 3, 4, 3, 2, 7, 14, 4, 8, 9, 4
-	DB	2, 3, 10, 2, 9, 3, 1, 12, 12, 3, 3, 6, 6, 2, 1
-	DB	11, 1, 5, 3, 4, 6, 2, 10, 9, 3, 2, 6, 12, 3, 3
-	DB	27, 4, 3, 2, 13, 18, 2, 1, 2, 13, 6, 6, 2, 3, 3
-	DB	4, 6, 5, 1, 6, 8, 9, 3, 4, 3, 6, 9, 5, 1, 27
-	DB	2, 1, 5, 15, 6, 4, 2, 4, 8, 7, 6, 3, 2, 3, 6
-	DB	3, 1, 2, 7, 6, 2, 7, 3, 12, 3, 3, 5, 6, 6, 10
-	DB	9, 3, 3, 8, 4, 2, 3, 10, 2, 16, 2, 7, 5, 1, 3
-	DB	6, 8, 1, 2, 3, 6, 1, 5, 4, 3, 2, 1, 5, 7, 3
-	DB	3, 6, 9, 17, 4, 5, 3, 12, 3, 1, 5, 6, 1, 15, 5
-	DB	7, 6, 6, 8, 3, 3, 1, 9, 2, 3, 15, 7, 2, 3, 3
-	DB	1, 3, 2, 3, 7, 3, 2, 4, 5, 6, 3, 16, 5, 4, 11
-	DB	1, 5, 3, 12, 4, 2, 15, 3, 1, 6, 8, 4, 3, 2, 3
-	DB	4, 8, 7, 3, 3, 2, 1, 5, 6, 1, 8, 7, 2, 1, 2
-	DB	10, 9, 5, 1, 5, 3, 6, 15, 4, 9, 6, 5, 1, 3, 3
-	DB	2, 6, 6, 1, 2, 6, 9, 12, 1, 5, 3, 4, 8, 4, 3
-	DB	6, 5, 7, 3, 6, 3, 3, 2, 1, 12, 2, 3, 4, 3, 2
-	DB	1, 2, 3, 7, 2, 4, 5, 12, 12, 6, 1, 3, 6, 11, 15
-	DB	1, 3, 9, 5, 3, 3, 4, 2, 1, 3, 5, 4, 5, 3, 4
-	DB	8, 3, 7, 3, 2, 12, 4, 5, 1, 6, 3, 2, 18, 1, 11
-	DB	3, 4, 3, 5, 4, 3, 6, 5, 7, 5, 3, 9, 6, 1, 6
-	DB	2, 13, 5, 7, 8, 9, 4, 9, 6, 6, 3, 8, 7, 12, 5
-	DB	6, 4, 11, 3, 1, 5, 30, 3, 1, 2, 4, 8, 7, 5, 3
-	DB	12, 3, 6, 9, 12, 1, 15, 2, 1, 6, 3, 5, 1, 2, 7
-	DB	3, 8, 1, 5, 4, 11, 10, 3, 2, 16, 3, 9, 2, 1, 2
-	DB	1, 2, 4, 26, 7, 11, 1, 11, 10, 5, 4, 5, 1, 3, 2
-	DB	7, 2, 3, 10, 2, 3, 1, 6, 6, 3, 6, 8, 1, 6, 5
-	DB	4, 2, 3, 1, 14, 6, 4, 5, 6, 1, 2, 7, 14, 4, 3
-	DB	2, 1, 2, 3, 1, 6, 29, 3, 7, 5, 1, 3, 14, 16, 2
-	DB	15, 4, 3, 2, 3, 6, 6, 1, 2, 3, 3, 7, 8, 4, 15
-	DB	2, 1, 5, 4, 3, 2, 3, 13, 2, 6, 1, 5, 9, 6, 6
-	DB	9, 1, 2, 6, 4, 6, 5, 10, 2, 4, 8, 6, 4, 3, 8
-	DB	4, 5, 6, 7, 3, 2, 4, 6, 2, 10, 3, 20, 4, 8, 3
-	DB	18, 1, 3, 2, 3, 1, 11, 9, 1, 5, 3, 18, 7, 6, 2
-	DB	9, 4, 2, 7, 5, 1, 5, 4, 2, 1, 9, 8, 6, 7, 5
-	DB	7, 3, 3, 21, 5, 3, 3, 10, 5, 4, 6, 2, 6, 9, 1
-	DB	5, 7, 9, 5, 9, 4, 3, 2, 7, 3, 5, 15, 7, 3, 3
-	DB	2, 6, 19, 2, 1, 2, 3, 4, 6, 5, 3, 9, 3, 25, 3
-	DB	2, 3, 6, 4, 5, 16, 3, 11, 1, 5, 6, 9, 1, 3, 2
-	DB	15, 4, 3, 3, 9, 5, 1, 2, 6, 10, 5, 4, 12, 5, 1
-	DB	3, 11, 3, 1, 9, 5, 6, 1, 15, 9, 6, 14, 1, 3, 2
-	DB	3, 7, 3, 6, 5, 4, 2, 6, 13, 5, 4, 3, 8, 1, 5
-	DB	9, 7, 3, 2, 3, 7, 8, 1, 3, 2, 6, 10, 2, 10, 2
-	DB	3, 6, 1, 18, 2, 3, 1, 5, 1, 11, 4, 3, 5, 6, 6
-	DB	9, 7, 12, 18, 2, 10, 12, 5, 3, 1, 14, 3, 9, 4, 2
-	DB	3, 4, 3, 2, 1, 6, 14, 9, 7, 8, 7, 9, 5, 4, 3
-	DB	2, 3, 3, 4, 11, 6, 1, 5, 9, 3, 1, 9, 5, 1, 6
-	DB	5, 9, 16, 3, 2, 3, 3, 4, 3, 3, 5, 10, 3, 6, 5
-	DB	4, 5, 7, 3, 5, 7, 2, 1, 11, 9, 1, 5, 1, 2, 10
-	DB	2, 1, 17, 1, 6, 3, 5, 1, 5, 9, 3, 7, 6, 6, 11
-	DB	4, 3, 8, 3, 4, 2, 6, 3, 4, 2, 18, 3, 3, 10, 12
-	DB	3, 6, 9, 5, 1, 5, 13, 3, 8, 4, 3, 2, 12, 9, 4
-	DB	6, 6, 5, 9, 6, 1, 12, 2, 6, 9, 6, 7, 5, 1, 2
-	DB	12, 6, 7, 5, 3, 1, 3, 2, 3, 13, 2, 3, 3, 1, 11
-	DB	4, 9, 2, 9, 4, 2, 12, 1, 6, 6, 2, 1, 26, 1, 9
-	DB	3, 2, 3, 6, 1, 3, 6, 5, 4, 2, 1, 12, 5, 1, 5
-	DB	1, 6, 3, 9, 20, 3, 10, 8, 1, 6, 3, 5, 6, 1, 2
-	DB	3, 7, 6, 6, 11, 3, 4, 2, 1, 8, 9, 6, 1, 3, 8
-	DB	3, 1, 3, 2, 6, 15, 4, 8, 1, 9, 5, 12, 1, 3, 12
-	DB	2, 1, 11, 1, 8, 1, 3, 6, 2, 9, 4, 2, 7, 2, 9
-	DB	12, 3, 1, 3, 5, 1, 5, 19, 3, 5, 7, 3, 3, 12, 2
-	DB	1, 6, 8, 7, 8, 6, 1, 3, 5, 13, 2, 1, 6, 3, 2
-	DB	6, 4, 6, 5, 9, 3, 7, 14, 1, 3, 5, 1, 2, 7, 17
-	DB	1, 3, 11, 1, 5, 7, 2, 1, 8, 4, 5, 3, 4, 5, 4
-	DB	2, 3, 1, 8, 3, 3, 9, 15, 7, 3, 2, 15, 1, 5, 7
-	DB	2, 10, 5, 4, 2, 4, 9, 2, 7, 3, 2, 12, 3, 3, 9
-	DB	9, 1, 18, 3, 5, 7, 6, 2, 3, 1, 15, 3, 2, 1, 3
-	DB	14, 10, 2, 10, 6, 12, 8, 9, 6, 7, 3, 2, 6, 16, 6
-	DB	3, 5, 4, 5, 3, 9, 1, 8, 7, 3, 11, 3, 6, 1, 9
-	DB	2, 4, 15, 6, 2, 6, 1, 5, 19, 11, 1, 2, 7, 3, 6
-	DB	12, 2, 1, 2, 7, 6, 5, 1, 8, 3, 10, 2, 10, 11, 6
-	DB	1, 2, 1, 6, 11, 12, 3, 3, 1, 3, 2, 3, 1, 5, 6
-	DB	6, 3, 1, 3, 8, 4, 3, 2, 9, 6, 6, 7, 2, 6, 3
-	DB	4, 3, 9, 3, 5, 6, 7, 3, 2, 4, 11, 3, 1, 14, 9
-	DB	1, 9, 5, 3, 7, 5, 1, 5, 7, 3, 5, 1, 11, 3, 4
-	DB	3, 8, 6, 4, 11, 1, 2, 7, 9, 6, 3, 12, 3, 5, 1
-	DB	6, 11, 9, 3, 10, 3, 5, 7, 2, 1, 3, 6, 11, 7, 6
-	DB	2, 3, 4, 11, 1, 5, 6, 4, 20, 1, 3, 5, 4, 2, 21
-	DB	10, 2, 16, 6, 5, 3, 6, 6, 1, 5, 4, 3, 2, 4, 2
-	DB	13, 9, 2, 4, 14, 3, 9, 3, 6, 1, 5, 3, 3, 7, 5
-	DB	6, 7, 12, 3, 2, 10, 11, 1, 9, 2, 3, 6, 1, 8, 9
-	DB	7, 3, 3, 2, 3, 4, 9, 2, 7, 15, 2, 9, 4, 5, 1
-	DB	2, 4, 6, 2, 6, 9, 1, 6, 5, 1, 8, 4, 2, 15, 1
-	DB	3, 14, 1, 5, 1, 9, 5, 7, 2, 13, 3, 9, 2, 10, 3
-	DB	2, 4, 9, 2, 6, 13, 12, 2, 10, 11, 1, 9, 11, 1, 2
-	DB	6, 1, 3, 3, 3, 2, 3, 7, 2, 12, 6, 3, 9, 1, 6
-	DB	14, 7, 2, 3, 4, 11, 3, 6, 9, 4, 2, 10, 3, 2, 3
-	DB	1, 9, 3, 2, 6, 6, 4, 14, 3, 4, 5, 1, 12, 6, 5
-	DB	12, 4, 5, 10, 6, 3, 6, 6, 2, 7, 6, 12, 17, 9, 4
-	DB	5, 3, 9, 4, 2, 4, 8, 7, 3, 2, 3, 12, 1, 3, 2
-	DB	3, 1, 8, 3, 3, 10, 12, 2, 1, 2, 7, 2, 9, 1, 3
-	DB	6, 2, 7, 2, 1, 9, 8, 3, 3, 1, 8, 10, 3, 3, 15
-	DB	2, 4, 3, 12, 8, 3, 3, 4, 6, 15, 2, 9, 9, 4, 2
-	DB	13, 5, 1, 11, 4, 5, 7, 3, 2, 9, 4, 6, 14, 1, 3
-	DB	2, 6, 3, 12, 3, 4, 5, 10, 8, 4, 15, 3, 3, 2, 1
-	DB	5, 7, 3, 5, 16, 11, 9, 1, 2, 1, 2, 4, 11, 4, 9
-	DB	6, 14, 1, 8, 6, 9, 7, 5, 9, 6, 3, 16, 5, 7, 3
-	DB	5, 1, 5, 1, 3, 11, 1, 2, 3, 4, 5, 3, 7, 3, 2
-	DB	6, 15, 12, 3, 3, 4, 3, 2, 1, 2, 3, 4, 3, 3, 11
-	DB	9, 4, 2, 1, 9, 3, 2, 1, 8, 9, 10, 5, 3, 3, 15
-	DB	1, 6, 14, 3, 3, 3, 1, 6, 5, 4, 9, 9, 2, 4, 9
-	DB	5, 1, 14, 1, 5, 7, 2, 1, 15, 6, 11, 13, 5, 4, 3
-	DB	5, 4, 8, 7, 3, 3, 5, 7, 3, 2, 1, 5, 6, 1, 3
-	DB	5, 4, 2, 1, 5, 13, 11, 3, 1, 6, 9, 2, 13, 2, 4
-	DB	5, 3, 7, 5, 1, 9, 3, 5, 10, 3, 3, 2, 12, 1, 2
-	DB	4, 3, 8, 7, 8, 9, 1, 2, 6, 1, 5, 1, 3, 6, 5
-	DB	3, 3, 10, 3, 2, 3, 19, 2, 3, 6, 7, 2, 6, 4, 5
-	DB	6, 6, 4, 2, 3, 7, 5, 3, 6, 1, 5, 9, 1, 9, 5
-	DB	4, 5, 1, 6, 2, 7, 14, 1, 8, 1, 9, 3, 5, 3, 4
-	DB	8, 7, 15, 5, 10, 3, 5, 12, 1, 14, 1, 6, 8, 3, 4
-	DB	18, 2, 4, 2, 7, 6, 5, 4, 6, 2, 3, 4, 2, 3, 7
-	DB	11, 4, 3, 2, 1, 5, 3, 10, 5, 4, 3, 3, 11, 9, 1
-	DB	8, 3, 10, 2, 13, 2, 7, 11, 7, 2, 6, 3, 4, 2, 3
-	DB	3, 13, 5, 1, 9, 9, 2, 1, 8, 1, 9, 2, 3, 4, 2
-	DB	3, 6, 1, 3, 3, 14, 19, 2, 4, 8, 13, 2, 1, 5, 6
-	DB	1, 5, 4, 3, 5, 6, 1, 5, 1, 12, 2, 15, 13, 3, 3
-	DB	9, 3, 3, 11, 1, 5, 9, 13, 2, 9, 4, 3, 3, 6, 8
-	DB	3, 4, 8, 3, 4, 8, 1, 21, 29, 4, 2, 3, 1, 2, 4
-	DB	8, 3, 10, 2, 6, 6, 3, 6, 1, 5, 1, 3, 11, 1, 5
-	DB	3, 4, 3, 5, 7, 3, 3, 2, 9, 4, 5, 4, 8, 7, 5
-	DB	1, 5, 1, 6, 3, 2, 10, 5, 4, 26, 4, 5, 3, 1, 5
-	DB	4, 5, 3, 3, 4, 5, 1, 11, 1, 2, 3, 7, 2, 1, 12
-	DB	6, 2, 13, 9, 2, 3, 7, 15, 3, 2, 3, 1, 11, 4, 2
-	DB	3, 1, 11, 3, 4, 8, 3, 7, 2, 3, 9, 4, 6, 3, 6
-	DB	12, 15, 8, 4, 17, 4, 11, 3, 7, 5, 9, 7, 2, 6, 4
-	DB	2, 18, 3, 3, 1, 5, 1, 2, 10, 3, 3, 5, 6, 3, 1
-	DB	20, 4, 3, 14, 3, 1, 6, 9, 2, 12, 7, 3, 3, 5, 10
-	DB	5, 7, 8, 7, 8, 3, 4, 18, 2, 6, 6, 3, 6, 25, 6
-	DB	3, 2, 3, 3, 4, 3, 5, 1, 5, 1, 9, 5, 7, 8, 4
-	DB	3, 2, 10, 2, 1, 5, 3, 7, 9, 5, 19, 5, 9, 1, 5
-	DB	1, 6, 2, 1, 2, 7, 3, 5, 4, 20, 3, 10, 2, 6, 4
-	DB	3, 17, 4, 11, 4, 6, 5, 1, 8, 21, 6, 4, 11, 4, 11
-	DB	4, 3, 17, 1, 3, 2, 7, 3, 8, 1, 11, 3, 4, 12, 11
-	DB	3, 1, 6, 2, 3, 7, 2, 4, 12, 2, 3, 3, 1, 11, 10
-	DB	3, 2, 7, 2, 3, 3, 4, 3, 5, 3, 4, 3, 8, 7, 3
-	DB	3, 11, 3, 12, 16, 3, 9, 3, 9, 5, 4, 15, 9, 3, 8
-	DB	6, 3, 6, 1, 3, 2, 6, 4, 3, 11, 4, 3, 2, 7, 5
-	DB	9, 10, 5, 1, 3, 2, 1, 14, 9, 1, 5, 3, 3, 3, 7
-	DB	20, 12, 1, 2, 4, 6, 2, 10, 2, 16, 9, 8, 3, 18, 4
-	DB	3, 2, 3, 7, 2, 3, 13, 3, 5, 7, 9, 5, 3, 3, 7
-	DB	5, 3, 3, 7, 3, 12, 2, 7, 11, 4, 6, 5, 4, 6, 9
-	DB	5, 9, 4, 12, 5, 4, 2, 12, 3, 9, 3, 1, 5, 15, 1
-	DB	5, 1, 2, 1, 20, 1, 14, 4, 3, 3, 9, 3, 5, 7, 2
-	DB	9, 15, 9, 1, 6, 15, 3, 15, 2, 9, 6, 1, 2, 7, 3
-	DB	5, 3, 4, 3, 5, 6, 1, 3, 6, 5, 1, 9, 2, 10, 2
-	DB	3, 7, 3, 3, 11, 3, 3, 4, 9, 9, 5, 1, 5, 1, 3
-	DB	2, 3, 6, 9, 1, 5, 4, 2, 9, 1, 3, 3, 3, 5, 4
-	DB	5, 3, 9, 6, 4, 6, 3, 2, 3, 7, 8, 1, 6, 2, 3
-	DB	19, 3, 3, 8, 10, 14, 10, 5, 3, 3, 7, 2, 13, 2, 7
-	DB	5, 9, 7, 14, 1, 2, 7, 8, 1, 14, 3, 4, 3, 17, 4
-	DB	2, 9, 1, 8, 4, 3, 20, 4, 9, 2, 15, 3, 6, 1, 15
-	DB	3, 5, 7, 20, 7, 5, 1, 6, 5, 4, 2, 4, 3, 3, 14
-	DB	1, 2, 6, 7, 8, 4, 15, 8, 9, 1, 5, 9, 3, 16, 2
-	DB	9, 3, 1, 6, 5, 9, 1, 3, 5, 7, 9, 14, 3, 4, 8
-	DB	1, 2, 10, 5, 4, 9, 5, 1, 5, 4, 2, 3, 6, 3, 10
-	DB	2, 1, 3, 2, 10, 5, 13, 9, 5, 1, 9, 3, 8, 7, 2
-	DB	13, 2, 7, 5, 6, 7, 3, 3, 2, 7, 5, 1, 15, 9, 11
-	DB	1, 8, 1, 2, 4, 3, 3, 8, 1, 3, 6, 5, 4, 6, 2
-	DB	7, 2, 3, 10, 5, 6, 1, 3, 3, 2, 1, 5, 1, 15, 8
-	DB	6, 10, 9, 2, 3, 1, 2, 4, 8, 7, 9, 11, 3, 1, 11
-	DB	3, 3, 9, 1, 5, 18, 4, 2, 3, 10, 2, 6, 3, 7, 2
-	DB	1, 14, 12, 4, 2, 3, 6, 15, 9, 16, 11, 4, 18, 3, 2
-	DB	6, 1, 6, 2, 3, 10, 5, 9, 9, 4, 3, 2, 12, 4, 5
-	DB	7, 3, 2, 4, 6, 8, 1, 8, 3, 4, 8, 6, 7, 5, 15
-	DB	7, 2, 6, 4, 6, 3, 5, 1, 6, 14, 3, 6, 6, 10, 5
-	DB	1, 5, 7, 3, 3, 15, 2, 4, 6, 2, 1, 5, 7, 2, 13
-	DB	9, 6, 5, 3, 4, 2, 6, 3, 12, 9, 4, 5, 1, 6, 2
-	DB	6, 6, 3, 1, 11, 1, 2, 1, 6, 8, 7, 5, 1, 8, 9
-	DB	16, 2, 3, 10, 11, 4, 5, 1, 5, 3, 1, 2, 7, 3, 12
-	DB	2, 4, 2, 3, 6, 6, 4, 3, 5, 6, 4, 5, 1, 5, 6
-	DB	3, 6, 6, 10, 14, 10, 5, 7, 5, 4, 5, 3, 1, 2, 7
-	DB	3, 3, 6, 3, 6, 5, 7, 5, 7, 8, 4, 5, 13, 2, 1
-	DB	3, 2, 7, 2, 3, 6, 4, 3, 15, 9, 6, 3, 6, 8, 6
-	DB	6, 1, 14, 3, 7, 5, 18, 1, 2, 3, 4, 6, 11, 9, 1
-	DB	15, 9, 11, 10, 9, 5, 19, 3, 2, 1, 12, 2, 3, 3, 1
-	DB	5, 3, 7, 5, 4, 2, 12, 7, 8, 7, 11, 3, 10, 5, 7
-	DB	2, 6, 6, 1, 8, 4, 3, 3, 9, 2, 3, 7, 11, 3, 1
-	DB	21, 8, 1, 5, 3, 1, 2, 3, 4, 5, 10, 8, 15, 4, 5
-	DB	4, 5, 1, 15, 3, 3, 18, 5, 4, 8, 3, 1, 6, 14, 1
-	DB	2, 3, 9, 6, 3, 4, 5, 1, 2, 25, 2, 10, 2, 15, 4
-	DB	2, 3, 6, 1, 12, 2, 4, 9, 3, 2, 3, 4, 5, 1, 2
-	DB	1, 20, 9, 18, 15, 15, 4, 8, 7, 3, 6, 14, 1, 11, 1
-	DB	2, 6, 15, 6, 3, 1, 2, 7, 5, 1, 9, 11, 6, 9, 1
-	DB	5, 9, 16, 3, 2, 1, 3, 5, 10, 6, 5, 3, 6, 10, 6
-	DB	3, 2, 1, 8, 1, 8, 3, 7, 2, 1, 8, 1, 3, 8, 3
-	DB	4, 2, 4, 11, 9, 4, 6, 2, 4, 3, 12, 11, 3, 1, 6
-	DB	15, 3, 5, 6, 3, 1, 11, 3, 1, 6, 3, 11, 4, 6, 11
-	DB	1, 5, 3, 9, 6, 1, 3, 6, 9, 3, 2, 10, 11, 4, 6
-	DB	12, 8, 7, 5, 15, 9, 1, 3, 2, 7, 5, 1, 6, 5, 6
-	DB	3, 1, 8, 6, 1, 3, 6, 5, 1, 5, 3, 1, 6, 6, 8
-	DB	10, 5, 6, 4, 15, 5, 7, 2, 3, 4, 3, 2, 10, 9, 12
-	DB	2, 6, 4, 2, 1, 12, 3, 12, 5, 1, 2, 3, 1, 3, 3
-	DB	3, 2, 12, 1, 5, 6, 1, 3, 5, 4, 3, 5, 9, 1, 3
-	DB	2, 10, 12, 5, 6, 1, 6, 3, 12, 2, 18, 7, 8, 4, 11
-	DB	3, 4, 2, 1, 3, 11, 10, 8, 6, 9, 1, 6, 8, 3, 3
-	DB	6, 3, 6, 1, 3, 6, 5, 4, 8, 4, 3, 8, 4, 6, 2
-	DB	3, 3, 10, 6, 6, 2, 3, 10, 2, 6, 1, 5, 1, 3, 15
-	DB	11, 3, 1, 2, 19, 5, 1, 2, 1, 11, 1, 8, 1, 3, 5
-	DB	10, 3, 12, 2, 6, 7, 6, 2, 19, 5, 15, 3, 1, 6, 6
-	DB	2, 3, 15, 7, 2, 4, 9, 18, 2, 3, 10, 2, 1, 6, 5
-	DB	1, 3, 5, 6, 3, 6, 4, 3, 3, 12, 2, 15, 10, 3, 18
-	DB	5, 1, 6, 3, 2, 4, 3, 2, 6, 4, 3, 6, 2, 3, 7
-	DB	2, 10, 6, 2, 3, 9, 1, 2, 9, 1, 8, 6, 15, 3, 3
-	DB	4, 20, 4, 24, 3, 8, 9, 7, 6, 3, 9, 2, 10, 5, 1
-	DB	3, 5, 4, 15, 2, 6, 10, 3, 6, 3, 3, 17, 3, 3, 9
-	DB	3, 4, 5, 6, 3, 4, 5, 1, 2, 12, 3, 4, 11, 3, 1
-	DB	6, 3, 5, 6, 3, 12, 3, 7, 6, 18, 2, 12, 1, 5, 4
-	DB	5, 3, 7, 5, 16, 2, 4, 5, 6, 13, 9, 2, 3, 10, 2
-	DB	10, 3, 8, 3, 1, 15, 6, 3, 5, 1, 3, 5, 6, 4, 2
-	DB	1, 3, 5, 6, 13, 11, 4, 3, 2, 7, 3, 3, 15, 2, 3
-	DB	7, 2, 1, 14, 1, 3, 11, 4, 2, 9, 9, 9, 1, 6, 3
-	DB	2, 10, 5, 3, 3, 7, 5, 6, 1, 6, 15, 17, 6, 4, 3
-	DB	2, 1, 5, 1, 8, 6, 1, 5, 4, 9, 12, 3, 2, 6, 7
-	DB	2, 4, 2, 7, 2, 3, 3, 10, 3, 2, 4, 9, 26, 1, 2
-	DB	6, 4, 2, 19, 2, 13, 12, 8, 6, 3, 1, 6, 6, 8, 1
-	DB	3, 3, 2, 6, 7, 8, 4, 6, 9, 8, 3, 4, 5, 3, 7
-	DB	5, 6, 1, 5, 1, 2, 12, 3, 21, 12, 4, 5, 3, 3, 3
-	DB	1, 6, 2, 7, 3, 3, 14, 3, 1, 5, 6, 6, 3, 10, 2
-	DB	3, 7, 2, 1, 6, 5, 6, 12, 3, 4, 3, 3, 2, 12, 6
-	DB	10, 8, 7, 15, 9, 3, 2, 13, 6, 2, 3, 1, 3, 2, 1
-	DB	14, 4, 20, 1, 5, 4, 2, 10, 3, 9, 5, 1, 2, 22, 3
-	DB	9, 6, 3, 2, 3, 1, 11, 3, 7, 15, 5, 12, 1, 5, 4
-	DB	8, 9, 1, 9, 11, 4, 5, 3, 3, 7, 2, 4, 9, 2, 1
-	DB	9, 9, 9, 3, 2, 12, 9, 1, 8, 3, 3, 9, 10, 8, 10
-	DB	2, 7, 3, 2, 10, 9, 5, 1, 3, 5, 12, 1, 5, 12, 3
-	DB	3, 12, 3, 6, 1, 14, 6, 7, 3, 3, 6, 3, 11, 6, 6
-	DB	4, 18, 2, 6, 7, 2, 10, 5, 6, 12, 1, 2, 3, 6, 1
-	DB	2, 1, 5, 6, 13, 3, 8, 4, 2, 4, 5, 4, 3, 17, 1
-	DB	6, 8, 12, 3, 1, 5, 1, 9, 2, 4, 3, 8, 3, 1, 3
-	DB	3, 3, 2, 7, 2, 10, 3, 2, 10, 3, 6, 11, 3, 1, 5
-	DB	6, 1, 3, 2, 4, 6, 2, 7, 6, 5, 7, 2, 6, 13, 5
-	DB	7, 2, 13, 3, 15, 2, 9, 9, 4, 3, 8, 4, 5, 7, 5
-	DB	4, 5, 10, 11, 10, 8, 1, 9, 3, 2, 3, 3, 6, 1, 5
-	DB	13, 2, 4, 9, 9, 3, 9, 3, 2, 3, 12, 3, 10, 17, 13
-	DB	5, 1, 14, 6, 4, 5, 6, 1, 3, 11, 1, 6, 8, 1, 3
-	DB	3, 5, 7, 8, 10, 3, 2, 19, 3, 5, 3, 4, 8, 21, 1
-	DB	3, 2, 3, 3, 3, 7, 8, 7, 2, 10, 5, 1, 2, 4, 9
-	DB	5, 6, 18, 1, 5, 21, 4, 2, 10, 12, 8, 4, 11, 3, 4
-	DB	2, 1, 3, 11, 3, 3, 4, 14, 1, 5, 9, 7, 3, 2, 9
-	DB	4, 5, 7, 2, 6, 4, 5, 6, 7, 2, 1, 6, 6, 2, 3
-	DB	9, 15, 6, 19, 3, 6, 5, 1, 9, 5, 6, 4, 2, 4, 3
-	DB	2, 1, 12, 6, 9, 2, 1, 2, 1, 29, 6, 4, 12, 5, 1
-	DB	2, 3, 3, 6, 1, 2, 7, 3, 3, 8, 6, 1, 2, 16, 2
-	DB	12, 3, 3, 4, 5, 1, 11, 9, 6, 10, 3, 15, 2, 15, 3
-	DB	1, 2, 7, 3, 2, 7, 8, 1, 6, 5, 1, 3, 6, 6, 5
-	DB	3, 4, 11, 4, 6, 6, 3, 8, 3, 9, 10, 11, 9, 1, 11
-	DB	1, 8, 1, 11, 7, 5, 10, 5, 16, 2, 4, 5, 3, 1, 11
-	DB	3, 6, 1, 3, 2, 1, 2, 7, 6, 12, 5, 1, 6, 8, 1
-	DB	2, 3, 7, 3, 5, 6, 1, 8, 7, 17, 6, 1, 3, 3, 3
-	DB	2, 10, 5, 13, 6, 6, 2, 1, 2, 4, 5, 1, 2, 1, 11
-	DB	3, 3, 7, 2, 9, 6, 13, 3, 5, 4, 8, 1, 2, 10, 5
-	DB	3, 21, 1, 5, 3, 4, 12, 6, 3, 2, 3, 6, 1, 14, 4
-	DB	6, 9, 9, 3, 23, 4, 5, 3, 7, 2, 1, 3, 2, 3, 21
-	DB	4, 5, 4, 5, 1, 9, 2, 3, 6, 6, 1, 2, 10, 5, 6
-	DB	6, 4, 2, 13, 9, 11, 4, 3, 8, 7, 8, 1, 9, 5, 1
-	DB	3, 3, 5, 7, 2, 1, 15, 2, 1, 2, 4, 5, 3, 1, 6
-	DB	8, 3, 28, 5, 1, 6, 5, 4, 6, 3, 2, 7, 5, 1, 2
-	DB	4, 3, 2, 10, 3, 6, 11, 3, 16, 5, 1, 5, 6, 7, 3
-	DB	14, 18, 3, 3, 1, 6, 2, 3, 3, 4, 11, 1, 9, 5, 1
-	DB	3, 2, 10, 5, 4, 2, 3, 7, 9, 3, 21, 11, 1, 2, 1
-	DB	14, 1, 2, 9, 3, 3, 3, 6, 1, 12, 5, 18, 3, 1, 6
-	DB	5, 13, 12, 9, 8, 3, 3, 7, 12, 6, 2, 4, 3, 6, 2
-	DB	4, 8, 10, 20, 13, 2, 6, 1, 3, 2, 1, 5, 7, 5, 1
-	DB	2, 13, 6, 14, 1, 8, 13, 3, 5, 1, 3, 5, 3, 4, 3
-	DB	3, 3, 5, 6, 3, 10, 20, 10, 2, 1, 8, 6, 3, 6, 4
-	DB	2, 9, 1, 6, 5, 13, 6, 8, 1, 9, 12, 6, 2, 7, 11
-	DB	10, 5, 7, 6, 2, 9, 6, 4, 5, 6, 3, 15, 7, 2, 12
-	DB	3, 15, 3, 3, 1, 3, 11, 16, 3, 2, 3, 3, 10, 8, 1
-	DB	5, 4, 6, 5, 1, 3, 5, 4, 8, 18, 4, 3, 2, 1, 14
-	DB	1, 14, 6, 1, 5, 3, 7, 5, 3, 3, 3, 4, 3, 2, 7
-	DB	9, 2, 3, 6, 1, 5, 9, 4, 15, 20, 1, 9, 2, 3, 7
-	DB	9, 3, 2, 6, 3, 6, 3, 7, 5, 13, 3, 8, 1, 8, 15
-	DB	1, 5, 1, 21, 3, 14, 7, 3, 5, 1, 6, 9, 6, 3, 5
-	DB	6, 6, 10, 3, 2, 1, 5, 3, 6, 6, 7, 6, 17, 3, 1
-	DB	6, 5, 3, 4, 3, 2, 6, 19, 3, 5, 9, 1, 14, 1, 3
-	DB	6, 15, 8, 1, 5, 4, 2, 1, 8, 9, 13, 2, 3, 4, 9
-	DB	11, 3, 10, 2, 3, 6, 1, 3, 6, 2, 9, 3, 1, 11, 6
-	DB	4, 3, 8, 9, 15, 6, 12, 1, 5, 1, 3, 3, 2, 3, 18
-	DB	7, 3, 11, 1, 29, 4, 6, 3, 5, 1, 20, 4, 3, 14, 1
-	DB	2, 7, 3, 3, 9, 5, 4, 2, 7, 2, 4, 15, 2, 3, 4
-	DB	3, 3, 9, 2, 1, 2, 7, 6, 9, 5, 1, 2, 6, 1, 5
-	DB	4, 5, 7, 5, 9, 6, 4, 3, 5, 7, 5, 4, 11, 1, 3
-	DB	11, 6, 3, 4, 6, 14, 1, 24, 6, 2, 9, 4, 5, 7, 5
-	DB	7, 2, 6, 15, 12, 3, 4, 3, 2, 4, 27, 2, 1, 5, 6
-	DB	4, 5, 6, 6, 9, 1, 12, 2, 4, 11, 6, 10, 2, 6, 1
-	DB	6, 8, 1, 14, 1, 3, 12, 5, 1, 14, 1, 2, 10, 2, 6
-	DB	3, 7, 2, 3, 7, 11, 12, 10, 2, 7, 3, 3, 5, 15, 4
-	DB	5, 9, 1, 3, 3, 8, 1, 3, 3, 2, 1, 12, 2, 1, 12
-	DB	5, 3, 1, 5, 1, 3, 11, 4, 2, 4, 3, 2, 9, 1, 9
-	DB	2, 4, 8, 13, 2, 3, 4, 11, 10, 8, 4, 2, 3, 12, 3
-	DB	7, 6, 8, 1, 6, 2, 7, 5, 1, 2, 6, 9, 16, 5, 7
-	DB	12, 6, 20, 4, 17, 6, 7, 2, 9, 1, 14, 6, 10, 3, 5
-	DB	1, 20, 9, 7, 6, 2, 18, 3, 1, 11, 3, 7, 5, 12, 21
-	DB	1, 8, 1, 17, 4, 3, 2, 1, 2, 7, 20, 4, 6, 3, 12
-	DB	9, 2, 3, 1, 3, 2, 1, 2, 1, 12, 5, 4, 3, 3, 5
-	DB	7, 3, 8, 9, 7, 9, 12, 2, 3, 3, 4, 2, 10, 5, 3
-	DB	6, 1, 6, 2, 7, 3, 3, 3, 2, 7, 8, 18, 7, 3, 2
-	DB	7, 2, 3, 12, 4, 2, 10, 5, 7, 6, 17, 4, 5, 3, 3
-	DB	3, 7, 2, 7, 6, 3, 5, 9, 7, 5, 6, 3, 1, 3, 3
-	DB	14, 1, 2, 12, 3, 1, 2, 4, 8, 3, 10, 2, 1, 5, 1
-	DB	5, 4, 32, 3, 4, 6, 2, 7, 6, 5, 1, 6, 3, 5, 9
-	DB	12, 3, 1, 5, 4, 3, 8, 10, 2, 7, 3, 3, 6, 3, 2
-	DB	3, 1, 2, 4, 11, 3, 4, 2, 1, 8, 9, 7, 3, 11, 7
-	DB	5, 7, 2, 3, 1, 2, 7, 5, 6, 4, 8, 4, 5, 4, 12
-	DB	20, 3, 6, 1, 3, 9, 2, 1, 2, 15, 1, 15, 2, 4, 9
-	DB	6, 6, 2, 1, 2, 7, 18, 8, 9, 1, 6, 5, 3, 6, 9
-	DB	1, 9, 3, 3, 11, 9, 19, 3, 5, 9, 1, 5, 4, 3, 8
-	DB	12, 7, 3, 2, 3, 7, 8, 12, 3, 6, 4, 6, 5, 7, 23
-	DB	1, 8, 1, 11, 3, 1, 5, 1, 5, 1, 3, 2, 10, 5, 3
-	DB	15, 4, 3, 3, 2, 15, 4, 3, 3, 3, 11, 18, 1, 2, 4
-	DB	3, 3, 2, 7, 6, 5, 10, 2, 1, 2, 15, 3, 7, 8, 6
-	DB	15, 1, 2, 3, 4, 15, 5, 4, 17, 9, 6, 4, 11, 10, 2
-	DB	7, 5, 10, 3, 2, 1, 5, 7, 2, 13, 3, 18, 6, 9, 2
-	DB	4, 3, 2, 3, 1, 14, 3, 3, 12, 4, 5, 13, 3, 12, 2
-	DB	4, 12, 5, 10, 2, 1, 5, 7, 8, 1, 3, 3, 2, 3, 4
-	DB	9, 14, 7, 3, 8, 7, 3, 2, 3, 3, 4, 2, 1, 2, 6
-	DB	1, 6, 3, 6, 14, 1, 3, 6, 5, 7, 2, 22, 3, 5, 1
-	DB	6, 6, 15, 2, 6, 1, 3, 5, 6, 1, 5, 1, 5, 3, 4
-	DB	5, 3, 7, 8, 4, 3, 6, 5, 1, 5, 4, 6, 5, 9, 4
-	DB	2, 1, 2, 13, 3, 11, 3, 7, 5, 3, 1, 14, 3, 4, 23
-	DB	3, 3, 9, 3, 3, 4, 3, 5, 9, 1, 3, 6, 9, 5, 4
-	DB	6, 15, 5, 1, 5, 1, 2, 3, 9, 1, 2, 10, 6, 2, 3
-	DB	4, 17, 3, 3, 12, 6, 4, 18, 8, 1, 3, 2, 1, 2, 3
-	DB	10, 3, 12, 2, 1, 2, 9, 10, 3, 11, 4, 23, 9, 1, 8
-	DB	10, 11, 1, 12, 11, 1, 8, 12, 10, 8, 1, 2, 4, 5, 1
-	DB	5, 7, 2, 4, 9, 2, 4, 2, 7, 5, 1, 12, 8, 4, 3
-	DB	8, 10, 5, 1, 3, 2, 15, 1, 8, 16, 3, 6, 5, 12, 4
-	DB	6, 9, 8, 1, 6, 3, 2, 6, 3, 1, 14, 9, 1, 11, 3
-	DB	3, 3, 1, 3, 8, 7, 3, 15, 8, 1, 5, 1, 2, 6, 1
-	DB	6, 5, 7, 3, 5, 4, 14, 1, 18, 3, 8, 7, 2, 10, 12
-	DB	3, 2, 4, 2, 9, 4, 2, 7, 2, 3, 1, 12, 8, 7, 2
-	DB	13, 8, 1, 5, 16, 3, 2, 3, 6, 3, 18, 4, 6, 2, 1
-	DB	2, 4, 3, 2, 10, 6, 5, 12, 6, 1, 6, 5, 3, 6, 1
-	DB	3, 9, 2, 3, 3, 3, 4, 12, 3, 5, 6, 15, 7, 5, 4
-	DB	6, 3, 5, 6, 1, 9, 3, 2, 4, 2, 12, 10, 2, 4, 5
-;;; Location of "DB 0" prior to version 28.9
-	DB	6, 4, 6, 8, 3, 7, 2, 4, 2, 9, 25, 3, 3, 2, 3
-	DB	4, 3, 5, 13, 5, 3, 1, 5, 1, 5, 3, 19, 6, 2, 4
-	DB	5, 10, 3, 3, 3, 9, 5, 1, 6, 8, 1, 6, 6, 2, 13
-	DB	5, 3, 10, 9, 20, 6, 4, 5, 6, 1, 9, 6, 5, 1, 5
-	DB	13, 2, 3, 6, 4, 2, 15, 3, 1, 3, 8, 12, 12, 9, 6
-	DB	6, 4, 3, 2, 4, 5, 4, 3, 2, 10, 5, 13, 2, 12, 3
-	DB	1, 6, 21, 9, 3, 2, 13, 3, 14, 3, 1, 5, 4, 3, 3
-	DB	5, 4, 5, 1, 11, 1, 2, 10, 2, 3, 18, 7, 2, 10, 11
-	DB	3, 7, 3, 5, 4, 2, 1, 2, 7, 9, 17, 4, 11, 7, 5
-	DB	12, 3, 1, 5, 1, 3, 5, 13, 9, 5, 9, 12, 9, 1, 12
-	DB	20, 1, 2, 3, 1, 3, 5, 13, 3, 6, 6, 3, 2, 18, 1
-	DB	5, 6, 12, 1, 2, 4, 5, 3, 1, 2, 12, 1, 2, 18, 1
-	DB	11, 7, 12, 9, 21, 3, 5, 1, 12, 8, 6, 1, 2, 1, 5
-	DB	1, 5, 4, 2, 18, 4, 2, 6, 9, 3, 3, 7, 11, 1, 3
-	DB	12, 3, 5, 12, 10, 11, 3, 7, 18, 14, 3, 4, 3, 12, 3
-	DB	6, 14, 1, 9, 2, 1, 2, 10, 11, 4, 5, 1, 9, 2, 4
-	DB	5, 7, 5, 3, 4, 3, 3, 6, 8, 6, 7, 5, 9, 1, 5
-	DB	12, 12, 3, 6, 1, 11, 3, 10, 11, 1, 2, 6, 1, 3, 18
-	DB	3, 11, 3, 1, 14, 6, 9, 1, 2, 7, 3, 2, 1, 5, 1
-	DB	8, 1, 5, 4, 3, 5, 9, 6, 3, 7, 2, 3, 9, 6, 13
-	DB	2, 3, 7, 3, 5, 6, 1, 2, 1, 5, 12, 4, 5, 16, 5
-	DB	4, 5, 3, 1, 9, 6, 14, 15, 1, 9, 2, 3, 7, 3, 2
-	DB	4, 11, 4, 15, 9, 5, 13, 2, 1, 11, 4, 2, 4, 3, 2
-	DB	13, 2, 6, 10, 9, 3, 6, 5, 9, 1, 2, 3, 1, 6, 14
-	DB	3, 10, 3, 8, 4, 3, 3, 2, 3, 10, 6, 3, 2, 10, 3
-	DB	8, 3, 16, 5, 9, 1, 6, 8, 12, 3, 4, 6, 17, 3, 10
-	DB	11, 1, 8, 7, 3, 2, 7, 3, 12, 15, 2, 4, 6, 3, 8
-	DB	10, 5, 7, 2, 1, 8, 6, 1, 5, 4, 3, 15, 6, 5, 7
-	DB	5, 4, 5, 3, 1, 2, 7, 5, 1, 5, 16, 9, 2, 4, 14
-	DB	10, 2, 10, 3, 2, 15, 4, 3, 11, 9, 6, 1, 5, 6, 3
-	DB	9, 3, 27, 3, 7, 2, 3, 3, 7, 12, 3, 6, 5, 6, 3
-	DB	12, 6, 9, 4, 9, 2, 1, 2, 1, 11, 4, 5, 1, 6, 5
-	DB	7, 3, 2, 1, 6, 23, 3, 3, 1, 3, 3, 15, 5, 4, 3
-	DB	6, 2, 7, 3, 8, 6, 4, 5, 10, 9, 5, 3, 3, 6, 1
-	DB	5, 7, 2, 1, 2, 12, 6, 4, 9, 2, 4, 8, 7, 6, 5
-	DB	9, 6, 4, 9, 2, 7, 2, 3, 1, 11, 9, 4, 5, 13, 2
-	DB	1, 12, 3, 2, 3, 6, 13, 2, 4, 5, 9, 3, 7, 5, 6
-	DB	1, 6, 3, 2, 4, 6, 8, 1, 5, 3, 1, 11, 1, 2, 7
-	DB	9, 5, 6, 10, 5, 3, 1, 2, 7, 6, 2, 4, 5, 1, 3
-	DB	17, 3, 1, 8, 6, 4, 11, 4, 15, 5, 1, 12, 2, 7, 5
-	DB	10, 8, 1, 2, 10, 5, 3, 4, 2, 4, 2, 12, 3, 7, 2
-	DB	16, 2, 3, 7, 3, 2, 1, 11, 30, 1, 3, 12, 2, 7, 9
-	DB	6, 9, 6, 3, 2, 15, 1, 8, 1, 11, 7, 8, 9, 3, 18
-	DB	3, 9, 1, 5, 4, 2, 1, 3, 12, 9, 15, 3, 3, 17, 7
-	DB	3, 26, 1, 8, 6, 7, 8, 4, 15, 2, 1, 3, 5, 6, 1
-	DB	14, 3, 7, 6, 14, 9, 10, 2, 4, 3, 3, 2, 3, 4, 11
-	DB	3, 12, 4, 3, 6, 6, 3, 6, 2, 10, 23, 9, 7, 5, 1
-	DB	12, 2, 1, 12, 11, 7, 5, 3, 16, 6, 2, 1, 5, 1, 5
-	DB	1, 2, 3, 3, 6, 6, 7, 3, 3, 14, 1, 9, 3, 3, 2
-	DB	12, 1, 6, 6, 3, 2, 12, 12, 1, 3, 2, 19, 3, 5, 6
-	DB	1, 6, 2, 10, 11, 6, 1, 5, 3, 9, 21, 6, 1, 3, 6
-	DB	11, 7, 5, 3, 3, 1, 5, 9, 7, 2, 13, 8, 6, 4, 9
-	DB	2, 1, 5, 4, 3, 2, 3, 3, 3, 7, 8, 1, 6, 3, 5
-	DB	6, 1, 12, 2, 9, 1, 9, 5, 6, 10, 3, 8, 7, 3, 3
-	DB	6, 8, 6, 10, 2, 4, 3, 17, 13, 5, 15, 3, 12, 3, 13
-	DB	6, 8, 1, 5, 6, 1, 5, 3, 4, 21, 2, 4, 3, 2, 9
-	DB	1, 3, 3, 3, 5, 4, 2, 3, 15, 6, 9, 12, 4, 2, 3
-	DB	4, 5, 1, 2, 4, 8, 3, 19, 3, 3, 3, 15, 2, 7, 3
-	DB	5, 4, 5, 13, 3, 9, 5, 3, 1, 24, 6, 17, 4, 6, 8
-	DB	4, 3, 8, 7, 5, 7, 2, 3, 3, 7, 8, 3, 6, 1, 27
-	DB	8, 3, 6, 1, 3, 17, 9, 3, 1, 9, 3, 2, 1, 12, 9
-	DB	6, 2, 1, 6, 3, 3, 2, 6, 1, 5, 9, 4, 3, 2, 3
-	DB	9, 3, 7, 3, 5, 3, 4, 5, 1, 17, 7, 15, 3, 2, 1
-	DB	24, 14, 1, 3, 5, 6, 4, 2, 1, 3, 6, 6, 3, 2, 9
-	DB	3, 6, 4, 2, 1, 3, 11, 1, 2, 7, 11, 15, 3, 1, 3
-	DB	2, 3, 13, 2, 7, 8, 6, 4, 2, 1, 8, 7, 14, 6, 10
-	DB	2, 6, 1, 3, 6, 5, 1, 9, 2, 7, 17, 6, 7, 2, 4
-	DB	9, 8, 4, 9, 2, 3, 15, 7, 8, 4, 2, 3, 10, 32, 4
-	DB	2, 7, 3, 17, 1, 27, 9, 9, 2, 3, 6, 10, 3, 12, 8
-	DB	3, 3, 7, 2, 1, 11, 3, 7, 6, 2, 7, 18, 5, 1, 2
-	DB	7, 5, 3, 4, 8, 3, 10, 2, 7, 5, 10, 5, 9, 4, 2
-	DB	1, 5, 7, 2, 10, 9, 5, 9, 1, 9, 2, 4, 11, 9, 4
-	DB	2, 1, 5, 4, 3, 3, 5, 7, 8, 4, 8, 1, 2, 4, 21
-	DB	2, 6, 9, 1, 11, 6, 4, 9, 9, 2, 1, 17, 1, 2, 7
-	DB	6, 2, 4, 6, 2, 7, 8, 22, 3, 3, 3, 14, 15, 1, 9
-	DB	6, 6, 5, 4, 11, 1, 3, 2, 9, 3, 18, 3, 4, 2, 1
-	DB	2, 3, 7, 5, 3, 3, 7, 2, 1, 5, 1, 3, 2, 10, 5
-	DB	6, 12, 6, 7, 5, 12, 3, 4, 5, 6, 3, 1, 3, 6, 5
-	DB	1, 14, 1, 5, 9, 12, 7, 6, 9, 3, 5, 4, 5, 13, 3
-	DB	2, 6, 4, 2, 3, 13, 5, 4, 5, 1, 8, 1, 5, 13, 5
-	DB	1, 9, 2, 3, 10, 6, 2, 3, 4, 6, 5, 1, 9, 11, 1
-	DB	5, 22, 2, 10, 5, 19, 2, 7, 6, 5, 1, 5, 1, 2, 1
-	DB	5, 7, 5, 4, 3, 3, 5, 3, 9, 3, 9, 13, 15, 3, 8
-	DB	6, 4, 2, 3, 7, 18, 5, 16, 11, 19, 6, 2, 7, 5, 4
-	DB	2, 4, 5, 10, 5, 1, 8, 10, 30, 6, 3, 2, 9, 9, 1
-	DB	6, 5, 1, 12, 3, 5, 7, 3, 2, 1, 2, 4, 3, 5, 3
-	DB	3, 7, 3, 6, 3, 2, 15, 15, 9, 1, 9, 2, 9, 3, 15
-	DB	3, 3, 1, 14, 7, 8, 1, 9, 5, 4, 2, 1, 2, 3, 3
-	DB	4, 2, 9, 4, 6, 20, 1, 6, 3, 2, 19, 6, 3, 5, 1
-	DB	3, 8, 3, 19, 2, 10, 3, 5, 1, 12, 5, 3, 1, 15, 8
-	DB	3, 7, 2, 3, 13, 18, 9, 2, 4, 2, 12, 10, 2, 1, 2
-	DB	6, 6, 6, 3, 19, 2, 6, 3, 6, 6, 7, 2, 6, 3, 4
-	DB	15, 12, 5, 1, 9, 8, 3, 3, 1, 5, 4, 11, 3, 1, 2
-	DB	7, 5, 3, 3, 1, 11, 10, 3, 15, 2, 3, 7, 2, 10, 11
-	DB	6, 15, 3, 1, 9, 5, 3, 4, 5, 4, 5, 7, 5, 9, 9
-	DB	4, 3, 5, 7, 2, 3, 1, 2, 4, 9, 5, 1, 3, 3, 12
-	DB	2, 3, 1, 5, 6, 1, 17, 3, 13, 15, 11, 10, 3, 18, 8
-	DB	6, 1, 2, 3, 3, 6, 1, 9, 11, 7, 3, 12, 2, 25, 8
-	DB	1, 6, 8, 6, 4, 12, 6, 8, 9, 12, 4, 2, 3, 1, 3
-	DB	6, 6, 8, 6, 9, 7, 3, 2, 1, 2, 6, 1, 5, 6, 9
-	DB	1, 3, 2, 9, 3, 3, 4, 6, 2, 1, 2, 3, 1, 3, 2
-	DB	1, 2, 6, 10, 2, 7, 3, 23, 4, 20, 1, 6, 8, 1, 2
-	DB	4, 5, 1, 17, 10, 8, 7, 11, 4, 2, 6, 12, 1, 9, 5
-	DB	12, 15, 1, 12, 5, 13, 17, 1, 2, 4, 9, 5, 1, 8, 1
-	DB	2, 7, 6, 5, 9, 3, 24, 4, 2, 3, 6, 6, 7, 5, 3
-	DB	3, 7, 3, 6, 6, 9, 5, 1, 12, 3, 2, 3, 3, 12, 15
-	DB	7, 2, 3, 13, 2, 1, 2, 7, 2, 4, 15, 5, 4, 2, 9
-	DB	6, 4, 5, 7, 14, 3, 15, 6, 16, 8, 3, 3, 4, 3, 27
-	DB	3, 9, 3, 8, 3, 1, 6, 2, 12, 1, 3, 5, 1, 5, 4
-	DB	5, 1, 11, 15, 3, 4, 2, 4, 2, 4, 8, 1, 5, 9, 3
-	DB	7, 6, 12, 3, 6, 6, 14, 13, 3, 12, 2, 6, 3, 1, 18
-	DB	2, 3, 6, 10, 9, 3, 2, 3, 9, 1, 5, 10, 9, 5, 6
-	DB	7, 6, 5, 10, 11, 1, 3, 5, 1, 3, 2, 3, 3, 9, 1
-	DB	18, 11, 4, 15, 5, 1, 14, 7, 5, 12, 3, 4, 5, 9, 4
-	DB	2, 1, 5, 9, 3, 10, 3, 8, 7, 17, 3, 4, 5, 3, 3
-	DB	3, 1, 3, 2, 1, 5, 7, 2, 6, 4, 3, 6, 2, 3, 1
-	DB	6, 2, 1, 2, 4, 5, 1, 14, 1, 15, 8, 1, 3, 11, 9
-	DB	7, 3, 21, 5, 1, 3, 3, 9, 5, 9, 4, 5, 6, 1, 5
-	DB	19, 2, 7, 6, 2, 3, 7, 18, 6, 5, 4, 6, 5, 3, 12
-	DB	6, 7, 3, 2, 7, 5, 6, 4, 8, 12, 1, 2, 1, 5, 15
-	DB	7, 23, 9, 3, 9, 3, 1, 9, 6, 6, 5, 3, 21, 1, 3
-	DB	3, 8, 4, 3, 8, 9, 7, 11, 4, 6, 2, 1, 2, 10, 3
-	DB	5, 6, 4, 2, 12, 3, 7, 2, 1, 5, 9, 15, 4, 5, 4
-	DB	3, 15, 2, 12, 1, 5, 3, 7, 8, 1, 5, 4, 5, 6, 13
-	DB	6, 5, 1, 11, 4, 5, 1, 8, 12, 7, 2, 3, 3, 27, 1
-	DB	2, 4, 3, 6, 5, 1, 11, 4, 3, 20, 1, 12, 8, 6, 1
-	DB	3, 11, 1, 3, 6, 3, 2, 10, 3, 3, 5, 3, 4, 5, 6
-	DB	1, 11, 3, 1, 5, 13, 2, 1, 3, 5, 6, 3, 10, 11, 7
-	DB	2, 1, 5, 1, 21, 2, 3, 4, 3, 2, 10, 6, 17, 10, 8
-	DB	3, 1, 9, 11, 1, 3, 14, 1, 2, 3, 7, 2, 10, 23, 9
-	DB	4, 2, 7, 6, 5, 1, 6, 3, 12, 2, 3, 4, 11, 18, 7
-	DB	3, 11, 6, 3, 7, 8, 1, 6, 14, 4, 2, 4, 3, 2, 9
-	DB	4, 11, 4, 2, 3, 15, 6, 1, 9, 6, 6, 9, 6, 9, 3
-	DB	2, 1, 2, 3, 7, 2, 18, 3, 27, 3, 3, 4, 5, 6, 7
-	DB	2, 1, 5, 1, 3, 11, 1, 14, 7, 3, 2, 4, 18, 3, 2
-	DB	3, 12, 12, 1, 2, 1, 6, 5, 19, 2, 13, 14, 1, 5, 9
-	DB	21, 7, 5, 10, 8, 1, 3, 3, 3, 11, 10, 3, 5, 3, 10
-	DB	2, 1, 6, 3, 5, 1, 5, 1, 11, 7, 5, 6, 6, 1, 5
-	DB	7, 6, 2, 7, 2, 4, 5, 1, 9, 6, 5, 15, 1, 3, 12
-	DB	5, 4, 5, 1, 5, 9, 3, 12, 3, 1, 9, 5, 1, 6, 3
-	DB	3, 9, 18, 3, 2, 7, 6, 3, 5, 7, 5, 7, 15, 3, 5
-	DB	3, 10, 6, 9, 11, 6, 4, 3, 2, 6, 7, 2, 21, 15, 4
-	DB	14, 6, 3, 3, 3, 4, 5, 10, 6, 2, 9, 3, 7, 5, 3
-	DB	6, 1, 9, 2, 4, 8, 1, 5, 7, 2, 6, 16, 3, 3, 3
-	DB	2, 7, 2, 6, 4, 3, 6, 5, 4, 5, 1, 5, 4, 2, 1
-	DB	2, 15, 10, 2, 3, 3, 3, 1, 9, 11, 1, 2, 7, 21, 8
-	DB	6, 3, 6, 1, 5, 4, 20, 15, 4, 2, 6, 4, 9, 2, 4
-	DB	3, 3, 5, 3, 1, 3, 5, 1, 5, 12, 9, 9, 1, 3, 3
-	DB	8, 9, 3, 4, 3, 8, 4, 8, 3, 3, 6, 3, 1, 6, 8
-	DB	1, 6, 5, 1, 2, 12, 13, 5, 7, 5, 3, 18, 12, 1, 27
-	DB	5, 7, 8, 3, 10, 6, 5, 3, 6, 1, 6, 2, 13, 2, 7
-	DB	5, 3, 1, 2, 3, 1, 5, 1, 8, 6, 9, 9, 7, 8, 1
-	DB	9, 3, 14, 1, 2, 1, 5, 6, 10, 6, 2, 3, 3, 10, 11
-	DB	1, 2, 10, 8, 12, 1, 2, 3, 1, 21, 3, 2, 9, 3, 6
-	DB	4, 2, 1, 3, 9, 3, 12, 2, 9, 9, 1, 5, 1, 20, 1
-	DB	5, 15, 4, 9, 11, 1, 5, 4, 8, 6, 15, 4, 3, 3, 5
-	DB	6, 3, 1, 9, 2, 15, 4, 5, 7, 2, 3, 4, 15, 3, 5
-	DB	7, 9, 5, 9, 3, 4, 11, 4, 3, 8, 13, 11, 6, 3, 4
-	DB	6, 5, 10, 5, 10, 9, 2, 6, 9, 16, 2, 1, 9, 2, 3
-	DB	6, 4, 3, 3, 5, 4, 11, 6, 1, 3, 2, 7, 5, 10, 2
-	DB	1, 14, 1, 5, 4, 9, 6, 3, 8, 4, 3, 5, 12, 3, 6
-	DB	4, 2, 1, 2, 10, 15, 2, 6, 7, 2, 4, 2, 10, 5, 12
-	DB	12, 6, 4, 5, 6, 10, 3, 2, 3, 4, 2, 10, 23, 10, 5
-	DB	12, 1, 5, 3, 4, 3, 9, 5, 1, 5, 3, 7, 9, 8, 1
-	DB	14, 7, 3, 2, 1, 3, 14, 1, 2, 3, 1, 6, 2, 30, 1
-	DB	2, 7, 6, 6, 3, 6, 2, 10, 8, 6, 1, 9, 3, 5, 12
-	DB	16, 5, 13, 2, 3, 7, 3, 2, 7, 2, 9, 7, 3, 5, 1
-	DB	3, 2, 1, 5, 3, 10, 2, 12, 3, 22, 5, 1, 5, 16, 14
-	DB	1, 3, 2, 6, 7, 6, 12, 5, 15, 4, 3, 3, 2, 1, 6
-	DB	5, 4, 17, 7, 2, 3, 6, 1, 5, 6, 9, 4, 9, 6, 2
-	DB	4, 9, 5, 7, 9, 6, 2, 6, 4, 8, 3, 6, 6, 9, 13
-	DB	5, 1, 9, 6, 6, 20, 3, 10, 2, 3, 6, 1, 5, 4, 5
-	DB	7, 2, 3, 7, 2, 3, 7, 3, 3, 5, 12, 6, 1, 6, 5
-	DB	4, 21, 12, 5, 1, 11, 3, 1, 2, 4, 9, 2, 19, 5, 1
-	DB	3, 2, 4, 3, 2, 3, 10, 6, 9, 5, 10, 2, 6, 4, 11
-	DB	13, 6, 6, 2, 1, 2, 4, 8, 7, 18, 2, 3, 3, 7, 2
-	DB	4, 5, 19, 12, 6, 5, 7, 2, 6, 4, 3, 2, 1, 3, 9
-	DB	12, 3, 2, 16, 9, 5, 1, 9, 5, 6, 15, 4, 6, 5, 3
-	DB	7, 3, 2, 4, 3, 2, 10, 21, 2, 6, 6, 3, 1, 27, 5
-	DB	10, 3, 6, 3, 11, 21, 1, 2, 7, 14, 1, 11, 10, 5, 3
-	DB	9, 3, 13, 9, 5, 1, 11, 3, 1, 6, 5, 3, 6, 1, 3
-	DB	2, 10, 5, 6, 10, 5, 13, 2, 10, 12, 3, 14, 3, 3, 7
-	DB	11, 6, 4, 15, 2, 4, 3, 2, 3, 1, 14, 3, 3, 4, 3
-	DB	3, 5, 1, 5, 6, 3, 1, 3, 5, 3, 3, 4, 8, 9, 13
-	DB	5, 1, 9, 3, 3, 5, 4, 3, 2, 18, 4, 5, 10, 11, 3
-	DB	9, 12, 6, 7, 3, 23, 6, 1, 3, 14, 3, 3, 7, 8, 6
-	DB	1, 5, 4, 8, 1, 9, 8, 7, 2, 10, 5, 3, 6, 1, 3
-	DB	2, 13, 6, 2, 3, 6, 1, 9, 3, 6, 6, 3, 3, 2, 3
-	DB	3, 10, 5, 1, 14, 1, 6, 14, 4, 2, 9, 4, 14, 1, 2
-	DB	3, 4, 3, 5, 12, 15, 1, 6, 3, 23, 3, 6, 1, 2, 10
-	DB	2, 6, 3, 12, 10, 8, 1, 5, 4, 5, 1, 5, 1, 2, 3
-	DB	4, 5, 6, 7, 6, 6, 11, 3, 4, 8, 3, 1, 3, 21, 9
-	DB	3, 2, 6, 6, 1, 3, 17, 7, 2, 3, 1, 2, 10, 14, 3
-	DB	7, 9, 11, 1, 8, 10, 2, 3, 4, 2, 4, 11, 3, 1, 5
-	DB	4, 5, 1, 2, 3, 7, 14, 3, 1, 2, 7, 11, 1, 5, 1
-	DB	14, 18, 6, 7, 2, 6, 4, 3, 3, 12, 5, 19, 6, 17, 3
-	DB	4, 8, 1, 9, 8, 3, 4, 2, 16, 9, 3, 8, 4, 3, 6
-	DB	2, 3, 4, 6, 11, 3, 10, 12, 6, 8, 1, 5, 6, 9, 6
-	DB	3, 1, 3, 6, 12, 2, 15, 3, 3, 7, 2, 1, 5, 10, 5
-	DB	1, 6, 8, 4, 5, 6, 4, 3, 3, 12, 2, 3, 4, 8, 3
-	DB	13, 5, 15, 1, 5, 1, 3, 2, 3, 1, 3, 12, 3, 3, 3
-	DB	15, 20, 7, 2, 10, 2, 3, 6, 6, 1, 8, 7, 27, 15, 6
-; Location of "DB 0" in version 28.9 (tested on Skylake with AVX2 factoring)
-DB 0
-IFDEF FOO
-	DB	2, 4, 3, 11, 1, 6, 9, 9, 2, 4, 0
-ENDIF
+YMM_INIT_MASK19		DD	00000000000010000000000000000001b
+YMM_INIT_MASK23		DD	00000000100000000000000000000001b
+YMM_INIT_MASK29		DD	00100000000000000000000000000001b
+YMM_INIT_MASK31		DD	10000000000000000000000000000001b
+YMM_INIT_MASK37		DD	00000000000000000000000000000001b
+YMM_INIT_MASK41		DD	00000000000000000000000000000001b
+
+YMM_BUMP19		DD	-(256 MOD 19), -(256 MOD 23), -(256 MOD 29), -(256 MOD 31), -(256 MOD 37), -(256 MOD 41)
+			DD	-(256 MOD 43), -(256 MOD 47), -(256 MOD 53), -(256 MOD 59), -(256 MOD 61), -(256 MOD 67)
+			DD	-(256 MOD 71), -(256 MOD 73)
+			DD	-(256 MOD 79), -(256 MOD 83), -(256 MOD 89), -(256 MOD 97), -(256 MOD 101), -(256 MOD 103)
+			DD	-(256 MOD 107), -(256 MOD 109), -(256 MOD 113), -(256 MOD 127), -(256 MOD 131), -(256 MOD 137)
+			DD	-(256 MOD 139)
+			DD	-(256 MOD 149), -(256 MOD 151), -(256 MOD 157), -(256 MOD 163), -(256 MOD 167), -(256 MOD 173)
+			DD	-(256 MOD 179), -(256 MOD 181), -(256 MOD 191), -(256 MOD 193), -(256 MOD 197), -(256 MOD 199)
+			DD	-(256 MOD 211)
+			DD	-(256 MOD 223), -(256 MOD 227), -(256 MOD 229), -(256 MOD 233), -(256 MOD 239), -(256 MOD 241)
+			DD	-(256 MOD 251), -(256 MOD 257), -(256 MOD 263), -(256 MOD 269), -(256 MOD 271), -(256 MOD 277)
+			DD	-(256 MOD 281), -(256 MOD 283)
+YMM_MINUS256		DD	-256
+
+	align 64
+ZMM_FMA_ONE_OR_TWO TEXTEQU <ZMM_FMA_ONE>
+ZMM_FMA_ONE		DQ	1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0
+ZMM_FMA_TWO		DQ	2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0
+ZMM_FMA_RND_CONST3	DQ 	6755399441055744.0			; 3*2^51
+
+	align 64
+ZMM_INIT_SV19		DD	0, -(32 MOD 19), -(64 MOD 19), -(96 MOD 19), -(128 MOD 19), -(160 MOD 19), -(192 MOD 19), -(224 MOD 19)
+			DD	-(256 MOD 19), -(288 MOD 19), -(320 MOD 19), -(352 MOD 19), -(384 MOD 19), -(416 MOD 19), -(448 MOD 19), -(480 MOD 19)
+ZMM_INIT_SV23		DD	0, -(32 MOD 23), -(64 MOD 23), -(96 MOD 23), -(128 MOD 23), -(160 MOD 23), -(192 MOD 23), -(224 MOD 23)
+			DD	-(256 MOD 23), -(288 MOD 23), -(320 MOD 23), -(352 MOD 23), -(384 MOD 23), -(416 MOD 23), -(448 MOD 23), -(480 MOD 23)
+ZMM_INIT_SV29		DD	0, -(32 MOD 29), -(64 MOD 29), -(96 MOD 29), -(128 MOD 29), -(160 MOD 29), -(192 MOD 29), -(224 MOD 29)
+			DD	-(256 MOD 29), -(288 MOD 29), -(320 MOD 29), -(352 MOD 29), -(384 MOD 29), -(416 MOD 29), -(448 MOD 29), -(480 MOD 29)
+ZMM_INIT_SV31		DD	0, -(32 MOD 31), -(64 MOD 31), -(96 MOD 31), -(128 MOD 31), -(160 MOD 31), -(192 MOD 31), -(224 MOD 31)
+			DD	-(256 MOD 31), -(288 MOD 31), -(320 MOD 31), -(352 MOD 31), -(384 MOD 31), -(416 MOD 31), -(448 MOD 31), -(480 MOD 31)
+ZMM_INIT_SV37		DD	0, -(32 MOD 37), -(64 MOD 37), -(96 MOD 37), -(128 MOD 37), -(160 MOD 37), -(192 MOD 37), -(224 MOD 37)
+			DD	-(256 MOD 37), -(288 MOD 37), -(320 MOD 37), -(352 MOD 37), -(384 MOD 37), -(416 MOD 37), -(448 MOD 37), -(480 MOD 37)
+ZMM_INIT_SV41		DD	0, -(32 MOD 41), -(64 MOD 41), -(96 MOD 41), -(128 MOD 41), -(160 MOD 41), -(192 MOD 41), -(224 MOD 41)
+			DD	-(256 MOD 41), -(288 MOD 41), -(320 MOD 41), -(352 MOD 41), -(384 MOD 41), -(416 MOD 41), -(448 MOD 41), -(480 MOD 41)
+ZMM_INIT_SV43		DD	0, -(32 MOD 43), -(64 MOD 43), -(96 MOD 43), -(128 MOD 43), -(160 MOD 43), -(192 MOD 43), -(224 MOD 43)
+			DD	-(256 MOD 43), -(288 MOD 43), -(320 MOD 43), -(352 MOD 43), -(384 MOD 43), -(416 MOD 43), -(448 MOD 43), -(480 MOD 43)
+ZMM_INIT_SV47		DD	0, -(32 MOD 47), -(64 MOD 47), -(96 MOD 47), -(128 MOD 47), -(160 MOD 47), -(192 MOD 47), -(224 MOD 47)
+			DD	-(256 MOD 47), -(288 MOD 47), -(320 MOD 47), -(352 MOD 47), -(384 MOD 47), -(416 MOD 47), -(448 MOD 47), -(480 MOD 47)
+ZMM_INIT_SV53		DD	0, -(32 MOD 53), -(64 MOD 53), -(96 MOD 53), -(128 MOD 53), -(160 MOD 53), -(192 MOD 53), -(224 MOD 53)
+			DD	-(256 MOD 53), -(288 MOD 53), -(320 MOD 53), -(352 MOD 53), -(384 MOD 53), -(416 MOD 53), -(448 MOD 53), -(480 MOD 53)
+ZMM_INIT_SV59		DD	0, -(32 MOD 59), -(64 MOD 59), -(96 MOD 59), -(128 MOD 59), -(160 MOD 59), -(192 MOD 59), -(224 MOD 59)
+			DD	-(256 MOD 59), -(288 MOD 59), -(320 MOD 59), -(352 MOD 59), -(384 MOD 59), -(416 MOD 59), -(448 MOD 59), -(480 MOD 59)
+ZMM_INIT_SV61		DD	0, -(32 MOD 61), -(64 MOD 61), -(96 MOD 61), -(128 MOD 61), -(160 MOD 61), -(192 MOD 61), -(224 MOD 61)
+			DD	-(256 MOD 61), -(288 MOD 61), -(320 MOD 61), -(352 MOD 61), -(384 MOD 61), -(416 MOD 61), -(448 MOD 61), -(480 MOD 61)
+ZMM_INIT_SV67		DD	0, -(32 MOD 67), -(64 MOD 67), -(96 MOD 67), -(128 MOD 67), -(160 MOD 67), -(192 MOD 67), -(224 MOD 67)
+			DD	-(256 MOD 67), -(288 MOD 67), -(320 MOD 67), -(352 MOD 67), -(384 MOD 67), -(416 MOD 67), -(448 MOD 67), -(480 MOD 67)
+ZMM_INIT_SV71		DD	0, -(32 MOD 71), -(64 MOD 71), -(96 MOD 71), -(128 MOD 71), -(160 MOD 71), -(192 MOD 71), -(224 MOD 71)
+			DD	-(256 MOD 71), -(288 MOD 71), -(320 MOD 71), -(352 MOD 71), -(384 MOD 71), -(416 MOD 71), -(448 MOD 71), -(480 MOD 71)
+ZMM_INIT_SV73		DD	0, -(32 MOD 73), -(64 MOD 73), -(96 MOD 73), -(128 MOD 73), -(160 MOD 73), -(192 MOD 73), -(224 MOD 73)
+			DD	-(256 MOD 73), -(288 MOD 73), -(320 MOD 73), -(352 MOD 73), -(384 MOD 73), -(416 MOD 73), -(448 MOD 73), -(480 MOD 73)
+ZMM_INIT_SV79		DD	0, -(32 MOD 79), -(64 MOD 79), -(96 MOD 79), -(128 MOD 79), -(160 MOD 79), -(192 MOD 79), -(224 MOD 79)
+			DD	-(256 MOD 79), -(288 MOD 79), -(320 MOD 79), -(352 MOD 79), -(384 MOD 79), -(416 MOD 79), -(448 MOD 79), -(480 MOD 79)
+ZMM_INIT_SV83		DD	0, -(32 MOD 83), -(64 MOD 83), -(96 MOD 83), -(128 MOD 83), -(160 MOD 83), -(192 MOD 83), -(224 MOD 83)
+			DD	-(256 MOD 83), -(288 MOD 83), -(320 MOD 83), -(352 MOD 83), -(384 MOD 83), -(416 MOD 83), -(448 MOD 83), -(480 MOD 83)
+ZMM_INIT_SV89		DD	0, -(32 MOD 89), -(64 MOD 89), -(96 MOD 89), -(128 MOD 89), -(160 MOD 89), -(192 MOD 89), -(224 MOD 89)
+			DD	-(256 MOD 89), -(288 MOD 89), -(320 MOD 89), -(352 MOD 89), -(384 MOD 89), -(416 MOD 89), -(448 MOD 89), -(480 MOD 89)
+ZMM_INIT_SV97		DD	0, -(32 MOD 97), -(64 MOD 97), -(96 MOD 97), -(128 MOD 97), -(160 MOD 97), -(192 MOD 97), -(224 MOD 97)
+			DD	-(256 MOD 97), -(288 MOD 97), -(320 MOD 97), -(352 MOD 97), -(384 MOD 97), -(416 MOD 97), -(448 MOD 97), -(480 MOD 97)
+ZMM_INIT_SV101		DD	0, -(32 MOD 101), -(64 MOD 101), -(96 MOD 101), -(128 MOD 101), -(160 MOD 101), -(192 MOD 101), -(224 MOD 101)
+			DD	-(256 MOD 101), -(288 MOD 101), -(320 MOD 101), -(352 MOD 101), -(384 MOD 101), -(416 MOD 101), -(448 MOD 101), -(480 MOD 101)
+ZMM_INIT_SV103		DD	0, -(32 MOD 103), -(64 MOD 103), -(96 MOD 103), -(128 MOD 103), -(160 MOD 103), -(192 MOD 103), -(224 MOD 103)
+			DD	-(256 MOD 103), -(288 MOD 103), -(320 MOD 103), -(352 MOD 103), -(384 MOD 103), -(416 MOD 103), -(448 MOD 103), -(480 MOD 103)
+ZMM_INIT_SV107		DD	0, -(32 MOD 107), -(64 MOD 107), -(96 MOD 107), -(128 MOD 107), -(160 MOD 107), -(192 MOD 107), -(224 MOD 107)
+			DD	-(256 MOD 107), -(288 MOD 107), -(320 MOD 107), -(352 MOD 107), -(384 MOD 107), -(416 MOD 107), -(448 MOD 107), -(480 MOD 107)
+ZMM_INIT_SV109		DD	0, -(32 MOD 109), -(64 MOD 109), -(96 MOD 109), -(128 MOD 109), -(160 MOD 109), -(192 MOD 109), -(224 MOD 109)
+			DD	-(256 MOD 109), -(288 MOD 109), -(320 MOD 109), -(352 MOD 109), -(384 MOD 109), -(416 MOD 109), -(448 MOD 109), -(480 MOD 109)
+ZMM_INIT_SV113		DD	0, -(32 MOD 113), -(64 MOD 113), -(96 MOD 113), -(128 MOD 113), -(160 MOD 113), -(192 MOD 113), -(224 MOD 113)
+			DD	-(256 MOD 113), -(288 MOD 113), -(320 MOD 113), -(352 MOD 113), -(384 MOD 113), -(416 MOD 113), -(448 MOD 113), -(480 MOD 113)
+ZMM_INIT_SV127		DD	0, -(32 MOD 127), -(64 MOD 127), -(96 MOD 127), -(128 MOD 127), -(160 MOD 127), -(192 MOD 127), -(224 MOD 127)
+			DD	-(256 MOD 127), -(288 MOD 127), -(320 MOD 127), -(352 MOD 127), -(384 MOD 127), -(416 MOD 127), -(448 MOD 127), -(480 MOD 127)
+ZMM_INIT_SV131		DD	0, -(32 MOD 131), -(64 MOD 131), -(96 MOD 131), -(128 MOD 131), -(160 MOD 131), -(192 MOD 131), -(224 MOD 131)
+			DD	-(256 MOD 131), -(288 MOD 131), -(320 MOD 131), -(352 MOD 131), -(384 MOD 131), -(416 MOD 131), -(448 MOD 131), -(480 MOD 131)
+ZMM_INIT_SV137		DD	0, -(32 MOD 137), -(64 MOD 137), -(96 MOD 137), -(128 MOD 137), -(160 MOD 137), -(192 MOD 137), -(224 MOD 137)
+			DD	-(256 MOD 137), -(288 MOD 137), -(320 MOD 137), -(352 MOD 137), -(384 MOD 137), -(416 MOD 137), -(448 MOD 137), -(480 MOD 137)
+ZMM_INIT_SV139		DD	0, -(32 MOD 139), -(64 MOD 139), -(96 MOD 139), -(128 MOD 139), -(160 MOD 139), -(192 MOD 139), -(224 MOD 139)
+			DD	-(256 MOD 139), -(288 MOD 139), -(320 MOD 139), -(352 MOD 139), -(384 MOD 139), -(416 MOD 139), -(448 MOD 139), -(480 MOD 139)
+ZMM_INIT_SV149		DD	0, -(32 MOD 149), -(64 MOD 149), -(96 MOD 149), -(128 MOD 149), -(160 MOD 149), -(192 MOD 149), -(224 MOD 149)
+			DD	-(256 MOD 149), -(288 MOD 149), -(320 MOD 149), -(352 MOD 149), -(384 MOD 149), -(416 MOD 149), -(448 MOD 149), -(480 MOD 149)
+ZMM_INIT_SV151		DD	0, -(32 MOD 151), -(64 MOD 151), -(96 MOD 151), -(128 MOD 151), -(160 MOD 151), -(192 MOD 151), -(224 MOD 151)
+			DD	-(256 MOD 151), -(288 MOD 151), -(320 MOD 151), -(352 MOD 151), -(384 MOD 151), -(416 MOD 151), -(448 MOD 151), -(480 MOD 151)
+ZMM_INIT_SV157		DD	0, -(32 MOD 157), -(64 MOD 157), -(96 MOD 157), -(128 MOD 157), -(160 MOD 157), -(192 MOD 157), -(224 MOD 157)
+			DD	-(256 MOD 157), -(288 MOD 157), -(320 MOD 157), -(352 MOD 157), -(384 MOD 157), -(416 MOD 157), -(448 MOD 157), -(480 MOD 157)
+ZMM_INIT_SV163		DD	0, -(32 MOD 163), -(64 MOD 163), -(96 MOD 163), -(128 MOD 163), -(160 MOD 163), -(192 MOD 163), -(224 MOD 163)
+			DD	-(256 MOD 163), -(288 MOD 163), -(320 MOD 163), -(352 MOD 163), -(384 MOD 163), -(416 MOD 163), -(448 MOD 163), -(480 MOD 163)
+ZMM_INIT_SV167		DD	0, -(32 MOD 167), -(64 MOD 167), -(96 MOD 167), -(128 MOD 167), -(160 MOD 167), -(192 MOD 167), -(224 MOD 167)
+			DD	-(256 MOD 167), -(288 MOD 167), -(320 MOD 167), -(352 MOD 167), -(384 MOD 167), -(416 MOD 167), -(448 MOD 167), -(480 MOD 167)
+ZMM_INIT_SV173		DD	0, -(32 MOD 173), -(64 MOD 173), -(96 MOD 173), -(128 MOD 173), -(160 MOD 173), -(192 MOD 173), -(224 MOD 173)
+			DD	-(256 MOD 173), -(288 MOD 173), -(320 MOD 173), -(352 MOD 173), -(384 MOD 173), -(416 MOD 173), -(448 MOD 173), -(480 MOD 173)
+ZMM_INIT_SV179		DD	0, -(32 MOD 179), -(64 MOD 179), -(96 MOD 179), -(128 MOD 179), -(160 MOD 179), -(192 MOD 179), -(224 MOD 179)
+			DD	-(256 MOD 179), -(288 MOD 179), -(320 MOD 179), -(352 MOD 179), -(384 MOD 179), -(416 MOD 179), -(448 MOD 179), -(480 MOD 179)
+ZMM_INIT_SV181		DD	0, -(32 MOD 181), -(64 MOD 181), -(96 MOD 181), -(128 MOD 181), -(160 MOD 181), -(192 MOD 181), -(224 MOD 181)
+			DD	-(256 MOD 181), -(288 MOD 181), -(320 MOD 181), -(352 MOD 181), -(384 MOD 181), -(416 MOD 181), -(448 MOD 181), -(480 MOD 181)
+ZMM_INIT_SV191		DD	0, -(32 MOD 191), -(64 MOD 191), -(96 MOD 191), -(128 MOD 191), -(160 MOD 191), -(192 MOD 191), -(224 MOD 191)
+			DD	-(256 MOD 191), -(288 MOD 191), -(320 MOD 191), -(352 MOD 191), -(384 MOD 191), -(416 MOD 191), -(448 MOD 191), -(480 MOD 191)
+ZMM_INIT_SV193		DD	0, -(32 MOD 193), -(64 MOD 193), -(96 MOD 193), -(128 MOD 193), -(160 MOD 193), -(192 MOD 193), -(224 MOD 193)
+			DD	-(256 MOD 193), -(288 MOD 193), -(320 MOD 193), -(352 MOD 193), -(384 MOD 193), -(416 MOD 193), -(448 MOD 193), -(480 MOD 193)
+ZMM_INIT_SV197		DD	0, -(32 MOD 197), -(64 MOD 197), -(96 MOD 197), -(128 MOD 197), -(160 MOD 197), -(192 MOD 197), -(224 MOD 197)
+			DD	-(256 MOD 197), -(288 MOD 197), -(320 MOD 197), -(352 MOD 197), -(384 MOD 197), -(416 MOD 197), -(448 MOD 197), -(480 MOD 197)
+ZMM_INIT_SV199		DD	0, -(32 MOD 199), -(64 MOD 199), -(96 MOD 199), -(128 MOD 199), -(160 MOD 199), -(192 MOD 199), -(224 MOD 199)
+			DD	-(256 MOD 199), -(288 MOD 199), -(320 MOD 199), -(352 MOD 199), -(384 MOD 199), -(416 MOD 199), -(448 MOD 199), -(480 MOD 199)
+ZMM_INIT_SV211		DD	0, -(32 MOD 211), -(64 MOD 211), -(96 MOD 211), -(128 MOD 211), -(160 MOD 211), -(192 MOD 211), -(224 MOD 211)
+			DD	-(256 MOD 211), -(288 MOD 211), -(320 MOD 211), -(352 MOD 211), -(384 MOD 211), -(416 MOD 211), -(448 MOD 211), -(480 MOD 211)
+ZMM_INIT_SV223		DD	0, -(32 MOD 223), -(64 MOD 223), -(96 MOD 223), -(128 MOD 223), -(160 MOD 223), -(192 MOD 223), -(224 MOD 223)
+			DD	-(256 MOD 223), -(288 MOD 223), -(320 MOD 223), -(352 MOD 223), -(384 MOD 223), -(416 MOD 223), -(448 MOD 223), -(480 MOD 223)
+ZMM_INIT_SV227		DD	0, -(32 MOD 227), -(64 MOD 227), -(96 MOD 227), -(128 MOD 227), -(160 MOD 227), -(192 MOD 227), -(224 MOD 227)
+			DD	-(256 MOD 227), -(288 MOD 227), -(320 MOD 227), -(352 MOD 227), -(384 MOD 227), -(416 MOD 227), -(448 MOD 227), -(480 MOD 227)
+ZMM_INIT_SV229		DD	0, -(32 MOD 229), -(64 MOD 229), -(96 MOD 229), -(128 MOD 229), -(160 MOD 229), -(192 MOD 229), -(224 MOD 229)
+			DD	-(256 MOD 229), -(288 MOD 229), -(320 MOD 229), -(352 MOD 229), -(384 MOD 229), -(416 MOD 229), -(448 MOD 229), -(480 MOD 229)
+ZMM_INIT_SV233		DD	0, -(32 MOD 233), -(64 MOD 233), -(96 MOD 233), -(128 MOD 233), -(160 MOD 233), -(192 MOD 233), -(224 MOD 233)
+			DD	-(256 MOD 233), -(288 MOD 233), -(320 MOD 233), -(352 MOD 233), -(384 MOD 233), -(416 MOD 233), -(448 MOD 233), -(480 MOD 233)
+ZMM_INIT_SV239		DD	0, -(32 MOD 239), -(64 MOD 239), -(96 MOD 239), -(128 MOD 239), -(160 MOD 239), -(192 MOD 239), -(224 MOD 239)
+			DD	-(256 MOD 239), -(288 MOD 239), -(320 MOD 239), -(352 MOD 239), -(384 MOD 239), -(416 MOD 239), -(448 MOD 239), -(480 MOD 239)
+ZMM_INIT_SV241		DD	0, -(32 MOD 241), -(64 MOD 241), -(96 MOD 241), -(128 MOD 241), -(160 MOD 241), -(192 MOD 241), -(224 MOD 241)
+			DD	-(256 MOD 241), -(288 MOD 241), -(320 MOD 241), -(352 MOD 241), -(384 MOD 241), -(416 MOD 241), -(448 MOD 241), -(480 MOD 241)
+ZMM_INIT_SV251		DD	0, -(32 MOD 251), -(64 MOD 251), -(96 MOD 251), -(128 MOD 251), -(160 MOD 251), -(192 MOD 251), -(224 MOD 251)
+			DD	-(256 MOD 251), -(288 MOD 251), -(320 MOD 251), -(352 MOD 251), -(384 MOD 251), -(416 MOD 251), -(448 MOD 251), -(480 MOD 251)
+ZMM_INIT_SV257		DD	0, -(32 MOD 257), -(64 MOD 257), -(96 MOD 257), -(128 MOD 257), -(160 MOD 257), -(192 MOD 257), -(224 MOD 257)
+			DD	-(256 MOD 257), -(288 MOD 257), -(320 MOD 257), -(352 MOD 257), -(384 MOD 257), -(416 MOD 257), -(448 MOD 257), -(480 MOD 257)
+ZMM_INIT_SV263		DD	0, -(32 MOD 263), -(64 MOD 263), -(96 MOD 263), -(128 MOD 263), -(160 MOD 263), -(192 MOD 263), -(224 MOD 263)
+			DD	-(256 MOD 263), -(288 MOD 263), -(320 MOD 263), -(352 MOD 263), -(384 MOD 263), -(416 MOD 263), -(448 MOD 263), -(480 MOD 263)
+ZMM_INIT_SV269		DD	0, -(32 MOD 269), -(64 MOD 269), -(96 MOD 269), -(128 MOD 269), -(160 MOD 269), -(192 MOD 269), -(224 MOD 269)
+			DD	-(256 MOD 269), -(288 MOD 269), -(320 MOD 269), -(352 MOD 269), -(384 MOD 269), -(416 MOD 269), -(448 MOD 269), -(480 MOD 269)
+ZMM_INIT_SV271		DD	0, -(32 MOD 271), -(64 MOD 271), -(96 MOD 271), -(128 MOD 271), -(160 MOD 271), -(192 MOD 271), -(224 MOD 271)
+			DD	-(256 MOD 271), -(288 MOD 271), -(320 MOD 271), -(352 MOD 271), -(384 MOD 271), -(416 MOD 271), -(448 MOD 271), -(480 MOD 271)
+ZMM_INIT_SV277		DD	0, -(32 MOD 277), -(64 MOD 277), -(96 MOD 277), -(128 MOD 277), -(160 MOD 277), -(192 MOD 277), -(224 MOD 277)
+			DD	-(256 MOD 277), -(288 MOD 277), -(320 MOD 277), -(352 MOD 277), -(384 MOD 277), -(416 MOD 277), -(448 MOD 277), -(480 MOD 277)
+ZMM_INIT_SV281		DD	0, -(32 MOD 281), -(64 MOD 281), -(96 MOD 281), -(128 MOD 281), -(160 MOD 281), -(192 MOD 281), -(224 MOD 281)
+			DD	-(256 MOD 281), -(288 MOD 281), -(320 MOD 281), -(352 MOD 281), -(384 MOD 281), -(416 MOD 281), -(448 MOD 281), -(480 MOD 281)
+ZMM_INIT_SV283		DD	0, -(32 MOD 283), -(64 MOD 283), -(96 MOD 283), -(128 MOD 283), -(160 MOD 283), -(192 MOD 283), -(224 MOD 283)
+			DD	-(256 MOD 283), -(288 MOD 283), -(320 MOD 283), -(352 MOD 283), -(384 MOD 283), -(416 MOD 283), -(448 MOD 283), -(480 MOD 283)
+ZMM_INIT_SV293		DD	0, -(32 MOD 293), -(64 MOD 293), -(96 MOD 293), -(128 MOD 293), -(160 MOD 293), -(192 MOD 293), -(224 MOD 293)
+			DD	-(256 MOD 293), -(288 MOD 293), -(320 MOD 293), -(352 MOD 293), -(384 MOD 293), -(416 MOD 293), -(448 MOD 293), -(480 MOD 293)
+ZMM_INIT_SV307		DD	0, -(32 MOD 307), -(64 MOD 307), -(96 MOD 307), -(128 MOD 307), -(160 MOD 307), -(192 MOD 307), -(224 MOD 307)
+			DD	-(256 MOD 307), -(288 MOD 307), -(320 MOD 307), -(352 MOD 307), -(384 MOD 307), -(416 MOD 307), -(448 MOD 307), -(480 MOD 307)
+ZMM_INIT_SV311		DD	0, -(32 MOD 311), -(64 MOD 311), -(96 MOD 311), -(128 MOD 311), -(160 MOD 311), -(192 MOD 311), -(224 MOD 311)
+			DD	-(256 MOD 311), -(288 MOD 311), -(320 MOD 311), -(352 MOD 311), -(384 MOD 311), -(416 MOD 311), -(448 MOD 311), -(480 MOD 311)
+ZMM_INIT_SV313		DD	0, -(32 MOD 313), -(64 MOD 313), -(96 MOD 313), -(128 MOD 313), -(160 MOD 313), -(192 MOD 313), -(224 MOD 313)
+			DD	-(256 MOD 313), -(288 MOD 313), -(320 MOD 313), -(352 MOD 313), -(384 MOD 313), -(416 MOD 313), -(448 MOD 313), -(480 MOD 313)
+ZMM_INIT_SV317		DD	0, -(32 MOD 317), -(64 MOD 317), -(96 MOD 317), -(128 MOD 317), -(160 MOD 317), -(192 MOD 317), -(224 MOD 317)
+			DD	-(256 MOD 317), -(288 MOD 317), -(320 MOD 317), -(352 MOD 317), -(384 MOD 317), -(416 MOD 317), -(448 MOD 317), -(480 MOD 317)
+ZMM_INIT_SV331		DD	0, -(32 MOD 331), -(64 MOD 331), -(96 MOD 331), -(128 MOD 331), -(160 MOD 331), -(192 MOD 331), -(224 MOD 331)
+			DD	-(256 MOD 331), -(288 MOD 331), -(320 MOD 331), -(352 MOD 331), -(384 MOD 331), -(416 MOD 331), -(448 MOD 331), -(480 MOD 331)
+ZMM_INIT_SV337		DD	0, -(32 MOD 337), -(64 MOD 337), -(96 MOD 337), -(128 MOD 337), -(160 MOD 337), -(192 MOD 337), -(224 MOD 337)
+			DD	-(256 MOD 337), -(288 MOD 337), -(320 MOD 337), -(352 MOD 337), -(384 MOD 337), -(416 MOD 337), -(448 MOD 337), -(480 MOD 337)
+ZMM_INIT_SV347		DD	0, -(32 MOD 347), -(64 MOD 347), -(96 MOD 347), -(128 MOD 347), -(160 MOD 347), -(192 MOD 347), -(224 MOD 347)
+			DD	-(256 MOD 347), -(288 MOD 347), -(320 MOD 347), -(352 MOD 347), -(384 MOD 347), -(416 MOD 347), -(448 MOD 347), -(480 MOD 347)
+ZMM_INIT_SV349		DD	0, -(32 MOD 349), -(64 MOD 349), -(96 MOD 349), -(128 MOD 349), -(160 MOD 349), -(192 MOD 349), -(224 MOD 349)
+			DD	-(256 MOD 349), -(288 MOD 349), -(320 MOD 349), -(352 MOD 349), -(384 MOD 349), -(416 MOD 349), -(448 MOD 349), -(480 MOD 349)
+ZMM_INIT_SV353		DD	0, -(32 MOD 353), -(64 MOD 353), -(96 MOD 353), -(128 MOD 353), -(160 MOD 353), -(192 MOD 353), -(224 MOD 353)
+			DD	-(256 MOD 353), -(288 MOD 353), -(320 MOD 353), -(352 MOD 353), -(384 MOD 353), -(416 MOD 353), -(448 MOD 353), -(480 MOD 353)
+ZMM_INIT_SV359		DD	0, -(32 MOD 359), -(64 MOD 359), -(96 MOD 359), -(128 MOD 359), -(160 MOD 359), -(192 MOD 359), -(224 MOD 359)
+			DD	-(256 MOD 359), -(288 MOD 359), -(320 MOD 359), -(352 MOD 359), -(384 MOD 359), -(416 MOD 359), -(448 MOD 359), -(480 MOD 359)
+ZMM_INIT_SV367		DD	0, -(32 MOD 367), -(64 MOD 367), -(96 MOD 367), -(128 MOD 367), -(160 MOD 367), -(192 MOD 367), -(224 MOD 367)
+			DD	-(256 MOD 367), -(288 MOD 367), -(320 MOD 367), -(352 MOD 367), -(384 MOD 367), -(416 MOD 367), -(448 MOD 367), -(480 MOD 367)
+ZMM_INIT_SV373		DD	0, -(32 MOD 373), -(64 MOD 373), -(96 MOD 373), -(128 MOD 373), -(160 MOD 373), -(192 MOD 373), -(224 MOD 373)
+			DD	-(256 MOD 373), -(288 MOD 373), -(320 MOD 373), -(352 MOD 373), -(384 MOD 373), -(416 MOD 373), -(448 MOD 373), -(480 MOD 373)
+ZMM_INIT_SV379		DD	0, -(32 MOD 379), -(64 MOD 379), -(96 MOD 379), -(128 MOD 379), -(160 MOD 379), -(192 MOD 379), -(224 MOD 379)
+			DD	-(256 MOD 379), -(288 MOD 379), -(320 MOD 379), -(352 MOD 379), -(384 MOD 379), -(416 MOD 379), -(448 MOD 379), -(480 MOD 379)
+ZMM_INIT_SV383		DD	0, -(32 MOD 383), -(64 MOD 383), -(96 MOD 383), -(128 MOD 383), -(160 MOD 383), -(192 MOD 383), -(224 MOD 383)
+			DD	-(256 MOD 383), -(288 MOD 383), -(320 MOD 383), -(352 MOD 383), -(384 MOD 383), -(416 MOD 383), -(448 MOD 383), -(480 MOD 383)
+ZMM_INIT_SV389		DD	0, -(32 MOD 389), -(64 MOD 389), -(96 MOD 389), -(128 MOD 389), -(160 MOD 389), -(192 MOD 389), -(224 MOD 389)
+			DD	-(256 MOD 389), -(288 MOD 389), -(320 MOD 389), -(352 MOD 389), -(384 MOD 389), -(416 MOD 389), -(448 MOD 389), -(480 MOD 389)
+ZMM_INIT_SV397		DD	0, -(32 MOD 397), -(64 MOD 397), -(96 MOD 397), -(128 MOD 397), -(160 MOD 397), -(192 MOD 397), -(224 MOD 397)
+			DD	-(256 MOD 397), -(288 MOD 397), -(320 MOD 397), -(352 MOD 397), -(384 MOD 397), -(416 MOD 397), -(448 MOD 397), -(480 MOD 397)
+ZMM_INIT_SV401		DD	0, -(32 MOD 401), -(64 MOD 401), -(96 MOD 401), -(128 MOD 401), -(160 MOD 401), -(192 MOD 401), -(224 MOD 401)
+			DD	-(256 MOD 401), -(288 MOD 401), -(320 MOD 401), -(352 MOD 401), -(384 MOD 401), -(416 MOD 401), -(448 MOD 401), -(480 MOD 401)
+ZMM_INIT_SV409		DD	0, -(32 MOD 409), -(64 MOD 409), -(96 MOD 409), -(128 MOD 409), -(160 MOD 409), -(192 MOD 409), -(224 MOD 409)
+			DD	-(256 MOD 409), -(288 MOD 409), -(320 MOD 409), -(352 MOD 409), -(384 MOD 409), -(416 MOD 409), -(448 MOD 409), -(480 MOD 409)
+ZMM_INIT_SV419		DD	0, -(32 MOD 419), -(64 MOD 419), -(96 MOD 419), -(128 MOD 419), -(160 MOD 419), -(192 MOD 419), -(224 MOD 419)
+			DD	-(256 MOD 419), -(288 MOD 419), -(320 MOD 419), -(352 MOD 419), -(384 MOD 419), -(416 MOD 419), -(448 MOD 419), -(480 MOD 419)
+ZMM_INIT_SV421		DD	0, -(32 MOD 421), -(64 MOD 421), -(96 MOD 421), -(128 MOD 421), -(160 MOD 421), -(192 MOD 421), -(224 MOD 421)
+			DD	-(256 MOD 421), -(288 MOD 421), -(320 MOD 421), -(352 MOD 421), -(384 MOD 421), -(416 MOD 421), -(448 MOD 421), -(480 MOD 421)
+ZMM_INIT_SV431		DD	0, -(32 MOD 431), -(64 MOD 431), -(96 MOD 431), -(128 MOD 431), -(160 MOD 431), -(192 MOD 431), -(224 MOD 431)
+			DD	-(256 MOD 431), -(288 MOD 431), -(320 MOD 431), -(352 MOD 431), -(384 MOD 431), -(416 MOD 431), -(448 MOD 431), -(480 MOD 431)
+ZMM_INIT_SV433		DD	0, -(32 MOD 433), -(64 MOD 433), -(96 MOD 433), -(128 MOD 433), -(160 MOD 433), -(192 MOD 433), -(224 MOD 433)
+			DD	-(256 MOD 433), -(288 MOD 433), -(320 MOD 433), -(352 MOD 433), -(384 MOD 433), -(416 MOD 433), -(448 MOD 433), -(480 MOD 433)
+ZMM_INIT_SV439		DD	0, -(32 MOD 439), -(64 MOD 439), -(96 MOD 439), -(128 MOD 439), -(160 MOD 439), -(192 MOD 439), -(224 MOD 439)
+			DD	-(256 MOD 439), -(288 MOD 439), -(320 MOD 439), -(352 MOD 439), -(384 MOD 439), -(416 MOD 439), -(448 MOD 439), -(480 MOD 439)
+ZMM_INIT_SV443		DD	0, -(32 MOD 443), -(64 MOD 443), -(96 MOD 443), -(128 MOD 443), -(160 MOD 443), -(192 MOD 443), -(224 MOD 443)
+			DD	-(256 MOD 443), -(288 MOD 443), -(320 MOD 443), -(352 MOD 443), -(384 MOD 443), -(416 MOD 443), -(448 MOD 443), -(480 MOD 443)
+ZMM_INIT_SV449		DD	0, -(32 MOD 449), -(64 MOD 449), -(96 MOD 449), -(128 MOD 449), -(160 MOD 449), -(192 MOD 449), -(224 MOD 449)
+			DD	-(256 MOD 449), -(288 MOD 449), -(320 MOD 449), -(352 MOD 449), -(384 MOD 449), -(416 MOD 449), -(448 MOD 449), -(480 MOD 449)
+ZMM_INIT_SV457		DD	0, -(32 MOD 457), -(64 MOD 457), -(96 MOD 457), -(128 MOD 457), -(160 MOD 457), -(192 MOD 457), -(224 MOD 457)
+			DD	-(256 MOD 457), -(288 MOD 457), -(320 MOD 457), -(352 MOD 457), -(384 MOD 457), -(416 MOD 457), -(448 MOD 457), -(480 MOD 457)
+ZMM_INIT_SV461		DD	0, -(32 MOD 461), -(64 MOD 461), -(96 MOD 461), -(128 MOD 461), -(160 MOD 461), -(192 MOD 461), -(224 MOD 461)
+			DD	-(256 MOD 461), -(288 MOD 461), -(320 MOD 461), -(352 MOD 461), -(384 MOD 461), -(416 MOD 461), -(448 MOD 461), -(480 MOD 461)
+ZMM_INIT_SV463		DD	0, -(32 MOD 463), -(64 MOD 463), -(96 MOD 463), -(128 MOD 463), -(160 MOD 463), -(192 MOD 463), -(224 MOD 463)
+			DD	-(256 MOD 463), -(288 MOD 463), -(320 MOD 463), -(352 MOD 463), -(384 MOD 463), -(416 MOD 463), -(448 MOD 463), -(480 MOD 463)
+ZMM_INIT_SV467		DD	0, -(32 MOD 467), -(64 MOD 467), -(96 MOD 467), -(128 MOD 467), -(160 MOD 467), -(192 MOD 467), -(224 MOD 467)
+			DD	-(256 MOD 467), -(288 MOD 467), -(320 MOD 467), -(352 MOD 467), -(384 MOD 467), -(416 MOD 467), -(448 MOD 467), -(480 MOD 467)
+ZMM_INIT_SV479		DD	0, -(32 MOD 479), -(64 MOD 479), -(96 MOD 479), -(128 MOD 479), -(160 MOD 479), -(192 MOD 479), -(224 MOD 479)
+			DD	-(256 MOD 479), -(288 MOD 479), -(320 MOD 479), -(352 MOD 479), -(384 MOD 479), -(416 MOD 479), -(448 MOD 479), -(480 MOD 479)
+ZMM_INIT_SV487		DD	0, -(32 MOD 487), -(64 MOD 487), -(96 MOD 487), -(128 MOD 487), -(160 MOD 487), -(192 MOD 487), -(224 MOD 487)
+			DD	-(256 MOD 487), -(288 MOD 487), -(320 MOD 487), -(352 MOD 487), -(384 MOD 487), -(416 MOD 487), -(448 MOD 487), -(480 MOD 487)
+ZMM_INIT_SV491		DD	0, -(32 MOD 491), -(64 MOD 491), -(96 MOD 491), -(128 MOD 491), -(160 MOD 491), -(192 MOD 491), -(224 MOD 491)
+			DD	-(256 MOD 491), -(288 MOD 491), -(320 MOD 491), -(352 MOD 491), -(384 MOD 491), -(416 MOD 491), -(448 MOD 491), -(480 MOD 491)
+ZMM_INIT_SV499		DD	0, -(32 MOD 499), -(64 MOD 499), -(96 MOD 499), -(128 MOD 499), -(160 MOD 499), -(192 MOD 499), -(224 MOD 499)
+			DD	-(256 MOD 499), -(288 MOD 499), -(320 MOD 499), -(352 MOD 499), -(384 MOD 499), -(416 MOD 499), -(448 MOD 499), -(480 MOD 499)
+ZMM_INIT_SV503		DD	0, -(32 MOD 503), -(64 MOD 503), -(96 MOD 503), -(128 MOD 503), -(160 MOD 503), -(192 MOD 503), -(224 MOD 503)
+			DD	-(256 MOD 503), -(288 MOD 503), -(320 MOD 503), -(352 MOD 503), -(384 MOD 503), -(416 MOD 503), -(448 MOD 503), -(480 MOD 503)
+ZMM_INIT_SV509		DD	0, -(32 MOD 509), -(64 MOD 509), -(96 MOD 509), -(128 MOD 509), -(160 MOD 509), -(192 MOD 509), -(224 MOD 509)
+			DD	-(256 MOD 509), -(288 MOD 509), -(320 MOD 509), -(352 MOD 509), -(384 MOD 509), -(416 MOD 509), -(448 MOD 509), -(480 MOD 509)
+ZMM_INIT_SV521		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV523		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV541		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV547		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV557		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV563		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV571		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV577		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV587		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV593		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV599		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV601		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV607		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV613		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV617		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV631		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV641		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV643		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV647		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV653		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV659		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+ZMM_INIT_SV661		DD	0, -32, -64, -96, -128, -160, -192, -224, -256, -288, -320, -352, -384, -416, -448, -480
+
+ZMM_BUMP19		DD	-(512 MOD 19), -(512 MOD 23), -(512 MOD 29), -(512 MOD 31), -(512 MOD 37), -(512 MOD 41)
+			DD	-(512 MOD 43), -(512 MOD 47), -(512 MOD 53), -(512 MOD 59), -(512 MOD 61), -(512 MOD 67)
+			DD	-(512 MOD 71), -(512 MOD 73)
+			DD	-(512 MOD 79), -(512 MOD 83), -(512 MOD 89), -(512 MOD 97), -(512 MOD 101), -(512 MOD 103)
+			DD	-(512 MOD 107), -(512 MOD 109), -(512 MOD 113), -(512 MOD 127), -(512 MOD 131), -(512 MOD 137)
+			DD	-(512 MOD 139)
+			DD	-(512 MOD 149), -(512 MOD 151), -(512 MOD 157), -(512 MOD 163), -(512 MOD 167), -(512 MOD 173)
+			DD	-(512 MOD 179), -(512 MOD 181), -(512 MOD 191), -(512 MOD 193), -(512 MOD 197), -(512 MOD 199)
+			DD	-(512 MOD 211)
+			DD	-(512 MOD 223), -(512 MOD 227), -(512 MOD 229), -(512 MOD 233), -(512 MOD 239), -(512 MOD 241)
+			DD	-(512 MOD 251), -(512 MOD 257), -(512 MOD 263), -(512 MOD 269), -(512 MOD 271), -(512 MOD 277)
+			DD	-(512 MOD 281)
+			DD	-(512 MOD 283), -(512 MOD 293), -(512 MOD 307), -(512 MOD 311), -(512 MOD 313), -(512 MOD 317)
+			DD	-(512 MOD 331), -(512 MOD 337), -(512 MOD 347), -(512 MOD 349), -(512 MOD 353), -(512 MOD 359)
+			DD	-(512 MOD 367)
+			DD	-(512 MOD 373), -(512 MOD 379), -(512 MOD 383), -(512 MOD 389), -(512 MOD 397), -(512 MOD 401)
+			DD	-(512 MOD 409), -(512 MOD 419), -(512 MOD 421), -(512 MOD 431), -(512 MOD 433), -(512 MOD 439)
+			DD	-(512 MOD 443)
+			DD	-(512 MOD 449), -(512 MOD 457), -(512 MOD 461), -(512 MOD 463), -(512 MOD 467), -(512 MOD 479)
+			DD	-(512 MOD 487), -(512 MOD 491), -(512 MOD 499), -(512 MOD 503), -(512 MOD 509), -(512 MOD 521)
+			DD	-(512 MOD 523)
+			DD	21 DUP (-512)
+ZMM_MINUS512		DD	-512
+
+;FOO1			DQ	0				;; The easy way to debug - enter the known factor here
+;FOO2			DQ	20945362625087
 
 	;; Align so that other GWDATA areas are aligned on a cache line
 	align 128
 _GWDATA ENDS
 
 
-initsize	EQU	7*11*13*17	; First 4 primes cleared in initsieve
-initcount	EQU	4		; Count of primes cleared in initsieve
 sievesize	EQU	00003000h	; 12KB sieve
 
 ;; Debugging macros
@@ -1007,111 +712,6 @@ ok:
 
 _TEXT	SEGMENT
 
-; setupf (struct facasm_data *)
-;	Initialize 64-bit factoring code
-; Windows 64-bit (setupf)
-;	Parameter ptr = rcx
-; Linux 64-bit (setupf)
-;	Parameter ptr = rdi
-
-PROCF	setupf
-	ad_prolog 0,0,rbx,rbp,rsi,rdi
-
-; Compute various constants and addresses
-
-	mov	rax, primearray
-	add	rax, initcount*12
-	mov	primearray12, rax
-
-; Copy byte based prime array to double word based array
-
-	mov	rsi, OFFSET sivinfo	; Source - array of bytes
-	mov	rdi, primearray		; Destination - array of double words
-	mov	rbx, 5			; Sivinfo contains primes larger than 5
-	sub	rcx, rcx
-initlp:	mov	cl, [rsi]
-	and	cl, cl			; Test for end of table
-	jz	short tabend
-	add	rbx, rcx
-	add	rbx, rcx
-	cmp	rbx, sievesize*8	; Past maximum prime?
-	jge	short tabend
-	mov	[rdi], ebx		; Save the small prime
-	xor	rdx, rdx		; Compute minimum number of bits in
-	mov	eax, sievesize*8	; sieve that will be cleared
-	div	rbx
-	mov	[rdi+4], eax
-	inc	rsi			; Next table entry
-	lea	rdi, [rdi+12]		; Next primearray entry
-	jmp	short initlp
-tabend:	sub	rcx, rcx
-	mov	[rdi], ecx		; Zero marks last entry
-
-; Fill initsieve array with ones.  We make the table bigger than "necessary"
-; so that filling the sieve can be done in one blast.
-
-	mov	rax, -1
-	mov	rcx, initsize + sievesize / 8
-	mov	rdi, initsieve
-	rep	stosq
-
-; Clear the bits associated with the first 4 primes
-
-	mov	rsi, primearray		; Ptr to first small prime
-	mov	rdi, initsieve		; Address of initial sieve
-	mov	rbx, sieve		; Used for temporary storage
-ilp1:	mov	ecx, [rsi]		; Load small prime
-	sub	rax, rax
-ilp2:	btr	[rdi], rax		; Clear the bit
-	add	rax, rcx		; Next bit #
-	cmp	rax, initsize*64+sievesize*8; Past end of the init area?
-	jb	short ilp2
-	sub	rax, rax		; Save bit# (zero because the first
-	mov	[rbx], eax		; in initsieve was cleared for all
-					; small primes)
-	mov	rax, 64			; Compute p - 64 mod p.  This value
-ilp3:	sub	rax, rcx		; represents the bit# in the next
-	jns	short ilp3		; word that was cleared for the
-	neg	rax	    		; given small prime.  For example,
-	mov	[rbx+4], eax		; 3 - 64 mod 3 = 2.  Thus, the 2nd
-	add	rbx, 8			; bit in the second initsieve qword was
-					; cleared by small prime 3.
-	lea	rsi, [rsi+12]		; Next primearray entry
-	cmp	rsi, primearray12	; Another small prime?
-	jnz	short ilp1
-
-; Fill lookup table into initsieve
-
-	sub	rdi, rdi		; The first lookup points to the
-	sub	rax, rax		; first entry in initsieve
-ilp4:	mov	rsi, initlookup		; Set lookup table entry
-	mov	[rsi][rax*4], edi	; Set lookup table entry
-	inc	rdi			; Point to next initsieve dword
-	mov	rsi, sieve		; Array of 64 mod p info
-	mov	rbx, primearray		; Ptr to first small prime
-	sub	rax, rax		; Build the index in eax
-ilp5:	mov	ecx, [rbx]		; Load the small prime
-	mul	rcx			; Multiply index by the small prime
-	mov	edx, [rsi]		; Load bit#
-	add	edx, [rsi+4]		; Compute bit# in next dword
-ilp6:	sub	rdx, rcx		; Compute bit# mod smallp
-	jns	short ilp6
-	add	rdx, rcx
-	mov	[rsi], edx		; Save bit# for next pass
-	add	rax, rdx		; Add the bit# to the index
-	lea	rsi, [rsi+8]
-	lea	rbx, [rbx+12]		; Next primearray entry
-	cmp	rbx, primearray12	; Last small prime?
-	jne	short ilp5
-	test	rax, rax		; Is lookup table completely built?
-	jnz	short ilp4
-
-; Return
-
-	ad_epilog 0,0,rbx,rbp,rsi,rdi
-setupf	ENDP
-
-
 ; factor64_pass_setup (struct facasm_data *)
 ;	Do setup required when starting a new mod 120 pass
 ; Windows 64-bit (factor64_pass_setup)
@@ -1121,116 +721,6 @@ setupf	ENDP
 
 PROCF	factor64_pass_setup
 	ad_prolog 0,0,rbx,rbp,rsi,rdi
-
-; First trial factor is first number of the form 2kp + 1
-; greater than FACMSW * 2^32
-
-	mov	edi, FACHSW		; Start point * 2^64
-	mov	ebx, FACMSW		; Start point * 2^32
-	shl	rbx, 32
-
-	mov	rcx, twop		; Load twop for dividing
-	mov	rax, rdi		; Do a mod on the start point
-	xor	rdx, rdx
-	div	rcx
-	mov	rax, rbx
-	div	rcx			
-	sub	rcx, rdx		; Subtract remainder from twop
-	inc	rcx			; and add 1 to find first test factor
-	add	rbx, rcx
-	adc	rdi, 0
-
-; Make sure we have a factor with the right modulo for this pass
-
-	mov	esi, FACPASS		; Get the pass number (0 to 15)
-	mov	rbp, 120
-flp1:	mov	rax, rdi		; Do a mod 120 in two parts
-	xor	rdx, rdx
-	div	rbp
-	mov	rax, rbx		; Do a mod 120
-	div	rbp
-	mov	rax, OFFSET rems
-	cmp	rdx, [rax+rsi*8]	; Is this the desired remainder
-	jz	short flp2		; Yes, jump to flp2
-	add	rbx, twop		; No, try next factor
-	adc	rdi, 0
-	jmp	short flp1		; Loop
-flp2:	mov	savefac0, rdi
-	mov	savefac1, rbx
-
-; Loop through all the small primes determining sieve bit to clear
-
-testp	EQU	rbp
-prev	EQU	rbx
-cur	EQU	rcx
-bigrem	EQU	rdi
-litrem	EQU	r8
-
-	mov	rsi, primearray
-smlp:	mov	ebp, [rsi]
-	and	testp, testp
-	jz	smdn
-	cmp	testp, p
-	jne	short smok
-	mov	DWORD PTR [rsi], 0
-	jmp	short smdn
-smok:
-
-;
-; Let testp = an entry from our small primes array
-; Let y = facdist mod testp
-; Use Euclid's greatest common denominator algorithm to compute the number
-; x such that x * y = -1 MOD testp
-; We can then use x to compute the first bit in the sieve array that needs
-; clearing.
-;
-
-	sub	prev, prev		; Set up: set bigrem = testp,
-	mov	cur, 1			; litrem = facdist mod testp
-	mov	bigrem, testp
-	sub	rdx, rdx
-	mov	rax, facdists+8
-	div	bigrem
-	mov	litrem, rdx
-euclp:	cmp	litrem, 1		; Loop ends when litrem equals 1
-	je	short eucdn
-	sub	rdx, rdx		; Compute bigrem mod litrem
-	mov	rax, bigrem
-	div	litrem
-	mov	bigrem, litrem
-	mov	litrem, rdx
-	imul	cur
-	sub	prev, rax
-	xchg	prev, cur
-	jmp	short euclp
-eucdn:	neg	cur			; set x = -cur if cur was negative
-	jns	short eucdn2
-	add	cur, testp		; else set x = testp - cur
-eucdn2:	sub	rdx, rdx		; Divide first factor by testp
-	mov	rax, savefac0
-	div	testp
-	mov	rax, savefac1
-	div	testp
-	mov	rax, rdx		; Multiply remainder by x
-	mul	cur
-	div	testp			; rdx now contains the bit number!
-	mov	[rsi+8], edx		; Save that bit number!
-	lea	rsi, [rsi+12]		; Next primearray entry
-	jmp	smlp
-smdn:
-
-; Use the initlookup table to determine the first dword in initsieve to copy
-
-	mov	rsi, primearray		; Ptr to first small prime
-	sub	rax, rax		; Build the index in rax
-lk1:	mul	DWORD PTR [rsi]		; Multiply index by the small prime
-	add	eax, [rsi+8]		; Add the bit# to the index
-	lea	rsi, [rsi+12]
-	cmp	rsi, primearray12	; Last small prime?
-	jne	short lk1
-	mov	rsi, initlookup		; Load the lookup table address
-	mov	eax, [rsi][rax*4]	; Load the initsieve start offset
-	mov	initstart, eax		; Save the initsieve start offset
 
 ; Pre-square the number as much as possible.  We have separate code
 ; paths for single-word and double-word trial factors.
@@ -1355,10 +845,9 @@ smslp:	add	rcx, rcx		; Shift until top bit on
 	mov	r9, 1
 	shl	r9, cl
 
-; First trial factor is 2p + 1
+; First trial factor is computed in C code and stored in savefac1
 
-	mov	rcx, twop
-	inc	rcx
+	mov	rcx, savefac1
 
 ; If factor = 3 or 5 mod 8, then it can't be a factor of 2**p - 1
 
@@ -1394,23 +883,20 @@ smexit:	add	rdx, rdx
 
 ; Try next possible factor
 
-smnext:	add	rcx, twop
+smnext:	add	rcx, p
+	add	rcx, p
 	cmp	rcx, rdi
 	jl	short smtest
 
 ; No small factor found - return for ESC check
 
 	mov	rax, 2			; Return for ESC check
-	shr	rdi, 32
-	mov	FACMSW, edi		; Restart after endpt
 	jmp	short smdone
 
 ; Divisor found, return TRUE
 
 smwin:	mov	rax, 1
-	mov	FACLSW, ecx
-	shr	rcx, 32
-	mov	FACMSW, ecx
+	mov	savefac1, rcx
 	jmp	short smdone
 
 ; Pop registers and return
@@ -1428,46 +914,1861 @@ factor64_small ENDP
 ;	Parameter ptr = rdi
 
 PROCF	factor64_sieve
-	ad_prolog 0,0,rbx,rbp,rsi,rdi
+	ad_prolog 0,0,rbx,rbp,rsi,rdi,r12,r13,r14,r15,xmm6,xmm7,xmm8,xmm9,xmm10,xmm11,xmm12,xmm13,xmm14,xmm15
 
 ;
-; Init the sieve
+; Use special small prime sieving code for AVX2 and AVX512 capable machines
 ;
 
-initsv:	mov	rdi, sieve		; Load sieve address
+	test	CPU_FLAGS, 100000h	; Is this an AVX512 machine?
+	jnz	avx512sv		; Yes, use AVX512 sieve
+	test	CPU_FLAGS, 20000h	; Is this an AVX2 machine?
+	jnz	avx2sv			; Yes, use AVX2 sieve
+
+;
+; Init the sieve, leaving rdi pointing to the end of the sieve
+;
+
+	mov	rdi, sieve		; Load sieve address
 	mov	rsi, initsieve		; Load sieve initialization bits addr
 	mov	edx, initstart		; Load qword offset into initsieve
-	lea	rsi, [rsi][rdx*8]	; Compute copy address
+	add	rsi, rdx		; Compute copy address
 	mov	rcx, sievesize / 8	; Count of qwords to copy
 	rep	movsq			; Copy the qwords
-	add	rdx, sievesize / 8	; Compute next initsieve start offset
-	cmp	rdx, initsize		; Compare to table's end address
-	jle	short startok		; Jump if still within table
-	sub	rdx, initsize		; Get address back in line
-startok:mov	initstart, edx		; Save start position for next time
 
 ;
-; Loop through the small prime array, clearing sieve bits.
+; Loop through the small prime array, clearing sieve bits for very, very small primes
 ;
 
+	mov	r8, primearray		; Ptr to first prime in array
+	mov	r9, offsetarray		; Ptr to first offset in array
+	lea	rsi, masks19		; Load address to small prime masks
+	cmp	DWORD PTR [r8], 23	; Does the small prime array start at 19, 23 or 29?
+	je	sv23andup		; Jump if sieving from 23 onwards
+	jg	sv29andup		; Jump if sieving from 29 onwards
+
+; Sieve primes 19 to 61
+
+	mov	edx, [r9]		; Load bit offset to clear for prime 19
+	mov	r12d, [r9+4]		; Load bit offset to clear for prime 23
+	mov	r13d, [r9+8]		; Load bit offset to clear for prime 29
+	mov	r14d, [r9+12]		; Load bit offset to clear for prime 31
+	mov	r15d, [r9+16]		; Load bit offset to clear for prime 37
+	mov	r8d, [r9+20]		; Load bit offset to clear for prime 41
+	mov	r10d, [r9+24]		; Load bit offset to clear for prime 43
+	mov	ebp, [r9+28]		; Load bit offset to clear for prime 47
+	mov	bx, [r9+36]		; Load bit offset to clear for prime 59
+	shl	rbx, 16
+	mov	bx, [r9+32]		; Load bit offset to clear for prime 53
+	mov	r9d, [r9+40]		; Load bit offset to clear for prime 61
+
+	push	r11			; Save asm_data ptr
+	mov	r11, -sievesize		; Load loop counter and index into sieve
+smsvlp19:mov	rax, [rsi][rdx*8]	; Load mask for prime 19
+	lea	rcx, [rdx+12]		; Calc next bit to clear by either adding (19 - 64 % 19)
+	add	rdx, 12-19		; or adding (19 - 64 % 19) - 19
+	cmovs	rdx, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	or	rax, [rsi+19*8][r12*8]	; Apply mask for prime 23
+	lea	rcx, [r12+5]		; Calc next bit to clear by either adding (23 - 64 % 23)
+	add	r12, 5-23		; or adding (23 - 64 % 23) - 23
+	cmovs	r12, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	or	rax, [rsi+(19+23)*8][r13*8] ; Apply mask for prime 29
+	lea	rcx, [r13+23]		; Calc next bit to clear by either adding (29 - 64 % 29)
+	add	r13, 23-29		; or adding (29 - 64 % 29) - 29
+	cmovs	r13, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	or	rax, [rsi+(19+23+29)*8][r14*8] ; Apply mask for prime 31
+	lea	rcx, [r14+29]		; Calc next bit to clear by either adding (31 - 64 % 31)
+	add	r14, 29-31		; or adding (31 - 64 % 31) - 31
+	cmovs	r14, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, r15		; Apply mask for prime 37
+	mov	r15, [rsi+(19+23+29+31)*8] ; Load mask if bit 0 is cleared
+	shl	r15, cl			; Adjust the mask
+	or	rax, r15		; Apply the mask
+	lea	r15, [rcx+10]		; Calc next bit to clear by either adding (37 - 64 % 37)
+	add	rcx, 10-37		; or adding (37 - 64 % 37) - 37
+	cmovns	r15, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, r8			; Apply mask for prime 41
+	mov	r8, [rsi+(19+23+29+31+1)*8] ; Load mask if bit 0 is cleared
+	shl	r8, cl			; Adjust the mask
+	or	rax, r8			; Apply the mask
+	lea	r8, [rcx+18]		; Calc next bit to clear by either adding (41 - 64 % 41)
+	add	rcx, 18-41		; or adding (41 - 64 % 41) - 41
+	cmovns	r8, rcx			; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, r10		; Apply mask for prime 43
+	mov	r10, [rsi+(19+23+29+31+2)*8] ; Load mask if bit 0 is cleared
+	shl	r10, cl			; Adjust the mask
+	or	rax, r10		; Apply the mask
+	lea	r10, [rcx+22]		; Calc next bit to clear by either adding (43 - 64 % 43)
+	add	rcx, 22-43		; or adding (43 - 64 % 43) - 43
+	cmovns	r10, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, rbp		; Apply mask for prime 47
+	mov	rbp, [rsi+(19+23+29+31+3)*8] ; Load mask if bit 0 is cleared
+	shl	rbp, cl			; Adjust the mask
+	or	rax, rbp		; Apply the mask
+	lea	rbp, [rcx+30]		; Calc next bit to clear by either adding (47 - 64 % 47)
+	add	rcx, 30-47		; or adding (47 - 64 % 47) - 47
+	cmovns	rbp, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, r9			; Apply mask for prime 61
+	mov	r9, [rsi+(19+23+29+31+6)*8] ; Load mask if bit 0 is cleared
+	shl	r9, cl			; Adjust the mask
+	or	rax, r9			; Apply the mask
+	lea	r9, [rcx+58]		; Calc next bit to clear by either adding (61 - 64 % 61)
+	add	rcx, 58-61		; or adding (61 - 64 % 61) - 61
+	cmovns	r9, rcx			; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, rbx		; Apply mask for prime 53
+	mov	rbx, [rsi+(19+23+29+31+4)*8] ; Load mask if bit 0 is cleared
+	shl	rbx, cl			; Adjust the mask
+	or	rax, rbx		; Apply the mask
+
+	ror	rcx, 16			; Apply mask for prime 59
+	mov	rbx, [rsi+(19+23+29+31+5)*8] ; Load mask if bit 0 is cleared
+	shl	rbx, cl			; Adjust the mask
+	or	rax, rbx		; Apply the mask
+
+	not	rax			; Invert the mask (which is a list of bits to clear)
+	and	QWORD PTR [rdi][r11], rax ; Apply the mask
+
+	mov	rax, rcx		; Isolate bit to clear for prime 53
+	shr	rax, 48
+	lea	rbx, [rax+42]		; Calc next bit to clear by either adding (53 - 64 % 53)
+	add	rax, 42-53		; or adding (53 - 64 % 53) - 53
+	cmovs	rax, rbx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	and	rcx, 0FFh		; Isolate bit to clear for prime 59
+	lea	rbx, [rcx+54]		; Calc next bit to clear by either adding (59 - 64 % 59)
+	add	rcx, 54-59		; or adding (59 - 64 % 59) - 59
+	cmovns	rbx, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+	shl	rbx, 16			; Merge bits to clear for prime 53 and 59
+	add	rbx, rax
+
+	add	r11, 8
+	js	smsvlp19
+
+	pop	r11			; Restore asm_data ptr
+	mov	rsi, offsetarray	; Ptr to first offset in array
+	mov	[rsi], edx		; Save bit clear offset for prime 19 next time
+	mov	[rsi+4], r12d		; Save bit clear offset for prime 23 next time
+	mov	[rsi+8], r13d		; Save bit clear offset for prime 29 next time
+	mov	[rsi+12], r14d		; Save bit clear offset for prime 31 next time
+	mov	[rsi+16], r15d		; Save bit clear offset for prime 37 next time
+	mov	[rsi+20], r8d		; Save bit clear offset for prime 41 next time
+	mov	[rsi+24], r10d		; Save bit clear offset for prime 43 next time
+	mov	[rsi+28], ebp		; Save bit clear offset for prime 47 next time
+	mov	[rsi+32], bx		; Save bit clear offset for prime 53 next time
+	shr	rbx, 16
+	mov	[rsi+36], bx		; Save bit clear offset for prime 59 next time
+	mov	[rsi+40], r9d		; Save bit clear offset for prime 61 next time
+
+	mov	r8, primearray		; Ptr to first prime in array
+	add	r8, 44			; Next prime in primearray
+	add	rsi, 44			; Next offset in offsetarray
+	jmp	sv67andup		; Go do the one small prime at a time sieving
+
+; Sieve for small primes 23 to 61
+
+sv23andup:
+	mov	r12d, [r9]		; Load bit offset to clear for prime 23
+	mov	r13d, [r9+4]		; Load bit offset to clear for prime 29
+	mov	r14d, [r9+8]		; Load bit offset to clear for prime 31
+	mov	r15d, [r9+12]		; Load bit offset to clear for prime 37
+	mov	r8d, [r9+16]		; Load bit offset to clear for prime 41
+	mov	r10d, [r9+20]		; Load bit offset to clear for prime 43
+	mov	ebp, [r9+24]		; Load bit offset to clear for prime 47
+	mov	ebx, [r9+28]		; Load bit offset to clear for prime 53
+	mov	edx, [r9+32]		; Load bit offset to clear for prime 59
+	mov	r9d, [r9+36]		; Load bit offset to clear for prime 61
+
+	push	r11			; Save asm_data ptr
+	mov	r11, -sievesize		; Load loop counter and index into sieve
+smsvlp23:mov	rax, [rsi+19*8][r12*8]	; Apply mask for prime 23
+	lea	rcx, [r12+5]		; Calc next bit to clear by either adding (23 - 64 % 23)
+	add	r12, 5-23		; or adding (23 - 64 % 23) - 23
+	cmovs	r12, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	or	rax, [rsi+(19+23)*8][r13*8] ; Apply mask for prime 29
+	lea	rcx, [r13+23]		; Calc next bit to clear by either adding (29 - 64 % 29)
+	add	r13, 23-29		; or adding (29 - 64 % 29) - 29
+	cmovs	r13, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	or	rax, [rsi+(19+23+29)*8][r14*8] ; Apply mask for prime 31
+	lea	rcx, [r14+29]		; Calc next bit to clear by either adding (31 - 64 % 31)
+	add	r14, 29-31		; or adding (31 - 64 % 31) - 31
+	cmovs	r14, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, r15		; Apply mask for prime 37
+	mov	r15, [rsi+(19+23+29+31)*8] ; Load mask if bit 0 is cleared
+	shl	r15, cl			; Adjust the mask
+	or	rax, r15		; Apply the mask
+	lea	r15, [rcx+10]		; Calc next bit to clear by either adding (37 - 64 % 37)
+	add	rcx, 10-37		; or adding (37 - 64 % 37) - 37
+	cmovns	r15, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, r8			; Apply mask for prime 41
+	mov	r8, [rsi+(19+23+29+31+1)*8] ; Load mask if bit 0 is cleared
+	shl	r8, cl			; Adjust the mask
+	or	rax, r8			; Apply the mask
+	lea	r8, [rcx+18]		; Calc next bit to clear by either adding (41 - 64 % 41)
+	add	rcx, 18-41		; or adding (41 - 64 % 41) - 41
+	cmovns	r8, rcx			; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, r10		; Apply mask for prime 43
+	mov	r10, [rsi+(19+23+29+31+2)*8] ; Load mask if bit 0 is cleared
+	shl	r10, cl			; Adjust the mask
+	or	rax, r10		; Apply the mask
+	lea	r10, [rcx+22]		; Calc next bit to clear by either adding (43 - 64 % 43)
+	add	rcx, 22-43		; or adding (43 - 64 % 43) - 43
+	cmovns	r10, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, rbp		; Apply mask for prime 47
+	mov	rbp, [rsi+(19+23+29+31+3)*8] ; Load mask if bit 0 is cleared
+	shl	rbp, cl			; Adjust the mask
+	or	rax, rbp		; Apply the mask
+	lea	rbp, [rcx+30]		; Calc next bit to clear by either adding (47 - 64 % 47)
+	add	rcx, 30-47		; or adding (47 - 64 % 47) - 47
+	cmovns	rbp, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, rbx		; Apply mask for prime 53
+	mov	rbx, [rsi+(19+23+29+31+4)*8] ; Load mask if bit 0 is cleared
+	shl	rbx, cl			; Adjust the mask
+	or	rax, rbx		; Apply the mask
+	lea	rbx, [rcx+42]		; Calc next bit to clear by either adding (53 - 64 % 53)
+	add	rcx, 42-53		; or adding (53 - 64 % 53) - 53
+	cmovns	rbx, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, rdx		; Apply mask for prime 59
+	mov	rdx, [rsi+(19+23+29+31+5)*8] ; Load mask if bit 0 is cleared
+	shl	rdx, cl			; Adjust the mask
+	or	rax, rdx		; Apply the mask
+	lea	rdx, [rcx+54]		; Calc next bit to clear by either adding (59 - 64 % 59)
+	add	rcx, 54-59		; or adding (59 - 64 % 59) - 59
+	cmovns	rdx, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, r9			; Apply mask for prime 61
+	mov	r9, [rsi+(19+23+29+31+6)*8] ; Load mask if bit 0 is cleared
+	shl	r9, cl			; Adjust the mask
+	or	rax, r9			; Apply the mask
+	lea	r9, [rcx+58]		; Calc next bit to clear by either adding (61 - 64 % 61)
+	add	rcx, 58-61		; or adding (61 - 64 % 61) - 61
+	cmovns	r9, rcx			; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	not	rax			; Invert the mask (which is a list of bits to clear)
+	and	QWORD PTR [rdi][r11], rax ; Apply the mask
+
+	add	r11, 8
+	js	smsvlp23
+
+	pop	r11			; Restore asm_data ptr
+	mov	rsi, offsetarray	; Ptr to first offset in array
+	mov	[rsi], r12d		; Save bit clear offset for prime 23 next time
+	mov	[rsi+4], r13d		; Save bit clear offset for prime 29 next time
+	mov	[rsi+8], r14d		; Save bit clear offset for prime 31 next time
+	mov	[rsi+12], r15d		; Save bit clear offset for prime 37 next time
+	mov	[rsi+16], r8d		; Save bit clear offset for prime 41 next time
+	mov	[rsi+20], r10d		; Save bit clear offset for prime 43 next time
+	mov	[rsi+24], ebp		; Save bit clear offset for prime 47 next time
+	mov	[rsi+28], ebx		; Save bit clear offset for prime 53 next time
+	mov	[rsi+32], edx		; Save bit clear offset for prime 59 next time
+	mov	[rsi+36], r9d		; Save bit clear offset for prime 61 next time
+
+	mov	r8, primearray		; Ptr to first prime in array
+	add	r8, 40			; Next prime in primearray
+	add	rsi, 40			; Next offset in offsetarray
+	jmp	sv67andup		; Go do the one small prime at a time sieving
+
+; Sieve for small primes 29 to 61
+
+sv29andup:
+	mov	r13d, [r9]		; Load bit offset to clear for prime 29
+	mov	r14d, [r9+4]		; Load bit offset to clear for prime 31
+	mov	r15d, [r9+8]		; Load bit offset to clear for prime 37
+	mov	r8d, [r9+12]		; Load bit offset to clear for prime 41
+	mov	r10d, [r9+16]		; Load bit offset to clear for prime 43
+	mov	ebp, [r9+20]		; Load bit offset to clear for prime 47
+	mov	ebx, [r9+24]		; Load bit offset to clear for prime 53
+	mov	edx, [r9+28]		; Load bit offset to clear for prime 59
+	mov	r9d, [r9+32]		; Load bit offset to clear for prime 61
+
+	mov	r12, -sievesize		; Load loop counter and index into sieve
+smsvlp29:mov	rax, [rsi+(19+23)*8][r13*8] ; Apply mask for prime 29
+	lea	rcx, [r13+23]		; Calc next bit to clear by either adding (29 - 64 % 29)
+	add	r13, 23-29		; or adding (29 - 64 % 29) - 29
+	cmovs	r13, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	or	rax, [rsi+(19+23+29)*8][r14*8] ; Apply mask for prime 31
+	lea	rcx, [r14+29]		; Calc next bit to clear by either adding (31 - 64 % 31)
+	add	r14, 29-31		; or adding (31 - 64 % 31) - 31
+	cmovs	r14, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, r15		; Apply mask for prime 37
+	mov	r15, [rsi+(19+23+29+31)*8] ; Load mask if bit 0 is cleared
+	shl	r15, cl			; Adjust the mask
+	or	rax, r15		; Apply the mask
+	lea	r15, [rcx+10]		; Calc next bit to clear by either adding (37 - 64 % 37)
+	add	rcx, 10-37		; or adding (37 - 64 % 37) - 37
+	cmovns	r15, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, r8			; Apply mask for prime 41
+	mov	r8, [rsi+(19+23+29+31+1)*8] ; Load mask if bit 0 is cleared
+	shl	r8, cl			; Adjust the mask
+	or	rax, r8			; Apply the mask
+	lea	r8, [rcx+18]		; Calc next bit to clear by either adding (41 - 64 % 41)
+	add	rcx, 18-41		; or adding (41 - 64 % 41) - 41
+	cmovns	r8, rcx			; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, r10		; Apply mask for prime 43
+	mov	r10, [rsi+(19+23+29+31+2)*8] ; Load mask if bit 0 is cleared
+	shl	r10, cl			; Adjust the mask
+	or	rax, r10		; Apply the mask
+	lea	r10, [rcx+22]		; Calc next bit to clear by either adding (43 - 64 % 43)
+	add	rcx, 22-43		; or adding (43 - 64 % 43) - 43
+	cmovns	r10, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, rbp		; Apply mask for prime 47
+	mov	rbp, [rsi+(19+23+29+31+3)*8] ; Load mask if bit 0 is cleared
+	shl	rbp, cl			; Adjust the mask
+	or	rax, rbp		; Apply the mask
+	lea	rbp, [rcx+30]		; Calc next bit to clear by either adding (47 - 64 % 47)
+	add	rcx, 30-47		; or adding (47 - 64 % 47) - 47
+	cmovns	rbp, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, rbx		; Apply mask for prime 53
+	mov	rbx, [rsi+(19+23+29+31+4)*8] ; Load mask if bit 0 is cleared
+	shl	rbx, cl			; Adjust the mask
+	or	rax, rbx		; Apply the mask
+	lea	rbx, [rcx+42]		; Calc next bit to clear by either adding (53 - 64 % 53)
+	add	rcx, 42-53		; or adding (53 - 64 % 53) - 53
+	cmovns	rbx, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, rdx		; Apply mask for prime 59
+	mov	rdx, [rsi+(19+23+29+31+5)*8] ; Load mask if bit 0 is cleared
+	shl	rdx, cl			; Adjust the mask
+	or	rax, rdx		; Apply the mask
+	lea	rdx, [rcx+54]		; Calc next bit to clear by either adding (59 - 64 % 59)
+	add	rcx, 54-59		; or adding (59 - 64 % 59) - 59
+	cmovns	rdx, rcx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rcx, r9			; Apply mask for prime 61
+	mov	r9, [rsi+(19+23+29+31+6)*8] ; Load mask if bit 0 is cleared
+	shl	r9, cl			; Adjust the mask
+	or	rax, r9			; Apply the mask
+	lea	r9, [rcx+58]		; Calc next bit to clear by either adding (61 - 64 % 61)
+	add	rcx, 58-61		; or adding (61 - 64 % 61) - 61
+	cmovns	r9, rcx			; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	not	rax			; Invert the mask (which is a list of bits to clear)
+	and	QWORD PTR [rdi][r12], rax ; Apply the mask
+
+	add	r12, 8
+	js	smsvlp29
+
+	mov	rsi, offsetarray	; Ptr to first offset in array
+	mov	[rsi], r13d		; Save bit clear offset for prime 29 next time
+	mov	[rsi+4], r14d		; Save bit clear offset for prime 31 next time
+	mov	[rsi+8], r15d		; Save bit clear offset for prime 37 next time
+	mov	[rsi+12], r8d		; Save bit clear offset for prime 41 next time
+	mov	[rsi+16], r10d		; Save bit clear offset for prime 43 next time
+	mov	[rsi+20], ebp		; Save bit clear offset for prime 47 next time
+	mov	[rsi+24], ebx		; Save bit clear offset for prime 53 next time
+	mov	[rsi+28], edx		; Save bit clear offset for prime 59 next time
+	mov	[rsi+32], r9d		; Save bit clear offset for prime 61 next time
+
+	mov	r8, primearray		; Ptr to first prime in array
+	add	r8, 36			; Next prime in primearray
+	add	rsi, 36			; Next offset in offsetarray
+
+;
+; Sieve small primes 67 to 101
+; On Skylake there was no advantage to going above primes 101 (we can push registers
+; r8, rsi, r11 to free up three registers to do primes 103, 107, and 109)
+; However, accurate Skylake timings are hard to come by, so it may well pay
+; to do more small primes.  Besides, Skylake uses AVX2 code path, so we should bench
+; a less capable CPU.
+;
+
+sv67andup:
+	mov	r12d, [rsi]		; Load bit offset to clear for prime 67
+	mov	r13d, [rsi+4]		; Load bit offset to clear for prime 71
+	mov	r14d, [rsi+8]		; Load bit offset to clear for prime 73
+	mov	r15d, [rsi+12]		; Load bit offset to clear for prime 79
+	mov	ebp, [rsi+16]		; Load bit offset to clear for prime 83
+	mov	r10d, [rsi+20]		; Load bit offset to clear for prime 89
+	mov	r9d, [rsi+24]		; Load bit offset to clear for prime 97
+	mov	ebx, [rsi+28]		; Load bit offset to clear for prime 101
+;	push	r11			; Save asm_data ptr
+;	mov	r11d, [rsi+32]		; Load bit offset to clear for prime 103
+;	push	r8			; Save primearray ptr
+;	mov	r8d, [rsi+36]		; Load bit offset to clear for prime 107
+;	push	rsi			; Save offsetarray ptr
+;	mov	esi, [rsi+40]		; Load bit offset to clear for prime 109
+
+	mov	rcx, -sievesize		; Load loop counter and index into sieve
+smsvlp67:
+	mov	rax, [rdi][rcx]		; Get the sieve word
+
+	mov	rdx, rax		; Copy sieve word
+	btr	rax, r12		; Tentatively clear bit for prime 67
+	sub	r12, 64			; Subtract 64 from bit-to-clear offset
+	cmovns	rax, rdx		; If negative then we want to use the sieve word with the tenatively cleared bit
+	lea	rdx, [r12+67]		; Alternative bit to clear adds the small prime 67
+	cmovs	r12, rdx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rdx, rax		; Copy sieve word
+	btr	rax, r13		; Tentatively clear bit for prime 71
+	sub	r13, 64			; Subtract 64 from bit-to-clear offset
+	cmovns	rax, rdx		; If negative then we want to use the sieve word with the tenatively cleared bit
+	lea	rdx, [r13+71]		; Alternative bit to clear adds the small prime 71
+	cmovs	r13, rdx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rdx, rax		; Copy sieve word
+	btr	rax, r14		; Tentatively clear bit for prime 73
+	sub	r14, 64			; Subtract 64 from bit-to-clear offset
+	cmovns	rax, rdx		; If negative then we want to use the sieve word with the tenatively cleared bit
+	lea	rdx, [r14+73]		; Alternative bit to clear adds the small prime 73
+	cmovs	r14, rdx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rdx, rax		; Copy sieve word
+	btr	rax, r15		; Tentatively clear bit for prime 79
+	sub	r15, 64			; Subtract 64 from bit-to-clear offset
+	cmovns	rax, rdx		; If negative then we want to use the sieve word with the tenatively cleared bit
+	lea	rdx, [r15+79]		; Alternative bit to clear adds the small prime 79
+	cmovs	r15, rdx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rdx, rax		; Copy sieve word
+	btr	rax, rbp		; Tentatively clear bit for prime 83
+	sub	rbp, 64			; Subtract 64 from bit-to-clear offset
+	cmovns	rax, rdx		; If negative then we want to use the sieve word with the tenatively cleared bit
+	lea	rdx, [rbp+83]		; Alternative bit to clear adds the small prime 83
+	cmovs	rbp, rdx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rdx, rax		; Copy sieve word
+	btr	rax, r10		; Tentatively clear bit for prime 89
+	sub	r10, 64			; Subtract 64 from bit-to-clear offset
+	cmovns	rax, rdx		; If negative then we want to use the sieve word with the tenatively cleared bit
+	lea	rdx, [r10+89]		; Alternative bit to clear adds the small prime 89
+	cmovs	r10, rdx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rdx, rax		; Copy sieve word
+	btr	rax, r9			; Tentatively clear bit for prime 97
+	sub	r9, 64			; Subtract 64 from bit-to-clear offset
+	cmovns	rax, rdx		; If negative then we want to use the sieve word with the tenatively cleared bit
+	lea	rdx, [r9+97]		; Alternative bit to clear adds the small prime 97
+	cmovs	r9, rdx			; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rdx, rax		; Copy sieve word
+	btr	rax, rbx		; Tentatively clear bit for prime 101
+	sub	rbx, 64			; Subtract 64 from bit-to-clear offset
+	cmovns	rax, rdx		; If negative then we want to use the sieve word with the tenatively cleared bit
+	lea	rdx, [rbx+101]		; Alternative bit to clear adds the small prime 101
+	cmovs	rbx, rdx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+IFDEF DO_THREE_MORE_SMALL_PRIMES
+	mov	rdx, rax		; Copy sieve word
+	btr	rax, r11		; Tentatively clear bit for prime 103
+	sub	r11, 64			; Subtract 64 from bit-to-clear offset
+	cmovns	rax, rdx		; If negative then we want to use the sieve word with the tenatively cleared bit
+	lea	rdx, [r11+103]		; Alternative bit to clear adds the small prime 103
+	cmovs	r11, rdx		; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rdx, rax		; Copy sieve word
+	btr	rax, r8			; Tentatively clear bit for prime 107
+	sub	r8, 64			; Subtract 64 from bit-to-clear offset
+	cmovns	rax, rdx		; If negative then we want to use the sieve word with the tenatively cleared bit
+	lea	rdx, [r8+107]		; Alternative bit to clear adds the small prime 107
+	cmovs	r8, rdx			; Pick whichever is the smaller positive number as the bit to clear for next word
+
+	mov	rdx, rax		; Copy sieve word
+	btr	rax, rsi		; Tentatively clear bit for prime 109
+	sub	rsi, 64			; Subtract 64 from bit-to-clear offset
+	cmovns	rax, rdx		; If negative then we want to use the sieve word with the tenatively cleared bit
+	lea	rdx, [rsi+109]		; Alternative bit to clear adds the small prime 109
+	cmovs	rsi, rdx		; Pick whichever is the smaller positive number as the bit to clear for next word
+ENDIF
+
+	mov	[rdi][rcx], rax		; Save the new sieve word
+	add	rcx, 8
+	js	smsvlp67
+
+;	mov	rcx, r11		; Save bit-to-clr for prime 103
+;	mov	rdx, r8			; Save bit-to-clr for prime 107
+;	mov	rax, rsi		; Save bit-to-clr for prime 109
+;	pop	rsi			; Restore offset array ptr
+;	pop	r8			; Restore prime array ptr
+;	pop	r11			; Restore asm_data ptr
+	mov	[rsi], r12d		; Save bit clear offset for prime 67 next time
+	mov	[rsi+4], r13d		; Save bit clear offset for prime 71 next time
+	mov	[rsi+8], r14d		; Save bit clear offset for prime 73 next time
+	mov	[rsi+12], r15d		; Save bit clear offset for prime 79 next time
+	mov	[rsi+16], ebp		; Save bit clear offset for prime 83 next time
+	mov	[rsi+20], r10d		; Save bit clear offset for prime 89 next time
+	mov	[rsi+24], r9d		; Save bit clear offset for prime 97 next time
+	mov	[rsi+28], ebx		; Save bit clear offset for prime 101 next time
+;	mov	[rsi+32], ecx		; Save bit clear offset for prime 103 next time
+;	mov	[rsi+36], edx		; Save bit clear offset for prime 107 next time
+;	mov	[rsi+40], eax		; Save bit clear offset for prime 109 next time
+
+	add	r8, 32;+12		; Next prime in primearray
+	add	rsi, 32;+12		; Next offset in offsetarray
+	jmp	sievelp			; Sieve the rest of the small primes
+
+;
+; Sieve for small primes using AVX2 instructions
+;
+
+avx2sv:	mov	r8, primearray		; Ptr to first prime in array
+	mov	rsi, offsetarray	; Ptr to first offset in array
+	lea	r9, YMM_INIT_MASK19	; Get address of first mask required for primes below 32
+	lea	r10, YMM_BUMP19		; Get address of first count incrementer
+	lea	r13, YMM_INIT_SV19	; Get address of first count initializer
+	cmp	DWORD PTR [r8], 23	; Does the small prime array start at 19, 23, or 29?
+	jl	short avx2sv19andup	; Jump if sieving from 19 onwards
+	je	short avx2sv23andup	; Jump if sieving from 23 onwards
+
+; Sieve primes 29 and up using AVX2 instructions
+
+	add	r9, 4
+	add	r10, 4
+	add	r13, 32
+
+; Sieve primes 23 and up using AVX2 instructions
+
+avx2sv23andup:
+	add	r9, 4
+	add	r10, 4
+	add	r13, 32
+
+; Sieve primes 19/23 and up using AVX2 instructions
+
+avx2sv19andup:
+	vpbroadcastd ymm0, [rsi]	; Load bit offset to clear for prime 19/23/29
+	vpbroadcastd ymm1, [rsi+4]	; Load bit offset to clear for prime 23/29/31
+	vpbroadcastd ymm2, [rsi+8]	; Load bit offset to clear for prime 29/31/37
+	vpbroadcastd ymm3, [rsi+12]	; Load bit offset to clear for prime 31/37/41
+	vpbroadcastd ymm4, [rsi+16]	; Load bit offset to clear for next prime
+	vpbroadcastd ymm5, [rsi+20]	; Load bit offset to clear for next prime
+	vpbroadcastd ymm6, [rsi+24]	; Load bit offset to clear for next prime
+	vpbroadcastd ymm7, [rsi+28]	; Load bit offset to clear for next prime
+	vpbroadcastd ymm8, [rsi+32]	; Load bit offset to clear for next prime
+	vpbroadcastd ymm9, [rsi+36]	; Load bit offset to clear for next prime
+	vpbroadcastd ymm10, [rsi+40]	; Load bit offset to clear for next prime
+	vpbroadcastd ymm11, [rsi+44]	; Load bit offset to clear for next prime
+	vpbroadcastd ymm12, [rsi+48]	; Load bit offset to clear for next prime
+
+	vpaddd	ymm0, ymm0, [r13]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8]	; Load prime 19/23/29
+	vpaddd	ymm14, ymm0, ymm14	; Make all negative counts positive
+	vpminud	ymm0, ymm0, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm1, ymm1, [r13+32]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+4]	; Load prime 23/29/31
+	vpaddd	ymm14, ymm1, ymm14	; Make all negative counts positive
+	vpminud	ymm1, ymm1, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm2, ymm2, [r13+64]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+8]	; Load prime 29/31/37
+	vpaddd	ymm14, ymm2, ymm14	; Make all negative counts positive
+	vpminud	ymm2, ymm2, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm3, ymm3, [r13+96]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+12]	; Load prime 31/37/41
+	vpaddd	ymm14, ymm3, ymm14	; Make all negative counts positive
+	vpminud	ymm3, ymm3, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm4, ymm4, [r13+128]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+16]	; Load prime
+	vpaddd	ymm14, ymm4, ymm14	; Make all negative counts positive
+	vpminud	ymm4, ymm4, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm5, ymm5, [r13+160]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+20]	; Load prime
+	vpaddd	ymm14, ymm5, ymm14	; Make all negative counts positive
+	vpminud	ymm5, ymm5, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm6, ymm6, [r13+192]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+24]	; Load prime
+	vpaddd	ymm14, ymm6, ymm14	; Make all negative counts positive
+	vpminud	ymm6, ymm6, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm7, ymm7, [r13+224]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+28]	; Load prime
+	vpaddd	ymm14, ymm7, ymm14	; Make all negative counts positive
+	vpminud	ymm7, ymm7, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm8, ymm8, [r13+256]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+32]	; Load prime
+	vpaddd	ymm14, ymm8, ymm14	; Make all negative counts positive
+	vpminud	ymm8, ymm8, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm9, ymm9, [r13+288]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+36]	; Load prime
+	vpaddd	ymm14, ymm9, ymm14	; Make all negative counts positive
+	vpminud	ymm9, ymm9, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm10, ymm10, [r13+320]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+40]	; Load prime
+	vpaddd	ymm14, ymm10, ymm14	; Make all negative counts positive
+	vpminud	ymm10, ymm10, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm11, ymm11, [r13+352]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+44]	; Load prime
+	vpaddd	ymm14, ymm11, ymm14	; Make all negative counts positive
+	vpminud	ymm11, ymm11, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm12, ymm12, [r13+384]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+48]	; Load prime
+	vpaddd	ymm14, ymm12, ymm14	; Make all negative counts positive
+	vpminud	ymm12, ymm12, ymm14	; Keep smallest positive count
+
+	vpbroadcastd ymm13, YMM_ONE	; Load constant 1
+
+	mov	r14, initsieve		; Load sieve initialization bits addr
+	mov	edx, initstart		; Load byte offset into initsieve
+	add	r14, rdx		; Compute copy address
+	add	r14, sievesize		; Compute end copy address
+	mov	rdx, -sievesize		; Load loop counter and index into sieve
 	mov	rdi, sieve		; Load address of sieve bits
-	mov	rbp, primearray12	; Ptr to first prime in array
-sievelp:mov	ebx, [rbp]		; Load small prime
+	add	rdi, sievesize		; Compute end-of-sieve address
+avx2svlp1:
+	vmovdqu ymm14, YMMWORD PTR [r14][rdx]	; Load AVX2 sieve word
+
+	vpbroadcastd ymm15, [r9]		; Load mask for prime 19 or 23 or 29 if we are clearing bit 0
+	vpsllvd	ymm15, ymm15, ymm0		; Shift mask for prime 19 or 23 or 29
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask for prime 19 or 23 or 29
+	vpbroadcastd ymm15, [r10]		; Load increment for prime 19/23/29
+	vpaddd	ymm0, ymm0, ymm15		; Bump the counters for prime 19/23/29
+
+	vpbroadcastd ymm15, [r9+4]		; Load mask for prime 23 or 29 or 31 if we are clearing bit 0
+	vpsllvd	ymm15, ymm15, ymm1		; Shift mask for prime 23 or 29 or 31
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask for prime 23 or 29 or 31
+	vpbroadcastd ymm15, [r10+4]		; Load increment for prime 23/29/31
+	vpaddd	ymm1, ymm1, ymm15		; Bump the counters for prime 23/29/31
+
+	vpbroadcastd ymm15, [r9+8]		; Load mask for prime 29 or 31 or 37 if we are clearing bit 0
+	vpsllvd	ymm15, ymm15, ymm2		; Shift mask for prime 29 or 31 or 37
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask for prime 29 or 31 or 37
+	vpbroadcastd ymm15, [r10+8]		; Load increment for prime 29/31/37
+	vpaddd	ymm2, ymm2, ymm15		; Bump the counters for prime 29/31/37
+
+	vpbroadcastd ymm15, [r9+12]		; Load mask for prime 31 or 37 or 41 if we are clearing bit 0
+	vpsllvd	ymm15, ymm15, ymm3		; Shift mask for prime 31 or 37 or 41
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask for prime 31 or 37 or 41
+	vpbroadcastd ymm15, [r10+12]		; Load increment for prime 31/37/41
+	vpaddd	ymm3, ymm3, ymm15		; Bump the counters for prime 31/37/41
+
+	vpsllvd	ymm15, ymm13, ymm4		; Shift mask for first dword prime
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+	vpbroadcastd ymm15, [r10+16]		; Load increment for next prime
+	vpaddd	ymm4, ymm4, ymm15		; Bump the counters
+
+	vpsllvd	ymm15, ymm13, ymm5		; Shift mask for next prime
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+	vpbroadcastd ymm15, [r10+20]		; Load increment for next prime
+	vpaddd	ymm5, ymm5, ymm15		; Bump the counters
+
+	vpsllvd	ymm15, ymm13, ymm6		; Shift mask for next prime
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+	vpbroadcastd ymm15, [r10+24]		; Load increment for next prime
+	vpaddd	ymm6, ymm6, ymm15		; Bump the counters
+
+	vpsllvd	ymm15, ymm13, ymm7		; Shift mask for next prime
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+	vpbroadcastd ymm15, [r10+28]		; Load increment for next prime
+	vpaddd	ymm7, ymm7, ymm15		; Bump the counters
+
+	vpsllvd	ymm15, ymm13, ymm8		; Shift mask for next prime
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+	vpbroadcastd ymm15, [r10+32]		; Load increment for next prime
+	vpaddd	ymm8, ymm8, ymm15		; Bump the counters
+
+	vpsllvd	ymm15, ymm13, ymm9		; Shift mask for next prime
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+	vpbroadcastd ymm15, [r10+36]		; Load increment for next prime
+	vpaddd	ymm9, ymm9, ymm15		; Bump the counters
+
+	vpsllvd	ymm15, ymm13, ymm10		; Shift mask for next prime
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+	vpbroadcastd ymm15, [r10+40]		; Load increment for next prime
+	vpaddd	ymm10, ymm10, ymm15		; Bump the counters
+
+	vpsllvd	ymm15, ymm13, ymm11		; Shift mask for next prime
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+	vpbroadcastd ymm15, [r10+44]		; Load increment for next prime
+	vpaddd	ymm11, ymm11, ymm15		; Bump the counters
+
+	vpsllvd	ymm15, ymm13, ymm12		; Shift mask for next prime
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+	vpbroadcastd ymm15, [r10+48]		; Load increment for next prime
+	vpaddd	ymm12, ymm12, ymm15		; Bump the counters
+
+	vmovdqa YMMWORD PTR [rdi][rdx], ymm14	; Store AVX2 word to sieve
+
+	vpbroadcastd ymm14, [r8]		; Broadcast  prime
+	vpaddd	ymm14, ymm0, ymm14		; Make all negative counts positive
+	vpminud	ymm0, ymm0, ymm14		; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+4]		; Broadcast prime
+	vpaddd	ymm14, ymm1, ymm14		; Make all negative counts positive
+	vpminud	ymm1, ymm1, ymm14		; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+8]		; Broadcast prime
+	vpaddd	ymm14, ymm2, ymm14		; Make all negative counts positive
+	vpminud	ymm2, ymm2, ymm14		; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+12]		; Broadcast prime
+	vpaddd	ymm14, ymm3, ymm14		; Make all negative counts positive
+	vpminud	ymm3, ymm3, ymm14		; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+16]		; Load prime
+	vpaddd	ymm14, ymm4, ymm14		; Make all negative counts positive
+	vpminud	ymm4, ymm4, ymm14		; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+20]		; Load prime
+	vpaddd	ymm14, ymm5, ymm14		; Make all negative counts positive
+	vpminud	ymm5, ymm5, ymm14		; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+24]		; Load prime
+	vpaddd	ymm14, ymm6, ymm14		; Make all negative counts positive
+	vpminud	ymm6, ymm6, ymm14		; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+28]		; Load prime
+	vpaddd	ymm14, ymm7, ymm14		; Make all negative counts positive
+	vpminud	ymm7, ymm7, ymm14		; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+32]		; Load prime
+	vpaddd	ymm14, ymm8, ymm14		; Make all negative counts positive
+	vpminud	ymm8, ymm8, ymm14		; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+36]		; Load prime
+	vpaddd	ymm14, ymm9, ymm14		; Make all negative counts positive
+	vpminud	ymm9, ymm9, ymm14		; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+40]		; Load prime
+	vpaddd	ymm14, ymm10, ymm14		; Make all negative counts positive
+	vpminud	ymm10, ymm10, ymm14		; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+44]		; Load prime
+	vpaddd	ymm14, ymm11, ymm14		; Make all negative counts positive
+	vpminud	ymm11, ymm11, ymm14		; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+48]		; Load prime
+	vpaddd	ymm14, ymm12, ymm14		; Make all negative counts positive
+	vpminud	ymm12, ymm12, ymm14		; Keep smallest positive count
+
+	add	rdx, 32			; Move to next AVX2 sieve word
+	js	avx2svlp1
+
+	vmovd	[rsi], xmm0		; Save bit clear offset for prime 19/23/29 next time
+	vmovd	[rsi+4], xmm1		; Save bit clear offset for prime 23/29/31 next time
+	vmovd	[rsi+8], xmm2		; Save bit clear offset for prime 29/31/37 next time
+	vmovd	[rsi+12], xmm3		; Save bit clear offset for prime 31/37/41 next time
+	vmovd	[rsi+16], xmm4		; Save bit clear offset for prime
+	vmovd	[rsi+20], xmm5		; Save bit clear offset for prime
+	vmovd	[rsi+24], xmm6		; Save bit clear offset for prime
+	vmovd	[rsi+28], xmm7		; Save bit clear offset for prime
+	vmovd	[rsi+32], xmm8		; Save bit clear offset for prime
+	vmovd	[rsi+36], xmm9		; Save bit clear offset for prime
+	vmovd	[rsi+40], xmm10		; Save bit clear offset for prime
+	vmovd	[rsi+44], xmm11		; Save bit clear offset for prime
+	vmovd	[rsi+48], xmm12		; Save bit clear offset for prime
+
+	add	r8, 52			; Next prime in primearray
+	add	rsi, 52			; Next offset in offsetarray
+	add	r10, 13*4		; Next counter bump value
+	add	r13, 13*32		; Next count initializer
+
+; Sieve more small primes using AVX2 instructions
+
+	mov	eax, 3			; Do 3 more sets of 13 small primes
+avx2sv13:
+	vpbroadcastd ymm0, [rsi]	; Load bit offset to clear
+	vpbroadcastd ymm1, [rsi+4]	; Load bit offset to clear
+	vpbroadcastd ymm2, [rsi+8]	; Load bit offset to clear
+	vpbroadcastd ymm3, [rsi+12]	; Load bit offset to clear
+	vpbroadcastd ymm4, [rsi+16]	; Load bit offset to clear
+	vpbroadcastd ymm5, [rsi+20]	; Load bit offset to clear
+	vpbroadcastd ymm6, [rsi+24]	; Load bit offset to clear
+	vpbroadcastd ymm7, [rsi+28]	; Load bit offset to clear
+	vpbroadcastd ymm8, [rsi+32]	; Load bit offset to clear
+	vpbroadcastd ymm9, [rsi+36]	; Load bit offset to clear
+	vpbroadcastd ymm10, [rsi+40]	; Load bit offset to clear
+	vpbroadcastd ymm11, [rsi+44]	; Load bit offset to clear
+	vpbroadcastd ymm12, [rsi+48]	; Load bit offset to clear
+
+	vpaddd	ymm0, ymm0, [r13]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8]	; Broadcast prime
+	vpaddd	ymm14, ymm0, ymm14	; Make all negative counts positive
+	vpminud	ymm0, ymm0, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm1, ymm1, [r13+32]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+4]	; Broadcast prime
+	vpaddd	ymm14, ymm1, ymm14	; Make all negative counts positive
+	vpminud	ymm1, ymm1, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm2, ymm2, [r13+64]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+8]	; Broadcast prime
+	vpaddd	ymm14, ymm2, ymm14	; Make all negative counts positive
+	vpminud	ymm2, ymm2, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm3, ymm3, [r13+96]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+12]	; Broadcast prime
+	vpaddd	ymm14, ymm3, ymm14	; Make all negative counts positive
+	vpminud	ymm3, ymm3, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm4, ymm4, [r13+128]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+16]	; Broadcast prime
+	vpaddd	ymm14, ymm4, ymm14	; Make all negative counts positive
+	vpminud	ymm4, ymm4, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm5, ymm5, [r13+160]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+20]	; Broadcast prime
+	vpaddd	ymm14, ymm5, ymm14	; Make all negative counts positive
+	vpminud	ymm5, ymm5, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm6, ymm6, [r13+192]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+24]	; Broadcast prime
+	vpaddd	ymm14, ymm6, ymm14	; Make all negative counts positive
+	vpminud	ymm6, ymm6, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm7, ymm7, [r13+224]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+28]	; Broadcast prime
+	vpaddd	ymm14, ymm7, ymm14	; Make all negative counts positive
+	vpminud	ymm7, ymm7, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm8, ymm8, [r13+256]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+32]	; Broadcast prime
+	vpaddd	ymm14, ymm8, ymm14	; Make all negative counts positive
+	vpminud	ymm8, ymm8, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm9, ymm9, [r13+288]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+36]	; Broadcast prime
+	vpaddd	ymm14, ymm9, ymm14	; Make all negative counts positive
+	vpminud	ymm9, ymm9, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm10, ymm10, [r13+320]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+40]	; Broadcast prime
+	vpaddd	ymm14, ymm10, ymm14	; Make all negative counts positive
+	vpminud	ymm10, ymm10, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm11, ymm11, [r13+352]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+44]	; Broadcast prime
+	vpaddd	ymm14, ymm11, ymm14	; Make all negative counts positive
+	vpminud	ymm11, ymm11, ymm14	; Keep smallest positive count
+
+	vpaddd	ymm12, ymm12, [r13+384]	; Create each word's shift count from the single bit-to-clr value
+	vpbroadcastd ymm14, [r8+48]	; Broadcast prime
+	vpaddd	ymm14, ymm12, ymm14	; Make all negative counts positive
+	vpminud	ymm12, ymm12, ymm14	; Keep smallest positive count
+
+;	vpbroadcastd ymm13, YMM_ONE	; Load constant 1
+
+	mov	rdx, -sievesize		; Load loop counter and index into sieve
+avx2svlp2:
+	vmovdqa ymm14, YMMWORD PTR [rdi][rdx]	; Load AVX2 sieve word
+
+	vpsllvd	ymm15, ymm13, ymm0		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm1		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm2		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm3		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm4		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm5		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm6		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm7		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm8		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm9		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm10		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm11		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm12		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vmovdqa YMMWORD PTR [rdi][rdx], ymm14	; Store AVX2 word to sieve
+
+	vpbroadcastd ymm15, [r10]
+	vpaddd	ymm0, ymm0, ymm15		; Bump the counters for prime
+	vpbroadcastd ymm14, [r8]		; Broadcast prime
+	vpaddd	ymm14, ymm0, ymm14		; Make all negative counts positive
+	vpminud	ymm0, ymm0, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm15, [r10+4]
+	vpaddd	ymm1, ymm1, ymm15		; Bump the counters for prime
+	vpbroadcastd ymm14, [r8+4]		; Broadcast prime
+	vpaddd	ymm14, ymm1, ymm14		; Make all negative counts positive
+	vpminud	ymm1, ymm1, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm15, [r10+8]
+	vpaddd	ymm2, ymm2, ymm15		; Bump the counters for prime
+	vpbroadcastd ymm14, [r8+8]		; Broadcast prime
+	vpaddd	ymm14, ymm2, ymm14		; Make all negative counts positive
+	vpminud	ymm2, ymm2, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm15, [r10+12]
+	vpaddd	ymm3, ymm3, ymm15		; Bump the counters for prime
+	vpbroadcastd ymm14, [r8+12]		; Broadcast prime
+	vpaddd	ymm14, ymm3, ymm14		; Make all negative counts positive
+	vpminud	ymm3, ymm3, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm15, [r10+16]
+	vpaddd	ymm4, ymm4, ymm15		; Bump the counters for prime
+	vpbroadcastd ymm14, [r8+16]		; Broadcast prime
+	vpaddd	ymm14, ymm4, ymm14		; Make all negative counts positive
+	vpminud	ymm4, ymm4, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm15, [r10+20]
+	vpaddd	ymm5, ymm5, ymm15		; Bump the counters for prime
+	vpbroadcastd ymm14, [r8+20]		; Broadcast prime
+	vpaddd	ymm14, ymm5, ymm14		; Make all negative counts positive
+	vpminud	ymm5, ymm5, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm15, [r10+24]
+	vpaddd	ymm6, ymm6, ymm15		; Bump the counters for prime
+	vpbroadcastd ymm14, [r8+24]		; Broadcast prime
+	vpaddd	ymm14, ymm6, ymm14		; Make all negative counts positive
+	vpminud	ymm6, ymm6, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm15, [r10+28]
+	vpaddd	ymm7, ymm7, ymm15		; Bump the counters for prime
+	vpbroadcastd ymm14, [r8+28]		; Broadcast prime
+	vpaddd	ymm14, ymm7, ymm14		; Make all negative counts positive
+	vpminud	ymm7, ymm7, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm15, [r10+32]
+	vpaddd	ymm8, ymm8, ymm15		; Bump the counters for prime
+	vpbroadcastd ymm14, [r8+32]		; Broadcast prime
+	vpaddd	ymm14, ymm8, ymm14		; Make all negative counts positive
+	vpminud	ymm8, ymm8, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm15, [r10+36]
+	vpaddd	ymm9, ymm9, ymm15		; Bump the counters for prime
+	vpbroadcastd ymm14, [r8+36]		; Broadcast prime
+	vpaddd	ymm14, ymm9, ymm14		; Make all negative counts positive
+	vpminud	ymm9, ymm9, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm15, [r10+40]
+	vpaddd	ymm10, ymm10, ymm15		; Bump the counters for prime
+	vpbroadcastd ymm14, [r8+40]		; Broadcast prime
+	vpaddd	ymm14, ymm10, ymm14		; Make all negative counts positive
+	vpminud	ymm10, ymm10, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm15, [r10+44]
+	vpaddd	ymm11, ymm11, ymm15		; Bump the counters for prime
+	vpbroadcastd ymm14, [r8+44]		; Broadcast prime
+	vpaddd	ymm14, ymm11, ymm14		; Make all negative counts positive
+	vpminud	ymm11, ymm11, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm15, [r10+48]
+	vpaddd	ymm12, ymm12, ymm15		; Bump the counters for prime
+	vpbroadcastd ymm14, [r8+48]		; Broadcast prime
+	vpaddd	ymm14, ymm12, ymm14		; Make all negative counts positive
+	vpminud	ymm12, ymm12, ymm14		; Keep smallest positive
+
+	add	rdx, 32			; Move to next AVX2 sieve word
+	js	avx2svlp2
+
+	vmovd	[rsi], xmm0		; Save bit clear offset for next time
+	vmovd	[rsi+4], xmm1		; Save bit clear offset for next time
+	vmovd	[rsi+8], xmm2		; Save bit clear offset for next time
+	vmovd	[rsi+12], xmm3		; Save bit clear offset for next time
+	vmovd	[rsi+16], xmm4		; Save bit clear offset for next time
+	vmovd	[rsi+20], xmm5		; Save bit clear offset for next time
+	vmovd	[rsi+24], xmm6		; Save bit clear offset for next time
+	vmovd	[rsi+28], xmm7		; Save bit clear offset for next time
+	vmovd	[rsi+32], xmm8		; Save bit clear offset for next time
+	vmovd	[rsi+36], xmm9		; Save bit clear offset for next time
+	vmovd	[rsi+40], xmm10		; Save bit clear offset for next time
+	vmovd	[rsi+44], xmm11		; Save bit clear offset for next time
+	vmovd	[rsi+48], xmm12		; Save bit clear offset for next time
+
+	add	r8, 52			; Next prime in primearray
+	add	rsi, 52			; Next offset in offsetarray
+	add	r10, 13*4		; Next double-word bump value
+	add	r13, 13*32		; Next double-word count initializer
+	dec	eax			; Do another set of 13 small primes?
+	jnz	avx2sv13
+
+; Sieve small primes above 256 using AVX2 instructions
+
+	mov	eax, alternate_sieve_count ; Do more sets of 13 small primes
+avx2sv256:
+	vpbroadcastd ymm0, [rsi]	; Load bit offset to clear
+	vpbroadcastd ymm1, [rsi+4]	; Load bit offset to clear
+	vpbroadcastd ymm2, [rsi+8]	; Load bit offset to clear
+	vpbroadcastd ymm3, [rsi+12]	; Load bit offset to clear
+	vpbroadcastd ymm4, [rsi+16]	; Load bit offset to clear
+	vpbroadcastd ymm5, [rsi+20]	; Load bit offset to clear
+	vpbroadcastd ymm6, [rsi+24]	; Load bit offset to clear
+	vpbroadcastd ymm7, [rsi+28]	; Load bit offset to clear
+	vpbroadcastd ymm8, [rsi+32]	; Load bit offset to clear
+	vpbroadcastd ymm9, [rsi+36]	; Load bit offset to clear
+	vpbroadcastd ymm10, [rsi+40]	; Load bit offset to clear
+	vpbroadcastd ymm11, [rsi+44]	; Load bit offset to clear
+	vpbroadcastd ymm12, [rsi+48]	; Load bit offset to clear
+
+	vmovdqa	ymm15, YMM_INIT_SV257	; Load offsets for each dword in AVX2 count word
+	vpaddd	ymm0, ymm0, ymm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	ymm1, ymm1, ymm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	ymm2, ymm2, ymm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	ymm3, ymm3, ymm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	ymm4, ymm4, ymm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	ymm5, ymm5, ymm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	ymm6, ymm6, ymm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	ymm7, ymm7, ymm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	ymm8, ymm8, ymm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	ymm9, ymm9, ymm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	ymm10, ymm10, ymm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	ymm11, ymm11, ymm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	ymm12, ymm12, ymm15	; Create each word's shift count from the single bit-to-clr value
+
+	vpbroadcastd ymm14, [r8]	; Broadcast prime
+	vpaddd	ymm14, ymm0, ymm14	; Make all negative counts positive
+	vpminud	ymm0, ymm0, ymm14	; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+4]	; Broadcast prime
+	vpaddd	ymm14, ymm1, ymm14	; Make all negative counts positive
+	vpminud	ymm1, ymm1, ymm14	; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+8]	; Broadcast prime
+	vpaddd	ymm14, ymm2, ymm14	; Make all negative counts positive
+	vpminud	ymm2, ymm2, ymm14	; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+12]	; Broadcast prime
+	vpaddd	ymm14, ymm3, ymm14	; Make all negative counts positive
+	vpminud	ymm3, ymm3, ymm14	; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+16]	; Broadcast prime
+	vpaddd	ymm14, ymm4, ymm14	; Make all negative counts positive
+	vpminud	ymm4, ymm4, ymm14	; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+20]	; Broadcast prime
+	vpaddd	ymm14, ymm5, ymm14	; Make all negative counts positive
+	vpminud	ymm5, ymm5, ymm14	; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+24]	; Broadcast prime
+	vpaddd	ymm14, ymm6, ymm14	; Make all negative counts positive
+	vpminud	ymm6, ymm6, ymm14	; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+28]	; Broadcast prime
+	vpaddd	ymm14, ymm7, ymm14	; Make all negative counts positive
+	vpminud	ymm7, ymm7, ymm14	; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+32]	; Broadcast prime
+	vpaddd	ymm14, ymm8, ymm14	; Make all negative counts positive
+	vpminud	ymm8, ymm8, ymm14	; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+36]	; Broadcast prime
+	vpaddd	ymm14, ymm9, ymm14	; Make all negative counts positive
+	vpminud	ymm9, ymm9, ymm14	; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+40]	; Broadcast prime
+	vpaddd	ymm14, ymm10, ymm14	; Make all negative counts positive
+	vpminud	ymm10, ymm10, ymm14	; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+44]	; Broadcast prime
+	vpaddd	ymm14, ymm11, ymm14	; Make all negative counts positive
+	vpminud	ymm11, ymm11, ymm14	; Keep smallest positive count
+
+	vpbroadcastd ymm14, [r8+48]	; Broadcast prime
+	vpaddd	ymm14, ymm12, ymm14	; Make all negative counts positive
+	vpminud	ymm12, ymm12, ymm14	; Keep smallest positive count
+
+;	vpbroadcastd ymm13, YMM_ONE	; Load constant 1
+
+	mov	rdx, -sievesize		; Load loop counter and index into sieve
+avx2svlp3:
+	vmovdqa ymm14, YMMWORD PTR [rdi][rdx]	; Load AVX2 sieve word
+
+	vpsllvd	ymm15, ymm13, ymm0		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm1		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm2		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm3		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm4		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm5		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm6		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm7		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm8		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm9		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm10		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm11		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vpsllvd	ymm15, ymm13, ymm12		; Shift mask for each bit-to-clr count
+	vpandn	ymm14, ymm15, ymm14		; Apply shifted mask
+
+	vmovdqa YMMWORD PTR [rdi][rdx], ymm14	; Store AVX2 word to sieve
+
+	vpbroadcastd ymm15, YMM_MINUS256	; Load -256 for bumping counters
+	vpaddd	ymm0, ymm0, ymm15		; Bump the counters for prime
+	vpaddd	ymm1, ymm1, ymm15		; Bump the counters for prime
+	vpaddd	ymm2, ymm2, ymm15		; Bump the counters for prime
+	vpaddd	ymm3, ymm3, ymm15		; Bump the counters for prime
+	vpaddd	ymm4, ymm4, ymm15		; Bump the counters for prime
+	vpaddd	ymm5, ymm5, ymm15		; Bump the counters for prime
+	vpaddd	ymm6, ymm6, ymm15		; Bump the counters for prime
+	vpaddd	ymm7, ymm7, ymm15		; Bump the counters for prime
+	vpaddd	ymm8, ymm8, ymm15		; Bump the counters for prime
+	vpaddd	ymm9, ymm9, ymm15		; Bump the counters for prime
+	vpaddd	ymm10, ymm10, ymm15		; Bump the counters for prime
+	vpaddd	ymm11, ymm11, ymm15		; Bump the counters for prime
+	vpaddd	ymm12, ymm12, ymm15		; Bump the counters for prime
+
+	vpbroadcastd ymm14, [r8]		; Broadcast prime
+	vpaddd	ymm14, ymm0, ymm14		; Make all negative counts positive
+	vpminud	ymm0, ymm0, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm14, [r8+4]		; Broadcast prime
+	vpaddd	ymm14, ymm1, ymm14		; Make all negative counts positive
+	vpminud	ymm1, ymm1, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm14, [r8+8]		; Broadcast prime
+	vpaddd	ymm14, ymm2, ymm14		; Make all negative counts positive
+	vpminud	ymm2, ymm2, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm14, [r8+12]		; Broadcast prime
+	vpaddd	ymm14, ymm3, ymm14		; Make all negative counts positive
+	vpminud	ymm3, ymm3, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm14, [r8+16]		; Broadcast prime
+	vpaddd	ymm14, ymm4, ymm14		; Make all negative counts positive
+	vpminud	ymm4, ymm4, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm14, [r8+20]		; Broadcast prime
+	vpaddd	ymm14, ymm5, ymm14		; Make all negative counts positive
+	vpminud	ymm5, ymm5, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm14, [r8+24]		; Broadcast prime
+	vpaddd	ymm14, ymm6, ymm14		; Make all negative counts positive
+	vpminud	ymm6, ymm6, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm14, [r8+28]		; Broadcast prime
+	vpaddd	ymm14, ymm7, ymm14		; Make all negative counts positive
+	vpminud	ymm7, ymm7, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm14, [r8+32]		; Broadcast prime
+	vpaddd	ymm14, ymm8, ymm14		; Make all negative counts positive
+	vpminud	ymm8, ymm8, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm14, [r8+36]		; Broadcast prime
+	vpaddd	ymm14, ymm9, ymm14		; Make all negative counts positive
+	vpminud	ymm9, ymm9, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm14, [r8+40]		; Broadcast prime
+	vpaddd	ymm14, ymm10, ymm14		; Make all negative counts positive
+	vpminud	ymm10, ymm10, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm14, [r8+44]		; Broadcast prime
+	vpaddd	ymm14, ymm11, ymm14		; Make all negative counts positive
+	vpminud	ymm11, ymm11, ymm14		; Keep smallest positive
+
+	vpbroadcastd ymm14, [r8+48]		; Broadcast prime
+	vpaddd	ymm14, ymm12, ymm14		; Make all negative counts positive
+	vpminud	ymm12, ymm12, ymm14		; Keep smallest positive
+
+	add	rdx, 32			; Move to next AVX2 sieve word
+	js	avx2svlp3
+
+	vmovd	[rsi], xmm0		; Save bit clear offset for next time
+	vmovd	[rsi+4], xmm1		; Save bit clear offset for next time
+	vmovd	[rsi+8], xmm2		; Save bit clear offset for next time
+	vmovd	[rsi+12], xmm3		; Save bit clear offset for next time
+	vmovd	[rsi+16], xmm4		; Save bit clear offset for next time
+	vmovd	[rsi+20], xmm5		; Save bit clear offset for next time
+	vmovd	[rsi+24], xmm6		; Save bit clear offset for next time
+	vmovd	[rsi+28], xmm7		; Save bit clear offset for next time
+	vmovd	[rsi+32], xmm8		; Save bit clear offset for next time
+	vmovd	[rsi+36], xmm9		; Save bit clear offset for next time
+	vmovd	[rsi+40], xmm10		; Save bit clear offset for next time
+	vmovd	[rsi+44], xmm11		; Save bit clear offset for next time
+	vmovd	[rsi+48], xmm12		; Save bit clear offset for next time
+
+	add	r8, 52			; Next prime in primearray
+	add	rsi, 52			; Next offset in offsetarray
+	dec	eax			; Do another set of 13 small primes?
+	jnz	avx2sv256
+	jmp	sievelp			; Go do the one small prime at a time sieving
+
+;
+; Sieve for small primes using AVX512 instructions
+;
+
+avx512sv:mov	r8, primearray		; Ptr to first prime in array
+	mov	rsi, offsetarray	; Ptr to first offset in array
+	lea	r9, YMM_INIT_MASK19	; Get address of first mask required for primes below 32
+	lea	r10, ZMM_BUMP19		; Get address of first count incrementer
+	lea	r13, ZMM_INIT_SV19	; Get address of first count initializer
+  	cmp	DWORD PTR [r8], 23	; Does the small prime array start at 19, 23, or 29?
+	jl	short avx512sv19andup	; Jump if sieving from 19 onwards
+	je	short avx512sv23andup	; Jump if sieving from 23 onwards
+
+; Sieve primes 29 and up using AVX512 instructions
+
+	add	r9, 4
+	add	r10, 4
+	add	r13, 64
+
+; Sieve primes 23 and up using AVX512 instructions
+
+avx512sv23andup:
+	add	r9, 4
+	add	r10, 4
+	add	r13, 64
+
+; Sieve primes 19 and up using AVX512 instructions
+
+avx512sv19andup:
+	vpbroadcastd zmm0, [rsi]	; Load bit offset to clear for prime 19/23/29
+	vpbroadcastd zmm1, [rsi+4]	; Load bit offset to clear for prime 23/29/31
+	vpbroadcastd zmm2, [rsi+8]	; Load bit offset to clear for prime 29/31/37
+	vpbroadcastd zmm3, [rsi+12]	; Load bit offset to clear for prime 31/37/41
+	vpbroadcastd zmm4, [rsi+16]	; Load bit offset to clear for next prime
+	vpbroadcastd zmm5, [rsi+20]	; Load bit offset to clear for next prime
+	vpbroadcastd zmm6, [rsi+24]	; Load bit offset to clear for next prime
+	vpbroadcastd zmm7, [rsi+28]	; Load bit offset to clear for next prime
+	vpbroadcastd zmm8, [rsi+32]	; Load bit offset to clear for next prime
+	vpbroadcastd zmm9, [rsi+36]	; Load bit offset to clear for next prime
+	vpbroadcastd zmm10, [rsi+40]	; Load bit offset to clear for next prime
+	vpbroadcastd zmm11, [rsi+44]	; Load bit offset to clear for next prime
+	vpbroadcastd zmm12, [rsi+48]	; Load bit offset to clear for next prime
+
+	vpaddd	zmm0, zmm0, [r13]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm0, [r8]{1to16}; Make all negative counts positive
+	vpminud	zmm0, zmm0, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm1, zmm1, [r13+64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm1, [r8+4]{1to16} ; Make all negative counts positive
+	vpminud	zmm1, zmm1, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm2, zmm2, [r13+2*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm2, [r8+8]{1to16} ; Make all negative counts positive
+	vpminud	zmm2, zmm2, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm3, zmm3, [r13+3*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm3, [r8+12]{1to16} ; Make all negative counts positive
+	vpminud	zmm3, zmm3, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm4, zmm4, [r13+4*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm4, [r8+16]{1to16} ; Make all negative counts positive
+	vpminud	zmm4, zmm4, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm5, zmm5, [r13+5*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm5, [r8+20]{1to16} ; Make all negative counts positive
+	vpminud	zmm5, zmm5, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm6, zmm6, [r13+6*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm6, [r8+24]{1to16} ; Make all negative counts positive
+	vpminud	zmm6, zmm6, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm7, zmm7, [r13+7*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm7, [r8+28]{1to16} ; Make all negative counts positive
+	vpminud	zmm7, zmm7, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm8, zmm8, [r13+8*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm8, [r8+32]{1to16} ; Make all negative counts positive
+	vpminud	zmm8, zmm8, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm9, zmm9, [r13+9*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm9, [r8+36]{1to16} ; Make all negative counts positive
+	vpminud	zmm9, zmm9, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm10, zmm10, [r13+10*64]; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm10, [r8+40]{1to16} ; Make all negative counts positive
+	vpminud	zmm10, zmm10, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm11, zmm11, [r13+11*64]; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm11, [r8+44]{1to16} ; Make all negative counts positive
+	vpminud	zmm11, zmm11, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm12, zmm12, [r13+12*64]; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm12, [r8+48]{1to16} ; Make all negative counts positive
+	vpminud	zmm12, zmm12, zmm14	; Keep smallest positive count
+
+	vpbroadcastd zmm13, YMM_ONE	; Load constant 1
+
+	mov	r14, initsieve		; Load sieve initialization bits addr
+	mov	edx, initstart		; Load byte offset into initsieve
+	add	r14, rdx		; Compute copy address
+	add	r14, sievesize		; Compute end copy address
+	mov	rdx, -sievesize		; Load loop counter and index into sieve
+	mov	rdi, sieve		; Load address of sieve bits
+	add	rdi, sievesize		; Compute end-of-sieve address
+avx512svlp1:
+	vmovdqu32 zmm14, ZMMWORD PTR [r14][rdx]	; Load AVX512 sieve word
+
+	vpbroadcastd zmm15, [r9]		; Load mask for prime 19 or 23 or 29 if we are clearing bit 0
+	vpsllvd	zmm15, zmm15, zmm0		; Shift mask for prime 19 or 23 or 29
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask for prime 19 or 23 or 29
+	vpaddd	zmm0, zmm0, [r10]{1to16}	; Bump the counters for prime 19/23/29
+
+	vpbroadcastd zmm15, [r9+4]		; Load mask for prime 23 or 29 or 31 if we are clearing bit 0
+	vpsllvd	zmm15, zmm15, zmm1		; Shift mask for prime 23 or 29 or 31
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask for prime 23 or 29 or 31
+	vpaddd	zmm1, zmm1, [r10+4]{1to16}	; Bump the counters for prime 23/29/31
+
+	vpbroadcastd zmm15, [r9+8]		; Load mask for prime 29 or 31 or 37 if we are clearing bit 0
+	vpsllvd	zmm15, zmm15, zmm2		; Shift mask for prime 29 or 31 or 37
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask for prime 29 or 31 or 37
+	vpaddd	zmm2, zmm2, [r10+8]{1to16}	; Bump the counters for prime 29/31/37
+
+	vpbroadcastd zmm15, [r9+12]		; Load mask for prime 31 or 37 or 41 if we are clearing bit 0
+	vpsllvd	zmm15, zmm15, zmm3		; Shift mask for prime 31 or 37 or 41
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask for prime 31 or 37 or 41
+	vpaddd	zmm3, zmm3, [r10+12]{1to16}	; Bump the counters for prime 31/37/41
+
+	vpsllvd	zmm15, zmm13, zmm4		; Shift mask for first dword prime
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+	vpaddd	zmm4, zmm4, [r10+16]{1to16}	; Bump the counters
+
+	vpsllvd	zmm15, zmm13, zmm5		; Shift mask for next prime
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+	vpaddd	zmm5, zmm5, [r10+20]{1to16}	; Bump the counters
+
+	vpsllvd	zmm15, zmm13, zmm6		; Shift mask for next prime
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+	vpaddd	zmm6, zmm6, [r10+24]{1to16}	; Bump the counters
+
+	vpsllvd	zmm15, zmm13, zmm7		; Shift mask for next prime
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+	vpaddd	zmm7, zmm7, [r10+28]{1to16}	; Bump the counters
+
+	vpsllvd	zmm15, zmm13, zmm8		; Shift mask for next prime
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+	vpaddd	zmm8, zmm8, [r10+32]{1to16}	; Bump the counters
+
+	vpsllvd	zmm15, zmm13, zmm9		; Shift mask for next prime
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+	vpaddd	zmm9, zmm9, [r10+36]{1to16}	; Bump the counters
+
+	vpsllvd	zmm15, zmm13, zmm10		; Shift mask for next prime
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+	vpaddd	zmm10, zmm10, [r10+40]{1to16}	; Bump the counters
+
+	vpsllvd	zmm15, zmm13, zmm11		; Shift mask for next prime
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+	vpaddd	zmm11, zmm11, [r10+44]{1to16}	; Bump the counters
+
+	vpsllvd	zmm15, zmm13, zmm12		; Shift mask for next prime
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+	vpaddd	zmm12, zmm12, [r10+48]{1to16}	; Bump the counters
+
+	vmovdqa32 ZMMWORD PTR [rdi][rdx], zmm14	; Store AVX512 word to sieve
+
+	vpaddd	zmm14, zmm0, [r8+0]{1to16}	; Make all negative counts positive
+	vpminud	zmm0, zmm0, zmm14		; Keep smallest positive count
+
+	vpaddd	zmm14, zmm1, [r8+4]{1to16}	; Make all negative counts positive
+	vpminud	zmm1, zmm1, zmm14		; Keep smallest positive count
+
+	vpaddd	zmm14, zmm2, [r8+8]{1to16}	; Make all negative counts positive
+	vpminud	zmm2, zmm2, zmm14		; Keep smallest positive count
+
+	vpaddd	zmm14, zmm3, [r8+12]{1to16}	; Make all negative counts positive
+	vpminud	zmm3, zmm3, zmm14		; Keep smallest positive count
+
+	vpaddd	zmm14, zmm4, [r8+16]{1to16}	; Make all negative counts positive
+	vpminud	zmm4, zmm4, zmm14		; Keep smallest positive count
+
+	vpaddd	zmm14, zmm5, [r8+20]{1to16}	; Make all negative counts positive
+	vpminud	zmm5, zmm5, zmm14		; Keep smallest positive count
+
+	vpaddd	zmm14, zmm6, [r8+24]{1to16}	; Make all negative counts positive
+	vpminud	zmm6, zmm6, zmm14		; Keep smallest positive count
+
+	vpaddd	zmm14, zmm7, [r8+28]{1to16}	; Make all negative counts positive
+	vpminud	zmm7, zmm7, zmm14		; Keep smallest positive count
+
+	vpaddd	zmm14, zmm8, [r8+32]{1to16}	; Make all negative counts positive
+	vpminud	zmm8, zmm8, zmm14		; Keep smallest positive count
+
+	vpaddd	zmm14, zmm9, [r8+36]{1to16}	; Make all negative counts positive
+	vpminud	zmm9, zmm9, zmm14		; Keep smallest positive count
+
+	vpaddd	zmm14, zmm10, [r8+40]{1to16}	; Make all negative counts positive
+	vpminud	zmm10, zmm10, zmm14		; Keep smallest positive count
+
+	vpaddd	zmm14, zmm11, [r8+44]{1to16}	; Make all negative counts positive
+	vpminud	zmm11, zmm11, zmm14		; Keep smallest positive count
+
+	vpaddd	zmm14, zmm12, [r8+48]{1to16}	; Make all negative counts positive
+	vpminud	zmm12, zmm12, zmm14		; Keep smallest positive count
+
+	add	rdx, 64			; Move to next AVX512 sieve word
+	js	avx512svlp1
+
+	vmovd	[rsi], xmm0		; Save bit clear offset for prime 19/23/29 next time
+	vmovd	[rsi+4], xmm1		; Save bit clear offset for prime 23/29/31 next time
+	vmovd	[rsi+8], xmm2		; Save bit clear offset for prime 29/31/37 next time
+	vmovd	[rsi+12], xmm3		; Save bit clear offset for prime 31/37/41 next time
+	vmovd	[rsi+16], xmm4		; Save bit clear offset for prime
+	vmovd	[rsi+20], xmm5		; Save bit clear offset for prime
+	vmovd	[rsi+24], xmm6		; Save bit clear offset for prime
+	vmovd	[rsi+28], xmm7		; Save bit clear offset for prime
+	vmovd	[rsi+32], xmm8		; Save bit clear offset for prime
+	vmovd	[rsi+36], xmm9		; Save bit clear offset for prime
+	vmovd	[rsi+40], xmm10		; Save bit clear offset for prime
+	vmovd	[rsi+44], xmm11		; Save bit clear offset for prime
+	vmovd	[rsi+48], xmm12		; Save bit clear offset for prime
+
+	add	r8, 52			; Next prime in primearray
+	add	rsi, 52			; Next offset in offsetarray
+	add	r10, 13*4		; Next counter bump value
+	add	r13, 13*64		; Next count initializer
+
+; Sieve more small primes using AVX512 instructions
+
+	mov	eax, 6			; Do 6 more sets of 13 small primes
+avx512sv13:
+	vpbroadcastd zmm0, [rsi]	; Load bit offset to clear
+	vpbroadcastd zmm1, [rsi+4]	; Load bit offset to clear
+	vpbroadcastd zmm2, [rsi+8]	; Load bit offset to clear
+	vpbroadcastd zmm3, [rsi+12]	; Load bit offset to clear
+	vpbroadcastd zmm4, [rsi+16]	; Load bit offset to clear
+	vpbroadcastd zmm5, [rsi+20]	; Load bit offset to clear
+	vpbroadcastd zmm6, [rsi+24]	; Load bit offset to clear
+	vpbroadcastd zmm7, [rsi+28]	; Load bit offset to clear
+	vpbroadcastd zmm8, [rsi+32]	; Load bit offset to clear
+	vpbroadcastd zmm9, [rsi+36]	; Load bit offset to clear
+	vpbroadcastd zmm10, [rsi+40]	; Load bit offset to clear
+	vpbroadcastd zmm11, [rsi+44]	; Load bit offset to clear
+	vpbroadcastd zmm12, [rsi+48]	; Load bit offset to clear
+
+	vpaddd	zmm0, zmm0, [r13]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm0, [r8+0]{1to16}; Make all negative counts positive
+	vpminud	zmm0, zmm0, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm1, zmm1, [r13+64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm1, [r8+4]{1to16}; Make all negative counts positive
+	vpminud	zmm1, zmm1, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm2, zmm2, [r13+2*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm2, [r8+8]{1to16}; Make all negative counts positive
+	vpminud	zmm2, zmm2, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm3, zmm3, [r13+3*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm3, [r8+12]{1to16}; Make all negative counts positive
+	vpminud	zmm3, zmm3, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm4, zmm4, [r13+4*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm4, [r8+16]{1to16}; Make all negative counts positive
+	vpminud	zmm4, zmm4, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm5, zmm5, [r13+5*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm5, [r8+20]{1to16}; Make all negative counts positive
+	vpminud	zmm5, zmm5, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm6, zmm6, [r13+6*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm6, [r8+24]{1to16}; Make all negative counts positive
+	vpminud	zmm6, zmm6, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm7, zmm7, [r13+7*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm7, [r8+28]{1to16}; Make all negative counts positive
+	vpminud	zmm7, zmm7, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm8, zmm8, [r13+8*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm8, [r8+32]{1to16}; Make all negative counts positive
+	vpminud	zmm8, zmm8, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm9, zmm9, [r13+9*64]	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm9, [r8+36]{1to16}; Make all negative counts positive
+	vpminud	zmm9, zmm9, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm10, zmm10, [r13+10*64] ; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm10, [r8+40]{1to16}; Make all negative counts positive
+	vpminud	zmm10, zmm10, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm11, zmm11, [r13+11*64] ; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm11, [r8+44]{1to16}; Make all negative counts positive
+	vpminud	zmm11, zmm11, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm12, zmm12, [r13+12*64] ; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm14, zmm12, [r8+48]{1to16}; Make all negative counts positive
+	vpminud	zmm12, zmm12, zmm14	; Keep smallest positive count
+
+;	vpbroadcastd zmm13, ZMM_ONE	; Load constant 1
+
+	mov	rdx, -sievesize		; Load loop counter and index into sieve
+avx512svlp2:
+	vmovdqa32 zmm14, ZMMWORD PTR [rdi][rdx]	; Load AVX512 sieve word
+
+	vpsllvd	zmm15, zmm13, zmm0		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm1		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm2		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm3		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm4		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm5		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm6		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm7		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm8		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm9		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm10		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm11		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm12		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vmovdqa32 ZMMWORD PTR [rdi][rdx], zmm14	; Store AVX512 word to sieve
+
+	vpaddd	zmm0, zmm0, [r10+0]{1to16}	; Bump the counters for prime
+	vpaddd	zmm14, zmm0, [r8+0]{1to16}	; Make all negative counts positive
+	vpminud	zmm0, zmm0, zmm14		; Keep smallest positive
+
+	vpaddd	zmm1, zmm1, [r10+4]{1to16}	; Bump the counters for prime
+	vpaddd	zmm14, zmm1, [r8+4]{1to16}	; Make all negative counts positive
+	vpminud	zmm1, zmm1, zmm14		; Keep smallest positive
+
+	vpaddd	zmm2, zmm2, [r10+8]{1to16}	; Bump the counters for prime
+	vpaddd	zmm14, zmm2, [r8+8]{1to16}	; Make all negative counts positive
+	vpminud	zmm2, zmm2, zmm14		; Keep smallest positive
+
+	vpaddd	zmm3, zmm3, [r10+12]{1to16}	; Bump the counters for prime
+	vpaddd	zmm14, zmm3, [r8+12]{1to16}	; Make all negative counts positive
+	vpminud	zmm3, zmm3, zmm14		; Keep smallest positive
+
+	vpaddd	zmm4, zmm4, [r10+16]{1to16}	; Bump the counters for prime
+	vpaddd	zmm14, zmm4, [r8+16]{1to16}	; Make all negative counts positive
+	vpminud	zmm4, zmm4, zmm14		; Keep smallest positive
+
+	vpaddd	zmm5, zmm5, [r10+20]{1to16}	; Bump the counters for prime
+	vpaddd	zmm14, zmm5, [r8+20]{1to16}	; Make all negative counts positive
+	vpminud	zmm5, zmm5, zmm14		; Keep smallest positive
+
+	vpaddd	zmm6, zmm6, [r10+24]{1to16}	; Bump the counters for prime
+	vpaddd	zmm14, zmm6, [r8+24]{1to16}	; Make all negative counts positive
+	vpminud	zmm6, zmm6, zmm14		; Keep smallest positive
+
+	vpaddd	zmm7, zmm7, [r10+28]{1to16}	; Bump the counters for prime
+	vpaddd	zmm14, zmm7, [r8+28]{1to16}	; Make all negative counts positive
+	vpminud	zmm7, zmm7, zmm14		; Keep smallest positive
+
+	vpaddd	zmm8, zmm8, [r10+32]{1to16}	; Bump the counters for prime
+	vpaddd	zmm14, zmm8, [r8+32]{1to16}	; Make all negative counts positive
+	vpminud	zmm8, zmm8, zmm14		; Keep smallest positive
+
+	vpaddd	zmm9, zmm9, [r10+36]{1to16}	; Bump the counters for prime
+	vpaddd	zmm14, zmm9, [r8+36]{1to16}	; Make all negative counts positive
+	vpminud	zmm9, zmm9, zmm14		; Keep smallest positive
+
+	vpaddd	zmm10, zmm10, [r10+40]{1to16}	; Bump the counters for prime
+	vpaddd	zmm14, zmm10, [r8+40]{1to16}	; Make all negative counts positive
+	vpminud	zmm10, zmm10, zmm14		; Keep smallest positive
+
+	vpaddd	zmm11, zmm11, [r10+44]{1to16}	; Bump the counters for prime
+	vpaddd	zmm14, zmm11, [r8+44]{1to16}	; Make all negative counts positive
+	vpminud	zmm11, zmm11, zmm14		; Keep smallest positive
+
+	vpaddd	zmm12, zmm12, [r10+48]{1to16}	; Bump the counters for prime
+	vpaddd	zmm14, zmm12, [r8+48]{1to16}	; Make all negative counts positive
+	vpminud	zmm12, zmm12, zmm14		; Keep smallest positive
+
+	add	rdx, 64			; Move to next AVX512 sieve word
+	js	avx512svlp2
+
+	vmovd	[rsi], xmm0		; Save bit clear offset for next time
+	vmovd	[rsi+4], xmm1		; Save bit clear offset for next time
+	vmovd	[rsi+8], xmm2		; Save bit clear offset for next time
+	vmovd	[rsi+12], xmm3		; Save bit clear offset for next time
+	vmovd	[rsi+16], xmm4		; Save bit clear offset for next time
+	vmovd	[rsi+20], xmm5		; Save bit clear offset for next time
+	vmovd	[rsi+24], xmm6		; Save bit clear offset for next time
+	vmovd	[rsi+28], xmm7		; Save bit clear offset for next time
+	vmovd	[rsi+32], xmm8		; Save bit clear offset for next time
+	vmovd	[rsi+36], xmm9		; Save bit clear offset for next time
+	vmovd	[rsi+40], xmm10		; Save bit clear offset for next time
+	vmovd	[rsi+44], xmm11		; Save bit clear offset for next time
+	vmovd	[rsi+48], xmm12		; Save bit clear offset for next time
+
+	add	r8, 52			; Next prime in primearray
+	add	rsi, 52			; Next offset in offsetarray
+	add	r10, 13*4		; Next double-word bump value
+	add	r13, 13*64		; Next double-word count initializer
+	dec	eax			; Do another set of 13 small primes?
+	jnz	avx512sv13
+
+; Sieve small primes above 512 using AVX512 instructions
+
+	mov	eax, alternate_sieve_count ; Do more sets of 13 small primes
+avx512sv512:
+	vpbroadcastd zmm0, [rsi]	; Load bit offset to clear
+	vpbroadcastd zmm1, [rsi+4]	; Load bit offset to clear
+	vpbroadcastd zmm2, [rsi+8]	; Load bit offset to clear
+	vpbroadcastd zmm3, [rsi+12]	; Load bit offset to clear
+	vpbroadcastd zmm4, [rsi+16]	; Load bit offset to clear
+	vpbroadcastd zmm5, [rsi+20]	; Load bit offset to clear
+	vpbroadcastd zmm6, [rsi+24]	; Load bit offset to clear
+	vpbroadcastd zmm7, [rsi+28]	; Load bit offset to clear
+	vpbroadcastd zmm8, [rsi+32]	; Load bit offset to clear
+	vpbroadcastd zmm9, [rsi+36]	; Load bit offset to clear
+	vpbroadcastd zmm10, [rsi+40]	; Load bit offset to clear
+	vpbroadcastd zmm11, [rsi+44]	; Load bit offset to clear
+	vpbroadcastd zmm12, [rsi+48]	; Load bit offset to clear
+
+	vmovdqa32 zmm15, ZMM_INIT_SV521	; Load offsets for each dword in AVX512 count word
+	vpaddd	zmm0, zmm0, zmm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm1, zmm1, zmm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm2, zmm2, zmm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm3, zmm3, zmm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm4, zmm4, zmm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm5, zmm5, zmm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm6, zmm6, zmm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm7, zmm7, zmm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm8, zmm8, zmm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm9, zmm9, zmm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm10, zmm10, zmm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm11, zmm11, zmm15	; Create each word's shift count from the single bit-to-clr value
+	vpaddd	zmm12, zmm12, zmm15	; Create each word's shift count from the single bit-to-clr value
+
+	vpaddd	zmm14, zmm0, [r8+0]{1to16}; Make all negative counts positive
+	vpminud	zmm0, zmm0, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm14, zmm1, [r8+4]{1to16}; Make all negative counts positive
+	vpminud	zmm1, zmm1, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm14, zmm2, [r8+8]{1to16}; Make all negative counts positive
+	vpminud	zmm2, zmm2, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm14, zmm3, [r8+12]{1to16}; Make all negative counts positive
+	vpminud	zmm3, zmm3, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm14, zmm4, [r8+16]{1to16}; Make all negative counts positive
+	vpminud	zmm4, zmm4, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm14, zmm5, [r8+20]{1to16}; Make all negative counts positive
+	vpminud	zmm5, zmm5, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm14, zmm6, [r8+24]{1to16}; Make all negative counts positive
+	vpminud	zmm6, zmm6, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm14, zmm7, [r8+28]{1to16}; Make all negative counts positive
+	vpminud	zmm7, zmm7, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm14, zmm8, [r8+32]{1to16}; Make all negative counts positive
+	vpminud	zmm8, zmm8, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm14, zmm9, [r8+36]{1to16}; Make all negative counts positive
+	vpminud	zmm9, zmm9, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm14, zmm10, [r8+40]{1to16}; Make all negative counts positive
+	vpminud	zmm10, zmm10, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm14, zmm11, [r8+44]{1to16}; Make all negative counts positive
+	vpminud	zmm11, zmm11, zmm14	; Keep smallest positive count
+
+	vpaddd	zmm14, zmm12, [r8+48]{1to16}; Make all negative counts positive
+	vpminud	zmm12, zmm12, zmm14	; Keep smallest positive count
+
+;	vpbroadcastd zmm13, ZMM_ONE	; Load constant 1
+
+	mov	rdx, -sievesize		; Load loop counter and index into sieve
+avx512svlp3:
+	vmovdqa32 zmm14, ZMMWORD PTR [rdi][rdx]	; Load AVX512 sieve word
+
+	vpsllvd	zmm15, zmm13, zmm0		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm1		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm2		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm3		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm4		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm5		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm6		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm7		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm8		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm9		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm10		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm11		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vpsllvd	zmm15, zmm13, zmm12		; Shift mask for each bit-to-clr count
+	vpandnd	zmm14, zmm15, zmm14		; Apply shifted mask
+
+	vmovdqa32 ZMMWORD PTR [rdi][rdx], zmm14	; Store AVX512 word to sieve
+
+	vpbroadcastd zmm15, ZMM_MINUS512	; Load -512 for bumping counters
+	vpaddd	zmm0, zmm0, zmm15		; Bump the counters for prime
+	vpaddd	zmm1, zmm1, zmm15		; Bump the counters for prime
+	vpaddd	zmm2, zmm2, zmm15		; Bump the counters for prime
+	vpaddd	zmm3, zmm3, zmm15		; Bump the counters for prime
+	vpaddd	zmm4, zmm4, zmm15		; Bump the counters for prime
+	vpaddd	zmm5, zmm5, zmm15		; Bump the counters for prime
+	vpaddd	zmm6, zmm6, zmm15		; Bump the counters for prime
+	vpaddd	zmm7, zmm7, zmm15		; Bump the counters for prime
+	vpaddd	zmm8, zmm8, zmm15		; Bump the counters for prime
+	vpaddd	zmm9, zmm9, zmm15		; Bump the counters for prime
+	vpaddd	zmm10, zmm10, zmm15		; Bump the counters for prime
+	vpaddd	zmm11, zmm11, zmm15		; Bump the counters for prime
+	vpaddd	zmm12, zmm12, zmm15		; Bump the counters for prime
+
+	vpaddd	zmm14, zmm0, [r8+0]{1to16}	; Make all negative counts positive
+	vpminud	zmm0, zmm0, zmm14		; Keep smallest positive
+
+	vpaddd	zmm14, zmm1, [r8+4]{1to16}	; Make all negative counts positive
+	vpminud	zmm1, zmm1, zmm14		; Keep smallest positive
+
+	vpaddd	zmm14, zmm2, [r8+8]{1to16}	; Make all negative counts positive
+	vpminud	zmm2, zmm2, zmm14		; Keep smallest positive
+
+	vpaddd	zmm14, zmm3, [r8+12]{1to16}	; Make all negative counts positive
+	vpminud	zmm3, zmm3, zmm14		; Keep smallest positive
+
+	vpaddd	zmm14, zmm4, [r8+16]{1to16}	; Make all negative counts positive
+	vpminud	zmm4, zmm4, zmm14		; Keep smallest positive
+
+	vpaddd	zmm14, zmm5, [r8+20]{1to16}	; Make all negative counts positive
+	vpminud	zmm5, zmm5, zmm14		; Keep smallest positive
+
+	vpaddd	zmm14, zmm6, [r8+24]{1to16}	; Make all negative counts positive
+	vpminud	zmm6, zmm6, zmm14		; Keep smallest positive
+
+	vpaddd	zmm14, zmm7, [r8+28]{1to16}	; Make all negative counts positive
+	vpminud	zmm7, zmm7, zmm14		; Keep smallest positive
+
+	vpaddd	zmm14, zmm8, [r8+32]{1to16}	; Make all negative counts positive
+	vpminud	zmm8, zmm8, zmm14		; Keep smallest positive
+
+	vpaddd	zmm14, zmm9, [r8+36]{1to16}	; Make all negative counts positive
+	vpminud	zmm9, zmm9, zmm14		; Keep smallest positive
+
+	vpaddd	zmm14, zmm10, [r8+40]{1to16}	; Make all negative counts positive
+	vpminud	zmm10, zmm10, zmm14		; Keep smallest positive
+
+	vpaddd	zmm14, zmm11, [r8+44]{1to16}	; Make all negative counts positive
+	vpminud	zmm11, zmm11, zmm14		; Keep smallest positive
+
+	vpaddd	zmm14, zmm12, [r8+48]{1to16}	; Make all negative counts positive
+	vpminud	zmm12, zmm12, zmm14		; Keep smallest positive
+
+	add	rdx, 64			; Move to next AVX512 sieve word
+	js	avx512svlp3
+
+	vmovd	[rsi], xmm0		; Save bit clear offset for next time
+	vmovd	[rsi+4], xmm1		; Save bit clear offset for next time
+	vmovd	[rsi+8], xmm2		; Save bit clear offset for next time
+	vmovd	[rsi+12], xmm3		; Save bit clear offset for next time
+	vmovd	[rsi+16], xmm4		; Save bit clear offset for next time
+	vmovd	[rsi+20], xmm5		; Save bit clear offset for next time
+	vmovd	[rsi+24], xmm6		; Save bit clear offset for next time
+	vmovd	[rsi+28], xmm7		; Save bit clear offset for next time
+	vmovd	[rsi+32], xmm8		; Save bit clear offset for next time
+	vmovd	[rsi+36], xmm9		; Save bit clear offset for next time
+	vmovd	[rsi+40], xmm10		; Save bit clear offset for next time
+	vmovd	[rsi+44], xmm11		; Save bit clear offset for next time
+	vmovd	[rsi+48], xmm12		; Save bit clear offset for next time
+
+	add	r8, 52			; Next prime in primearray
+	add	rsi, 52			; Next offset in offsetarray
+	dec	eax			; Do another set of 13 small primes?
+	jnz	avx512sv512
+;	jmp	sievelp			; Go do the one small prime at a time sieving
+
+;
+; Loop through the rest of small prime array, clearing sieve bits.
+;
+
+sievelp:mov	ebx, [r8]		; Load small prime
 	and	rbx, rbx		; See if primearray fully processed
 	jz	short sievedn		; Yes, break out of loop
-	mov	ecx, [rbp+4]		; Load count of bits to clear
-	mov	eax, [rbp+8]		; Load bit offset to clear
+	mov	eax, [rsi]		; Load bit offset to clear
+	sub	rax, sievesize*8	; Make offset relative to end of the sieve
+	jns	short clrdn		; If offset is positive there are no bits to clear
 clrlp:	btr	[rdi], rax		; Clear the sieve bit
 	add	rax, rbx		; Next bit to clear
-	dec	rcx			; Test count of bits to clear
-	jnz	short clrlp
-	cmp	rax, sievesize*8	; Past the end of the sieve?
-	jae	short noclr		; Yes, skip one last clear
-	btr	[rdi], rax		; Clear one final sieve bit
-	add	rax, rbx		; Next bit to clear
-noclr:	sub	rax, sievesize*8	; Calculate next sieve's bit to clear
-	mov	[rbp+8], eax		; Save bit clear offset for next time
-	lea	rbp, [rbp+12]		; Next primearray address
+	js	short clrlp		; Past the end of the sieve when rax goes positive
+clrdn:	mov	[rsi], eax		; Save bit clear offset for next time
+	lea	r8, [r8+4]		; Next primearray address
+	lea	rsi, [rsi+4]		; Next offsetarray address
 	jmp	short sievelp		; Work on next small prime
 
 ; Bump the first factor in sieve for the caller (caller looks at the value to decide if more sieving is needed)
@@ -1479,7 +2780,7 @@ sievedn:
 
 ; Pop registers and return
 
-	ad_epilog 0,0,rbx,rbp,rsi,rdi
+	ad_epilog 0,0,rbx,rbp,rsi,rdi,r12,r13,r14,r15,xmm6,xmm7,xmm8,xmm9,xmm10,xmm11,xmm12,xmm13,xmm14,xmm15
 
 factor64_sieve ENDP
 
@@ -1498,14 +2799,21 @@ PROCF	factor64_tf
 
 	mov	rbx, savefac0		; Load trial factor corresponding
 	mov	rcx, savefac1		; to first sieve bit
+	test	CPU_FLAGS, 8000h	; Is this an FMA-capable machine?
+	jz	short notfma		; No, use slower methods
+
+	test	CPU_FLAGS, 100000h	; Is this an AVX512 machine?
+	jnz	zftlp96			; Yes, use 45-92 bit (or more) AVX512-FMA code
+	jmp	ftlp96			; No, use 45-92 bit (or more) AVX-FMA code
+
+notfma:
 	and	rbx, rbx		; Are we testing 65+ bit factors?
 	jz	short oneword		; No, go do 64 bits or less
-
 	test	CPU_FLAGS, 20000h	; Is this an AVX2 machine?
 	jz	short notavx2		; No, use non-AVX2 code
 	cmp	rbx, 400h		; Are we testing 75+ bit numbers?
-	jge	atlp86			; Yes, use 75-86 bit AVX2 code
-	jmp	atlp74			; No, use 65-74 bit AVX2 code
+	jge	atlp86			; Yes, use 75-86 bit AVX2 code (obsoleted by FMA code)
+	jmp	atlp74			; No, use 65-74 bit AVX2 code (obsoleted by FMA code)
 
 notavx2:
 	test	CPU_FLAGS, 200h		; Is this an SSE2 machine?
@@ -2916,10 +4224,11 @@ do64:	mov	SAVED_REG1, rsi		; Save sieve testing registers
 	mov	SAVED_REG4, rbp
 
 ; Precompute 1 / factor using Newton's method and the last 1 / factor
-; as our initial estimate.  I think this gives us about 50-ish digits
-; of precision which is enough for our needs.  Note we round up several
-; of the calculations so that the computed 1 / factor is less than the
-; actual 1 / factor.
+; as our initial estimate.  I think this gives us about 45-ish digits
+; of precision which is not enough for our needs.  For example, we miss
+; the factor 18586270485220505521 of M530539861 when multithreading.
+; Note we round up several of the calculations so that the computed
+; 1 / factor is less than the actual 1 / factor.
 
 	mov	rax, facinv3		; Load last 1 / factor
 	mul	rax
@@ -2940,6 +4249,39 @@ do64:	mov	SAVED_REG1, rsi		; Save sieve testing registers
 
 	mov	rax, fac3
 	mul	temp1
+	inc	rdx			; ceiling (f * est^2)
+	sub	facinv3, rdx		; est - f * est^2
+
+	add	facinv1, facinv1	; 1/f = 2 (est - f * est^2)
+	shl	facinv2, 1		; 1/f = 2 (est - f * est^2)
+	add	facinv3, facinv3	; 1/f = 2 (est - f * est^2)
+
+; Refine our 1 / factor estimates using another iteration of Newton's method.
+; Note we round up several of the calculations so that the computed 1 / factor
+; is less than the actual 1 / factor.
+
+	mov	rax, facinv1		; Load last 1 / factor
+	mul	rax
+	lea	temp1, [rdx+1]		; Save ceiling (est^2)
+	mov	rax, facinv2		; Load last 1 / factor
+	mul	rax
+	lea	temp2, [rdx+1]		; Save ceiling (est^2)
+	mov	rax, facinv3		; Load last 1 / factor
+	mul	rax
+	lea	temp3, [rdx+1]		; Save ceiling (est^2)
+
+	mov	rax, fac1
+	mul	temp1
+	inc	rdx			; ceiling (f * est^2)
+	sub	facinv1, rdx		; est - f * est^2
+
+	mov	rax, fac2
+	mul	temp2
+	inc	rdx			; ceiling (f * est^2)
+	sub	facinv2, rdx		; est - f * est^2
+
+	mov	rax, fac3
+	mul	temp3
 	inc	rdx			; ceiling (f * est^2)
 	sub	facinv3, rdx		; est - f * est^2
 
@@ -3195,6 +4537,7 @@ assert	jb
 win64:	mov	FACLSW, eax		; Factor found!
 	shr	rax, 32
 	mov	FACMSW, eax
+	mov	FACHSW, 0
 	mov	rax, 1			; Return TRUE
 	jmp	done
 
@@ -3285,10 +4628,11 @@ do65:	mov	SAVED_REG1, rsi		; Save sieve testing registers
 	mov	SAVED_REG4, rbp
 
 ; Precompute 1 / factor using Newton's method and the last 1 / factor
-; as our initial estimate.  I think this gives us about 50-ish digits
-; of precision which is enough for our needs.   Note we round up several
-; of the calculations so that the computed 1 / factor is less than the
-; actual 1 / factor.
+; as our initial estimate.  I think this gives us about 45-ish digits
+; of precision which is not enough for our needs.  For example, we miss
+; the factor 18586270485220505521 of M530539861 when multithreading.
+; Note we round up several of the calculations so that the computed
+; 1 / factor is less than the actual 1 / factor.
 
 	mov	rax, facinv3		; Load last 1 / factor
 	mul	rax
@@ -3315,6 +4659,45 @@ do65:	mov	SAVED_REG1, rsi		; Save sieve testing registers
 	ror	rax, 1			; Form upper 64 bits of factor
 	inc	rax			; ceiling (upper 64 bits of factor)
 	mul	temp1
+	inc	rdx			; ceiling (f * est^2)
+	sub	facinv3, rdx		; est - f * est^2
+
+	add	facinv1, facinv1	; 1/f = 2 (est - f * est^2)
+	shl	facinv2, 1		; 1/f = 2 (est - f * est^2)
+	add	facinv3, facinv3	; 1/f = 2 (est - f * est^2)
+
+; Refine our 1 / factor estimates using another iteration of Newton's method.
+; Note we round up several of the calculations so that the computed 1 / factor
+; is less than the actual 1 / factor.
+
+	mov	rax, facinv1		; Load last 1 / factor
+	mul	rax
+	lea	temp1, [rdx+1]		; Save ceiling (est^2)
+	mov	rax, facinv2		; Load last 1 / factor
+	mul	rax
+	lea	temp2, [rdx+1]		; Save ceiling (est^2)
+	mov	rax, facinv3		; Load last 1 / factor
+	mul	rax
+	lea	temp3, [rdx+1]		; Save ceiling (est^2)
+
+	mov	rax, fac1
+	ror	rax, 1			; Form upper 64 bits of factor
+	inc	rax			; ceiling (upper 64 bits of factor)
+	mul	temp1
+	inc	rdx			; ceiling (f * est^2)
+	sub	facinv1, rdx		; est - f * est^2
+
+	mov	rax, fac2
+	ror	rax, 1			; Form upper 64 bits of factor
+	inc	rax			; ceiling (upper 64 bits of factor)
+	mul	temp2
+	inc	rdx			; ceiling (f * est^2)
+	sub	facinv2, rdx		; est - f * est^2
+
+	mov	rax, fac3
+	ror	rax, 1			; Form upper 64 bits of factor
+	inc	rax			; ceiling (upper 64 bits of factor)
+	mul	temp3
 	inc	rdx			; ceiling (f * est^2)
 	sub	facinv3, rdx		; est - f * est^2
 
@@ -3565,9 +4948,9 @@ win65:	mov	FACLSW, eax		; Factor found!
 	jmp	done
 
 
-;***********************************************************************
-; For 66-bit factors and above (up to 90 bits more or less).
-;***********************************************************************
+;********************************************
+; For 66-bit factors and above (up to 2^79.5)
+;********************************************
 
 ;
 ; Check all the bits in the sieve looking for a factor to test
@@ -3581,7 +4964,7 @@ tlp66:	mov	rsi, sieve		; Sieve address
 	sub	rax, rax
 	mov	r8, rcx			; Save factor
 	mov	rcx, shift_count
-dec	rcx
+	dec	rcx
 	mov	r14, 1			; Form trial factor limit
 	ror	r14, cl
 	shld	rbx, r8, cl		; Form high 64-bits of factor
@@ -3665,10 +5048,11 @@ do66:	mov	SAVED_REG1, rsi		; Save sieve testing registers
 	mov	SAVED_REG6, r14
 
 ; Precompute 1 / factor using Newton's method and the last 1 / factor
-; as our initial estimate.  I think this gives us about 50-ish digits
-; of precision which is enough for our needs.   Note we round up several
-; of the calculations so that the computed 1 / factor is less than the
-; actual 1 / factor.
+; as our initial estimate.  I think this gives us about 45-ish digits
+; of precision which is not enough for our needs.  For example, we run
+; into problems with "Factor=990000793,65,66" and a large number of threads.
+; Note we round up several of the calculations so that the computed
+; 1 / factor is less than the actual 1 / factor.
 
 	mov	rax, facinv3		; Load last 1 / factor
 	mul	rax
@@ -3678,7 +5062,7 @@ do66:	mov	SAVED_REG1, rsi		; Save sieve testing registers
 	mov	facinv2, facinv3
 
 	mov	rcx, shift_count
-dec	rcx
+	dec	rcx
 
 	mov	rax, fac1hi		; Form upper 64 bits of factor
 	mov	rdx, fac1
@@ -3701,6 +5085,48 @@ dec	rcx
 	shld	rax, rdx, cl
 	inc	rax			; ceiling (upper 64 bits of factor)
 	mul	temp1
+	inc	rdx			; ceiling (f * est^2)
+	sub	facinv3, rdx		; est - f * est^2
+
+	add	facinv1, facinv1	; 1/f = 2 (est - f * est^2)
+	shl	facinv2, 1		; 1/f = 2 (est - f * est^2)
+	add	facinv3, facinv3	; 1/f = 2 (est - f * est^2)
+
+; Refine our 1 / factor estimates using another iteration of Newton's method.
+; Note we round up several of the calculations so that the computed 1 / factor
+; is less than the actual 1 / factor.
+
+	mov	rax, facinv1		; Load last 1 / factor
+	mul	rax
+	lea	temp1, [rdx+1]		; Save ceiling (est^2)
+	mov	rax, facinv2		; Load last 1 / factor
+	mul	rax
+	lea	temp2, [rdx+1]		; Save ceiling (est^2)
+	mov	rax, facinv3		; Load last 1 / factor
+	mul	rax
+	lea	temp3, [rdx+1]		; Save ceiling (est^2)
+
+	mov	rax, fac1hi		; Form upper 64 bits of factor
+	mov	rdx, fac1
+	shld	rax, rdx, cl
+	inc	rax			; ceiling (upper 64 bits of factor)
+	mul	temp1
+	inc	rdx			; ceiling (f * est^2)
+	sub	facinv1, rdx		; est - f * est^2
+
+	mov	rax, fac2hi		; Form upper 64 bits of factor
+	mov	rdx, fac2
+	shld	rax, rdx, cl
+	inc	rax			; ceiling (upper 64 bits of factor)
+	mul	temp2
+	inc	rdx			; ceiling (f * est^2)
+	sub	facinv2, rdx		; est - f * est^2
+
+	mov	rax, fac3hi		; Form upper 64 bits of factor
+	mov	rdx, fac3
+	shld	rax, rdx, cl
+	inc	rax			; ceiling (upper 64 bits of factor)
+	mul	temp3
 	inc	rdx			; ceiling (f * est^2)
 	sub	facinv3, rdx		; est - f * est^2
 
@@ -3990,11 +5416,11 @@ win66:	mov	FACLSW, eax		; Factor found!
 
 tlp74:	finit				; Set for 64-bit precision
 	mov	rsi, sieve		; Sieve address
-	lea	rbp, [rsi+sievesize]	; Sieve end address
+	lea	r10, [rsi+sievesize]	; Sieve end address
 	xor	rdi, rdi		; Count of queued factors to be tested
 	mov	r8, rcx			; Save factor
 	mov	rcx, shift_count
-dec	rcx
+	dec	rcx
 	mov	r14, 1			; Form trial factor limit
 	ror	r14, cl
 	mov	rcx, r8			; Restore factor
@@ -4004,7 +5430,7 @@ bsf74:	bsf	rdx, rax		; Look for a set bit
 	jnz	test74			; Found one, go test the factor
 	add	rcx, facdist64      	; Add facdist * 64 to the factor
 	adc	rbx, 0
-	cmp	rsi, rbp		; End of sieve?
+	cmp	rsi, r10		; End of sieve?
 	jl	short svlp74		; Loop to test next sieve qword
 
 ; Check queued counter
@@ -4097,17 +5523,10 @@ test74:	btr	rax, rdx		; Clear the sieve bit
 ; Now test the accumulated trial factors
 ;
 
-;; OPT - save/restore fewer registers  (affects winner checking and sse2_fac_initval code)
-do74:	mov	SAVED_REG1, rsi		; Save sieve testing registers
-	mov	SAVED_REG2, rax
-	mov	SAVED_REG3, rbx
-	mov	SAVED_REG4, rcx
-	mov	SAVED_REG5, rbp
-
 ; Work on initval.
 ; This is like the loop74 code except that we avoid the initial squaring.
 
-	sse2_fac_initval
+do74:	sse2_fac_initval
 
 ; Square remainder and get new remainder.
 
@@ -4115,50 +5534,41 @@ do74:	mov	SAVED_REG1, rsi		; Save sieve testing registers
 loop74:	sse2_fac 74
 	dec	edi			; Decrement loop counter
 	jnz	loop74
+;;	sub	rdi, rdi		; Clear queued factors count
 
 ; If result = factor + 1, then we found a divisor of 2**p - 1
 
-	sse2_compare
-	pcmpeqq xmm2, XMMWORD PTR XMM_F3 ; See if any remainder is factor + 1
-	pcmpeqq xmm1, XMMWORD PTR XMM_F2
-	pcmpeqq xmm0, XMMWORD PTR XMM_F1
+	sse2_compare_part1		; Convert LSW of results
+	pcmpeqd xmm2, XMMWORD PTR XMM_F3 ; See if any remainder is factor + 1
+	pcmpeqd xmm8, XMMWORD PTR XMM_F3a ; See if any remainder is factor + 1
+	movdqa	xmm0, xmm2
+	por	xmm0, xmm8
+; Can't use ptest - it is an SSE4.1 instruction
+;	ptest	xmm0, XMMWORD PTR XMM_BITS30 ; See if any least significant words indicate a possible factor
+;	jz	bsf74			; No, test next factor from sieve
+	pmovmskb rdx, xmm0		; See if any least significant words indicate a possible factor
+	and	rdx, 0F0Fh
+	jz	bsf74			; No, test next factor from sieve
+
+	sse2_compare_part2		; Convert high and middle words of the results
+	pcmpeqd xmm1, XMMWORD PTR XMM_F2
+	pcmpeqd xmm0, XMMWORD PTR XMM_F1
 	pand	xmm2, xmm1
-	ptest	xmm2, xmm0
-	jnz	short win74_1		; Jump if a factor found
-	pcmpeqq xmm8, XMMWORD PTR XMM_F3a ; See if any remainder is factor + 1
-	pcmpeqq xmm7, XMMWORD PTR XMM_F2a
-	pcmpeqq xmm6, XMMWORD PTR XMM_F1a
-	pand	xmm8, xmm7
-	ptest	xmm8, xmm6
-	jnz	short win74_2		; Jump if a factor found
-
-	sub	rdi, rdi		; Clear queued factors count
-	mov	rbp, SAVED_REG5		; Restore sieve testing register
-	mov	rcx, SAVED_REG4
-	mov	rbx, SAVED_REG3
-	mov	rax, SAVED_REG2
-	mov	rsi, SAVED_REG1
-	jmp	bsf74			; Test next factor from sieve
-
-win74_1:
 	pand	xmm2, xmm0
-	pmovmskb rcx, xmm2
-	sub	rdx, rdx		; See if first SSE2 word was the factor
-	shr	rcx, 1
-	jc	short win74		; Yes! Factor found
-	lea	rdx, [rdx+8]		; Last SSE2 word must have been the factor
-	jmp	short win74		; Yes! Factor found
-
-win74_2:
+	pmovmskb rdx, xmm2
+	and	rdx, 0F0Fh
+	jnz	short win74		; Jump if a factor found
+	pcmpeqd xmm7, XMMWORD PTR XMM_F2a
+	pcmpeqd xmm6, XMMWORD PTR XMM_F1a
+	pand	xmm8, xmm7
 	pand	xmm8, xmm6
-	pmovmskb rcx, xmm8
-	mov	edx, 16			; See if first SSE2 word was the factor
-	shr	rcx, 1
-	jc	short win74		; Yes! Factor found
-	lea	rdx, [rdx+8]		; Last SSE2 word must have been the factor
-;;	jmp	short win74		; Yes! Factor found
+	pmovmskb rdx, xmm8
+	and	rdx, 0F0Fh
+	jz	bsf74			; No factor, test next factor from sieve
+	shl	rdx, 16
 
-win74:	mov	eax, XMM_F3[rdx]	; Factor found!!! Return it
+win74:	bsf	rdx, rdx		; Look for the set bit(s)
+	mov	eax, XMM_F3[rdx]	; Factor found!!! Return it
 	mov	ebx, XMM_F2[rdx]
 	mov	ecx, XMM_F1[rdx]
 	shl	eax, 2
@@ -4182,7 +5592,7 @@ win74:	mov	eax, XMM_F3[rdx]	; Factor found!!! Return it
 
 tlp86:	finit				; Set for 64-bit precision
 	mov	rsi, sieve		; Sieve address
-	lea	rbp, [rsi+sievesize]	; Sieve end address
+	lea	r10, [rsi+sievesize]	; Sieve end address
 	xor	rdi, rdi		; Count of queued factors to be tested
 	mov	r8, rcx			; Save factor
 	mov	rcx, shift_count
@@ -4196,7 +5606,7 @@ bsf86:	bsf	rdx, rax		; Look for a set bit
 	jnz	test86			; Found one, go test the factor
 	add	rcx, facdist64      	; Add facdist * 64 to the factor
 	adc	rbx, 0
-	cmp	rsi, rbp		; End of sieve?
+	cmp	rsi, r10		; End of sieve?
 	jl	short svlp86		; Loop to test next sieve qword
 
 ; Check queued counter
@@ -4254,7 +5664,7 @@ test86:	btr	rax, rdx		; Clear the sieve bit
 ; Compute the factor to test and 63 most significant bits of 1 / factor
 ;; OPT...  old 32-bit code....  convert to divpd???
 
-	mov	r12, r8		; Save the factor to test
+	mov	r12, r8			; Save the factor to test
 	mov	r13, r9
 	shld	r13, r12, 34
 	mov	temp, r13
@@ -4289,17 +5699,10 @@ test86:	btr	rax, rdx		; Clear the sieve bit
 ; Now test the accumulated trial factors
 ;
 
-;; OPT - save/restore fewer registers  (affects winner checking and sse2_fac_initval code)
-do86:	mov	SAVED_REG1, rsi		; Save sieve testing registers
-	mov	SAVED_REG2, rax
-	mov	SAVED_REG3, rbx
-	mov	SAVED_REG4, rcx
-	mov	SAVED_REG5, rbp
-
 ; Work on initval.
 ; This is like the loop86 code except that we avoid the initial squaring.
 
-	sse2_fac_initval
+do86:	sse2_fac_initval
 
 ; Square remainder and get new remainder.
 
@@ -4307,50 +5710,41 @@ do86:	mov	SAVED_REG1, rsi		; Save sieve testing registers
 loop86:	sse2_fac 86
 	dec	edi			; Decrement loop counter
 	jnz	loop86
+;;	sub	rdi, rdi		; Clear queued factors count
 
 ; If result = factor + 1, then we found a divisor of 2**p - 1
 
-	sse2_compare
-	pcmpeqq xmm2, XMMWORD PTR XMM_F3 ; See if any remainder is factor + 1
-	pcmpeqq xmm1, XMMWORD PTR XMM_F2
-	pcmpeqq xmm0, XMMWORD PTR XMM_F1
+	sse2_compare_part1		; Convert LSW of results
+	pcmpeqd xmm2, XMMWORD PTR XMM_F3 ; See if any remainder is factor + 1
+	pcmpeqd xmm8, XMMWORD PTR XMM_F3a ; See if any remainder is factor + 1
+	movdqa	xmm0, xmm2
+	por	xmm0, xmm8
+; Can't use ptest - it is an SSE4.1 instruction
+;	ptest	xmm0, XMMWORD PTR XMM_BITS30 ; See if any least significant words indicate a possible factor
+;	jz	bsf86			; No, test next factor from sieve
+	pmovmskb rdx, xmm0		; See if any least significant words indicate a possible factor
+	and	rdx, 0F0Fh
+	jz	bsf86			; No, test next factor from sieve
+
+	sse2_compare_part2		; Convert high and middle words of the results
+	pcmpeqd xmm1, XMMWORD PTR XMM_F2
+	pcmpeqd xmm0, XMMWORD PTR XMM_F1
 	pand	xmm2, xmm1
-	ptest	xmm2, xmm0
-	jnz	short win86_1		; Jump if a factor found
-	pcmpeqq xmm8, XMMWORD PTR XMM_F3a ; See if any remainder is factor + 1
-	pcmpeqq xmm7, XMMWORD PTR XMM_F2a
-	pcmpeqq xmm6, XMMWORD PTR XMM_F1a
-	pand	xmm8, xmm7
-	ptest	xmm8, xmm6
-	jnz	short win86_2		; Jump if a factor found
-
-	sub	rdi, rdi		; Clear queued factors count
-	mov	rbp, SAVED_REG5		; Restore sieve testing register
-	mov	rcx, SAVED_REG4
-	mov	rbx, SAVED_REG3
-	mov	rax, SAVED_REG2
-	mov	rsi, SAVED_REG1
-	jmp	bsf86			; Test next factor from sieve
-
-win86_1:
 	pand	xmm2, xmm0
-	pmovmskb rcx, xmm2
-	sub	rdx, rdx		; See if first SSE2 word was the factor
-	shr	rcx, 1
-	jc	short win86		; Yes! Factor found
-	lea	rdx, [rdx+8]		; Last SSE2 word must have been the factor
-	jmp	short win86		; Yes! Factor found
-
-win86_2:
+	pmovmskb rdx, xmm2
+	and	rdx, 0F0Fh
+	jnz	short win86		; Jump if a factor found
+	pcmpeqd xmm7, XMMWORD PTR XMM_F2a
+	pcmpeqd xmm6, XMMWORD PTR XMM_F1a
+	pand	xmm8, xmm7
 	pand	xmm8, xmm6
-	pmovmskb rcx, xmm8
-	mov	edx, 16			; See if first SSE2 word was the factor
-	shr	rcx, 1
-	jc	short win86		; Yes! Factor found
-	lea	rdx, [rdx+8]		; Last SSE2 word must have been the factor
-;;	jmp	short win86		; Yes! Factor found
+	pmovmskb rdx, xmm8
+	and	rdx, 0F0Fh
+	jz	bsf86			; No, test next factor from sieve
+	shl	rdx, 16
 
-win86:	mov	eax, XMM_F3[rdx]	; Factor found!!! Return it
+win86:	bsf	rdx, rdx		; Look for the set bit(s)
+	mov	eax, XMM_F3[rdx]	; Factor found!!! Return it
 	mov	ebx, XMM_F2[rdx]
 	mov	ecx, XMM_F1[rdx]
 	shl	eax, 2
@@ -4375,7 +5769,7 @@ win86:	mov	eax, XMM_F3[rdx]	; Factor found!!! Return it
 
 atlp74:	finit				; Set for 64-bit precision
 	mov	rsi, sieve		; Sieve address
-	lea	rbp, [rsi+sievesize]	; Sieve end address
+	lea	r10, [rsi+sievesize]	; Sieve end address
 	xor	rdi, rdi		; Count of queued factors to be tested
 	mov	r8, rcx			; Save factor
 	mov	rcx, shift_count
@@ -4389,7 +5783,7 @@ absf74:	bsf	rdx, rax		; Look for a set bit
 	jnz	atest74			; Found one, go test the factor
 	add	rcx, facdist64      	; Add facdist * 64 to the factor
 	adc	rbx, 0
-	cmp	rsi, rbp		; End of sieve?
+	cmp	rsi, r10		; End of sieve?
 	jl	short asvlp74		; Loop to test next sieve qword
 
 ; Check queued counter
@@ -4447,7 +5841,7 @@ atest74:btr	rax, rdx		; Clear the sieve bit
 ; Compute the factor to test and 63 most significant bits of 1 / factor
 ;; OPT...  old 32-bit code....  convert to divpd???
 
-	mov	r12, r8		; Save the factor to test
+	mov	r12, r8			; Save the factor to test
 	mov	r13, r9
 	shld	r13, r12, 34
 	mov	temp, r13
@@ -4482,17 +5876,10 @@ atest74:btr	rax, rdx		; Clear the sieve bit
 ; Now test the accumulated trial factors
 ;
 
-;; OPT - save/restore fewer registers  (affects winner checking and avx2_fac_initval code)
-ado74:	mov	SAVED_REG1, rsi		; Save sieve testing registers
-	mov	SAVED_REG2, rax
-	mov	SAVED_REG3, rbx
-	mov	SAVED_REG4, rcx
-	mov	SAVED_REG5, rbp
-
 ; Work on initval.
 ; This is like the aloop74 code except that we avoid the initial squaring.
 
-	avx2_fac_initval
+ado74:	avx2_fac_initval
 
 ; Square remainder and get new remainder.
 
@@ -4500,29 +5887,28 @@ ado74:	mov	SAVED_REG1, rsi		; Save sieve testing registers
 aloop74:avx2_fac 74
 	dec	edi			; Decrement loop counter
 	jnz	aloop74
+;;	sub	rdi, rdi		; Clear queued factors count
 
 ; If result = factor + 1, then we found a divisor of 2**p - 1
 
-	avx2_compare
+	avx2_compare_part1
 	vpcmpeqq ymm2, ymm2, YMMWORD PTR YMM_F3	; See if any remainder is factor + 1
+	vpcmpeqq ymm8, ymm8, YMMWORD PTR YMM_F3a ; See if any remainder is factor + 1
+	vpor	ymm0, ymm2, ymm8
+	vptest	ymm0, ymm0		; See if any least significant words indicate a possible factor
+	jz	absf74			; No, test next factor from sieve
+
+	avx2_compare_part2
 	vpcmpeqq ymm1, ymm1, YMMWORD PTR YMM_F2
 	vpcmpeqq ymm0, ymm0, YMMWORD PTR YMM_F1
 	vpand	ymm2, ymm2, ymm1
 	vptest	ymm2, ymm0
 	jnz	short awin74_1		; Jump if a factor found
-	vpcmpeqq ymm8, ymm8, YMMWORD PTR YMM_F3a ; See if any remainder is factor + 1
 	vpcmpeqq ymm7, ymm7, YMMWORD PTR YMM_F2a
 	vpcmpeqq ymm6, ymm6, YMMWORD PTR YMM_F1a
 	vpand	ymm8, ymm8, ymm7
 	vptest	ymm8, ymm6
 	jnz	short awin74_2		; Jump if a factor found
-
-	sub	rdi, rdi		; Clear queued factors count
-	mov	rbp, SAVED_REG5		; Restore sieve testing register
-	mov	rcx, SAVED_REG4
-	mov	rbx, SAVED_REG3
-	mov	rax, SAVED_REG2
-	mov	rsi, SAVED_REG1
 	jmp	absf74			; Test next factor from sieve
 
 awin74_1:
@@ -4579,7 +5965,7 @@ awin74:	mov	eax, YMM_F3[rdx]	; Factor found!!! Return it
 
 atlp86:	finit				; Set for 64-bit precision
 	mov	rsi, sieve		; Sieve address
-	lea	rbp, [rsi+sievesize]	; Sieve end address
+	lea	r10, [rsi+sievesize]	; Sieve end address
 	xor	rdi, rdi		; Count of queued factors to be tested
 	mov	r8, rcx			; Save factor
 	mov	rcx, shift_count
@@ -4593,7 +5979,7 @@ absf86:	bsf	rdx, rax		; Look for a set bit
 	jnz	atest86			; Found one, go test the factor
 	add	rcx, facdist64      	; Add facdist * 64 to the factor
 	adc	rbx, 0
-	cmp	rsi, rbp		; End of sieve?
+	cmp	rsi, r10		; End of sieve?
 	jl	short asvlp86		; Loop to test next sieve qword
 
 ; Check queued counter
@@ -4686,17 +6072,10 @@ atest86:btr	rax, rdx		; Clear the sieve bit
 ; Now test the accumulated trial factors
 ;
 
-;; OPT - save/restore fewer registers  (affects winner checking and avx2_fac_initval code)
-ado86:	mov	SAVED_REG1, rsi		; Save sieve testing registers
-	mov	SAVED_REG2, rax
-	mov	SAVED_REG3, rbx
-	mov	SAVED_REG4, rcx
-	mov	SAVED_REG5, rbp
-
 ; Work on initval.
 ; This is like the aloop86 code except that we avoid the initial squaring.
 
-	avx2_fac_initval
+ado86:	avx2_fac_initval
 
 ; Square remainder and get new remainder.
 
@@ -4704,29 +6083,28 @@ ado86:	mov	SAVED_REG1, rsi		; Save sieve testing registers
 aloop86:avx2_fac 86
 	dec	edi			; Decrement loop counter
 	jnz	aloop86
+;;	sub	rdi, rdi		; Clear queued factors count
 
 ; If result = factor + 1, then we found a divisor of 2**p - 1
 
-	avx2_compare
+	avx2_compare_part1
 	vpcmpeqq ymm2, ymm2, YMMWORD PTR YMM_F3	; See if any remainder is factor + 1
+	vpcmpeqq ymm8, ymm8, YMMWORD PTR YMM_F3a ; See if any remainder is factor + 1
+	vpor	ymm0, ymm2, ymm8
+	vptest	ymm0, ymm0		; See if any least significant words indicate a possible factor
+	jz	absf86			; No, test next factor from sieve
+
+	avx2_compare_part2
 	vpcmpeqq ymm1, ymm1, YMMWORD PTR YMM_F2
 	vpcmpeqq ymm0, ymm0, YMMWORD PTR YMM_F1
 	vpand	ymm2, ymm2, ymm1
 	vptest	ymm2, ymm0
 	jnz	short awin86_1		; Jump if a factor found
-	vpcmpeqq ymm8, ymm8, YMMWORD PTR YMM_F3a ; See if any remainder is factor + 1
 	vpcmpeqq ymm7, ymm7, YMMWORD PTR YMM_F2a
 	vpcmpeqq ymm6, ymm6, YMMWORD PTR YMM_F1a
 	vpand	ymm8, ymm8, ymm7
 	vptest	ymm8, ymm6
 	jnz	short awin86_2		; Jump if a factor found
-
-	sub	rdi, rdi		; Clear queued factors count
-	mov	rbp, SAVED_REG5		; Restore sieve testing register
-	mov	rcx, SAVED_REG4
-	mov	rbx, SAVED_REG3
-	mov	rax, SAVED_REG2
-	mov	rsi, SAVED_REG1
 	jmp	absf86			; Test next factor from sieve
 
 awin86_1:
@@ -4772,6 +6150,262 @@ awin86:	mov	eax, YMM_F3[rdx]	; Factor found!!! Return it
 	mov	FACHSW, ecx
 	mov	rax, 1			; return TRUE
 	jmp	done
+
+
+;***************************************************************************
+; For 48 to 96-bit factors using AVX and FMA (only tested to 2^92 in C code)
+;***************************************************************************
+
+;
+; Check all the bits in the sieve looking for a factor to test
+;
+
+	QUEUE_COUNT = 12
+ftlp96:	mov	rsi, sieve		; Sieve address
+	lea	r10, [rsi+sievesize]	; Sieve end address
+	mov	rdi, QUEUE_COUNT	; Count of queued factors to be tested
+	mov	r12, rcx		; Move factor LSW to r12, we use rcx for shift counts within our loop
+	mov	ecx, FMA_64_MINUS_LOW_BITS ; Load constant for shifting trial factors
+fsvlp96:mov	rax, [rsi]		; Load word from sieve
+	lea	rsi, [rsi+8]		; Bump sieve address
+fbsf96:	bsf	rdx, rax		; Look for a set bit
+	jnz	ftest96			; Found one, go test the factor
+	add	r12, facdist64      	; Add facdist * 64 to the factor
+	adc	rbx, 0
+	cmp	rsi, r10		; End of sieve?
+	jl	short fsvlp96		; Loop to test next sieve qword
+
+; Check queued counter
+
+	cmp	rdi, QUEUE_COUNT	; Are there untested factors?
+	jne	short frem96a		; Yes, test them
+
+; Return so caller can check for ESC
+
+	shr	r12, 32
+	mov	FACMSW, r12d
+	mov	FACHSW, ebx
+	mov	rax, 2			; Return for ESC check
+	jmp	done
+
+; Test less-than-full queue by copying first trial factor in the queue
+
+frem96a:sub	r12, facdist64      	; Undo the add of facdist * 64 to rcx
+	sbb	rbx, 0			; it will be re-added when we branch back to bsf96
+frem96:	mov	r8, YMM_FMA_FAC_HI_INT[QUEUE_COUNT*8-8]	; Copy first trial factor
+	mov	r9, YMM_FMA_FAC_LO_INT[QUEUE_COUNT*8-8]
+	mov	YMM_FMA_FAC_HI_INT[rdi*8-8], r8
+	mov	YMM_FMA_FAC_LO_INT[rdi*8-8], r9
+	dec	rdi			; One more factor queued up
+	jnz	short frem96		; No, go copy another
+	jmp	fdo96			; Yes, go test them
+
+;
+; Gather trial factors to be tested all at once to minimize
+; processor stalls.
+;
+
+ftest96:btr	rax, rdx		; Clear the sieve bit
+	mov	r8, r12			; Copy base factor
+	mov	r9, rbx
+	add	r8, facdists[rdx*8]	; Determine factor to test
+	adc	r9, 0
+
+; Save the factor as integers.  We start the normalize and convert to doubles here since we do not have AVX2 available.
+
+;mov	r9, FOO1
+;mov	r8, FOO2
+	shld	r9, r8, cl
+	mov	YMM_FMA_FAC_HI_INT[rdi*8-8], r9
+	mov	YMM_FMA_FAC_LO_INT[rdi*8-8], r8
+
+; Check to see if we've accumulated enough factors to test
+
+	dec	rdi			; One more factor queued up, queue full?
+	jnz	fbsf96			; No, go test more sieve bits
+
+;
+; Now test the accumulated trial factors
+;
+
+; Work on initval.
+; This is like the floop96 code except that we avoid the initial squaring.
+
+fdo96:	avx_fma_fac_initval
+
+; Repeatedly square remainder and get new remainder.
+
+	mov	edi, SSE2_LOOP_COUNTER	; Number of times to loop
+floop96:avx_fma_fac
+	dec	edi			; Decrement loop counter
+	jnz	floop96
+	mov	rdi, QUEUE_COUNT	; Count of queued factors to be tested
+
+; If result = factor + 1, then we found a divisor of 2**p - 1
+
+	avx_fma_compare
+	vmovapd	ymm0, YMMWORD PTR YMM_FMA_ONE	; See if any remainder is 1
+	vcmpeqpd ymm2, ymm2, ymm0
+	vcmpeqpd ymm6, ymm6, ymm0
+	vcmpeqpd ymm10, ymm10, ymm0
+	vorpd	ymm0, ymm2, ymm6
+	vorpd	ymm0, ymm0, ymm10
+	vptest	ymm0, ymm0
+	jz	fbsf96			; If no factor found, test next factor from sieve
+
+	vmovmskpd rcx, ymm10		; Merge masks into one register
+	vmovmskpd rdx, ymm6
+	shl	rcx, 4
+	or	rcx, rdx
+	vmovmskpd rdx, ymm2
+	shl	rcx, 4
+	or	rcx, rdx
+	bsf	rdx, rcx		; Look for the set bit
+
+	mov	rax, YMM_FMA_FAC_LO_INT[rdx*8]	; Factor found!!! Return it
+	mov	rbx, YMM_FMA_FAC_HI_INT[rdx*8]
+	mov	ecx, FMA_64_MINUS_LOW_BITS
+	shl	rax, cl
+	shrd	rax, rbx, cl
+	mov	FACLSW, eax		; Save LSW (low 32 bits)
+	shr	rax, 32
+	mov	FACMSW, eax		; Save MSW
+	shr	rbx, cl
+	mov	FACHSW, ebx		; Save HSW
+	mov	rax, 1			; return TRUE
+	jmp	done
+
+
+;******************************************************************************
+; For 48 to 96-bit factors using AVX512 and FMA (only tested to 2^92 in C code)
+;******************************************************************************
+
+;
+; Check all the bits in the sieve looking for a factor to test
+;
+
+	QUEUE_COUNT = 32
+zftlp96:mov	rsi, sieve		; Sieve address
+	lea	r10, [rsi+sievesize]	; Sieve end address
+	mov	rdi, QUEUE_COUNT	; Count of queued factors to be tested
+	mov	r12, rcx		; Move factor LSW to r12, we use rcx for shift counts within our loop
+	mov	ecx, FMA_64_MINUS_LOW_BITS ; Load constant for shifting trial factors
+	avx512_fma_fac_init_once	; Load constants for AVX512 code
+zfsvlp96:mov	rax, [rsi]		; Load word from sieve
+	lea	rsi, [rsi+8]		; Bump sieve address
+zfbsf96:bsf	rdx, rax		; Look for a set bit
+	jnz	zftest96		; Found one, go test the factor
+	add	r12, facdist64      	; Add facdist * 64 to the factor
+	adc	rbx, 0
+	cmp	rsi, r10		; End of sieve?
+	jl	short zfsvlp96		; Loop to test next sieve qword
+
+; Check queued counter
+
+	cmp	rdi, QUEUE_COUNT	; Are there untested factors?
+	jne	short zfrem96a		; Yes, test them
+
+; Return so caller can check for ESC
+
+	shr	r12, 32
+	mov	FACMSW, r12d
+	mov	FACHSW, ebx
+	mov	rax, 2			; Return for ESC check
+	jmp	done
+
+; Test less-than-full queue by copying first trial factor in the queue
+
+zfrem96a:sub	r12, facdist64      	; Undo the add of facdist * 64 to rcx
+	sbb	rbx, 0			; it will be re-added when we branch back to bsf96
+zfrem96:mov	r8, ZMM_FMA_FAC_HI_INT[QUEUE_COUNT*8-8]	; Copy first trial factor
+	mov	r9, ZMM_FMA_FAC_LO_INT[QUEUE_COUNT*8-8]
+	mov	ZMM_FMA_FAC_HI_INT[rdi*8-8], r8
+	mov	ZMM_FMA_FAC_LO_INT[rdi*8-8], r9
+	dec	rdi			; One more factor queued up
+	jnz	short zfrem96		; No, go copy another
+	jmp	zfdo96			; Yes, go test them
+
+;
+; Gather trial factors to be tested all at once to minimize
+; processor stalls.
+;
+
+zftest96:btr	rax, rdx		; Clear the sieve bit
+	mov	r8, r12			; Copy base factor
+	mov	r9, rbx
+	add	r8, facdists[rdx*8]	; Determine factor to test
+	adc	r9, 0
+
+;;;BUG - can we do the adds above using AVX2?  carries are a bit of an issue
+
+; Save the factor as integers.  We will normalize and convert to doubles in AVX code.
+
+;mov	r9, FOO1
+;mov	r8, FOO2
+	shld	r9, r8, cl
+	mov	ZMM_FMA_FAC_HI_INT[rdi*8-8], r9
+	mov	ZMM_FMA_FAC_LO_INT[rdi*8-8], r8
+
+; Check to see if we've accumulated enough factors to test
+
+	dec	rdi			; One more factor queued up, queue full?
+	jnz	zfbsf96			; No, go test more sieve bits
+
+;
+; Now test the accumulated trial factors
+;
+
+; Work on initval.
+; This is like the zfloop96 code except that we avoid the initial squaring.
+
+zfdo96:	avx512_fma_fac_initval
+
+; Repeatedly square remainder and get new remainder.
+
+	mov	edi, SSE2_LOOP_COUNTER	; Number of times to loop
+zfloop96:avx512_fma_fac
+	dec	edi			; Decrement loop counter
+	jnz	zfloop96
+	mov	rdi, QUEUE_COUNT	; Count of queued factors to be tested
+
+; If result = factor + 1, then we found a divisor of 2**p - 1
+
+	avx512_fma_compare
+	vmovapd	zmm0, ZMMWORD PTR ZMM_FMA_ONE	; See if any remainder is 1
+	vcmpeqpd k1, zmm2, zmm0
+	vcmpeqpd k2, zmm9, zmm0
+	vcmpeqpd k3, zmm16, zmm0
+	vcmpeqpd k4, zmm23, zmm0
+	korw	k5, k1, k2
+	korw	k5, k5, k3
+	kortestw k5, k4
+	jz	zfbsf96			; If no factor found, test next factor from sieve
+
+	kmovw	ecx, k4			; Merge the masks into one register
+	kmovw	edx, k3
+	shl	rcx, 8
+	or	rcx, rdx
+	kmovw	edx, k2
+	shl	rcx, 8
+	or	rcx, rdx
+	kmovw	edx, k1
+	shl	rcx, 8
+	or	rcx, rdx
+	bsf	rdx, rcx		; Look for the set bit
+
+	mov	rax, ZMM_FMA_FAC_LO_INT[rdx*8]	; Factor found!!! Return it
+	mov	rbx, ZMM_FMA_FAC_HI_INT[rdx*8]
+	mov	ecx, FMA_64_MINUS_LOW_BITS
+	shl	rax, cl
+	shrd	rax, rbx, cl
+	mov	FACLSW, eax		; Save LSW (low 32 bits)
+	shr	rax, 32
+	mov	FACMSW, eax		; Save MSW
+	shr	rbx, cl
+	mov	FACHSW, ebx		; Save HSW
+	mov	rax, 1			; return TRUE
+	jmp	done
+
 
 ; Pop registers and return
 

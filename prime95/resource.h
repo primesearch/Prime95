@@ -41,6 +41,7 @@
 #define IDD_PREFERENCES                 135
 #define IDC_CURSOR2                     135
 #define IDD_PRIMENET                    145
+#define IDD_BENCHMARK			146
 #define IDD_MANUAL_COMM                 149
 #define IDD_ECM                         150
 #define IDD_PMINUS1                     152
@@ -60,6 +61,8 @@
 #define IDC_EDIT1                       1001
 #define IDC_BACKUP                      1001
 #define IDC_BATTERY                     1002
+#define IDC_ALL_FFT_SIZES		1003
+#define IDC_ONE_CORE			1004
 #define IDC_P                           1005
 #define IDC_DISK                        1006
 #define IDC_HOURS                       1006
@@ -86,8 +89,14 @@
 #define IDC_COMPID                      1017
 #define IDC_P6                          1017
 #define IDC_USERNAME                    1018
+#define IDC_ALL_CORES			1019
+#define IDC_OTHER_CORES			1020
+#define IDC_HYPERTHREADING		1021
+#define IDC_ONE_WORKER			1022
 #define IDC_WORKGROUP                   1023
+#define IDC_MAX_WORKERS			1023
 #define IDC_NETWORK_TEXT                1024
+#define IDC_OTHER_WORKERS		1024
 #define IDC_END_DATES_TEXT              1025
 #define IDC_PRIMENET                    1026
 #define IDC_MODEM_TEXT                  1026
@@ -96,13 +105,13 @@
 #define IDC_COMPLETION                  1029
 #define IDC_MEMORY_TEXT                 1029
 #define IDC_PRIORITY                    1029
-#define IDC_AFFINITY                    1030
 #define IDC_MAXFFT_TEXT                 1030
 #define IDC_TIMEFFT_TEXT                1031
 #define IDC_DIALUP                      1033
 #define IDC_MANUAL                      1035
 #define IDC_NOW                         1036
-#define IDC_AFFINITY_TEXT               1038
+#define IDC_HYPER_LL			1037
+#define IDC_HYPER_TF			1038
 #define IDC_THREADNUM_TEXT              1040
 #define IDC_NUMCPUS_TEXT                1041
 #define IDC_DAY_MEMORY_TEXT             1042

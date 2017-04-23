@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2016 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -9,13 +9,6 @@
 | Commonb contains information used only during execution
 | Commonc contains information used during setup and execution
 +---------------------------------------------------------------------*/
-
-/* Set a #define for OSes where we cannot set affinities.  This will */
-/* force us into a different code path in a few places. */
-
-#ifdef __APPLE__
-#define OS_CANNOT_SET_AFFINITY
-#endif
 
 /* Globals for error messages */
 
@@ -326,472 +319,302 @@ void print_timer (
 /*    Routines dealing with thread priority and affinity      */
 /**************************************************************/
 
-/* Macros to aid in setting affinity masks */
-
-#define maskset(x)	mask[(x)/32] |= (1 << ((x) & 31))
-#define maskget(m,x)	(m[(x)/32] & (1 << ((x) & 31)))
-
-/* Busy loop to keep a physical CPU cores occupied.  This will */
-/* help us identify the hyperthreaded logical CPUs running on the */
-/* same physical CPU. */
-
-int	affinity_busy_cpu_num = 0;
-
-void affinity_busy_loop (void *arg)
-{
-	int	cpu_num, mask[MAX_NUM_WORKER_THREADS/32];
-
-/* Set the affinity so that busy loop runs on the specified CPU core */
-
-	cpu_num = (int) (intptr_t) arg;
-	memset (mask, 0, sizeof (mask));
-	maskset (cpu_num);
-	setThreadPriorityAndAffinity (8, mask);		// Call OS-specific routine to set affinity
-
-/* Stay busy until affinity_busy_cpu_num says this CPU thread should close */
-
-	affinity_busy_cpu_num = cpu_num;
-	while (affinity_busy_cpu_num == cpu_num) one_hundred_thousand_clocks ();
-}
-
-/* Try to determine which hyperthreaded logical CPUs map to the same physical CPUs. */
-/* Generate an "affinity scramble" that maps our internal numbering of logical CPUs */
-/* that map to the same physical CPU core to OS's numbering of logical CPUs */
-/* that map to the same physical CPU core. */
-
-short	AFFINITY_SCRAMBLE[MAX_NUM_WORKER_THREADS] = {0};
-char	AFFINITY_SCRAMBLE_STATE = 0;	/* 0 = not initialized, 1 = computed, 2 = read in from local.txt */
-
-void generate_affinity_scramble_thread (void *arg)
-{
-	char	mapped_cpus[MAX_NUM_WORKER_THREADS];	/* Logical CPUs whose mate has been found */
-	char	scramble[65];				/* Affinity scramble from local.txt.  Up to 64 affinities can be scrambled. */
-	int	mask[MAX_NUM_WORKER_THREADS/32];
-	unsigned int i, j, k, n, diff, num_successes;
-	int	saved_rdtsc_timing, debug;
-	double	timers[1], best_100000, test_100000, saved_100000[MAX_NUM_WORKER_THREADS];
-	gwthread thread_id;
-	char	buf[128];
-
-/* Get the optional (and rarely needed) AffinityScramble2 string from local.txt */
-
-	IniGetString (LOCALINI_FILE, "AffinityScramble2", scramble, sizeof (scramble), "*");
-
-/* Get the debug flag (0 = no debugging, 1 = output debug info, 2 = bypass auto-detection code) */
-
-	debug = IniGetInt (INI_FILE, "DebugAffinityScramble", 0);
-	if (debug == 2) {
-		AFFINITY_SCRAMBLE_STATE = 0;
-		goto no_auto_detect;
-	}
-
-/* Use the highly accurate RDTSC instruction for timings. */
-
-	saved_rdtsc_timing = RDTSC_TIMING;
-	RDTSC_TIMING = 13;
-
-/* Now search for sets of logical CPUs that comprise a physical CPU */
-
-	memset (AFFINITY_SCRAMBLE, 0xFF, sizeof (AFFINITY_SCRAMBLE));
-	memset (mapped_cpus, 0, sizeof (mapped_cpus));
-
-/* Loop over each physical CPU core */
-
-	diff = num_successes = 0;
-	for (i = 0; i < NUM_CPUS; i++) {
-
-/* Find the first logical CPU that we have associated with a physical */
-/* CPU core.  This logical CPU will become the first one associated */
-/* with this physical CPU. */
-
-		for (k = 0; k < NUM_CPUS * CPU_HYPERTHREADS; k++)
-			if (mapped_cpus[k] == 0) break;
-		AFFINITY_SCRAMBLE[i*CPU_HYPERTHREADS] = k;
-		mapped_cpus[k] = 1;
-
-/* Time the 100,000 clock routine when (hopefully) nothing is running on the CPU core */
-
-		memset (mask, 0, sizeof (mask));
-		maskset (k);
-		setThreadPriorityAndAffinity (8, mask);		// Call OS-specific routine to set affinity
-		for (n = 0; n < 10; n++) {
-			clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
-			start_timer (timers, 0);
-			one_hundred_thousand_clocks ();
-			end_timer (timers, 0);
-			if (n == 0 || timers[0] < best_100000) best_100000 = timers[0];
-		}
-
-		if (debug) {
-			sprintf (buf, "Test clocks on logical CPU #%d: %d\n", (int) k+1, (int) best_100000);
-			OutputStr (MAIN_THREAD_NUM, buf);
-		}
-
-/* Start a thread on the logical CPU.  In theory, the hyperthreaded */
-/* logical CPUs that are also running on this physical CPU will now */
-/* run at half speed.  We sleep for a tad to give the thread time to start. */
-
-		affinity_busy_cpu_num = 99999;
-		gwthread_create (&thread_id, &affinity_busy_loop, (void *) (intptr_t) k);
-		while (affinity_busy_cpu_num == 99999) Sleep (1);
-
-/* Now search for the all the hyperthreaded logical CPUs running on the */
-/* same physical CPU */
-
-		for (j = 1; j < CPU_HYPERTHREADS; j++) {
-
-/* Find an unmapped logical CPU to run timings on */
-
-			for (k = 0; k < NUM_CPUS * CPU_HYPERTHREADS; k++) {
-				if (mapped_cpus[k]) continue;
-
-/* Set this thread to run on the unmapped logical CPU */
-
-				memset (mask, 0, sizeof (mask));
-				maskset (k);
-				setThreadPriorityAndAffinity (8, mask);		// Call OS-specific routine to set affinity
-
-/* Run several timings, getting the best timing */
-
-				for (n = 0; n < 10; n++) {
-					clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
-					start_timer (timers, 0);
-					one_hundred_thousand_clocks ();
-					end_timer (timers, 0);
-					if (n == 0 || timers[0] < test_100000) test_100000 = timers[0];
-				}
-
-				if (debug) {
-					sprintf (buf, "Logical CPU %d clocks: %d\n", (int) k+1, (int) test_100000);
-					OutputStr (MAIN_THREAD_NUM, buf);
-				}
-
-/* If this thread is running at half speed then this is a hyperthreaded */
-/* logical CPU running on the same physical CPU core. */
-
-				if (test_100000 >= 1.9 * best_100000 && test_100000 <= 2.03 * best_100000)
-					break;
-
-/* Remember timing for a possible secondary test at the end of the loop */
-
-				saved_100000[k] = test_100000;
-			}
-
-/* If we didn't find a logical CPU running at half speed, go to our second */
-/* option.  Look for one logical CPU that ran significantly slower than all the others */
-/* For example, on our Core i7 one of the hyperthreaded CPUs has a best time of */
-/* approximately 178,000 clocks while all the others are the expected 100,000 clocks. */
-
-			if (k == NUM_CPUS * CPU_HYPERTHREADS) {
-				unsigned int worst_k, count_slow_cpus;
-
-				worst_k = 99999;
-				for (k = 0; k < NUM_CPUS * CPU_HYPERTHREADS; k++) {
-					if (mapped_cpus[k]) continue;
-					if (worst_k == 99999 || saved_100000[k] > saved_100000[worst_k])
-						worst_k = k;
-				}
-
-				count_slow_cpus = 0;
-				for (k = 0; k < NUM_CPUS * CPU_HYPERTHREADS; k++) {
-					if (mapped_cpus[k]) continue;
-					if (saved_100000[k] > saved_100000[worst_k] - 0.4 * test_100000)
-						count_slow_cpus++;
-				}
-
-				if (count_slow_cpus == 1) k = worst_k;
-			}
-
-/* If we found a hyperthread CPU, set the affinity scramble mask to */
-/* note the logical CPU is running on the same physical CPU core. */
-
-			if (k < NUM_CPUS * CPU_HYPERTHREADS) {
-				AFFINITY_SCRAMBLE[i*CPU_HYPERTHREADS+j] = k;
-				mapped_cpus[k] = 1;
-				num_successes++;
-
-/* Remember difference in logical CPU numbers.  We'll use this to make a good guess */
-/* of the affinity scramble string in the case where we cannot figure out every set */
-/* of logical CPUs running on physical CPUs. */
-
-				if (diff == 0 || diff == k - AFFINITY_SCRAMBLE[i*CPU_HYPERTHREADS+j-1])
-					diff = k - AFFINITY_SCRAMBLE[i*CPU_HYPERTHREADS+j-1];
-				else
-					diff = 99999;
-			}
-		}
-
-/* Terminate the thread that is running the first logical CPU of this physical CPU */
-
-		affinity_busy_cpu_num = 100000;
-	}
-	RDTSC_TIMING = saved_rdtsc_timing;
-
-/* Now handle the case where we haven't properly identified all the hyperthreaded logical CPUs */
-
-	AFFINITY_SCRAMBLE_STATE = 1;
-	if (num_successes != NUM_CPUS * (CPU_HYPERTHREADS-1)) {
-		if (diff == 0) {
-			OutputStr (MAIN_THREAD_NUM, "Unable to detect which logical CPUs are hyperthreaded.\n");
-			AFFINITY_SCRAMBLE_STATE = 0;
-		} else {
-			OutputStr (MAIN_THREAD_NUM, "Unable to detect some of the hyperthreaded logical CPUs.\n");
-			for (k = 1; k < NUM_CPUS * CPU_HYPERTHREADS; k++) {
-				if (AFFINITY_SCRAMBLE[k] == -1) {
-					j = AFFINITY_SCRAMBLE[k-1] + diff;
-					if (j < NUM_CPUS * CPU_HYPERTHREADS && !mapped_cpus[j]) {
-						AFFINITY_SCRAMBLE[k] = j;
-						mapped_cpus[j] = 1;
-					}
-					else
-						diff = 99999;
-				}
-			}
-			if (diff == 99999) {
-				AFFINITY_SCRAMBLE_STATE = 0;
-			} else {
-				OutputStr (MAIN_THREAD_NUM, "Have enough information to make a reasonable guess.\n");
-			}
-		}
-		if (AFFINITY_SCRAMBLE_STATE == 0 && scramble[0] == '*') {
-			OutputStr (MAIN_THREAD_NUM, "Assuming logical CPUs 1 and 2, 3 and 4, etc. are each from one physical CPU core.\n");
-			OutputStr (MAIN_THREAD_NUM, "To the best of my knowledge this assumption is only valid for Microsoft Windows.\n");
-			OutputStr (MAIN_THREAD_NUM, "To override this assumption, see AffinityScramble2 in undoc.txt.\n");
-		}
-	}
-
-/* Output our findings */
-
-	if (AFFINITY_SCRAMBLE_STATE == 1) {
-		for (i = 0; i < NUM_CPUS; i++) {
-			strcpy (buf, "Logical CPUs ");
-			for (j = 0; j < CPU_HYPERTHREADS; j++) {
-				sprintf (buf+strlen(buf), "%d,", (int) AFFINITY_SCRAMBLE[i*CPU_HYPERTHREADS+j] + 1);
-			}
-			strcpy (buf+strlen(buf)-1, " form one physical CPU.\n");
-			OutputStr (MAIN_THREAD_NUM, buf);
-		}
-	}
-
-/* Parse the optional string used to set the affinity mask bits */
-/* on machines where auto-detection does not work. */
-
-no_auto_detect:
-	if (scramble[0] != '*') {
-		OutputStr (MAIN_THREAD_NUM, "Using AffinityScramble2 setting to set affinity mask.\n");
-		AFFINITY_SCRAMBLE_STATE = 2;
-		for (i = 0; i < MAX_NUM_WORKER_THREADS && i < strlen (scramble); i++) {
-			if (scramble[i] >= '0' && scramble[i] <= '9')
-				AFFINITY_SCRAMBLE[i] = scramble[i] - '0';
-			else if (scramble[i] >= 'A' && scramble[i] <= 'Z')
-				AFFINITY_SCRAMBLE[i] = scramble[i] - 'A' + 10;
-			else if (scramble[i] >= 'a' && scramble[i] <= 'z')
-				AFFINITY_SCRAMBLE[i] = scramble[i] - 'a' + 36;
-			else if (scramble[i] == '(')
-				AFFINITY_SCRAMBLE[i] = 62;
-			else if (scramble[i] == ')')
-				AFFINITY_SCRAMBLE[i] = 63;
-			else
-				AFFINITY_SCRAMBLE[i] = i;  /* Illegal entry = no mapping */
-		}
-	}
-
-/* Mark all the unused logical CPU numbers as "no scramble" */
-
-	for (k = NUM_CPUS * CPU_HYPERTHREADS; k < MAX_NUM_WORKER_THREADS; k++) AFFINITY_SCRAMBLE[k] = k;
-}
-
-/* Try to determine which hyperthreaded logical CPUs map to the same physical CPUs */
-/* All our internal code uses this scheme: if there are N cpus with hyperthreading, */
-/* then physical cpu 0 is logical cpu 0 and 1, physical cpu 1 is logical cpu 2 and 3, etc. */
-/* When launching threads, we apply the dynamically generated affinity scramble computed */
-/* here to map our internal scheme to the numbering scheme that the OS is using. */
-
-void generate_affinity_scramble (void)
-{
-	gwthread thread_id;
-
-/* If the CPU does not support hyperthreading, then were done */
-/* If there is only one physical CPU, then affinity scrambling isn't needed */
-
-	if (CPU_HYPERTHREADS == 1 || NUM_CPUS == 1) return;
-
-/* There is no need to scare users with error-like messages when we can't set affinity */
-
-#ifdef OS_CANNOT_SET_AFFINITY
-	return;
-#endif
-
-/* Do the scramble computations in a separate thread to avoid changing the main thread's priority */
-
-	gwthread_create_waitable (&thread_id, &generate_affinity_scramble_thread, NULL);
-	gwthread_wait_for_exit (&thread_id);
-}
-
-	
-/* Set the thread priority correctly.  Most screen savers run at priority 4. */
+/* Set thread priority and affinity correctly.  Most screen savers run at priority 4. */
 /* Most application's run at priority 9 when in foreground, 7 when in */
 /* background.  In selecting the proper thread priority I've assumed the */
 /* program usually runs in the background. */ 
 
-/* This routine is also responsible for setting the thread's CPU affinity. */
-/* If there are N cpus with hyperthreading, then physical cpu 0 is logical */
-/* cpu 0 and 1, physical cpu 1 is logical cpu 2 and 3, etc. */
-
 void SetPriority (
 	struct PriorityInfo *info)
 {
-	unsigned int i;
-	int	mask[MAX_NUM_WORKER_THREADS/32];
+	int	bind_type, core;
+#ifdef BIND_TYPE_1_USED
+	int	logical_CPU;
+#endif
+	char	logical_CPU_string[255];
+	char	logical_CPU_substring[255];
+	char	buf[255];
 
-/* Benchmarking affinity with no hyperthreading. */
+/* Call OS-specific routine to set the priority */
 
-	if (info->type == SET_PRIORITY_BENCHMARKING) {
-		int	cpu;
-		cpu = info->thread_num + info->aux_thread_num;
-		memset (mask, 0, sizeof (mask));
-		for (i = 0; i < CPU_HYPERTHREADS; i++) maskset (cpu * CPU_HYPERTHREADS + i);
-	}
+	if (IniGetInt (INI_FILE, "EnableSetPriority", 1))
+		setOsThreadPriority (PRIORITY);
 
-/* Benchmarking affinity.  For hyperthreaded CPUs, we put auxiliary */
-/* threads onto the logical CPUs before moving onto the next physical CPU. */  
+/* Skip setting affinity if requested by user.  There is no known reason to do this at present. */
 
-	else if (info->type == SET_PRIORITY_BENCHMARKING_HYPER) {
-		int	cpu;
-		cpu = info->thread_num + info->aux_thread_num / CPU_HYPERTHREADS;
-		memset (mask, 0, sizeof (mask));
-		for (i = 0; i < CPU_HYPERTHREADS; i++) maskset (cpu * CPU_HYPERTHREADS + i);
-	}
+	if (! IniGetInt (INI_FILE, "EnableSetAffinity", 1)) return;
+
+/* Skip setting affinity if OS does not support it.  At present time, that is Apple. */
+
+	if (!OS_CAN_SET_AFFINITY) return;
+
+/* Gather some topology information */
+
+
+/* Pick from one of several methodologies to determine affinity setting */
+
+	switch (info->type) {
+
+/* QA affinity.  Let threads run on any CPU. */
+
+	case SET_PRIORITY_QA:
+		return;
+
+/* Advanced/Time affinity.  Set affinity to appropriate core. */
+
+	case SET_PRIORITY_TIME:
+		bind_type = 0;				// Set affinity to one specific core
+		core = info->aux_thread_num / info->time_hyperthreads;
+		break;
+
+/* Busy loop on specified CPU core. */
+
+	case SET_PRIORITY_BUSY_LOOP:
+		bind_type = 0;				// Set affinity to one specific core
+		core = info->busy_loop_cpu;
+		break;
 
 /* Torture test affinity.  If we're running the same number of torture */
 /* tests as CPUs if the system then set affinity.  Otherwise, let the */
 /* threads run on any CPU. */
 
-	else if (info->type == SET_PRIORITY_TORTURE) {
-		if (info->num_threads == NUM_CPUS * CPU_HYPERTHREADS) {
-			memset (mask, 0, sizeof (mask));
-			maskset (info->thread_num);
-		} else if (info->num_threads == NUM_CPUS) {
-			memset (mask, 0, sizeof (mask));
-			for (i = 0; i < CPU_HYPERTHREADS; i++) maskset (info->thread_num * CPU_HYPERTHREADS + i);
+	case SET_PRIORITY_TORTURE:
+		if (info->torture_num_workers * info->torture_threads_per_test == NUM_CPUS * CPU_HYPERTHREADS) {
+			bind_type = 0;				// Set affinity to one specific core
+			core = (info->worker_num * info->torture_threads_per_test + info->aux_thread_num) / CPU_HYPERTHREADS;
+		} else if (info->torture_num_workers * info->torture_threads_per_test == NUM_CPUS) {
+			bind_type = 0;				// Set affinity to one specific core
+			core = (info->worker_num * info->torture_threads_per_test + info->aux_thread_num);
 		} else
-			memset (mask, 0xFF, sizeof (mask));
-	}
+			return;					// Run on any core
+		break;
 
-/* QA affinity.  Just let the threads run on any CPU. */
+/* Benchmarking.  Set affinity to appropriate core. */
 
-	else if (info->type == SET_PRIORITY_QA) {
-		memset (mask, 0xFF, sizeof (mask));
-	}
+	case SET_PRIORITY_BENCHMARKING:
+		bind_type = 0;				// Set affinity to one specific core
+		core = info->bench_base_cpu_num + info->aux_thread_num / info->bench_hyperthreads;
+		break;
 
-/* Normal worker threads.  Pay attention to the affinity option set */
-/* by the user. */
+/* If user has given an explicit list of logical CPUs to set affinity to, then use that list. */
+/* Hopefully, there is no real need to ever use this feature. */
 
-/* A CPU_AFFINITY setting of 99 means "run on any CPU". */
-
-	else if (CPU_AFFINITY[info->thread_num] == 99) {
-		memset (mask, 0xFF, sizeof (mask));
-	}
-
-/* A small CPU_AFFINITY setting means run only on that CPU.  Since there is */
-/* no way to explicitly tell us which CPU to run an auxiliary thread on, */
-/* we put the auxiliary threads on the subsequent logical CPUs. */
-
-	else if (CPU_AFFINITY[info->thread_num] < 100) {
-		if (CPU_AFFINITY[info->thread_num] + info->aux_thread_num >= NUM_CPUS * CPU_HYPERTHREADS)
-			memset (mask, 0xFF, sizeof (mask));
-		else {
-			memset (mask, 0, sizeof (mask));
-			maskset (CPU_AFFINITY[info->thread_num] + info->aux_thread_num);
+	case SET_PRIORITY_NORMAL_WORK:
+		{
+			char	section_name[32];
+			const char *p;
+			sprintf (section_name, "Worker #%d", info->worker_num+1);
+			p = IniSectionGetStringRaw (LOCALINI_FILE, section_name, "Affinity");
+			if (p != NULL) {
+				bind_type = 2;				// Set affinity to a set of logical CPUs
+				truncated_strcpy (logical_CPU_string, sizeof (logical_CPU_string), p);
+				break;
+			}
 		}
-	}
 
-/* A CPU_AFFINITY setting of 100 means "smart affinity assignments". */
-/* We've now reached that case. */
-
-/* If all worker threads are not set to smart affinity, then it is */
-/* just too hard to figure out what is best.  Just let the OS run the */
-/* threads on any CPU. */
-
-	else if (! PTOIsGlobalOption (CPU_AFFINITY))
-		memset (mask, 0xFF, sizeof (mask));
-
-/* If number of worker threads equals number of logical cpus then run each */
-/* worker thread on its own logical CPU.  If the user also has us running */
-/* auxiliary threads, then the user has made a really bad decision and a */
-/* performance hit will occur. */
-
-	else if (NUM_WORKER_THREADS == NUM_CPUS * CPU_HYPERTHREADS) {
-		memset (mask, 0, sizeof (mask));
-		maskset (info->thread_num);
-		if (info->aux_thread_num) memset (mask, 0xFF, sizeof (mask));
-	}
-
-/* If number of worker threads equals number of physical cpus then run each */
-/* worker thread on its own physical CPU.  Run auxiliary threads on the same */
-/* physical CPU.  This should be advantageous on hyperthreaded CPUs.  We */
+/* If number of workers equals number of physical cpus then run each */
+/* worker on its own physical CPU.  Run auxiliary threads on the same */
+/* physical CPU.  This might be advantageous on hyperthreaded CPUs.  User */
 /* should be careful to not run more auxiliary threads than available */
 /* logical CPUs created by hyperthreading. */ 
 
-	else if (NUM_WORKER_THREADS == NUM_CPUS) {
-		memset (mask, 0, sizeof (mask));
-		for (i = 0; i < CPU_HYPERTHREADS; i++) maskset (info->thread_num * CPU_HYPERTHREADS + i);
+		if (NUM_WORKER_THREADS == NUM_CPUS) {
+			bind_type = 0;				// Set affinity to a specific physical CPU core
+			core = info->worker_num;
+			break;
+		}
+
+/* If number of workers equals number of logical cpus then run each */
+/* worker on its own logical CPU.  If the user is also running */
+/* auxiliary threads, then the user has made a really bad decision and a */
+/* performance hit will occur running on the same logical CPU. */
+
+		if (NUM_WORKER_THREADS == NUM_CPUS * CPU_HYPERTHREADS) {
+			bind_type = 0;				// Set affinity to a specific physical CPU core
+			core = info->worker_num / CPU_HYPERTHREADS;
+			break;
+		}
+
+/* If total num CPUs == num_cpus, then there is an easy path forward */
+/* Example: a quad-core with worker 1 using 2 CPUs, and workers 2 & 3 each use 1 CPU --- no problem. */
+
+		{
+			int	i, worker_core_count, cores_used_by_lower_workers;
+			worker_core_count = cores_used_by_lower_workers = 0;
+			for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+				worker_core_count += CORES_PER_TEST[i];
+				if (i < info->worker_num) cores_used_by_lower_workers += CORES_PER_TEST[i];
+			}
+
+			if (worker_core_count == NUM_CPUS) {
+				bind_type = 0;			// Set affinity to a specific physical CPU core
+				core = cores_used_by_lower_workers + info->aux_thread_num / info->normal_work_hyperthreads;
+				break;
+			}
+
+/* If total num cores < num_cpus we will give each thread its own CPU.  There is some anecdotal */
+/* evidence that CPU 0 is reserved for interrupt processing (on some OSes), so we leave CPU #0 unused */
+/* (hoping hwloc assigns CPU numbers the same way the OS does). */
+
+			if (worker_core_count < (int) NUM_CPUS) {
+				bind_type = 0;			// Set affinity to a specific physical CPU core
+				core = cores_used_by_lower_workers + info->aux_thread_num / info->normal_work_hyperthreads + 1;
+				break;
+			}
+
+/* If total num cores is between num_cpus is greater than num_cpus, then what to do? */
+/* Our default policy is to throw our hands up in despair and simply run on any CPU. */
+
+			return;
+		}
+
+/* No good rule found for setting affinity.  Simply run on any CPU. */
+
+		return;
 	}
 
-/* Otherwise, just run on any CPU. */
+/* Parse affinity settings specified in the INI file. */
+/* We accept several syntaxes in an INI file: */
+/*	3,6,9		Run main worker thread on logical CPU #3, run two aux threads on logical CPUs #6 & #9 */
+/*	3-4,5-6		Run main worker thread on logical CPUs #3 & #4, run aux thread on logical CPUs #5 & #6 */
+/*	{3,5,7},{4,6}	Run main worker thread on logical CPUs #3, #5, & #7, run aux thread on logical CPUs #4 & #6 */
+/*	(3,5,7),(4,6)	Run main worker thread on logical CPUs #3, #5, & #7, run aux thread on logical CPUs #4 & #6 */
+/*	[3,5-7],(4,6)	Run main worker thread on logical CPUs #3, #5, #6, & #7, run aux thread on logical CPUs #4 & #6 */
 
-	else
-		memset (mask, 0xFF, sizeof (mask));
-
-/* Apply the optional affinity mask scrambling */
-
-	if (AFFINITY_SCRAMBLE_STATE) {
-		int	old_mask[MAX_NUM_WORKER_THREADS/32];
-		memcpy (old_mask, mask, sizeof (mask));
-		memset (mask, 0, sizeof (mask));
-		for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
-			if (maskget (old_mask, i) && AFFINITY_SCRAMBLE[i] < MAX_NUM_WORKER_THREADS)
-				maskset (AFFINITY_SCRAMBLE[i]);
+	if (bind_type == 2) {		// Find the subset of the logical CPU string for this auxillary thread
+		int	i;
+		char	*p, *start, end_char;
+		for (i = 0, p = logical_CPU_string; i <= info->aux_thread_num && *p; i++) {
+			while (isspace (*p)) p++;
+			start = p;
+			end_char = 0;
+			if (*p == '{') end_char = '}';
+			if (*p == '(') end_char = ')';
+			if (*p == '[') end_char = ']';
+			if (end_char) {
+				p = strchr (start, end_char);
+				if (p == NULL) {
+					sprintf (buf, "Error parsing affinity string: %s\n", logical_CPU_string);
+					OutputStr (info->worker_num, buf);
+					return;
+				}
+				truncated_strcpy_with_len (logical_CPU_substring, sizeof (logical_CPU_substring),
+							   start + 1, (int) (p - start - 1));
+				if (strchr (p, ',') != NULL) p = strchr (p, ',') + 1;
+				else p = p + strlen(p);
+			} else {
+				p = strchr (start, ',');
+				if (p != NULL) {
+					truncated_strcpy_with_len (logical_CPU_substring, sizeof (logical_CPU_substring),
+								   start, (int) (p - start));
+					p++;
+				} else {
+					truncated_strcpy (logical_CPU_substring, sizeof (logical_CPU_substring), start);
+					p = start + strlen (start);
+				}
+			}
 		}
 	}
 
-/* When the OS does not support setting affinities, set the mask */
-/* so that we print out the proper informative message. */
-
-#ifdef OS_CANNOT_SET_AFFINITY
-	memset (mask, 0xFF, sizeof (mask));
-#endif
-
 /* Output an informative message */
 
-	if (info->type != SET_PRIORITY_BENCHMARKING && info->type != SET_PRIORITY_BENCHMARKING_HYPER &&
-	    (NUM_CPUS > 1 || CPU_HYPERTHREADS > 1)) {
-		char	buf[120];
-
+	if (NUM_CPUS > 1 && info->verbose_flag) {
 		if (info->aux_thread_num == 0)
 			strcpy (buf, "Setting affinity to run worker on ");
 		else
 			sprintf (buf, "Setting affinity to run helper thread %d on ", info->aux_thread_num);
-		if (mask[0] == -1) {
-			strcat (buf, "any logical CPU.\n");
-		} else {
-			int	i, count;
-			char	cpu_list[80];
-			for (i = count = 0; i < MAX_NUM_WORKER_THREADS; i++) {
-				if (! maskget (mask, i)) continue;
-				count++;
-				if (count == 1) sprintf (cpu_list, "%d", i+1);
-				else sprintf (cpu_list + strlen(cpu_list), ",%d", i+1);
-			}
-			sprintf (buf + strlen(buf), "logical CPU%s%s\n",
-				 (count == 1) ? " #" : "s ", cpu_list);
-		}
-		OutputStr (info->thread_num, buf);
+		if (bind_type == 0)
+			sprintf (buf+strlen(buf), "CPU core #%d\n", core);
+#ifdef BIND_TYPE_1_USED
+		else if (bind_type == 1)
+			sprintf (buf+strlen(buf), "logical CPU #%d\n", logical_CPU);
+#endif
+		else
+			sprintf (buf+strlen(buf), "logical CPUs %s\n", logical_CPU_substring);
+		OutputStr (info->worker_num, buf);
 	}
 
-/* Call OS-specific routine to set the priority and affinity */
+/* Set affinity for this thread to a specific CPU core */
 
-	setThreadPriorityAndAffinity (PRIORITY, mask);
+	if (bind_type == 0) {
+		int	num_cores;
+		hwloc_obj_t obj;
+		num_cores = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_CORE);
+		if (core >= num_cores) {		// This shouldn't happen
+			sprintf (buf, "Error setting affinity to core #%d.  There are %d cores.\n", core, num_cores);
+			OutputStr (info->worker_num, buf);
+			core %= num_cores;
+		}
+		obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_CORE, core);	/* Get proper core */
+		if (obj) {
+			if (hwloc_set_cpubind (hwloc_topology, obj->cpuset, HWLOC_CPUBIND_THREAD)) { /* Bind thread to all logical CPUs in the core */
+				char *str;
+				int error = errno;
+				hwloc_bitmap_asprintf (&str, obj->cpuset);
+				sprintf (buf, "Error setting affinity to cpuset %s: %s\n", str, strerror(error));
+				OutputStr (info->worker_num, buf);
+				free (str);
+			}
+		}
+	}
+
+/* Set affinity for this thread to a specific logical CPU */
+
+#ifdef BIND_TYPE_1_USED
+	else if (bind_type == 1) {
+		int	num_logical_CPUs;
+		hwloc_obj_t obj;
+		num_logical_CPUs = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PU);
+		if (logical_CPU >= num_logical_CPUs) {		// This shouldn't happen
+			sprintf (buf, "Error setting affinity to logical CPU #%d.  There are %d logical CPUs.\n", logical_CPU, num_logical_CPUs);
+			OutputStr (info->worker_num, buf);
+			logical_CPU %= num_logical_CPUs;
+		}
+		obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_PU, logical_CPU);	/* Get proper logical CPU */
+		if (obj) {
+			if (hwloc_set_cpubind (hwloc_topology, obj->cpuset, HWLOC_CPUBIND_THREAD)) { /* Bind thread to one logical CPU */
+				char *str;
+				int error = errno;
+				hwloc_bitmap_asprintf (&str, obj->cpuset);
+				sprintf (buf, "Error setting affinity to cpuset %s: %s\n", str, strerror(error));
+				OutputStr (info->worker_num, buf);
+				free (str);
+			}
+		}
+	}
+#endif
+
+/* Set affinity for this thread to one or more logical CPUs as specified in the INI file. */
+
+	else {
+		char *p, *dash, *comma;
+		hwloc_obj_t obj;
+		hwloc_bitmap_t cpuset;
+		int	start, end;
+
+		cpuset = hwloc_bitmap_alloc ();
+		for (p = logical_CPU_substring; ; p = comma+1) {	// Loop through comma-separated list in the logical_CPU_substring
+			start = atoi (p);
+			dash = strchr (p, '-');
+			comma = strchr (p, ',');
+			if (dash != NULL && (comma == NULL || dash < comma)) end = atoi (dash+1);
+			else end = start;
+			while (start <= end) {
+				obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_PU, start++);
+				if (obj) hwloc_bitmap_or (cpuset, cpuset, obj->cpuset);
+			}
+			if (comma == NULL) break;
+		}
+		if (hwloc_set_cpubind (hwloc_topology, cpuset, HWLOC_CPUBIND_THREAD)) {	/* Set affinity to specified logical CPUs */
+			char *str;
+			int error = errno;
+			hwloc_bitmap_asprintf (&str, cpuset);
+			sprintf (buf, "Error setting affinity to cpuset %s: %s\n", str, strerror(error));
+			OutputStr (info->worker_num, buf);
+			free (str);
+		}
+		hwloc_bitmap_free (cpuset);
+	}
 }
 
 /* Gwnum thread callback routine */
@@ -2195,7 +2018,7 @@ void read_pause_info (void)
 void start_pause_while_running_timer (void)
 {
 	if (PAUSE_DATA == NULL) return;
-	add_timed_event (TE_PAUSE_WHILE, PAUSE_WHILE_RUNNING_FREQ);
+	add_timed_event (TE_PAUSE_WHILE, 0);		// Check for pause-while-running programs immediately
 }
 
 void stop_pause_while_running_timer (void)
@@ -2784,6 +2607,7 @@ struct LaunchData {
 	unsigned int num_threads;	/* Num threads to run */
 	unsigned long p;		/* Exponent to time */
 	unsigned long iters;		/* Iterations to time */
+	int	bench_type;		/* Type of benchmark */
 	int	delay_amount;		/* Seconds to delay starting worker */
 	int	stop_reason;		/* Returned stop reason */
 };
@@ -2875,7 +2699,8 @@ int LaunchTortureTest (
 
 /* Launch a thread to do a benchmark */
 
-int LaunchBench (void)
+int LaunchBench (
+	int	bench_type)		/* 0 = Throughput, 1 = FFT timings, 2 = Trial factoring */
 {
 	struct LaunchData *ld;
 	gwthread thread_handle;
@@ -2883,6 +2708,7 @@ int LaunchBench (void)
 	ld = (struct LaunchData *) malloc (sizeof (struct LaunchData));
 	if (ld == NULL) return (OutOfMemory (MAIN_THREAD_NUM));
 	ld->num_threads = 1;
+	ld->bench_type = bench_type;
 	LAUNCH_TYPE = LD_BENCH;
 	create_worker_windows (1);
 	mark_workers_active (1);
@@ -3161,7 +2987,7 @@ void LauncherDispatch (void *arg)
 		stop_reason = primeTime (ld->thread_num, ld->p, ld->iters);
 		break;
 	case LD_BENCH:
-		stop_reason = primeBench (ld->thread_num);
+		stop_reason = primeBench (ld->thread_num, ld->bench_type);
 		break;
 	case LD_TORTURE:
 		stop_reason = tortureTest (ld->thread_num, ld->num_threads);
@@ -3196,7 +3022,9 @@ int primeContinue (
 /* Set the process/thread priority */
 
 	sp_info.type = SET_PRIORITY_NORMAL_WORK;
-	sp_info.thread_num = thread_num;
+	sp_info.worker_num = thread_num;
+	sp_info.verbose_flag = IniGetInt (INI_FILE, "AffinityVerbosity", 1);
+	sp_info.normal_work_hyperthreads = 1;
 	sp_info.aux_thread_num = 0;
 	SetPriority (&sp_info);
 
@@ -3236,6 +3064,16 @@ int primeContinue (
 /* Examine each line in the worktodo.ini file */
 
 	    for (w = NULL; ; ) {
+
+/* Reset sp_info structure in case a previous work_unit changed these settings.  */
+/* This actually happened when a TF job set normal_work_hyperthreads, and a */
+/* subsequent LL job inappropriately started using hyperthreading. */
+
+		sp_info.type = SET_PRIORITY_NORMAL_WORK;
+		sp_info.worker_num = thread_num;
+		sp_info.verbose_flag = IniGetInt (INI_FILE, "AffinityVerbosity", 1);
+		sp_info.normal_work_hyperthreads = 1;
+		sp_info.aux_thread_num = 0;
 
 /* Read the line from the work file, break when out of lines */
 /* Skip comment lines from worktodo.ini */
@@ -3851,7 +3689,8 @@ struct facasm_data {
 
 typedef struct {
 	int	num_threads;		/* Number of threads to use in factoring.  Not supported in 32-bit code. */
-	struct PriorityInfo *sp_info;		/* Priority structure for setting aux thread priority */
+	double	endpt;			/* Factoring limit for this pass.  Not needed in 32-bit setup. */
+	struct PriorityInfo *sp_info;	/* Priority structure for setting aux thread priority */
 	struct	facasm_data *asm_data;	/* Memory for factoring code */
 } fachandle;
 
@@ -3882,8 +3721,7 @@ int factorSetup (
 		OutputStr (thread_num, "Error allocating memory for trial factoring.\n");
 		return (STOP_OUT_OF_MEM);
 	}
-	facdata->asm_data = asm_data = (struct facasm_data *)
-		((char *) asm_data_alloc + NEW_STACK_SIZE);
+	facdata->asm_data = asm_data = (struct facasm_data *) ((char *) asm_data_alloc + NEW_STACK_SIZE);
 	memset (asm_data, 0, 65536);
 
 /* Init */
@@ -4013,76 +3851,12 @@ void factorDone (
 	}
 }
 
-/* Wrapper code that verifies any factors found by the assembly code */
-/* res is set to 2 if a factor was not found, 1 otherwise */
+/* Return a second or third found factor.  Can only happen in 64-bit code. */
 
-int factorAndVerify (
-	int	thread_num,
-	unsigned long p,
-	fachandle *facdata,
-	int	*res)
+int getAnotherFactorIfAny (
+	fachandle *facdata)
 {
-	uint32_t hsw, msw, pass;
-	int	stop_reason;
-
-/* Remember starting point in case of an error */
-
-	pass = facdata->asm_data->FACPASS;
-	hsw = facdata->asm_data->FACHSW;
-	msw = facdata->asm_data->FACMSW;
-
-/* Call assembly code */
-
-loop:	*res = factorChunk (facdata);
-
-/* If a factor was not found, return. */
-
-	if (*res == 2) return (stopCheck (thread_num));
-
-/* Otherwise verify the factor. */
-
-	if (facdata->asm_data->FACHSW ||
-	    facdata->asm_data->FACMSW ||
-	    facdata->asm_data->FACLSW > 1) {
-		giant	f, x;
-
-		f = allocgiant (100);
-		itog ((int) facdata->asm_data->FACHSW, f);
-		gshiftleft (32, f);
-		uladdg (facdata->asm_data->FACMSW, f);
-		gshiftleft (32, f);
-		uladdg (facdata->asm_data->FACLSW, f);
-
-		x = allocgiant (100);
-		itog (2, x);
-		powermod (x, p, f);
-		*res = isone (x);
-
-		free (f);
-		free (x);
-
-		if (*res) return (0);
-	}
-
-/* Set *res to the factor-not-found code in case the user hits ESC */
-/* while doing the SleepFive */
-
-	*res = 2;
-
-/* If factor is no good, print an error message, sleep, re-initialize and */
-/* restart the factoring code. */
-
-	OutputBoth (thread_num, "ERROR: Incorrect factor found.\n");
-	facdata->asm_data->FACHSW = hsw;
-	facdata->asm_data->FACMSW = msw;
-	stop_reason = SleepFive (thread_num);
-	if (stop_reason) return (stop_reason);
-	factorDone (facdata);
-	stop_reason = factorSetup (thread_num, p, facdata);
-	if (stop_reason) return (stop_reason);
-	stop_reason = factorPassSetup (thread_num, pass, facdata);
-	if (stop_reason) return (stop_reason);
-	goto loop;
+	return (FALSE);
 }
 
 #endif
@@ -4094,74 +3868,125 @@ loop:	*res = factorChunk (facdata);
 #ifdef X86_64
 
 #define SIEVE_SIZE_IN_BYTES	(12 * 1024)		// 12KB sieve in asm code
+#define INITSIEVE_PRIMES1	(7 * 11 * 13 * 17)	// Initialize sieve with these 4 primes cleared (uses 29KB)
+#define INITSIEVE_PRIMES2	(11 * 13 * 17 * 19)	// Initialize sieve with these 4 primes cleared (uses 57KB)
+#define INITSIEVE_PRIMES3	(13 * 17 * 19 * 23)	// Initialize sieve with these 4 primes cleared (uses 108KB)
+#define INITSIEVE_PRIMES4	(17 * 19 * 23)		// Initialize sieve with these 3 primes cleared (uses 19KB)
+
+#define MAX_TF_FOUND_COUNT	10			// Maximum number of factors we'll find in a single pass
 
 /* This defines the C / assembly language communication structure */
 /* When multi-threading, each thread has its own copy of this structure */
 
 struct facasm_data {
 	uint64_t p;			/* Exponent of Mersenne number to factor */
-	uint64_t twop;			/* 2 * p */
-	uint64_t facdists[65];		/* Multiples of 120 * p */
+	uint64_t facdists[65];		/* Multiples of 120 * p * num_siever_allocs */
 	uint64_t facdist12K;		/* Factor distance covered by a 12K sieve */
 	uint64_t savefac1;		/* LSW or first factor in sieve */
 	uint64_t savefac0;		/* MSW or first factor in sieve */
 	void	*sieve;			/* Area to sieve or already sieved area to TF */
-	void	*primearray;		/* Array of primes and offsets */
+	void	*primearray;		/* Array of sieving primes */
+	void	*offsetarray;		/* Array of bits-to-clear for each sieving prime */
 	void	*initsieve;		/* Array used to initialize sieve */
-	void	*initlookup;		/* Lookup table into initsieve */
-	double	TWO_TO_FACSIZE_PLUS_62;	/* Constant used in SSE2/AVX2 TF code */
+	double	TWO_TO_FACSIZE_PLUS_62;	/* Constant used in SSE2/AVX2/AVX512 integer TF code */
 
-	uint32_t FACPASS;		/* Which of 16 factoring passes */
 	uint32_t FACHSW;		/* High word of found factor */
 	uint32_t FACMSW;		/* Middle word of found factor */
 	uint32_t FACLSW;		/* Low word of found factor */
 	uint32_t cpu_flags;		/* Copy of CPU_FLAGS */
-	uint32_t SSE2_LOOP_COUNTER;	/* Counter used in SSE2/AVX2 TF code */
-	uint32_t initstart;		/* First dword in initsieve to copy (see ASM code) */
+	uint32_t SSE2_LOOP_COUNTER;	/* Counter used in SSE2/AVX2/FMA/AVX512 TF code */
+	uint32_t FMA_INITVAL_TYPE;	/* Type of initval (more or less than 2^split).  Used in FMA code. */
+	uint32_t FMA_64_MINUS_LOW_BITS;	/* 64 minus bits in a low word.  Used in FMA code. */
+	uint32_t initstart;		/* First byte in initsieve to copy (see ASM code) */
+	uint32_t alternate_sieve_count;	/* Number of 13-small-prime AVX2 sieve sections to process */
 
 	uint32_t pad[3];		/* Pad to next 64-byte cache line */
-	uint32_t xmm_data[80];		/* XMM/YMM data initialized in C code */
+	uint32_t xmm_data[80];		/* XMM/YMM/ZMM data initialized in C code */
 
-	uint32_t other_asm_temps_and_consts[200];
+	uint32_t other_asm_temps_and_consts[600];
 };
 
 /* This defines the factoring data handled in C code.  The handle */
 /* abstracts all the internal details from callers of the factoring code. */
 /* When multi-threading, there is only one copy of this structure.  Obviously, */
-/* one must obtain a lock before accessing structure members.  NOTE: Since only */
-/* one thread can be sieving, we do not maintain sieve info in the per-thread structure */
+/* one must obtain a lock before accessing structure members. */
 
-#define MAX_NUM_SIEVE_AREAS	100		/* Maximum number of sieve areas, for no good reason I selected 100 */
+struct tf_thread_info {
+	int	pool;				/* Pool this thread belongs to */
+	int	thread_can_sieve;		/* Flag indicating this thread can do sieving. */
+	int	last_siever_used;		/* Last siever this thread used.  Try to use it again for good locality. */
+	int	last_sieve_area_used;		/* Last sieve area this thread used.  Try to use it again for good locality. */
+	gwthread thread_id;			/* Auxiliary thread id */
+};
+
+struct siever_info {
+	int	state;				/* State of this siever (see below) */
+	int	last_thread_used;		/* Last thread to use this siever */
+	uint64_t next_sieve_first_factor[2];	/* First factor for next sieve area */
+	void	*offsetarray;			/* bit-to-clear offsets for each sieve prime */
+	uint64_t num_areas_to_sieve;		/* Count of remaining needed factor64_sieve calls for this siever */
+};
+
+struct sieve_area_info {
+	int	state;				/* State of this sieve area (see below) */
+	uint64_t first_factor[2];		/* First factor of the sieved area */
+	void	*sieve;				/* The 12KB sieved bit array */
+};
+
+struct pool_info {
+	int	num_sievers_active;		/* Count of threads currently running the sieving assembly code */
+	int	num_free_sieve_areas;		/* Count of sieve areas that are free */
+	int	num_sieved_sieve_areas;		/* Count of sieve areas that are sieved */
+	int	last_sieve_area_for_sieve;	/* When pooling, last sieve area handed out for sieving */
+	int	last_sieve_area_for_tf;		/* When pooling, last sieve area handed out for TF */
+	struct sieve_area_info *sieve_areas;	/* Ptr to info about each sieve area */
+};
 
 typedef struct {
 	int	num_threads;			/* Number of threads to use in factoring. */
+	struct tf_thread_info *tf_threads;	/* Ptr to info about each TF thread */
+
+	int	num_pools;			/* Number of pools */
+	int	num_threads_per_pool;		/* Number of threads assigned to each pool */
+	int	num_sieve_areas_per_pool;	/* Number of 12KB sieve areas in each pool */
+	int	pooling;			/* If not pooling, each thread immediately TFs the sieve area after being sieved */
+	struct pool_info *pools;		/* Ptr to info about each pool */
+
+	int	num_sievers;			/* Number of allocated sievers (residue classes of num_siever_groups) */
+	struct siever_info *sievers;		/* Ptr to info about each allocated siever */
+	uint64_t total_num_areas_to_sieve;	/* Count of remaining needed factor64_sieve calls */
+
+	double	endpt;				/* Factoring limit for this pass */
 	struct PriorityInfo *sp_info;		/* Priority structure for setting aux thread priority */
 	struct	facasm_data *asm_data;		/* Main thread's memory for assembly factoring code */
-	uint64_t next_sieve_first_factor[2];	/* First factor of next sieve area */
-	uint64_t num_areas_to_sieve;		/* Count of remaining needed factor64_sieve calls */
-	struct sieve_info {
-		int	state;			/* State of this sieve area (see below) */
-		uint64_t first_factor[2];	/* First factor of the sieved area */
-		void	*sieve;			/* The sieved bit array */
-	} sieve_area[MAX_NUM_SIEVE_AREAS];
-	int	num_sieve_areas;		/* Count of sieve areas allocated */
-	int	num_free_sieve_areas;		/* Count of sieve areas that are free */
-	int	num_sieved_sieve_areas;		/* Count of sieve areas that are sieved */
-	int	last_sieve_area_for_tf;		/* Last sieve area handed out for TF */
-	int	a_thread_is_sieving;		/* Flag to allow one thread to run the sieving assembly code */
+	int	factoring_pass;			/* Which of the 16 factoring passes we are on */
+	int	pass_complete;			/* Set when a factoring pass completes */
+	uint32_t initsieve_primes;		/* Which primes are sieved when initializing from initsieve */
+	uint32_t one_eighth_initsieve_primes;	/* (1 / (8 * facdist1)) mod initsieve_primes.  Used to calculate first byte to copy from initsieve */
+	uint32_t *modinvarray;			/* Modular inverse of facdist for each sieving prime.  Used to set offsetarray. */
 	int	num_chunks_TFed;		/* Count of chunks TFed since last call to factorChunksProcessed */
-	uint32_t found_lsw;			/* LSW of a found factor */
-	uint32_t found_msw;			/* MSW of a found factor */
-	uint32_t found_hsw;			/* HSW of a found factor */
-	gwthread *thread_ids;			/* Array of auxiliary thread ids */
+	uint64_t total_num_chunks_TFed;		/* Number of chunks TFed this pass */
+	uint64_t total_num_chunks_to_TF;	/* Number of chunks to TF this pass */
+	uint32_t found_lsw[MAX_TF_FOUND_COUNT];	/* LSW of a found factor */
+	uint32_t found_msw[MAX_TF_FOUND_COUNT];	/* MSW of a found factor */
+	uint32_t found_hsw[MAX_TF_FOUND_COUNT];	/* HSW of a found factor */
+	uint32_t found_count;			/* Count of found factors */
 	unsigned int num_active_threads;	/* Count of the number of active auxiliary threads */
 	int	threads_must_exit;		/* Flag set to force all auxiliary threads to terminate */
 	gwmutex	thread_lock;			/* This mutex limits one thread at a time in critical sections. */
 	gwevent	thread_work_to_do;		/* This event is set whenever the auxiliary threads have work to do. */
 	gwevent	sieved_areas_available;		/* This event is set whenever a sieved area is made available for TF. */
-	gwevent	all_threads_done;		/* This event is set whenever the auxiliary threads are done and the */
+	gwevent	all_threads_started;		/* This event is set whenever the auxiliary threads are done and the */
+	gwevent	all_threads_done;		/* This event is set when all the auxiliary threads have started */
 						/* main thread can resume.  That is, it is set when num_active_threads==0 */
 } fachandle;
+
+/* Possible states for a siever */
+
+#define SIEVER_ASSIGNED			0x8000	/* Set if the siever has been assigned to a thread */
+#define SIEVER_ACTIVE			0	/* Thread actively sieving */
+#define SIEVER_INACTIVE			1	/* Thread not actively sieving */
+#define SIEVER_UNINITIALIZED		2	/* Thread not fully initialized */
 
 /* Possible states for a sieve area */
 
@@ -4172,7 +3997,6 @@ typedef struct {
 
 /* ASM entry points */
 
-EXTERNC void setupf (struct facasm_data *);		/* Assembly code, setup */
 EXTERNC int factor64_pass_setup (struct facasm_data *);	/* Assembly code, setup required for each mod-120 pass */
 EXTERNC int factor64_small (struct facasm_data *);	/* Assembly code, brute force TF for factors below 2^44 */
 EXTERNC int factor64_sieve (struct facasm_data *);	/* Assembly code, sieve a block */
@@ -4180,7 +4004,8 @@ EXTERNC int factor64_tf (struct facasm_data *);		/* Assembly code, TF a sieved b
 
 /* Forward declarations */
 
-int factorChunkMultithreaded (fachandle *facdata, struct facasm_data *asm_data);
+int factorChunkMultithreaded (fachandle *facdata, struct facasm_data *asm_data, int aux_thread_num);
+void factorFindSmallestNotTFed (fachandle *facdata);
 
 /* Routine for auxiliary threads */
 
@@ -4217,34 +4042,38 @@ void factor_auxiliary_thread (void *arg)
 
 /* Each thread needs its own copy of the asm_data.  Copy the structure after each factor_pass_setup */
 
-		gwmutex_lock (&facdata->thread_lock);
 		memcpy (asm_data, main_thread_asm_data, sizeof (struct facasm_data));
+
+/* Increment count of active auxiliary threads.  Once all auxiliary threads have started reset the */
+/* thread_work_to_do event and signal the all_threads_started event */
+
+		gwmutex_lock (&facdata->thread_lock);
+		facdata->num_active_threads++;
+		if (facdata->num_active_threads == facdata->num_threads - 1) {
+			gwevent_reset (&facdata->thread_work_to_do);
+			gwevent_signal (&facdata->all_threads_started);
+		}
 		gwmutex_unlock (&facdata->thread_lock);
 
 /* Loop factoring chunks */
 
 		for ( ; ; ) {
 			if (facdata->threads_must_exit) break;
-			if (factorChunkMultithreaded (facdata, asm_data)) break;
+			if (factorChunkMultithreaded (facdata, asm_data, info->thread_num)) break;
 		}
 
-/* The auxiliary threads have run out of work.  Decrement the count of */
-/* number of active auxiliary threads.  Signal all threads done when */
-/* last auxiliary thread is done. */
+/* Wait for all auxiliary threads to start before we start decrementing the count of active threads */
+
+		gwevent_wait (&facdata->all_threads_started, 0);
+
+/* The auxiliary thread has run out of work.  Decrement the count of active auxiliary threads. */
+/* Signal all threads done when last auxiliary thread is done. */
 
 		gwmutex_lock (&facdata->thread_lock);
 		facdata->num_active_threads--;
-		if (facdata->num_active_threads == 0)
-			gwevent_signal (&facdata->all_threads_done);
-		if (facdata->threads_must_exit) {
-			gwmutex_unlock (&facdata->thread_lock);
-			break;
-		}
-
-/* Reset thread_work_to_do event before looping to wait for more work. */
-
-		gwevent_reset (&facdata->thread_work_to_do);
+		if (facdata->num_active_threads == 0) gwevent_signal (&facdata->all_threads_done);
 		gwmutex_unlock (&facdata->thread_lock);
+		if (facdata->threads_must_exit) break;
 	}
 
 /* Set thread priority (1 = thread terminating) */
@@ -4266,9 +4095,13 @@ int factorSetup (
 	fachandle *facdata)
 {
 	struct facasm_data *asm_data;
-	int	i;
+	int	i, pct, mem_needed;
 	struct PriorityInfo *sp_info;
-
+	int	num_small_primes;		/* Number of primes the ASM code will use for sieving */
+	int	num_siever_groups;		/* Multipler for facdist, num_sievers = number of residue classes of num_siever_groups */
+	int	num_siever_threads;		/* Total number of threads that can be sieving */
+	int	num_siever_threads_per_pool;	/* Number of threads in each pool that can sieve */
+			
 /* Clear fachandle.  A precaution to ensure factorDone won't try to free uninitialized pointers. */
 
 	i = facdata->num_threads;
@@ -4286,77 +4119,238 @@ memerr:		OutputStr (thread_num, "Error allocating memory for trial factoring.\n"
 	}
 	memset (asm_data, 0, sizeof (struct facasm_data));
 
-/* Allocate more memory for sieve area(s) and sieve initialization */
-/* I'm not sure what the maximum size of these areas needs to be, old code allocated these multiples of 64KB */
-
-	asm_data->primearray = malloc (3*65536);
-	if (asm_data->primearray == NULL) goto memerr;
-	asm_data->initsieve = malloc (4*65536);
-	if (asm_data->initsieve == NULL) goto memerr;
-	asm_data->initlookup = malloc (2*65536);
-	if (asm_data->initlookup == NULL) goto memerr;
-
-	facdata->num_sieve_areas = (facdata->num_threads <= 1) ? 1 : facdata->num_threads * 4;
-	if (facdata->num_sieve_areas > MAX_NUM_SIEVE_AREAS) facdata->num_sieve_areas = MAX_NUM_SIEVE_AREAS;
-	for (i = 0; i < facdata->num_sieve_areas; i++) {
-		facdata->sieve_area[i].sieve = malloc (SIEVE_SIZE_IN_BYTES);
-		if (facdata->sieve_area[i].sieve == NULL) goto memerr;
-		facdata->sieve_area[i].state = SIEVE_AREA_FREE;
-	}
-
-/* Init.  Note the default is to not use SSE2 TF code in 64-bit mode (unlike 32-bit prime95). */
+/* Init asm_data.  Note the default is to not use SSE2 TF code in 64-bit mode (unlike 32-bit prime95). */
 /* This decision was made years ago when, IIRC, Opteron's were faster using the non-SSE2 code */
-/* and the Intel CPUs of the ambivalent. */
+/* and the Intel CPUs were ambivalent. */
 
 	asm_data->p = p;
 	asm_data->cpu_flags = CPU_FLAGS;
 	if (!IniGetInt (LOCALINI_FILE, "FactorUsingSSE2", 0)) asm_data->cpu_flags &= ~CPU_SSE2;
+	asm_data->alternate_sieve_count = IniGetInt (INI_FILE, "AlternateTFSieveCount", 9);
+	if (asm_data->alternate_sieve_count < 1) asm_data->alternate_sieve_count = 1;
+
+/* Get the number of threads in each pool.  We use pools of threads and sieve areas to improve locality. */
+/* Threads in a pool are guaranteed to TF a 12KB sieve area that was sieved by one of the threads in the same pool. */
+/* If the threads in a pool share an L1, L2, or L3 cache then locality is improved.  Our default is to put hyperthreads */
+/* in the same pool since they share the same L1 cache.  On Knight's Landing we might consider putting each tile which */
+/* has 2 cores of 4 hyperthreads that share an L2 cache in the same pool. */
+
+/* NOTE:  Pools are only useful if PercentTFSieverThreads is set to less than the default 100. */
+/* Otherwise, each thread sieves and then immediately TFs -- perfect locality.  We've kept the pooling code */
+/* because it might be beneficial on a hyperthreaded machine.  If one hyperthread is always TFing and the */
+/* other hyperthread is either sieving or TFing, then throughput MAY be improved because the AVX units are */
+/* always in use doing TF.  In other words, two concurrent sievers may not hyperthread as well as a siever and a TFer. */
+
+	facdata->num_threads_per_pool = IniGetInt (INI_FILE, "ThreadsPerTFPool", CPU_HYPERTHREADS);
+	if (facdata->num_threads_per_pool < 1) facdata->num_threads_per_pool = 1;
+	if (facdata->num_threads_per_pool > facdata->num_threads) facdata->num_threads_per_pool = facdata->num_threads;
+	if (facdata->num_threads % facdata->num_threads_per_pool) facdata->num_threads_per_pool = 1;
+
+/* Allocate a structure for each TF thread */
+
+	mem_needed = facdata->num_threads * sizeof (struct tf_thread_info);
+	facdata->tf_threads = (struct tf_thread_info *) malloc (mem_needed);
+	if (facdata->tf_threads == NULL) goto memerr;
+	memset (facdata->tf_threads, 0, mem_needed);
+
+/* Allocate structures for each thread pool */
+
+	facdata->num_pools = facdata->num_threads / facdata->num_threads_per_pool;
+	mem_needed = facdata->num_pools * sizeof (struct pool_info);
+	facdata->pools = (struct pool_info *) malloc (mem_needed);
+	if (facdata->pools == NULL) goto memerr;
+	memset (facdata->pools, 0, mem_needed);
+
+/* Initialize maximum number of siever threads in each pool (based on a percent specified in the INI file) */
+/* For many older architectures one siever can easily keep four TF threads busy. */
+/* For FMA architectures (our fastest TF code), one siever does not keep 4 TF threads busy. */
+/* Knights Landing with AVX512 is another exception, needing at least 50% sievers. */
+/* NOTE:  The pooling code that operates sieving indepenently from TFing was written first. */
+/* Subsequently, I tried sieving and immediately TFing to improve locality (not pooling). */
+/* Despite the perfect locality, timings were a little worse on both SkyLake and Knight's Landing. */
+/* NOTE: Pooling is turned off by setting PercentTFSieverThreads to 100. */
+
+	pct = IniGetInt (INI_FILE, "PercentTFSieverThreads", 50);
+	if (pct < 1) pct = 1;
+	if (pct > 100) pct = 100;
+	facdata->pooling = (pct != 100);
+	num_siever_threads_per_pool = (pct * facdata->num_threads_per_pool + 99) / 100;
+
+/* Initialize threads info (what pool the thread is in and if the thread can sieve) */
+
+	for (i = 0; i < facdata->num_threads; i++) {
+		int	thread_within_pool;
+		facdata->tf_threads[i].pool = i / facdata->num_threads_per_pool;
+		thread_within_pool = i % facdata->num_threads_per_pool;
+		facdata->tf_threads[i].thread_can_sieve =
+			(thread_within_pool == 0 ||
+			 thread_within_pool * num_siever_threads_per_pool / facdata->num_threads_per_pool !=
+			 (thread_within_pool-1) * num_siever_threads_per_pool / facdata->num_threads_per_pool);
+		facdata->tf_threads[i].last_sieve_area_used = thread_within_pool;
+	}
+
+/* We often must allocate more sievers than siever threads.  For example, if num_siever_threads is 7, and */
+/* we allocate 7 sievers with a facdist of 120 * p * 7 -- then one of the sievers will always generate */
+/* multiples of 7.  Since that won't work, we must allocate more than 7 sievers for us to have 7 active */
+/* siever threads.  To take get a little extra efficiency, we round up the number of allocated sievers to */
+/* a multiple of 6 (non-zero remainders of 7) or 60 (non-zero remainders of 7*11) or 720 (non-zero remainders of 7*11*13). */
+
+	num_siever_threads = facdata->num_pools * num_siever_threads_per_pool;
+	if (num_siever_threads == 1) {
+		num_siever_groups = 1;
+		facdata->num_sievers = 1;
+	} else if (num_siever_threads <= 30) {
+		num_siever_groups = (num_siever_threads + 5) / 6 * 7;
+		facdata->num_sievers = (num_siever_threads + 5) / 6 * 6;
+	} else if (num_siever_threads <= 360) {
+		num_siever_groups = (num_siever_threads + 59) / 60 * 77;
+		facdata->num_sievers = (num_siever_threads + 59) / 60 * 60;
+	} else {
+		num_siever_groups = (num_siever_threads + 719) / 720 * 1001;
+		facdata->num_sievers = (num_siever_threads + 719) / 720 * 720;
+	}
+
+	// It will be more efficient to always run with 7 or more siever allocs.  The one exception
+	// is when doing QA finding known factors.
+	if (facdata->num_sievers < 6 && IniGetInt (INI_FILE, "UseMaxSieverAllocs", 3) == 1)
+		num_siever_groups = 7, facdata->num_sievers = 6;
+	// I think it will be more efficient to always run with 60 or more siever allocs.  I saw a small
+	// speed increase on Skylake due to the 9% reduction in sieving at the cost of more memory consumed.
+	if (facdata->num_sievers < 60 && IniGetInt (INI_FILE, "UseMaxSieverAllocs", 3) == 2)
+		num_siever_groups = 77, facdata->num_sievers = 60;
+	// Increasing allocated sievers to 720 may be pushing it.  I need to benchmark this.
+	// It is faster on Skylake, made it the default.
+	if (facdata->num_sievers < 720 && IniGetInt (INI_FILE, "UseMaxSieverAllocs", 3) == 3)
+		num_siever_groups = 1001, facdata->num_sievers = 720;
+
+	// Calculate with small primes will be cleared by the initialization of the sieve area.
+	if (num_siever_groups % 13 == 0) facdata->initsieve_primes = INITSIEVE_PRIMES4;
+	else if (num_siever_groups % 11 == 0) facdata->initsieve_primes = INITSIEVE_PRIMES3;
+	else if (num_siever_groups % 7 == 0) facdata->initsieve_primes = INITSIEVE_PRIMES2;
+	else facdata->initsieve_primes = INITSIEVE_PRIMES1;
+
+/* Generate the array of primes for sieving */
+
+	{
+		int	prime;			// Prime to add to the primes array
+		uint32_t *primearray;		// Array of primes we are building
+		int	maxprime;		// Maximum small prime we will sieve (for tuning)
+		int	estimated_num_primes;	// Estimated number of primes below maxprime
+		int	stop_reason;		// Error code from sieve initialization
+		void	*sieve_info;		// Handle to small primes sieving data
+
+		maxprime = IniGetInt (INI_FILE, "MaxTFSievePrime",
+				      (CPU_FLAGS & CPU_AVX512F) ? 155000 :	// Knights Landing
+				      (CPU_FLAGS & CPU_FMA3) ? 145000 :		// Skylake optimized
+				      1000000);					// Need more data here
+		if (maxprime <= 5000) maxprime = 5000;				// Enforce sensible limits on MaxTFSievePrime
+		if (maxprime >= 100000000) maxprime = 100000000;		// Enforce sensible limits on MaxTFSievePrime
+		estimated_num_primes = (int) ((double) maxprime / (log ((double) maxprime) - 1.0) * 1.01);
+		asm_data->primearray = malloc (estimated_num_primes * sizeof (uint32_t));
+		if (asm_data->primearray == NULL) goto memerr;
+		primearray = (uint32_t *) asm_data->primearray;
+		sieve_info = NULL;  /* Allocate a new sieve_info */
+		stop_reason = start_sieve_with_limit (thread_num, 7, (int) sqrt ((double) maxprime) + 1, &sieve_info);
+		if (stop_reason) return (stop_reason);
+		for (num_small_primes = 0; num_small_primes < estimated_num_primes; ) {
+			prime = (int) sieve (sieve_info);
+			if (prime > maxprime) break;
+			if (prime == p) continue;				// Rare case: TF where exponent <= maxprime
+			if (num_siever_groups % prime == 0) continue;		// Don't add primes that are handled by facdist
+			if (facdata->initsieve_primes % prime == 0) continue;	// Don't add primes that are handled by initsieve
+			*primearray++ = prime;	// Save the small prime
+			num_small_primes++;
+		}
+		*primearray = 0;		// Terminate the prime array
+		end_sieve (sieve_info);
+	}
 
 /* Pre-calculate useful constants the assembly code will need */
 
-	asm_data->twop = p + p;
-	for (i = 0; i < 65; i++) asm_data->facdists[i] = i * 120 * (uint64_t) p;	// Compute multiples of 120 * p.
-	asm_data->facdist12K = (SIEVE_SIZE_IN_BYTES * 8) * 120 * (uint64_t) p;		// Distance between first factor in sieve areas
+	for (i = 0; i < 65; i++) asm_data->facdists[i] = i * 120 * (uint64_t) num_siever_groups * (uint64_t) p; // Compute multiples of 120 * p.
+	asm_data->facdist12K = (SIEVE_SIZE_IN_BYTES * 8) * 120 * (uint64_t) num_siever_groups * (uint64_t) p; // Distance between first factor in sieve areas
 
-/* Call the factoring setup assembly code */
+/* Allocate and initialize the modular inverse of all the sieving primes */
 
-	asm_data->sieve = facdata->sieve_area[0].sieve;		// Scratch area used by setup
-	setupf (asm_data);
+	facdata->modinvarray = (uint32_t *) malloc (num_small_primes * sizeof (uint32_t));
+	if (facdata->modinvarray == NULL) goto memerr;
+	for (i = 0; i < num_small_primes; i++)
+		facdata->modinvarray[i] = (uint32_t) modinv (asm_data->facdists[1], ((uint32_t *)asm_data->primearray)[i]);
 
-/* Init thread arrays */
+/* Allocate the bit-to-clear array for each allocated siever */
 
-	facdata->thread_ids = (gwthread *) malloc (facdata->num_threads * sizeof (gwthread));
-	if (facdata->thread_ids == NULL) return (GWERROR_MALLOC);
-	memset (facdata->thread_ids, 0, facdata->num_threads * sizeof (gwthread));
+	mem_needed = facdata->num_sievers * sizeof (struct siever_info);
+	facdata->sievers = (struct siever_info *) malloc (mem_needed);
+	if (facdata->sievers == NULL) goto memerr;
+	memset (facdata->sievers, 0, mem_needed);
+	for (i = 0; i < facdata->num_sievers; i++) {
+		facdata->sievers[i].offsetarray = malloc (num_small_primes * sizeof (uint32_t));
+		if (facdata->sievers[i].offsetarray == NULL) goto memerr;
+	}
+
+/* Allocate more memory for sieve area(s) and sieve initialization in each pool. */
+
+	if (!facdata->pooling)
+		facdata->num_sieve_areas_per_pool = facdata->num_threads_per_pool;
+	else
+		facdata->num_sieve_areas_per_pool = facdata->num_threads_per_pool * IniGetInt (INI_FILE, "TFSieveAreasPerThread", 4);
+	mem_needed = facdata->num_sieve_areas_per_pool * sizeof (struct sieve_area_info);
+	for (i = 0; i < facdata->num_pools; i++) {
+		int	j;
+		facdata->pools[i].sieve_areas = (struct sieve_area_info *) malloc (mem_needed);
+		if (facdata->pools[i].sieve_areas == NULL) goto memerr;
+		memset (facdata->pools[i].sieve_areas, 0, mem_needed);
+		for (j = 0; j < facdata->num_sieve_areas_per_pool; j++) {
+			facdata->pools[i].sieve_areas[j].sieve = aligned_malloc (SIEVE_SIZE_IN_BYTES, 128);
+			if (facdata->pools[i].sieve_areas[j].sieve == NULL) goto memerr;
+			facdata->pools[i].sieve_areas[j].state = SIEVE_AREA_FREE;
+		}
+	}
+			
+/* Allocate and initialize the bytes used to initialize a sieve */
+
+	asm_data->initsieve = malloc (facdata->initsieve_primes + SIEVE_SIZE_IN_BYTES);
+	if (asm_data->initsieve == NULL) goto memerr;
+	memset (asm_data->initsieve, 0xFF, facdata->initsieve_primes + SIEVE_SIZE_IN_BYTES);
+	for (i = 7; i <= 31; i += 2) {
+		unsigned int j;
+		if (facdata->initsieve_primes % i) continue;
+		for (j = 0; j < (facdata->initsieve_primes + SIEVE_SIZE_IN_BYTES) * 8; j += i) bitclr (asm_data->initsieve, j);
+	}
+
+/* Each bit in the sieve represents one facdist.  We need to find the multiple of 8 (byte boundary) */
+/* to start copying data from the sieve initializer array.  This modular inverse lets us do that. */
+
+	facdata->one_eighth_initsieve_primes = (uint32_t) modinv (8 * asm_data->facdists[1], facdata->initsieve_primes);
 
 /* Init mutexes and events used to control auxiliary threads */
 
 	gwmutex_init (&facdata->thread_lock);
 	gwevent_init (&facdata->thread_work_to_do);
 	gwevent_init (&facdata->sieved_areas_available);
+	gwevent_init (&facdata->all_threads_started);
 	gwevent_init (&facdata->all_threads_done);
-	facdata->num_active_threads = 0;
 	gwevent_signal (&facdata->all_threads_done);
 
-/* Pre-create each auxiliary thread used in multiplication code. */
+/* Pre-create each auxiliary thread used in TF code. */
 /* We allocate the memory here so that error recovery is easier. */
 
 	facdata->threads_must_exit = FALSE;
-	for (i = 0; i < facdata->num_threads - 1; i++) {
+	for (i = 1; i < facdata->num_threads; i++) {
 		struct factor_thread_data *info;
 
 		info = (struct factor_thread_data *) malloc (sizeof (struct factor_thread_data));
 		if (info == NULL) return (GWERROR_MALLOC);
 		info->facdata = facdata;
-		info->thread_num = i+1;
-		/* Allocate the asm_data area and thread stack */
-		info->asm_data = (struct facasm_data *) aligned_malloc (sizeof (struct facasm_data), 64);
+		info->thread_num = i;
+		/* Allocate the asm_data area - suitably aligned for future AVX-1024 variables */
+		info->asm_data = (struct facasm_data *) aligned_malloc (sizeof (struct facasm_data), 128);
 		if (info->asm_data == NULL) {
 			free (info);
 			return (GWERROR_MALLOC);
 		}
 		/* Launch the auxiliary thread */
-		gwthread_create_waitable (&facdata->thread_ids[i], &factor_auxiliary_thread, info);
+		gwthread_create_waitable (&facdata->tf_threads[i].thread_id, &factor_auxiliary_thread, info);
 	}
 
 /* Setup complete */
@@ -4370,7 +4364,7 @@ void factorDone (
 	fachandle *facdata)		/* Handle returned by factorSetup */
 {
 	struct facasm_data *asm_data = facdata->asm_data;
-	int	i;
+	int	i, j;
 
 /* If we are multithreading and multithreading was initialized, then do multithreading cleanup */
 
@@ -4380,47 +4374,71 @@ void factorDone (
 
 		facdata->threads_must_exit = TRUE;
 		gwevent_signal (&facdata->thread_work_to_do);
+		gwevent_signal (&facdata->sieved_areas_available);
 
 /* Wait for all the threads to exit.  We must do this so */
 /* that this thread can safely delete the facdata structure */
 
-		for (i = 0; i < facdata->num_threads - 1; i++)
-			if (facdata->thread_ids[i])
-				gwthread_wait_for_exit (&facdata->thread_ids[i]);
+		for (i = 1; i < facdata->num_threads; i++)
+			if (facdata->tf_threads[i].thread_id)
+				gwthread_wait_for_exit (&facdata->tf_threads[i].thread_id);
+	}
 
 /* Free up memory */
 
-		free (facdata->thread_ids);
-		facdata->thread_ids = NULL;
+	free (facdata->tf_threads);
+	facdata->tf_threads = NULL;
 
-/* Now free up the multi-thread resources */
+/* Now free up the multithread resources */
 
-		gwmutex_destroy (&facdata->thread_lock);
-		gwevent_destroy (&facdata->thread_work_to_do);
-		gwevent_destroy (&facdata->sieved_areas_available);
-		gwevent_destroy (&facdata->all_threads_done);
-		facdata->thread_lock = NULL;
-	}
+	gwmutex_destroy (&facdata->thread_lock);
+	gwevent_destroy (&facdata->thread_work_to_do);
+	gwevent_destroy (&facdata->sieved_areas_available);
+	gwevent_destroy (&facdata->all_threads_started);
+	gwevent_destroy (&facdata->all_threads_done);
+	facdata->thread_lock = NULL;
 
 /* Free assembly code work area */
 
 	if (asm_data != NULL) {
-		free (asm_data->primearray);
 		free (asm_data->initsieve);
-		free (asm_data->initlookup);
+		free (asm_data->primearray);
 		aligned_free (asm_data);
 		facdata->asm_data = NULL;
 	}
+	free (facdata->modinvarray);
+	facdata->modinvarray = NULL;
 
-/* Free the sieve areas */
+/* Free the allocated sievers */
 
-	for (i = 0; i < facdata->num_sieve_areas; i++) {
-		free (facdata->sieve_area[i].sieve);
-		facdata->sieve_area[i].sieve = NULL;
+	if (facdata->sievers != NULL) {
+		for (i = 0; i < facdata->num_sievers; i++)
+			free (facdata->sievers[i].offsetarray);
+		free (facdata->sievers);
+		facdata->sievers = NULL;
+	}
+
+/* Free the pools and sieve areas */
+
+	if (facdata->pools != NULL) {
+		for (i = 0; i < facdata->num_pools; i++) {
+			if (facdata->pools[i].sieve_areas != NULL) {
+				for (j = 0; j < facdata->num_sieve_areas_per_pool; j++)
+					aligned_free (facdata->pools[i].sieve_areas[j].sieve);
+				free (facdata->pools[i].sieve_areas);
+			}
+		}
+		free (facdata->pools);
+		facdata->pools = NULL;
 	}
 }
 
 /* Prepare for one of the 16 factoring passes */
+/* We figure out the starting factor for each siever, and delay much of the initialization */
+/* for factorPassSetupPart2 when multithreading is at work. */
+
+void add96_64 (uint64_t *a_hi, uint64_t *a_lo, uint64_t b) { *a_lo += b; *a_hi += (*a_lo < b) ? 1 : 0; }
+uint32_t mod96_32 (uint64_t a_hi, uint64_t a_lo, uint32_t b) { return ((uint32_t) (((((((a_hi % b) << 32) + (a_lo >> 32)) % b) << 32) + (a_lo & 0xFFFFFFFF)) % b)); }
 
 int factorPassSetup (
 	int	thread_num,
@@ -4428,106 +4446,318 @@ int factorPassSetup (
 	fachandle *facdata)		/* Handle returned by factorSetup */
 {
 	struct facasm_data *asm_data = facdata->asm_data;
-	uint32_t save_facmsw;
+	uint32_t fachsw, facmsw;
+	unsigned int i, j, bits_in_factor;
 
-/* Init some asm data, start sieving at 2^44 (we brute force below 2^44) */
+/* Save the factoring pass */
 
-	asm_data->FACPASS = pass;
-	save_facmsw = asm_data->FACMSW;
-	if (asm_data->FACHSW == 0 && asm_data->FACMSW < 0x1000) asm_data->FACMSW = 0x1000;
+	facdata->factoring_pass = pass;
 
-/* Call the factoring setup assembly code */
+/* FACHSW/FACMSW specifies a floor for the first factor */
+/* Start sieving at or above 2^44 (we brute force below 2^44) */
 
-	factor64_pass_setup (asm_data);
+	fachsw = asm_data->FACHSW;
+	facmsw = asm_data->FACMSW;
+	if (fachsw == 0 && facmsw < 0x1000) facmsw = 0x1000;
 
-/* If using the AVX2 or SSE2 factoring code, do more initialization */
-/* We need to initialize much of the following data: */
+/* Compute the number of bits in the factors we will be testing */
+
+	if (fachsw) i = fachsw, bits_in_factor = 64;
+	else i = facmsw, bits_in_factor = 32;
+	while (i) bits_in_factor++, i >>= 1;
+	if (bits_in_factor < 50) bits_in_factor = 50;		// PrimeFactor does 2^44 to 2^50 in one pass
+
+/* Initialization for AVX512 FMA code using 2 doubles to factor numbers 45 bits and above. */
+/* We need to initialize the following data: */
+/*	FMA_SHIFTER		DD	32 DUP (0)	; Up to 32 dword shifter values
+	ZMM_FMA_LOW_MASK	DQ	0		; Mask for low bits
+	ZMM_FMA_RND_CONST0	DQ	0		; 3 * 2^(51 + SPLIT_POINT)
+	ZMM_FMA_RND_CONST1	DQ	0		; 3 * 2^(51 + BITS_IN_LO_WORD*2)
+	ZMM_FMA_RND_CONST2	DQ	0		; 3 * 2^(51 + BITS_IN_LO_WORD)
+	ZMM_FMA_RND_CONST4	DQ	0		; 3 * 2^(51 - SPLIT_POINT)
+	ZMM_FMA_RND_CONST5	DQ	0		; 3 * 2^(51 + BITS_IN_LO_WORD - SPLIT_POINT)
+	ZMM_FMA_INITVAL		DQ	0		; Initial squared value (a power of two)
+	ZMM_FMA_TWOPOW_SPLIT	DQ	0		; 2^SPLIT_POINT
+	ZMM_FMA_TWO_TO_LO	DQ	0		; 2^BITS_IN_LO_WORD
+*/
+
+	if (bits_in_factor >= 45 && (asm_data->cpu_flags & CPU_AVX512F)) {
+		uint32_t *dword_data;
+		double	*zmm_data;
+		uint64_t *zmm64_data;
+		int	split_bits, low_bits;
+		unsigned long p;
+
+/* Calculate where we split rem_hi^2 (see ASM code in factor64.mac for full algorithm).  Calculate bits of precision in low double. */
+
+		split_bits = bits_in_factor + (bits_in_factor + 1) / 2;
+		low_bits = (split_bits - 52 + 1) / 2;
+
+/* Set FMA_SHIFTER values */
+
+		dword_data = (uint32_t *) asm_data->xmm_data;
+		p = (unsigned long) asm_data->p;
+		for (i = 0; p > 2 * bits_in_factor + 1; i++) {
+			dword_data[i] = (p & 1) ? 64 : 0;		// FMA_SHIFTER (used to decide if this is a doubling iteration)
+			p >>= 1;
+		}
+
+/* Compute the initial value and other constants. */
+
+		asm_data->FMA_INITVAL_TYPE =
+			((int) p < split_bits) ? -1 :
+			((int) p > split_bits+1) ? 0 :
+			((int) p == split_bits) ? 1 : 2;
+		asm_data->FMA_64_MINUS_LOW_BITS = 64 - low_bits;
+		asm_data->SSE2_LOOP_COUNTER = i;
+
+		zmm64_data = (uint64_t *) &dword_data[32];
+		zmm64_data[0] = (1ULL << low_bits) - 1; /* ZMM_FMA_LOW_MASK */
+		zmm_data = (double *) &zmm64_data[1];
+		zmm_data[0] = 3.0 * pow ((double) 2.0, (51 + split_bits)); /* ZMM_FMA_RND_CONST0 */
+		zmm_data[1] = 3.0 * pow ((double) 2.0, (51 + 2*low_bits)); /* ZMM_FMA_RND_CONST1 */
+		zmm_data[2] = 3.0 * pow ((double) 2.0, (51 + low_bits)); /* ZMM_FMA_RND_CONST2 */
+		zmm_data[3] = 3.0 * pow ((double) 2.0, (51 - split_bits)); /* ZMM_FMA_RND_CONST4 */
+		zmm_data[4] = 3.0 * pow ((double) 2.0, (51 + low_bits - split_bits)); /* ZMM_FMA_RND_CONST5 */
+		if ((int) p > split_bits+1)
+			zmm_data[5] = pow ((double) 2.0, (double) (p-1)); /* ZMM_FMA_INITIAL_VALUE */
+		else
+			zmm_data[5] = pow ((double) 2.0, (double) p); /* ZMM_FMA_INITIAL_VALUE */
+		zmm_data[6] = pow ((double) 2.0, split_bits); /* ZMM_FMA_TWOPOW_SPLIT */
+		zmm_data[7] = pow ((double) 2.0, low_bits); /* ZMM_FMA_TWO_TO_LO */
+	}
+
+/* Initialization for FMA code using 2 doubles to factor numbers 45 bits and above. */
+/* We need to initialize the following data: */
+/*	FMA_SHIFTER		DD	32 DUP (0)	; Up to 32 dword shifter values
+	YMM_FMA_LOW_MASK	DQ	4 DUP		; Mask for low bits
+	YMM_FMA_RND_CONST0	DQ	4 DUP		; 3 * 2^(51 + SPLIT_POINT)
+	YMM_FMA_RND_CONST1	DQ	4 DUP		; 3 * 2^(51 + BITS_IN_LO_WORD*2)
+	YMM_FMA_RND_CONST2	DQ	4 DUP		; 3 * 2^(51 + BITS_IN_LO_WORD)
+	YMM_FMA_RND_CONST4	DQ	4 DUP		; 3 * 2^(51 - SPLIT_POINT)
+	YMM_FMA_RND_CONST5	DQ	4 DUP		; 3 * 2^(51 + BITS_IN_LO_WORD - SPLIT_POINT)
+	YMM_FMA_INITVAL		DQ	4 DUP		; Initial squared value (a power of two)
+	YMM_FMA_TWOPOW_SPLIT	DQ	4 DUP		; 2^SPLIT_POINT
+	YMM_FMA_TWO_TO_LO	DQ	4 DUP		; 2^BITS_IN_LO_WORD
+*/
+
+	else if (bits_in_factor >= 45 && (asm_data->cpu_flags & CPU_FMA3)) {
+		uint32_t *dword_data;
+		double	*ymm_data;
+		uint64_t *ymm64_data;
+		int	split_bits, low_bits;
+		unsigned long p;
+
+/* Calculate where we split rem_hi^2 (see ASM code in factor64.mac for full algorithm).  Calculate bits of precision in low double. */
+
+		split_bits = bits_in_factor + (bits_in_factor + 1) / 2;
+		low_bits = (split_bits - 52 + 1) / 2;
+
+/* Set FMA_SHIFTER values */
+
+		dword_data = (uint32_t *) asm_data->xmm_data;
+		p = (unsigned long) asm_data->p;
+		for (i = 0; p > 2 * bits_in_factor + 1; i++) {
+			dword_data[i] = (p & 1) ? 32 : 0;		// FMA_SHIFTER (used to decide if this is a doubling iteration)
+			p >>= 1;
+		}
+
+/* Compute the initial value and other constants. */
+
+		asm_data->FMA_INITVAL_TYPE =
+			((int) p < split_bits) ? -1 :
+			((int) p > split_bits+1) ? 0 :
+			((int) p == split_bits) ? 1 : 2;
+		asm_data->FMA_64_MINUS_LOW_BITS = 64 - low_bits;
+		asm_data->SSE2_LOOP_COUNTER = i;
+
+		ymm64_data = (uint64_t *) &dword_data[32];
+		ymm64_data[0] = ymm64_data[1] = ymm64_data[2] = ymm64_data[3] = (1ULL << low_bits) - 1; /* YMM_FMA_LOW_MASK */
+		ymm_data = (double *) &ymm64_data[4];
+		ymm_data[0] = ymm_data[1] = ymm_data[2] = ymm_data[3] = 3.0 * pow ((double) 2.0, (51 + split_bits)); /* YMM_FMA_RND_CONST0 */
+		ymm_data[4] = ymm_data[5] = ymm_data[6] = ymm_data[7] = 3.0 * pow ((double) 2.0, (51 + 2*low_bits)); /* YMM_FMA_RND_CONST1 */
+		ymm_data[8] = ymm_data[9] = ymm_data[10] = ymm_data[11] = 3.0 * pow ((double) 2.0, (51 + low_bits)); /* YMM_FMA_RND_CONST2 */
+		ymm_data[12] = ymm_data[13] = ymm_data[14] = ymm_data[15] = 3.0 * pow ((double) 2.0, (51 - split_bits)); /* YMM_FMA_RND_CONST4 */
+		ymm_data[16] = ymm_data[17] = ymm_data[18] = ymm_data[19] = 3.0 * pow ((double) 2.0, (51 + low_bits - split_bits)); /* YMM_FMA_RND_CONST5 */
+		if ((int) p > split_bits+1)
+			ymm_data[20] = ymm_data[21] = ymm_data[22] = ymm_data[23] = pow ((double) 2.0, (double) (p-1)); /* YMM_FMA_INITIAL_VALUE */
+		else
+			ymm_data[20] = ymm_data[21] = ymm_data[22] = ymm_data[23] = pow ((double) 2.0, (double) p); /* YMM_FMA_INITIAL_VALUE */
+		ymm_data[24] = ymm_data[25] = ymm_data[26] = ymm_data[27] = pow ((double) 2.0, split_bits); /* YMM_FMA_TWOPOW_SPLIT */
+		ymm_data[28] = ymm_data[29] = ymm_data[30] = ymm_data[31] = pow ((double) 2.0, low_bits); /* YMM_FMA_TWO_TO_LO */
+	}
+
+/* Initialization for SSE2 / AVX2 code using 30-bit integers to factor numbers 64 bits and above */
+/* If using the SSE2 or AVX2 factoring code, we need to initialize much of the following data: */
 /*	YMM_INITVAL		DD	0,0,0,0,0,0,0,0
 	XMM_INIT120BS		DD	0,0
 	XMM_INITBS		DD	0,0
 	XMM_BS			DD	0,0
 	XMM_SHIFTER		DD	64 DUP (0) */
 
-	if (asm_data->cpu_flags & (CPU_AVX2 | CPU_SSE2)) {
-		unsigned long i, p, bits_in_factor;
-
-/* Compute the number of bits in the factors we will be testing */
-
-		if (asm_data->FACHSW)
-			bits_in_factor = 64, i = asm_data->FACHSW;
-		else
-			bits_in_factor = 32, i = asm_data->FACMSW;
-		while (i) bits_in_factor++, i >>= 1;
-
-/* Factors 63 bits and below use the non-SSE2 code */
-
-		if (bits_in_factor > 63) {
-			uint32_t *xmm_data;
+	else if (bits_in_factor >= 64 && (asm_data->cpu_flags & (CPU_SSE2 | CPU_AVX2))) {
+		uint32_t *xmm_data;
+		unsigned long p;
 
 /* Set XMM_SHIFTER values (the first shifter value is not used). */
 /* Also compute the initial value. */
 
-			xmm_data = asm_data->xmm_data;
-			p = (unsigned long) asm_data->p;
-			for (i = 0; p > bits_in_factor + 59; i++) {
-				xmm_data[16+i*2] = (p & 1) ? 1 : 0;
-				p >>= 1;
-			}
-			xmm_data[0] =					/* XMM_INITVAL & YMM_INITVAL */
-			xmm_data[2] =
-			xmm_data[4] =
-			xmm_data[6] = p >= 90 ? 0 : (1 << (p - 60));
-			xmm_data[8] = 62 - (120 - bits_in_factor);	/* XMM_INIT120BS */
-			xmm_data[10] = 62 - (p - bits_in_factor);	/* XMM_INITBS */
-			xmm_data[12] = bits_in_factor - 61;		/* Set XMM_BS to 60 - (120 - fac_size + 1) as defined in factor64.mac */
-			asm_data->SSE2_LOOP_COUNTER = i;
-			asm_data->TWO_TO_FACSIZE_PLUS_62 = pow ((double) 2.0, (int) (bits_in_factor + 62));
+		xmm_data = asm_data->xmm_data;
+		p = (unsigned long) asm_data->p;
+		for (i = 0; p > bits_in_factor + 59; i++) {
+			xmm_data[16+i*2] = (p & 1) ? 1 : 0;
+			p >>= 1;
 		}
+		xmm_data[0] = xmm_data[2] =			/* XMM_INITVAL & YMM_INITVAL */
+		xmm_data[4] = xmm_data[6] = p >= 90 ? 0 : (1 << (p - 60));
+		xmm_data[8] = 62 - (120 - bits_in_factor);	/* XMM_INIT120BS */
+		xmm_data[10] = 62 - (p - bits_in_factor);	/* XMM_INITBS */
+		xmm_data[12] = bits_in_factor - 61;		/* Set XMM_BS to 60 - (120 - fac_size + 1) as defined in factor64.mac */
+		asm_data->SSE2_LOOP_COUNTER = i;
+		asm_data->TWO_TO_FACSIZE_PLUS_62 = pow ((double) 2.0, (int) (bits_in_factor + 62));
 	}
 
-/* Remember first factor in first sieve area */
+/* Determine the starting factor for each siever.  Also calculate total number of sieves we'll need to process. */
 
-	facdata->next_sieve_first_factor[0] = asm_data->savefac0;
-	facdata->next_sieve_first_factor[1] = asm_data->savefac1;
+	facdata->total_num_areas_to_sieve = 0;
+	for (i = 0; (int) i < facdata->num_sievers; i++) {
+		uint64_t savefac0, savefac1;
+		double	first_factor;
 
-/* Calculate number of calls we will need to make to factor64_sieve */
+/* In first siever, use fachsw/facmsw to calculate first factor */
 
-	{
-		double temp, next_pow_2, first_factor;
-		first_factor = (double) asm_data->savefac0 * pow (2.0, 64.0) + (double) asm_data->savefac1;
-		temp = log (first_factor) / log (2.0);
-		temp = floor (temp) + 1.0;
-		if (temp < 50.0) temp = 50.0;		// primeFactor lumps 2^44 to 2^50 in one big "bit-level"
-		next_pow_2 = pow (2.0, temp);
-		facdata->num_areas_to_sieve = (uint64_t) ((next_pow_2 - first_factor) / (double) asm_data->facdist12K) + 1;
+		if (i == 0) {
+			uint64_t rem;
+			uint32_t rems[16] = {1,7,17,23,31,41,47,49,71,73,79,89,97,103,113,119};
+
+			// fachsw/facmsw specifies a floor for the first factor
+
+			savefac0 = fachsw;
+			savefac1 = ((uint64_t) facmsw) << 32;
+
+			// Find next integer of the form 2kp+1
+			rem = mod96_32 (savefac0, savefac1, (uint32_t) asm_data->p * 2);
+			add96_64 (&savefac0, &savefac1, asm_data->p * 2 - rem + 1);
+
+			// Now make sure we have the right remainder for this factoring pass
+			for ( ; ; ) {
+				if (mod96_32 (savefac0, savefac1, 120) == rems[pass]) break;
+				add96_64 (&savefac0, &savefac1, asm_data->p * 2);
+			}
+		}
+
+/* For remaining sievers, add 120 * p to the previous siever's first factor */
+
+		else {
+			savefac0 = facdata->sievers[i-1].next_sieve_first_factor[0];
+			savefac1 = facdata->sievers[i-1].next_sieve_first_factor[1];
+			add96_64 (&savefac0, &savefac1, 120 * asm_data->p);
+		}
+
+/* Make sure factor is not a multiple of 7/11/13 when facdist is also a multiple of 7/11/13 */
+
+		for ( ; ; ) {
+			if ((asm_data->facdists[1] % 7 == 0 && mod96_32 (savefac0, savefac1, 7) == 0) ||
+			    (asm_data->facdists[1] % 11 == 0 && mod96_32 (savefac0, savefac1, 11) == 0) ||
+			    (asm_data->facdists[1] % 13 == 0 && mod96_32 (savefac0, savefac1, 13) == 0))
+				add96_64 (&savefac0, &savefac1, 120 * asm_data->p);
+			else
+				break;
+		}
+
+/* Remember the first factor, the initial offset to fill the sieve, and init siever state */
+
+		facdata->sievers[i].next_sieve_first_factor[0] = savefac0;
+		facdata->sievers[i].next_sieve_first_factor[1] = savefac1;
+		facdata->sievers[i].state = SIEVER_UNINITIALIZED;
+
+/* Calculate number of calls we will need to make to factor64_sieve.  Be careful when reading a save file, the first */
+/* factor could be just over the next power of two meaning there are no areas to sieve. */
+
+		first_factor = (double) savefac0 * pow (2.0, 64.0) + (double) savefac1;
+		if (facdata->endpt > first_factor)
+			facdata->sievers[i].num_areas_to_sieve = (uint64_t) ((facdata->endpt - first_factor) / (double) asm_data->facdist12K) + 1;
+		else
+			facdata->sievers[i].num_areas_to_sieve = 0;
+		facdata->total_num_areas_to_sieve += facdata->sievers[i].num_areas_to_sieve;
+	}
+
+/* Now let assembly code do remaining pass initialization.  Archaic stuff that never got moved to C code. */
+
+	asm_data->savefac0 = facdata->sievers[0].next_sieve_first_factor[0];
+	asm_data->savefac1 = facdata->sievers[0].next_sieve_first_factor[1];
+	factor64_pass_setup (asm_data);
+
+/* Start each sieving-capable thread with a different siever */
+
+	j = 0;
+	for (i = 0; (int) i < facdata->num_threads; i++) {
+		if (facdata->tf_threads[i].thread_can_sieve) {
+			facdata->sievers[j].last_thread_used = i;
+			facdata->sievers[j].state |= SIEVER_ASSIGNED;
+			facdata->tf_threads[i].last_siever_used = j++;
+		}
 	}
 
 /* Init sieve area counters, clear counter of chunks processed */
 
-	facdata->num_free_sieve_areas = facdata->num_sieve_areas;
-	facdata->num_sieved_sieve_areas = 0;
+	for (i = 0; (int) i < facdata->num_pools; i++) {
+		facdata->pools[i].num_sievers_active = 0;
+		facdata->pools[i].num_free_sieve_areas = facdata->num_sieve_areas_per_pool;
+		facdata->pools[i].num_sieved_sieve_areas = 0;
+		facdata->pools[i].last_sieve_area_for_sieve = 0;
+		facdata->pools[i].last_sieve_area_for_tf = 0;
+	}
 	facdata->num_chunks_TFed = 0;
+	facdata->total_num_chunks_TFed = 0;
+	facdata->total_num_chunks_to_TF = facdata->total_num_areas_to_sieve;
+	facdata->pass_complete = FALSE;
 
 /* Signal the auxiliary threads to resume working */
+/* This will copy the main thread's now properly initialized asm_data to each auxiliary thread */
 
 	if (facdata->num_threads > 1) {
-		facdata->num_active_threads = facdata->num_threads - 1;	// Set count of active auxilary threads
-		gwevent_reset (&facdata->all_threads_done);		// Clear auxilary threads done signal
-		gwevent_signal (&facdata->thread_work_to_do);		// Start auxilary threads
+		facdata->num_active_threads = 0;			// Set count of active auxiliary threads
+		gwevent_reset (&facdata->all_threads_started);		// Clear all auxiliary threads started signal
+		gwevent_reset (&facdata->all_threads_done);		// Clear all auxiliary threads done signal
+		gwevent_signal (&facdata->thread_work_to_do);		// Start auxiliary threads
 	}
 
 /* Setup complete */
 
-	asm_data->FACMSW = save_facmsw;
 	return (0);
 }
 
+/* This is remaining initialization that each allocated siever must do before its first sieving operation this pass */
+/* We don't do this in factorPassSetup because that is single-threaded.  This routine will be executed in multi-threaded. */
+/* You might think this is no big deal, but on Knight's Landing where there are 64 or more siever areas, this single-threaded */
+/* initialization cost adds substantial elapsed time when TFing at lower bit levels.  Also, why initialize the offset data */
+/* in one thread only to use it in another thread -- can generate needless bus traffic. */
+
+void factorPassSetupPart2 (
+	fachandle *facdata,		/* Handle returned by factorSetup */
+	struct facasm_data *asm_data,	/* This thread's asm data */
+	struct siever_info *siever)	/* Siever to finish initializing */
+{
+	uint32_t *primep, *modinvp, *offsetp;
+
+/* Init this siever's the bit-to-clear offset array */
+
+	modinvp = facdata->modinvarray;
+	offsetp = (uint32_t *) siever->offsetarray;
+	for (primep = (uint32_t *) asm_data->primearray; *primep; primep++, offsetp++, modinvp++) {
+		uint32_t temp;
+		temp = mod96_32 (asm_data->savefac0, asm_data->savefac1, *primep);
+		if (temp) temp = (uint32_t) (*primep - (((uint64_t) temp * (uint64_t) *modinvp) % *primep));
+		*offsetp = temp;
+	}
+}
 
 /* Factor one "chunk" single-threaded.  The assembly code decides how big a chunk is. */
 
 #define FACTOR_CHUNK_SIZE	(SIEVE_SIZE_IN_BYTES >> 10)		// 64-bit sieve processes one 12KB sieve
 
-int factorChunk (
+int factorChunk (			/* Return 1 if factor found, 2 if factor not found */
 	fachandle *facdata)		/* Handle returned by factorSetup */
 {
 	struct facasm_data *asm_data = facdata->asm_data;
@@ -4535,153 +4765,267 @@ int factorChunk (
 
 /* If we're looking for factors below 2^44, use special brute force code */
 
-	if (asm_data->FACHSW == 0 && asm_data->FACMSW < 0x1000) {
-		if (asm_data->FACPASS == 0) return (factor64_small (asm_data));
-		asm_data->FACMSW = 0x1000;
-		return (2);		// Return no-factor-found
+	if (facdata->factoring_pass == 0 && asm_data->FACHSW == 0 && asm_data->FACMSW < 0x1000) {
+		asm_data->savefac1 = 2 * (uint64_t) asm_data->p + 1;		// First factor to test is 2*p+1
+		while (factor64_small (asm_data) == 1) {			// Remember the found factor
+			if (facdata->found_count < MAX_TF_FOUND_COUNT) {	// I doubt we'll find more than 10 factors
+				facdata->found_lsw[facdata->found_count] = (uint32_t) asm_data->savefac1;
+				facdata->found_msw[facdata->found_count] = (uint32_t) (asm_data->savefac1 >> 32);
+				facdata->found_hsw[facdata->found_count] = 0;
+				facdata->found_count++;
+			}
+			asm_data->savefac1 += 2 * (uint64_t) asm_data->p;	// Calculate next factor to test
+		}
 	}
 
-/* If enabled, use the multi-thread version of this code */
+/* The main thread uses the same code as the auxilary threads */
 
-	if (facdata->num_threads > 1) {
-		res = factorChunkMultithreaded (facdata, asm_data);
-		// If we didn't TF a chunk (because there are no more to do) then wait
-		// for the auxiliary threads to finish up, just in case one of them
-		// finds a factor.  Set FACHSW,FACMSW so that primeFactor knows we've finished
-		// the bit level.
-		if (res) {
-			gwevent_wait (&facdata->all_threads_done, 0);
-			asm_data->FACHSW = (uint32_t) facdata->next_sieve_first_factor[0];
-			asm_data->FACMSW = (uint32_t) (facdata->next_sieve_first_factor[1] >> 32);
-		}
-		// If we (or an auxilary thread) found a factor, return it
-		if (facdata->found_lsw) {
-			asm_data->FACLSW = facdata->found_lsw;
-			asm_data->FACMSW = facdata->found_msw;
-			asm_data->FACHSW = facdata->found_hsw;
-			facdata->found_lsw = 0;
-			facdata->found_msw = 0;
-			facdata->found_hsw = 0;
-			return (1);					// Return factor found
-		}
-		// For percent complete messasges, caller expects fachsw/facmsw set to next factor to TF.
-		// factorChunkMultithreaded should have set this to a reasonable value.
-		return (2);						// Return factor not found
+	res = factorChunkMultithreaded (facdata, asm_data, 0);
+	// If we didn't TF a chunk (because there are no more to do) then wait
+	// for the auxiliary threads to finish up, just in case one of them
+	// finds a factor.
+	if (res) {
+		gwevent_wait (&facdata->all_threads_done, 0);
+		facdata->pass_complete = TRUE;
 	}
-
-/* Use the faster pre-sieve and TF code */
-
-	facdata->sieve_area[0].first_factor[0] = asm_data->savefac0 = facdata->next_sieve_first_factor[0];
-	facdata->sieve_area[0].first_factor[1] = asm_data->savefac1 = facdata->next_sieve_first_factor[1];
-	asm_data->sieve = facdata->sieve_area[0].sieve;
-	factor64_sieve (asm_data);
-	facdata->next_sieve_first_factor[0] = asm_data->savefac0;	/* Remember next sieve's first factor */
-	facdata->next_sieve_first_factor[1] = asm_data->savefac1;
-	facdata->num_areas_to_sieve--;
-
-	asm_data->savefac0 = facdata->sieve_area[0].first_factor[0];
-	asm_data->savefac1 = facdata->sieve_area[0].first_factor[1];
-	res = factor64_tf (asm_data);
-	facdata->num_chunks_TFed++;
-	if (res == 1) return (1);	// Return if factor found
-	// For percent complete messasges and knowing when to start the next pass,
-	// caller expects fachsw/facmsw set to next factor to TF
-	asm_data->FACHSW = (uint32_t) facdata->next_sieve_first_factor[0];
-	asm_data->FACMSW = (uint32_t) (facdata->next_sieve_first_factor[1] >> 32);
-	return (2);	// No factor found
+	// If we (or an auxiliary thread) found a factor, end this pass and return the factor
+	if (facdata->found_count) {
+		// Caller expects the pass to be complete when a found factor is returned.
+		// We should clean this up, but it would require modifying the legacy 32-bit code.
+		do {
+			res = factorChunkMultithreaded (facdata, asm_data, 0);
+		} while (!res);
+		gwevent_wait (&facdata->all_threads_done, 0);
+		facdata->pass_complete = TRUE;
+		facdata->found_count--;
+		asm_data->FACLSW = facdata->found_lsw[facdata->found_count];
+		asm_data->FACMSW = facdata->found_msw[facdata->found_count];
+		asm_data->FACHSW = facdata->found_hsw[facdata->found_count];
+		return (1);					// Return factor found
+	}
+	return (2);						// Return factor not found
 }
 
 /* Like the code above, but a multithreaded version */
 
 int factorChunkMultithreaded (		/* Return TRUE when there is no more work to do */
 	fachandle *facdata,		/* Handle returned by factorSetup */
-	struct facasm_data *asm_data)	/* This thread's asm data */
+	struct facasm_data *asm_data,	/* This thread's asm data */
+	int	aux_thread_num)		/* Auxiliary thread number (or zero for main thread) */
 {
-	int	i, res;
+	int	i, res, siever_uninitialized;
+	struct tf_thread_info *tf_thread;
+	struct pool_info *pool;
+	struct sieve_area_info *sieve_area;
 
-/* See if we're running low on already sieved areas */
+/* Get info on this particular thread */
+
+	tf_thread = &facdata->tf_threads[aux_thread_num];
+	pool = &facdata->pools[tf_thread->pool];
+
+/* Acquire the lock */
 
 	gwmutex_lock (&facdata->thread_lock);
-	if (!facdata->a_thread_is_sieving &&				// No other threads are sieving
-	    facdata->num_free_sieve_areas &&				// There are sieve areas free to work on
-	    (facdata->num_free_sieve_areas > 10 ||			// There are a significant number of free areas to fill
-	     facdata->num_free_sieve_areas > facdata->num_threads*2 ||	// There are a significant number of free areas to fill
-	     facdata->num_sieved_sieve_areas) &&			// There is no other work to do
-	    facdata->num_areas_to_sieve) {				// There is more sieving to do at this bit level
 
-/* Yes, sieve until there are no more free sieve areas or no more sieving to do. */
-/* This assumes we will get better performance by doing large batches of sieving so */
-/* that the small prime array stays in the L2 cache of a single thread. */
+/* See if we should do some sieving.  The thread must be one that can sieve and there must be more sieve work left to do */
 
-		facdata->a_thread_is_sieving = TRUE;
-		asm_data->initstart = facdata->asm_data->initstart;			/* Copy initstart value */
-		while (facdata->num_free_sieve_areas && facdata->num_areas_to_sieve) {
-			for (i = 0; i < facdata->num_sieve_areas; i++)
-				if (facdata->sieve_area[i].state == SIEVE_AREA_FREE) break;
-			facdata->num_free_sieve_areas--;
-			facdata->sieve_area[i].state = SIEVE_AREA_SIEVING;		/* Update sieve area's state */
-			facdata->sieve_area[i].first_factor[0] = asm_data->savefac0 = facdata->next_sieve_first_factor[0];
-			facdata->sieve_area[i].first_factor[1] = asm_data->savefac1 = facdata->next_sieve_first_factor[1];
-			asm_data->sieve = facdata->sieve_area[i].sieve;
-			gwmutex_unlock (&facdata->thread_lock);
-			factor64_sieve (asm_data);
-			gwmutex_lock (&facdata->thread_lock);
-			facdata->next_sieve_first_factor[0] = asm_data->savefac0;	/* Remember next sieve's first factor */
-			facdata->next_sieve_first_factor[1] = asm_data->savefac1;
-			facdata->sieve_area[i].state = SIEVE_AREA_SIEVED;
-			facdata->num_sieved_sieve_areas++;
-			facdata->num_areas_to_sieve--;
-			gwevent_signal (&facdata->sieved_areas_available);
+	if (facdata->total_num_areas_to_sieve > 0 &&				// Is any sieving needed?
+	    (!facdata->pooling ||						// If not pooling, then we can always sieve
+	     (tf_thread->thread_can_sieve &&					// Pooling: Is thread allowed to sieve?
+	      pool->num_free_sieve_areas &&					// Pooling: Are there sieve areas free to work on?
+	      pool->num_sieved_sieve_areas < facdata->num_threads_per_pool*2))){// Pooling: Are there adequate areas already sieved? */
+		struct siever_info *siever;
+		siever = &facdata->sievers[tf_thread->last_siever_used];
+
+/* We prefer to use the same siever as last time because the bit-to-clear offsets are likely to */
+/* be in one of the CPU's caches.  When we are not close to finishing up, we switch sievers after */
+/* every 64 sievings so that we make close to uniform progress (which is prefered should we need */
+/* to create a save file).  When we are close to finishing up, we want every thread to end at the */
+/* same time so we become very strict about selecting neediest siever. */
+
+		if (siever->last_thread_used == aux_thread_num &&		// Siever is assigned to this thread
+		    (siever->state == SIEVER_ASSIGNED + SIEVER_UNINITIALIZED ||	// Siever hasn't started yet
+		     ((siever->num_areas_to_sieve & 0x3F) &&			// Siever is in middle of 64 sievings
+		      (siever->num_areas_to_sieve >= 20 ||			// and not near the end of the pass
+		       facdata->num_threads == 1))))				// or only one thread: uniform progress at end is unimportant
+			;							// Stay with our assigned siever
+
+/* Find the inactive siever with the most work left to do. */
+/* We fudge a little here so that we prefer to stay with the same siever. */
+
+		else {
+			int	i, best_siever;
+			uint64_t score, best_score_thusfar;
+
+			// Mark our old siever unassigned if the siever was assigned to this thread
+			if (siever->last_thread_used == aux_thread_num) siever->state = SIEVER_INACTIVE;
+
+			// If not multithreading, we simply move onto the next siever for uniform progress
+			if (facdata->num_threads == 1) {
+				best_siever = tf_thread->last_siever_used + 1;
+				if (best_siever == facdata->num_sievers) best_siever = 0;
+			}
+
+			// Multithreaded case.  Use heuristics to prefer re-using our current siever or an
+			// unassigned siever except when we get near the end of a pass.
+			else {
+				best_siever = -1;
+				if (siever->last_thread_used == aux_thread_num) {
+					best_siever = tf_thread->last_siever_used;
+					best_score_thusfar = siever->num_areas_to_sieve;
+					if (siever->num_areas_to_sieve > 128) best_score_thusfar += 128;
+					else if (siever->num_areas_to_sieve > 64) best_score_thusfar += 64;
+				}
+				for (i = 0; i < facdata->num_sievers; i++) {
+					// We cannot steal a siever that is actively sieving
+					if (facdata->sievers[i].state == SIEVER_ASSIGNED + SIEVER_ACTIVE) continue;
+					// We don't steal sievers until we get very close to finishing
+					if ((facdata->sievers[i].state & SIEVER_ASSIGNED) &&
+					    facdata->sievers[i].num_areas_to_sieve > 20) continue;
+					// Does this inactive siever have more work left to do than any sievers we've looked at thusfar?
+					score = facdata->sievers[i].num_areas_to_sieve;
+					if (best_siever == -1 || score > best_score_thusfar) {
+						best_siever = i;
+						best_score_thusfar = score;
+					}
+				}
+			}
+
+			// Assign the best siever to this thread
+			tf_thread->last_siever_used = best_siever;
+			siever = &facdata->sievers[best_siever];
+			siever->state |= SIEVER_ASSIGNED;
+			siever->last_thread_used = aux_thread_num;
 		}
-		facdata->asm_data->initstart = asm_data->initstart;			/* Save initstart value */
-		facdata->a_thread_is_sieving = FALSE;
+
+/* It is possible to get here with a siever that has no work to do (all sievers with work */
+/* to do are currently tied up sieving).  Because we try to make uniform progress for */
+/* the last 20 sievings, this should be pretty darn rare.  */
+
+		if (siever->num_areas_to_sieve == 0) {
+			if (facdata->pooling && pool->num_sieved_sieve_areas) goto tf;
+			gwevent_reset (&facdata->sieved_areas_available);
+			gwmutex_unlock (&facdata->thread_lock);
+			gwevent_wait (&facdata->sieved_areas_available, 0);
+			return (FALSE);
+		}
+
+/* Find a free sieve area and do the small prime sieving. */
+
+		pool->num_sievers_active++;
+		siever_uninitialized = (siever->state == SIEVER_ASSIGNED + SIEVER_UNINITIALIZED);
+		siever->state = SIEVER_ASSIGNED + SIEVER_ACTIVE;
+		siever->num_areas_to_sieve--;
+		facdata->total_num_areas_to_sieve--;
+		// If we can use the same sieve area as last time, do so for better locality.
+		// When we are not really pooling, this will always be the case.
+		if (pool->sieve_areas[tf_thread->last_sieve_area_used].state == SIEVE_AREA_FREE)
+			i = tf_thread->last_sieve_area_used;
+		// Otherwise, find the next free sieve area
+		else for (i = pool->last_sieve_area_for_sieve + 1; ; i++) {
+			if (i == facdata->num_sieve_areas_per_pool) i = 0;
+			if (pool->sieve_areas[i].state == SIEVE_AREA_FREE) break;
+		}
+		tf_thread->last_sieve_area_used = i;
+		pool->last_sieve_area_for_sieve = i;
+		sieve_area = &pool->sieve_areas[i];
+		pool->num_free_sieve_areas--;
+		sieve_area->state = SIEVE_AREA_SIEVING;		/* Update sieve area's state */
+		gwmutex_unlock (&facdata->thread_lock);
+		sieve_area->first_factor[0] = asm_data->savefac0 = siever->next_sieve_first_factor[0];
+		sieve_area->first_factor[1] = asm_data->savefac1 = siever->next_sieve_first_factor[1];
+		asm_data->initstart = (uint32_t)
+			((uint64_t) mod96_32 (asm_data->savefac0, asm_data->savefac1, facdata->initsieve_primes) *
+			 (uint64_t) facdata->one_eighth_initsieve_primes % facdata->initsieve_primes);
+		asm_data->sieve = sieve_area->sieve;
+		asm_data->offsetarray = siever->offsetarray;
+		if (siever_uninitialized) factorPassSetupPart2 (facdata, asm_data, siever);
+		factor64_sieve (asm_data);
+		gwmutex_lock (&facdata->thread_lock);
+		siever->next_sieve_first_factor[0] = asm_data->savefac0; /* Remember next sieve's first factor */
+		siever->next_sieve_first_factor[1] = asm_data->savefac1;
+		sieve_area->state = SIEVE_AREA_SIEVED;
+		pool->num_sieved_sieve_areas++;
+		gwevent_signal (&facdata->sieved_areas_available);
+		siever->state = SIEVER_ASSIGNED + SIEVER_INACTIVE;
+		pool->num_sievers_active--;
+
+/* If we are pooling, then return since we did some work. */
+/* Otherwise, fall through and TF the area we just sieved. */
+
+		if (facdata->pooling) {
+			gwmutex_unlock (&facdata->thread_lock);
+			return (FALSE);
+		}
 	}
 
 /* See if there are any sieved areas available to TF.  If not, wait or exit */
 
-	while (facdata->num_sieved_sieve_areas == 0) {
-		if (!facdata->a_thread_is_sieving && facdata->num_areas_to_sieve == 0) {
+	while (pool->num_sieved_sieve_areas == 0) {
+		if ((!facdata->pooling || pool->num_sievers_active == 0) && facdata->total_num_areas_to_sieve == 0) {
 			gwmutex_unlock (&facdata->thread_lock);
 			return (TRUE);			// Return no more work to do flag
 		}
 		gwevent_reset (&facdata->sieved_areas_available);
 		gwmutex_unlock (&facdata->thread_lock);
 		gwevent_wait (&facdata->sieved_areas_available, 0);
+		if (facdata->threads_must_exit) return (TRUE);
 		gwmutex_lock (&facdata->thread_lock);
 	}
 
-/* Find sieved area with smallest first factor and TF it.  Well, rather than find the smallest we */
-/* just circle through the array by starting one after the last index used.  It won't take long */
-/* before the smallest sieved area is handed out for TF.  */
+/* Find a sieved area and TF it. */
 
-	for (i = facdata->last_sieve_area_for_tf+1; ; i++) {
-		if (i == facdata->num_sieve_areas) i = 0;
-		if (facdata->sieve_area[i].state == SIEVE_AREA_SIEVED) break;
+	// If not pooling then use the same sieve area as last time for better locality.
+tf:	if (!facdata->pooling)
+		i = tf_thread->last_sieve_area_used;
+	// Otherwise, find the sieved area with smallest first factor.  Well, rather than find the smallest
+	// we just circle through the array by starting one after the last index used.  It won't take long
+	// before the smallest sieved area is handed out for TF. */
+	else for (i = pool->last_sieve_area_for_tf+1; ; i++) {
+		if (i == facdata->num_sieve_areas_per_pool) i = 0;
+		if (pool->sieve_areas[i].state == SIEVE_AREA_SIEVED) break;
 	}
-	facdata->last_sieve_area_for_tf = i;
-	facdata->num_sieved_sieve_areas--;
-	facdata->sieve_area[i].state = SIEVE_AREA_TFING;		/* Update sieve area's state */
-	asm_data->savefac0 = facdata->sieve_area[i].first_factor[0];
-	asm_data->savefac1 = facdata->sieve_area[i].first_factor[1];
-	asm_data->sieve = facdata->sieve_area[i].sieve;
+	tf_thread->last_sieve_area_used = i;
+	pool->last_sieve_area_for_tf = i;
+	sieve_area = &pool->sieve_areas[i];
+	pool->num_sieved_sieve_areas--;
+	sieve_area->state = SIEVE_AREA_TFING;			/* Update sieve area's state */
+	asm_data->savefac0 = sieve_area->first_factor[0];
+	asm_data->savefac1 = sieve_area->first_factor[1];
+	asm_data->sieve = sieve_area->sieve;
 	gwmutex_unlock (&facdata->thread_lock);
 	res = factor64_tf (asm_data);
 	gwmutex_lock (&facdata->thread_lock);
 	if (res == 1) {							/* Remember a found factor */
-		facdata->found_lsw = asm_data->FACLSW;
-		facdata->found_msw = asm_data->FACMSW;
-		facdata->found_hsw = asm_data->FACHSW;
+		// On first found factor, only sieve areas below the found factor
+		if (facdata->found_count == 0 && !IniGetInt (INI_FILE, "TFFullBitLevel", 0)) {
+			double factor = ((double) asm_data->FACHSW * 4294967296.0 + (double) asm_data->FACMSW) * 4294967296.0;
+			uint64_t reduction = (uint64_t) ((facdata->endpt - factor) / (double) asm_data->facdist12K);
+			for (i = 0; i < facdata->num_sievers; i++) {
+				if (facdata->sievers[i].num_areas_to_sieve >= reduction) {
+					facdata->total_num_chunks_to_TF -= reduction;
+					facdata->total_num_areas_to_sieve -= reduction;
+					facdata->sievers[i].num_areas_to_sieve -= reduction;
+				} else {
+					facdata->total_num_chunks_to_TF -= facdata->sievers[i].num_areas_to_sieve;
+					facdata->total_num_areas_to_sieve -= facdata->sievers[i].num_areas_to_sieve;
+					facdata->sievers[i].num_areas_to_sieve = 0;
+				}
+			}
+			gwevent_signal (&facdata->sieved_areas_available); // In case a thread was waiting for a siever we just zeroed
+		}
+		// Remember the found factor
+		if (facdata->found_count < MAX_TF_FOUND_COUNT) {	/* I can't imagine finding too many factors so close together */
+			facdata->found_lsw[facdata->found_count] = asm_data->FACLSW;
+			facdata->found_msw[facdata->found_count] = asm_data->FACMSW;
+			facdata->found_hsw[facdata->found_count] = asm_data->FACHSW;
+			facdata->found_count++;
+		}
 	}
 	facdata->num_chunks_TFed++;
-	facdata->sieve_area[i].state = SIEVE_AREA_FREE;			/* Update sieve area's state */
-	facdata->num_free_sieve_areas++;
-	// For percent complete messages, primeFactor expects fachsw/facmsw set to next factor to TF.
-	// While multithreading may mean there are some smaller values to TF, primeFactor will get the
-	// exact information by calling factorFindSmallestNotTFed before writing a save file.
-//	asm_data->FACHSW = (uint32_t) asm_data->savefac0;	//bug -- this starts next pass prematurely if we just did last sieve area!!!!
-//	asm_data->FACMSW = (uint32_t) (asm_data->savefac1 >> 32);
-	asm_data->FACHSW = (uint32_t) facdata->sieve_area[i].first_factor[0]; //instead set to first factor in sieve area just processed
-	asm_data->FACMSW = (uint32_t) (facdata->sieve_area[i].first_factor[1] >> 32);
+	facdata->total_num_chunks_TFed++;
+	sieve_area->state = SIEVE_AREA_FREE;			/* Update sieve area's state */
+	pool->num_free_sieve_areas++;
 	gwmutex_unlock (&facdata->thread_lock);
 	return (FALSE);							// Return more work to do flag
 }
@@ -4702,108 +5046,46 @@ int factorChunksProcessed (
 void factorFindSmallestNotTFed (
 	fachandle *facdata)		/* Handle returned by factorSetup */
 {
-	int	i;
-	uint32_t smallest_hsw, smallest_msw;
+	int	i, j;
+	uint64_t smallest, temp;
 	struct facasm_data *asm_data = facdata->asm_data;
-
-/* If not multi-threading, factorChunk already returned this information */
-
-	if (facdata->num_threads <= 1) return;
 
 /* Search for the smallest sieved area.  If there are no sieved areas, we'll end up */
 /* returning the next factor to sieve. */
 
 	gwmutex_lock (&facdata->thread_lock);
-	smallest_hsw = (uint32_t) facdata->next_sieve_first_factor[0];
-	smallest_msw = (uint32_t) (facdata->next_sieve_first_factor[1] >> 32);
-	for (i = 0; i < facdata->num_sieve_areas; i++) {
-		if (facdata->sieve_area[i].state != SIEVE_AREA_SIEVED) continue;
-		if ((uint32_t) facdata->sieve_area[i].first_factor[0] < smallest_hsw ||
-		    ((uint32_t) facdata->sieve_area[i].first_factor[0] == smallest_hsw &&
-		     (uint32_t) (facdata->sieve_area[i].first_factor[1] >> 32) < smallest_msw)) {
-			smallest_hsw = (uint32_t) facdata->sieve_area[i].first_factor[0];
-			smallest_msw = (uint32_t) (facdata->sieve_area[i].first_factor[1] >> 32);
+	for (i = 0; i < facdata->num_sievers; i++) {
+		temp = (facdata->sievers[i].next_sieve_first_factor[0] << 32) +
+		       (facdata->sievers[i].next_sieve_first_factor[1] >> 32);
+		if (i == 0 || temp < smallest) smallest = temp;
+	}
+	for (i = 0; i < facdata->num_pools; i++) {
+		for (j = 0; j < facdata->num_sieve_areas_per_pool; j++) {
+			if (facdata->pools[i].sieve_areas[j].state != SIEVE_AREA_SIEVED) continue;
+			temp = (facdata->pools[i].sieve_areas[j].first_factor[0] << 32) +
+			       (facdata->pools[i].sieve_areas[j].first_factor[1] >> 32);
+			if (temp < smallest) smallest = temp;
 		}
 	}
 
 /* Return the information in FACHSW, FACMSW. */
 
-	asm_data = facdata->asm_data;
-	asm_data->FACHSW = smallest_hsw;
-	asm_data->FACMSW = smallest_msw;
+	asm_data->FACHSW = (uint32_t) (smallest >> 32);
+	asm_data->FACMSW = (uint32_t) smallest;
 	gwmutex_unlock (&facdata->thread_lock);
 }
 
-/* Wrapper code that verifies any factors found by the assembly code */
-/* res is set to 2 if a factor was not found, 1 otherwise */
+/* Return a second or third found factor.  Should be extremely rare.  Can only happen in multithreaded case. */
 
-int factorAndVerify (
-	int	thread_num,
-	unsigned long p,
-	fachandle *facdata,
-	int	*res)
+int getAnotherFactorIfAny (
+	fachandle *facdata)
 {
-	uint32_t hsw, msw, pass;
-	int	stop_reason;
-
-/* Remember starting point in case of an error */
-
-	pass = facdata->asm_data->FACPASS;
-	hsw = facdata->asm_data->FACHSW;
-	msw = facdata->asm_data->FACMSW;
-
-/* Call assembly code */
-
-loop:	*res = factorChunk (facdata);
-
-/* If a factor was not found, return. */
-
-	if (*res == 2) return (stopCheck (thread_num));
-
-/* Otherwise verify the factor. */
-
-	if (facdata->asm_data->FACHSW ||
-	    facdata->asm_data->FACMSW ||
-	    facdata->asm_data->FACLSW > 1) {
-		giant	f, x;
-
-		f = allocgiant (100);
-		itog ((int) facdata->asm_data->FACHSW, f);
-		gshiftleft (32, f);
-		uladdg (facdata->asm_data->FACMSW, f);
-		gshiftleft (32, f);
-		uladdg (facdata->asm_data->FACLSW, f);
-
-		x = allocgiant (100);
-		itog (2, x);
-		powermod (x, p, f);
-		*res = isone (x);
-
-		free (f);
-		free (x);
-
-		if (*res) return (0);
-	}
-
-/* Set *res to the factor-not-found code in case the user hits ESC */
-/* while doing the SleepFive */
-
-	*res = 2;
-
-/* If factor is no good, print an error message, sleep, re-initialize and */
-/* restart the factoring code. */
-
-	OutputBoth (thread_num, "ERROR: Incorrect factor found.\n");
-	facdata->asm_data->FACHSW = hsw;
-	facdata->asm_data->FACMSW = msw;
-	stop_reason = SleepFive (thread_num);
-	if (stop_reason) return (stop_reason);
-	factorDone (facdata);
-	stop_reason = factorSetup (thread_num, p, facdata);
-	if (stop_reason) return (stop_reason);
-	stop_reason = factorPassSetup (thread_num, pass, facdata);
-	if (stop_reason) return (stop_reason);
-	goto loop;
+	if (facdata->num_threads <= 1 || facdata->found_count == 0) return (FALSE);
+	facdata->found_count--;
+	facdata->asm_data->FACLSW = facdata->found_lsw[facdata->found_count];
+	facdata->asm_data->FACMSW = facdata->found_msw[facdata->found_count];
+	facdata->asm_data->FACHSW = facdata->found_hsw[facdata->found_count];
+	return (TRUE);
 }
 
 #endif
@@ -4843,7 +5125,7 @@ int primeFactor (
 
 /* Init */
 
-	factor_found = 0;
+begin:	factor_found = 0;
 	p = w->n;
 	bits = (unsigned int) w->sieve_depth;
 
@@ -4874,7 +5156,8 @@ int primeFactor (
 
 /* Setup the factoring code */
 
-	facdata.num_threads = THREADS_PER_TEST[thread_num];
+	if (HYPERTHREAD_TF) sp_info->normal_work_hyperthreads = IniGetInt (LOCALINI_FILE, "HyperthreadTFcount", CPU_HYPERTHREADS);
+	facdata.num_threads = CORES_PER_TEST[thread_num] * sp_info->normal_work_hyperthreads;
 	facdata.sp_info = sp_info;
 	stop_reason = factorSetup (thread_num, p, &facdata);
 	if (stop_reason) {
@@ -4885,6 +5168,13 @@ int primeFactor (
 /* Record the amount of memory being used by this thread (1MB). */
 
 	set_memory_usage (thread_num, 0, 1);
+
+/* Note: The non-SSE2 code cannot handle factoring 79 bits and above. */
+
+	if (test_bits > 78 && !(facdata.asm_data->cpu_flags & (CPU_SSE2 | CPU_AVX2 | CPU_FMA3 | CPU_AVX512F))) {
+		OutputBoth (thread_num, "Pre-SSE2 trial factoring code cannot go above 2^78.\n");
+		test_bits = 78;
+	}
 
 /* Check for a v24 continuation file.  These were named pXXXXXXX.  The */
 /* first 16 bits contained a 2 to distinguish it from a LL save file. */
@@ -4926,7 +5216,7 @@ int primeFactor (
 			_close (fd);
 		}
 	}
-	
+
 /* Read v25+ continuation file.  Limit number of backup files we try */
 /* to read in case there is an error deleting bad save files. */
 
@@ -4959,7 +5249,8 @@ int primeFactor (
 			    read_long (fd, &fachsw, NULL) &&
 			    read_long (fd, &facmsw, NULL) &&
 			    read_long (fd, &endpthi, NULL) &&
-			    read_long (fd, &endptlo, NULL)) {
+			    read_long (fd, &endptlo, NULL) &&
+			    (fachsw < endpthi || (fachsw == endpthi && facmsw < endptlo))) {
 				facdata.asm_data->FACHSW = fachsw;
 				facdata.asm_data->FACMSW = facmsw;
 				continuation = TRUE;
@@ -5066,8 +5357,11 @@ int primeFactor (
 		    facdata.asm_data->FACMSW == 0 && pass != 0)
 			facdata.asm_data->FACMSW = 1;
 
-/* Setup the factoring program */
+/* Setup the factoring program.  factorPassSetup needs to know the endpt in the case where */
+/* we've already found a factor and we are searching for a smaller factor -- factorPassSetup */
+/* used to assume the endpt was the next power of two. */
 
+		facdata.endpt = endpt * 4294967296.0;
 		stop_reason = factorPassSetup (thread_num, pass, &facdata);
 		if (stop_reason) {
 			factorDone (&facdata);
@@ -5081,24 +5375,60 @@ int primeFactor (
 			double	currentpt;
 
 /* Do a chunk of factoring.  Usually this is just one chunk (as defined by the underlying factoring code). */
-/* However, when multithreading the auxilary threads are TFing chunks at the same time. */
-			
+/* However, when multithreading the auxiliary threads are TFing chunks at the same time. */
+
 			start_timer (timers, 0);
-			stop_reason = factorAndVerify (thread_num, p, &facdata, &res);
-			iters_just_processed = factorChunksProcessed (&facdata);
+			res = factorChunk (&facdata);
 			end_timer (timers, 0);
-			if (res != 2) break;
+
+/* If we found a factor, verify it */
+
+			if (res == 1) {
+				stackgiant (f, 10);
+				stackgiant (x, 10);
+				itog ((int) facdata.asm_data->FACHSW, f); gshiftleft (32, f);
+				uladdg (facdata.asm_data->FACMSW, f); gshiftleft (32, f);
+				uladdg (facdata.asm_data->FACLSW, f);
+				itog (2, x);
+				powermod (x, p, f);
+
+/* If factor was verified, break out of our factor search */
+
+				if (isone (x)) break;
+
+/* If factor is no good, print an error message, sleep, re-initialize and */
+/* restart the factoring code. */
+
+				OutputBoth (thread_num, "ERROR: Incorrect factor found.\n");
+				factorDone (&facdata);
+				stop_reason = SleepFive (thread_num);
+				if (stop_reason) return (stop_reason);
+				goto begin;
+			}
 
 /* Compute new percentage complete (of this bit level) */
 
+#ifdef X86_64
+			// Calc number of chunks left to do
+			currentpt = (double) facdata.total_num_chunks_to_TF - (double) facdata.total_num_chunks_TFed;
+			// Calc average number of chunks to do in each siever
+			currentpt /= (double) facdata.num_sievers;
+			// Calc distance from endpt
+			currentpt *= (double) facdata.asm_data->facdist12K;
+			// Calc currentpt scaled down by 2^32
+			currentpt = endpt - currentpt / 4294967296.0;
+#else
 			currentpt = facdata.asm_data->FACHSW * 4294967296.0 + facdata.asm_data->FACMSW;
 			if (currentpt > endpt) currentpt = endpt;
+#endif
 			w->pct_complete = (pass + (currentpt - startpt) / (endpt - startpt)) / 16.0;
 
 /* Output informative message.  Usually this includes a percent complete, however, */
 /* when just beginning a bit level (first_iter_msg == 2) we don't as the percentage */
 /* is close to zero.  We define one iteration as the time it takes to process 1Mbit of sieve. */
 
+			stop_reason = stopCheck (thread_num);
+			iters_just_processed = factorChunksProcessed (&facdata);
 			iters += iters_just_processed;
 			if (((iters * FACTOR_CHUNK_SIZE) >> 7) >= ITER_OUTPUT || first_iter_msg) {
 				double	pct;
@@ -5140,6 +5470,12 @@ int primeFactor (
 
 			if (stop_reason || testSaveFilesFlag (thread_num)) {
 				factorFindSmallestNotTFed (&facdata);
+				if (facdata.asm_data->FACHSW > endpthi ||
+				    (facdata.asm_data->FACHSW == endpthi && facdata.asm_data->FACMSW >= endptlo)) {
+					if (endptlo == 0) facdata.asm_data->FACHSW = endpthi - 1;
+					else facdata.asm_data->FACHSW = endpthi;
+					facdata.asm_data->FACMSW = endptlo - 1;
+				}
 				fd = openWriteSaveFile (filename, NUM_BACKUP_FILES);
 				if (fd > 0 &&
 				    write_header (fd, FACTOR_MAGICNUM, FACTOR_VERSION, w) &&
@@ -5164,10 +5500,13 @@ int primeFactor (
 
 /* Test for completion */
 
+#ifdef X86_64
+			if (facdata.pass_complete) goto nextpass;
+#else
 			if (facdata.asm_data->FACHSW > endpthi ||
-			    (facdata.asm_data->FACHSW == endpthi &&
-			     facdata.asm_data->FACMSW >= endptlo))
+			    (facdata.asm_data->FACHSW == endpthi && facdata.asm_data->FACMSW >= endptlo))
 				goto nextpass;
+#endif
 		}
 
 /* Set flag indicating a factor has been found! */
@@ -5178,38 +5517,35 @@ int primeFactor (
 /* We'll continue to do this if the found factor is really small (less than */
 /* 2^56) or if the user sets FindSmallestFactor in prime.ini. */
 
-		find_smaller_factor =
-			(end_bits <= (unsigned int) IniGetInt (INI_FILE, "FindSmallestFactor", 56));
+		find_smaller_factor = (end_bits <= (unsigned int) IniGetInt (INI_FILE, "FindSmallestFactor", 56));
 
-/* Format and output a message */
+/* Format and output a message for each found factor */
 
-		makestr (facdata.asm_data->FACHSW,
-			 facdata.asm_data->FACMSW,
-			 facdata.asm_data->FACLSW, str);
-		sprintf (buf, "M%ld has a factor: %s (TF:%d-%d)\n", p, str, (int) w->sieve_depth, (int) test_bits);
-		OutputStr (thread_num, buf);
-		formatMsgForResultsFile (buf, w);
-		writeResults (buf);
+		do {
+			makestr (facdata.asm_data->FACHSW, facdata.asm_data->FACMSW, facdata.asm_data->FACLSW, str);
+			sprintf (buf, "M%ld has a factor: %s (TF:%d-%d)\n", p, str, (int) w->sieve_depth, (int) test_bits);
+			OutputStr (thread_num, buf);
+			formatMsgForResultsFile (buf, w);
+			writeResults (buf);
 
 /* Send assignment result to the server.  To avoid flooding the server */
 /* with small factors from users needlessly redoing factoring work, make */
-/* sure the factor is more than 50 bits or so. */
+/* sure the factor is more than 60 bits or so. */
 
-		if (strlen (str) >= 15 ||
-		    IniGetInt (INI_FILE, "SendAllFactorData", 0)) {
-			struct primenetAssignmentResult pkt;
-			memset (&pkt, 0, sizeof (pkt));
-			strcpy (pkt.computer_guid, COMPUTER_GUID);
-			strcpy (pkt.assignment_uid, w->assignment_uid);
-			strcpy (pkt.message, buf);
-			pkt.result_type = PRIMENET_AR_TF_FACTOR;
-			pkt.n = p;
-			strcpy (pkt.factor, str);
-			pkt.start_bits = (bits < report_bits) ?
-				     (unsigned int) w->sieve_depth : bits;
-			pkt.done = !find_smaller_factor;
-			spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
-		}
+			if (strlen (str) >= 19 || IniGetInt (INI_FILE, "SendAllFactorData", 0)) {
+				struct primenetAssignmentResult pkt;
+				memset (&pkt, 0, sizeof (pkt));
+				strcpy (pkt.computer_guid, COMPUTER_GUID);
+				strcpy (pkt.assignment_uid, w->assignment_uid);
+				strcpy (pkt.message, buf);
+				pkt.result_type = PRIMENET_AR_TF_FACTOR;
+				pkt.n = p;
+				strcpy (pkt.factor, str);
+				pkt.start_bits = (bits < report_bits) ? (unsigned int) w->sieve_depth : bits;
+				pkt.done = !find_smaller_factor;
+				spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
+			}
+		} while (getAnotherFactorIfAny (&facdata));
 
 /* If we're looking for smaller factors, set a new end point.  Otherwise, */
 /* skip all remaining passes. */
@@ -5255,11 +5591,11 @@ nextpass:	;
 				(unsigned int) w->sieve_depth : bits;
 		if (start_bits < 32)
 		    sprintf (buf,
-			     "M%ld no factor to 2^%d, Wf%d: %08lX\n",
+			     "M%ld no factor to 2^%d, Wg%d: %08lX\n",
 			     p, end_bits, PORT, SEC3 (p));
 		else
 		    sprintf (buf,
-			     "M%ld no factor from 2^%d to 2^%d, Wf%d: %08lX\n",
+			     "M%ld no factor from 2^%d to 2^%d, Wg%d: %08lX\n",
 			     p, start_bits, end_bits, PORT, SEC3 (p));
 		OutputStr (thread_num, buf);
 		formatMsgForResultsFile (buf, w);
@@ -5982,7 +6318,9 @@ int prime (
 
 	if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) &&
 	    ! IniGetInt (INI_FILE, "SkipTrialFactoring", 0)) {
-		stop_reason = primeFactor (thread_num, sp_info, w, 1);
+		struct PriorityInfo sp_info_copy;
+		memcpy (&sp_info_copy, sp_info, sizeof (struct PriorityInfo));
+		stop_reason = primeFactor (thread_num, &sp_info_copy, w, 1);
 		if (stop_reason) return (stop_reason);
 	}
 
@@ -5993,7 +6331,7 @@ int prime (
 /* done is if pfactor returned STOP_NOT_ENOUGH_MEM on an earlier pass. */
 /* In that case, skip onto doing the LL test until more memory becomes */
 /* available. */
-	
+
 	if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) &&
 	    ! w->pminus1ed && pass != 3) {
 		int	pass_to_pfactor;
@@ -6009,7 +6347,9 @@ int prime (
 
 	if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) &&
 	    ! IniGetInt (INI_FILE, "SkipTrialFactoring", 0)) {
-		stop_reason = primeFactor (thread_num, sp_info, w, 0);
+		struct PriorityInfo sp_info_copy;
+		memcpy (&sp_info_copy, sp_info, sizeof (struct PriorityInfo));
+		stop_reason = primeFactor (thread_num, &sp_info_copy, w, 0);
 		if (stop_reason) return (stop_reason);
 	}
 
@@ -6040,7 +6380,8 @@ begin:	gwinit (&lldata.gwdata);
 	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0))
 		gwset_use_large_pages (&lldata.gwdata);
 	gwset_sum_inputs_checking (&lldata.gwdata, SUM_INPUTS_ERRCHK);
-	gwset_num_threads (&lldata.gwdata, THREADS_PER_TEST[thread_num]);
+	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreads = IniGetInt (LOCALINI_FILE, "HyperthreadLLcount", CPU_HYPERTHREADS);
+	gwset_num_threads (&lldata.gwdata, CORES_PER_TEST[thread_num] * sp_info->normal_work_hyperthreads);
 	gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
 	gwset_thread_callback_data (&lldata.gwdata, sp_info);
 	stop_reason = lucasSetup (thread_num, p, w->forced_fftlen, &lldata);
@@ -7356,6 +7697,8 @@ int selfTestInternal (
 		gwinit (&lldata.gwdata);
 		gwset_sum_inputs_checking (&lldata.gwdata, iter & 1);
 		gwset_num_threads (&lldata.gwdata, num_threads);
+		gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
+		gwset_thread_callback_data (&lldata.gwdata, &sp_info);
 		lldata.gwdata.GW_BIGBUF = (char *) bigbuf;
 		lldata.gwdata.GW_BIGBUF_SIZE = (bigbuf != NULL) ? (size_t) memory * (size_t) 1048576 : 0;
 		stop_reason = lucasSetup (thread_num, p, fftlen, &lldata);
@@ -7580,7 +7923,7 @@ int selfTest (
 
 int tortureTest (
 	int	thread_num,
-	int	num_threads)
+	int	num_torture_workers)
 {
 	struct PriorityInfo sp_info;
 	const struct self_test_info *test_data; /* Self test data */
@@ -7599,9 +7942,11 @@ int tortureTest (
 /* Set the process/thread priority */
 
 	sp_info.type = SET_PRIORITY_TORTURE;
-	sp_info.thread_num = thread_num;
+	sp_info.worker_num = thread_num;
+	sp_info.torture_num_workers = num_torture_workers;
+	sp_info.torture_threads_per_test = IniGetInt (INI_FILE, "TortureTestThreads", 1);
+	sp_info.verbose_flag = IniGetInt (INI_FILE, "AffinityVerbosityTorture", 0);
 	sp_info.aux_thread_num = 0;
-	sp_info.num_threads = num_threads;
 	SetPriority (&sp_info);
 
 /* Init counters */
@@ -8009,6 +8354,10 @@ int primeSieveTest (
 /* Open factors file */
 
 	fd = fopen ("factors", "r");
+	if (fd == NULL) {
+		OutputBoth (thread_num, "File named 'factors' not found.\n");
+		return (0);
+	}
 
 /* Loop until all the entire range is factored */
 
@@ -8033,12 +8382,21 @@ int primeSieveTest (
 			muladdhlp (&res, &carryl, &carryh, facmid, 10);
 			facmid = res;
 			fachi = fachi * 10 + carryl;
-			if (fachi >= 4194304 ||
-			    (fachi >= 4096 && !(CPU_FLAGS & CPU_SSE2))) {
+			if (fachi >= 268435456 ||
+			    (fachi >= 4194304 && !(CPU_FLAGS & CPU_FMA3)) ||
+			    (fachi >= 16384 && !(CPU_FLAGS & CPU_SSE2))) {
 				sprintf (buf, "%ld %s factor too big.\n", p, fac);
 				OutputBoth (thread_num, buf);
 				goto nextp;
 			}
+		}
+
+/* See if p is too small (less than 2^44) */
+
+		if (fachi == 0 && facmid < 0x1000) {
+			sprintf (buf, "%ld %s factor too small.\n", p, fac);
+			OutputBoth (thread_num, buf);
+			goto nextp;
 		}
 
 /* See if p is a prime */
@@ -8069,14 +8427,31 @@ int primeSieveTest (
 		else if (i == 113) pass = 14;
 		else if (i == 119) pass = 15;
 		else goto bad;
-		facdata.num_threads = 1;
+		if (IniGetInt (INI_FILE, "QAMultithreadedTF", 0))
+			facdata.num_threads = (facmid & 0x7) + 1;
+		else
+			facdata.num_threads = 1;
 		stop_reason = factorSetup (thread_num, p, &facdata);
 		if (stop_reason) {
 			fclose (fd);
 			return (stop_reason);
 		}
+		if (fachi >= 16384 && !(facdata.asm_data->cpu_flags & (CPU_SSE2 | CPU_AVX2 | CPU_FMA3 | CPU_AVX512F))) {
+			sprintf (buf, "%ld %s factor too big.\n", p, fac);
+			OutputBoth (thread_num, buf);
+			factorDone (&facdata);
+			goto nextp;
+		}
+		/* Set endpoint to next power of two or, to make QA with more than one siever faster, */
+		/* set endpoint to 10% higher than the factor to find. */
+		{
+			double	fltfac;
+			fltfac = ((double) fachi * 4294967296.0 + (double) facmid) * 4294967296.0 + (double) faclo;
+			facdata.endpt = pow (2.0, ceil (log (fltfac) / log (2.0)));
+			if (facdata.endpt > fltfac * 1.1) facdata.endpt = fltfac * 1.1;
+		}
 		facdata.asm_data->FACHSW = fachi;
-		facdata.asm_data->FACMSW = facmid;
+		facdata.asm_data->FACMSW = facmid & ~0xFFF;
 		stop_reason = factorPassSetup (thread_num, pass, &facdata);
 		if (stop_reason) {
 			fclose (fd);
@@ -8087,15 +8462,23 @@ int primeSieveTest (
 /* Factor found, is it a match? */
 
 		do {
-			if (factorChunk (&facdata) != 2 &&
-			    facdata.asm_data->FACHSW == fachi &&
-			    facdata.asm_data->FACMSW == facmid &&
-			    facdata.asm_data->FACLSW == faclo) {
-				sprintf (buf, "%ld %s factored OK.\n", p, fac);
+			if (factorChunk (&facdata) != 2) {
+				if (facdata.asm_data->FACHSW == fachi &&
+				    facdata.asm_data->FACMSW == facmid &&
+				    facdata.asm_data->FACLSW == faclo) {
+					sprintf (buf, "%ld %s factored OK.\n", p, fac);
+				} else {
+					sprintf (buf, "%ld %s different factor found.\n", p, fac);
+				}
 				OutputSomewhere (thread_num, buf);
+				factorDone (&facdata);
 				goto nextp;
 			}
+#ifdef X86_64
+		} while (facdata.total_num_chunks_TFed != facdata.total_num_chunks_to_TF && facdata.total_num_chunks_TFed < 200000);
+#else
 		} while (facdata.asm_data->FACMSW <= facmid);
+#endif
 
 /* Uh oh. */
 
@@ -8104,10 +8487,10 @@ bad:		sprintf (buf, "%ld %s factor not found.\n", p, fac);
 
 /* If an escape key was hit, write out the results and return */
 
+		factorDone (&facdata);
 nextp:		stop_reason = stopCheck (thread_num);
 		if (stop_reason) {
 			fclose (fd);
-			factorDone (&facdata);
 			return (stop_reason);
 		}
 		p = 0;
@@ -8116,7 +8499,6 @@ nextp:		stop_reason = stopCheck (thread_num);
 /* All done */
 
 	fclose (fd);
-	factorDone (&facdata);
 	return (0);
 }
 
@@ -8163,6 +8545,15 @@ int cpuid_dump (
 		}
 	}
 
+/* Dump the extended GETBV (control registers) data */
+
+	Xgetbv (0, &reg);
+	dumpreg ();
+	if (IniGetInt (INI_FILE, "AdditionalGetBV", 0)) {
+		Xgetbv (IniGetInt (INI_FILE, "AdditionalGetBV", 0), &reg);
+		dumpreg ();
+	}
+
 	return (0);
 }
 
@@ -8180,10 +8571,12 @@ int primeTime (
 	struct PriorityInfo sp_info;
 #define SAVED_LIMIT	10
 	llhandle lldata;
-	unsigned long i, j, saved, save_limit, num_threads;
+	unsigned long i, j, saved, save_limit;
+	int	min_cores, max_cores, incr_cores, min_hyperthreads, max_hyperthreads;
+	int	num_cores, num_hyperthreads;
 	char	buf[120], fft_desc[100];
 	double	time, saved_times[SAVED_LIMIT];
-	int	days, hours, minutes, stop_reason;
+	int	days, hours, minutes, stop_reason, print_every_iter;
 	uint32_t *ASM_TIMERS;
 	uint32_t best_asm_timers[32] = {0};
 	double	timers[2];
@@ -8192,7 +8585,8 @@ int primeTime (
 
 	if (p >= 9900 && p <= 9999) {
 		sp_info.type = SET_PRIORITY_QA;
-		sp_info.thread_num = thread_num;
+		sp_info.worker_num = thread_num;
+		sp_info.verbose_flag = IniGetInt (INI_FILE, "AffinityVerbosityQA", 0);
 		sp_info.aux_thread_num = 0;
 		SetPriority (&sp_info);
 
@@ -8213,128 +8607,156 @@ int primeTime (
 
 /* Set the process/thread priority */
 
-	sp_info.type = SET_PRIORITY_BENCHMARKING;
-	sp_info.thread_num = 0;
+	sp_info.type = SET_PRIORITY_TIME;
+	sp_info.worker_num = thread_num;
+	sp_info.verbose_flag = IniGetInt (INI_FILE, "AffinityVerbosityTime", 0);
 	sp_info.aux_thread_num = 0;
+	sp_info.time_hyperthreads = 1;
 	SetPriority (&sp_info);
 
-/* Loop through all possible num_thread values */
+/* Get settings from INI file */
 
-	for (num_threads = 1;
-	     num_threads <= NUM_CPUS * CPU_HYPERTHREADS;
-	     num_threads++) {
+	min_cores = IniGetInt (INI_FILE, "AdvancedTimeMinCores", 1);
+	if (min_cores < 1) min_cores = 1;
+	if (min_cores > (int) NUM_CPUS) min_cores = NUM_CPUS;
+
+	max_cores = IniGetInt (INI_FILE, "AdvancedTimeMaxCores", NUM_CPUS);
+	if (max_cores < 1) max_cores = 1;
+	if (max_cores > (int) NUM_CPUS) max_cores = NUM_CPUS;
+
+	incr_cores = IniGetInt (INI_FILE, "AdvancedTimeCoresIncrement", 1);
+	if (incr_cores < 1) incr_cores = 1;
+
+	min_hyperthreads = IniGetInt (INI_FILE, "AdvancedTimeMinHyperthreads", 1);
+	if (min_hyperthreads < 1) min_hyperthreads = 1;
+	if (min_hyperthreads > (int) CPU_HYPERTHREADS) min_hyperthreads = CPU_HYPERTHREADS;
+
+	max_hyperthreads = IniGetInt (INI_FILE, "AdvancedTimeMaxHyperthreads", CPU_HYPERTHREADS);
+	if (max_hyperthreads < 1) max_hyperthreads = 1;
+	if (max_hyperthreads > (int) CPU_HYPERTHREADS) max_hyperthreads = CPU_HYPERTHREADS;
+
+	print_every_iter = IniGetInt (INI_FILE, "PrintTimedIterations", 1);
+
+/* Loop through all possible cores and hyperthreads values */
+
+	for (num_hyperthreads = min_hyperthreads; num_hyperthreads <= max_hyperthreads; num_hyperthreads++) {
+		sp_info.time_hyperthreads = num_hyperthreads;
+		for (num_cores = min_cores; num_cores <= max_cores; num_cores += incr_cores) {
+			if (!OS_CAN_SET_AFFINITY && num_hyperthreads > 1 && num_cores != NUM_CPUS) continue;
 
 /* Clear all timers */
 
-	clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
+			clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
 
 /* Init the FFT code */
 
-	gwinit (&lldata.gwdata);
-	gwset_sum_inputs_checking (&lldata.gwdata, SUM_INPUTS_ERRCHK);
-	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0))
-		gwset_use_large_pages (&lldata.gwdata);
-	// Here is a hack to let me time different FFT implementations.
-	// For example, 39000001 times the first 2M FFT implementation,
-	// 39000002 times the second 2M FFT implementation, etc.
-	if (IniGetInt (INI_FILE, "TimeSpecificFFTImplementations", 0))
-		lldata.gwdata.bench_pick_nth_fft = p % 100;
-	gwset_num_threads (&lldata.gwdata, num_threads);
-	gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
-	gwset_thread_callback_data (&lldata.gwdata, &sp_info);
-	stop_reason = lucasSetup (thread_num, p, IniGetInt (INI_FILE, "TimePlus1", 0), &lldata);
-	if (stop_reason) return (stop_reason);
-	ASM_TIMERS = get_asm_timers (&lldata.gwdata);
-	memset (ASM_TIMERS, 0, 32 * sizeof (uint32_t));
+			gwinit (&lldata.gwdata);
+			gwset_sum_inputs_checking (&lldata.gwdata, SUM_INPUTS_ERRCHK);
+			if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0))
+				gwset_use_large_pages (&lldata.gwdata);
+			// Here is a hack to let me time different FFT implementations.
+			// For example, 39000001 times the first 2M FFT implementation,
+			// 39000002 times the second 2M FFT implementation, etc.
+			if (IniGetInt (INI_FILE, "TimeSpecificFFTImplementations", 0))
+				lldata.gwdata.bench_pick_nth_fft = p % 100;
+			gwset_num_threads (&lldata.gwdata, num_cores * num_hyperthreads);
+			gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
+			gwset_thread_callback_data (&lldata.gwdata, &sp_info);
+			stop_reason = lucasSetup (thread_num, p, IniGetInt (INI_FILE, "TimePlus1", 0), &lldata);
+			if (stop_reason) return (stop_reason);
+			ASM_TIMERS = get_asm_timers (&lldata.gwdata);
+			memset (ASM_TIMERS, 0, 32 * sizeof (uint32_t));
 
 /* Output a message about the FFT length */
 
-	gwfft_description (&lldata.gwdata, fft_desc);
-	sprintf (buf, "Using %s\n", fft_desc);
-	OutputStr (thread_num, buf);
-	title (thread_num, "Timing");
+			gwfft_description (&lldata.gwdata, fft_desc);
+			sprintf (buf, "Using %s\n", fft_desc);
+			OutputStr (thread_num, buf);
+			title (thread_num, "Timing");
 
 /* Fill data space with random values. */
 
-	generateRandomData (&lldata);
+			generateRandomData (&lldata);
 
 /* Do one squaring untimed, to prime the caches and start the */
 /* post-FFT process going. */
 
-	gwsetnormroutine (&lldata.gwdata, 0, ERRCHK != 0, 0);
-	gwstartnextfft (&lldata.gwdata, TRUE);
-	gwsquare (&lldata.gwdata, lldata.lldata);
+			gwsetnormroutine (&lldata.gwdata, 0, ERRCHK != 0, 0);
+			gwstartnextfft (&lldata.gwdata, TRUE);
+			gwsquare (&lldata.gwdata, lldata.lldata);
 
 /* Compute numbers in the lucas series */
 /* Note that for reasons unknown, we've seen cases where printing out */
 /* the times on each iteration greatly impacts P4 timings. */
 
-	save_limit = (p <= 4000000) ? SAVED_LIMIT : 1;
-	for (i = 0, saved = 0; i < iterations; i++) {
+			save_limit = (p <= 4000000) ? SAVED_LIMIT : 1;
+			for (i = 0, saved = 0; i < iterations; i++) {
 
 /* Time a single squaring */
 
-		start_timer (timers, 0);
-		gwsquare (&lldata.gwdata, lldata.lldata);
-		end_timer (timers, 0);
-		timers[1] += timers[0];
-		saved_times[saved++] = timers[0];
-		timers[0] = 0;
+				start_timer (timers, 0);
+				gwsquare (&lldata.gwdata, lldata.lldata);
+				end_timer (timers, 0);
+				timers[1] += timers[0];
+				saved_times[saved++] = timers[0];
+				timers[0] = 0;
 
 /* Remember the best asm timers (used when I'm optimizing assembly code) */
 
-		for (j = 0; j < 32; j++)
-			if (i == 0 || ASM_TIMERS[j] < best_asm_timers[j])
-				best_asm_timers[j] = ASM_TIMERS[j];
+				for (j = 0; j < 32; j++)
+					if (i == 0 || ASM_TIMERS[j] < best_asm_timers[j])
+						best_asm_timers[j] = ASM_TIMERS[j];
 
 /* Output timer squaring times */
 
-		if (saved == save_limit || i == iterations - 1) {
-			for (j = 0; j < saved; j++) {
-				sprintf (buf, "p: %lu.  Time: ", p);
-				timers[0] = saved_times[j];
-				print_timer (timers, 0, buf, TIMER_MS | TIMER_NL | TIMER_CLR);
-				OutputStr (thread_num, buf);
-			}
-			saved = 0;
-		}
+				if (saved == save_limit || i == iterations - 1) {
+					if (print_every_iter)
+						for (j = 0; j < saved; j++) {
+							sprintf (buf, "p: %lu.  Time: ", p);
+							timers[0] = saved_times[j];
+							print_timer (timers, 0, buf, TIMER_MS | TIMER_NL | TIMER_CLR);
+							OutputStr (thread_num, buf);
+						}
+					saved = 0;
+				}
 
 /* Abort early if so requested */
 
-		stop_reason = stopCheck (thread_num);
-		if (stop_reason) {
+				stop_reason = stopCheck (thread_num);
+				if (stop_reason) {
+					lucasDone (&lldata);
+					return (stop_reason);
+				}
+			}
 			lucasDone (&lldata);
-			return (stop_reason);
-		}
-	}
-	lucasDone (&lldata);
-	time = timer_value (timers, 1);
+			time = timer_value (timers, 1);
 
 /* Print an estimate for how long it would take to test this number */
 
-	sprintf (buf, "Iterations: %lu.  Total time: ", iterations);
-	print_timer (timers, 1, buf, TIMER_NL | TIMER_CLR);
-	OutputStr (thread_num, buf);
-	time = time * p / iterations;
-	days = (int) (time / 86400.0); time -= (double) days * 86400.0;
-	hours = (int) (time / 3600.0); time -= (double) hours * 3600.0;
-	minutes = (int) (time / 60.0);
-	strcpy (buf, "Estimated time to complete this exponent: ");
-	sprintf (buf+strlen(buf), days == 1 ? "%d day, " : "%d days, ", days);
-	sprintf (buf+strlen(buf), hours == 1 ? "%d hour, " : "%d hours, ", hours);
-	sprintf (buf+strlen(buf), minutes == 1 ? "%d minute.\n" : "%d minutes.\n", minutes);
-	OutputStr (thread_num, buf);
+			sprintf (buf, "Iterations: %lu.  Total time: ", iterations);
+			print_timer (timers, 1, buf, TIMER_NL | TIMER_CLR);
+			OutputStr (thread_num, buf);
+			time = time * p / iterations;
+			days = (int) (time / 86400.0); time -= (double) days * 86400.0;
+			hours = (int) (time / 3600.0); time -= (double) hours * 3600.0;
+			minutes = (int) (time / 60.0);
+			strcpy (buf, "Estimated time to complete this exponent: ");
+			sprintf (buf+strlen(buf), days == 1 ? "%d day, " : "%d days, ", days);
+			sprintf (buf+strlen(buf), hours == 1 ? "%d hour, " : "%d hours, ", hours);
+			sprintf (buf+strlen(buf), minutes == 1 ? "%d minute.\n" : "%d minutes.\n", minutes);
+			OutputStr (thread_num, buf);
 
 /* I use these assembly language timers to time various chunks of */
 /* assembly code.  Print these timers out. */
 
-	for (i = 0; i < 32; i++) {
-		sprintf (buf, "timer %lu: %d\n", i, (int) best_asm_timers[i]);
-		if (best_asm_timers[i]) OutputBoth (thread_num, buf);
-	}
+			for (i = 0; i < 32; i++) {
+				sprintf (buf, "timer %lu: %d\n", i, (int) best_asm_timers[i]);
+				if (best_asm_timers[i]) OutputBoth (thread_num, buf);
+			}
 
-/* Loop through all possible thread counts */
+/* End loop through all possible cores and hyperthreads */
 
+		}
 	}
 
 /* All done */
@@ -8361,14 +8783,51 @@ void bench_busy_loop (void *arg)
 /* Set the affinity so that busy loop runs on the specified CPU core */
 
 	cpu_num = (int) (intptr_t) arg;
-	sp_info.type = SET_PRIORITY_BENCHMARKING;
-	sp_info.thread_num = cpu_num;
-	sp_info.aux_thread_num = 0;
+	sp_info.type = SET_PRIORITY_BUSY_LOOP;
+	sp_info.worker_num = MAIN_THREAD_NUM;
+	sp_info.busy_loop_cpu = cpu_num;
+	sp_info.verbose_flag = 0;
 	SetPriority (&sp_info);
 
 /* Stay busy until last_bench_cpu_num says this CPU thread should close */
 
 	while (cpu_num > last_bench_cpu_num) one_hundred_thousand_clocks ();
+}
+
+/* Routine to add a timing to benchmark packet sent to server */
+
+void add_bench_data_to_pkt (
+	struct primenetBenchmarkData *pkt,	/* Benchmarking packet to send to server */
+	const char *bench_format_mask,		/* Sprintf format mask */
+	unsigned long fftlen,			/* FFT length benchmarked */
+	double numeric_value,			/* Numeric value to send */
+	int   smaller_is_better)		/* TRUE if smaller numbers are considered "better" */
+{
+	char	bench_str[20];
+	int	i;
+
+/* Format the benchmark string */
+
+	sprintf (bench_str, bench_format_mask, fftlen / 1024);
+
+/* See if we already have a value for this benchmark string.  If so, replace the value if this one is better. */
+
+	for (i = 0; i < (int) pkt->num_data_points; i++) {
+		if (strcmp (pkt->data_points[i].bench, bench_str) == 0) {
+			if ((smaller_is_better && numeric_value < pkt->data_points[i].timing) ||
+			    (!smaller_is_better && numeric_value > pkt->data_points[i].timing))
+				pkt->data_points[i].timing = numeric_value;
+			return;
+		}
+	}
+
+/* Append this item to the benchmark data */
+
+	if (pkt->num_data_points < PRIMENET_BENCH_MAX_DATAPOINTS) {
+		strcpy (pkt->data_points[i].bench, bench_str);
+		pkt->data_points[pkt->num_data_points].timing = numeric_value;
+		pkt->num_data_points++;
+	}
 }
 
 /* Routine to benchmark the trial factoring code */
@@ -8377,8 +8836,7 @@ static const char BENCH1[] = "Your timings will be written to the results.txt fi
 static const char BENCH2[] = "Compare your results to other computers at http://www.mersenne.org/report_benchmarks\n";
 
 int factorBench (
-	int	thread_num,
-	struct primenetBenchmarkData *pkt)
+	int	thread_num)
 {
 	fachandle facdata;
 	unsigned long num_lengths, i, j;
@@ -8393,10 +8851,12 @@ int factorBench (
 /* a CPU speed of 1.87 GHz and then produce a benchmark running at a boosted 3.2 GHz */
 /* (this happens on a Core i7 Q840M processor). */
 
-	last_bench_cpu_num = 0;			// CPU #0 is benching
-	for (i = 1; i < NUM_CPUS; i++) {	// CPU #1 to NUM_CPUS-1 are busy looping
-		gwthread thread_id;
-		gwthread_create (&thread_id, &bench_busy_loop, (void *) (intptr_t) i);
+	if (IniGetInt (INI_FILE, "BenchDummyWorkers", 0)) {
+		last_bench_cpu_num = 0;			// CPU #0 is benching
+		for (i = 1; i < NUM_CPUS; i++) {	// CPU #1 to NUM_CPUS-1 are busy looping
+			gwthread thread_id;
+			gwthread_create (&thread_id, &bench_busy_loop, (void *) (intptr_t) i);
+		}
 	}
 
 /* Loop over all trial factor lengths */
@@ -8419,6 +8879,7 @@ int factorBench (
 			facdata.asm_data->FACHSW = 1L << (bit_lengths[i]-65);
 			facdata.asm_data->FACMSW = 0;
 		}
+		facdata.endpt = (facdata.asm_data->FACHSW * 4294967296.0 + facdata.asm_data->FACMSW) * 4294967296.0 * 2.0;
 		stop_reason = factorPassSetup (thread_num, 0, &facdata);
 		if (stop_reason) {
 			last_bench_cpu_num = NUM_CPUS;
@@ -8433,6 +8894,7 @@ int factorBench (
 /* Do one "iteration" untimed, to prime the caches. */
 
 		res = factorChunk (&facdata);
+		(void) factorChunksProcessed (&facdata);
 
 /* Time 10 iterations. Take best time. */
 
@@ -8449,7 +8911,7 @@ int factorBench (
 			start_timer (timers, 0);
 			res = factorChunk (&facdata);
 			end_timer (timers, 0);
-			if (j == 0 || timers[0] < best_time) best_time = timers[0];
+			if (j == 0 || timers[0] < best_time) best_time = timers[0] / factorChunksProcessed (&facdata);
 		}
 		factorDone (&facdata);
 
@@ -8465,16 +8927,6 @@ int factorBench (
 		sprintf (buf, "Best time for %d bit trial factors: ", bit_lengths[i]);
 		print_timer (timers, 0, buf, TIMER_NL | TIMER_MS);
 		writeResults (buf);
-
-/* Accumulate best times to send to the server */
-
-		if (pkt->num_data_points < PRIMENET_BENCH_MAX_DATAPOINTS) {
-			sprintf (pkt->data_points[pkt->num_data_points].bench,
-				 "TF%d", bit_lengths[i]);
-			pkt->data_points[pkt->num_data_points].timing = timer_value (timers, 0);
-			pkt->num_data_points++;
-		}
-
 	}
 
 /* End the threads that are looping and return */
@@ -8523,8 +8975,11 @@ void primeBenchOneWorker (void *arg)
 
 /* Set the affinity so that worker runs on the specified CPU core */
 
-	sp_info.type = (info->hyperthreads > 1) ? SET_PRIORITY_BENCHMARKING_HYPER : SET_PRIORITY_BENCHMARKING;
-	sp_info.thread_num = info->cpu_num;
+	sp_info.type = SET_PRIORITY_BENCHMARKING;
+	sp_info.worker_num = info->main_thread_num;
+	sp_info.verbose_flag = IniGetInt (INI_FILE, "AffinityVerbosityBench", 0);
+	sp_info.bench_base_cpu_num = info->cpu_num;
+	sp_info.bench_hyperthreads = info->hyperthreads;
 	sp_info.aux_thread_num = 0;
 	SetPriority (&sp_info);
 
@@ -8591,15 +9046,23 @@ int primeBenchMultipleWorkers (
 {
 	llhandle lldata;
 	char	buf[512];
+	int	min_cores, max_cores, incr_cores, min_workers, max_workers, incr_workers;
 	int	workers, cpus, hypercpus, impl;
 	int	all_bench, only_time_5678, time_all_complex, plus1, is_a_5678;
-	int	bench_hyperthreading, bench_multithreading, bench_oddballs, bench_one_or_all, bench_arch, bench_max_cpus, bench_max_workers;
-	int	bench_error_check;
+	int	bench_one_core, bench_all_cores, bench_in_between_cores, bench_hyperthreading, bench_arch;
+	int	bench_one_worker, bench_max_workers, bench_in_between_workers;
+	int	bench_oddballs, bench_error_check;
 	int	i, stop_reason;
 	unsigned long fftlen, min_FFT_length, max_FFT_length;
 	double	throughput;
 	gwthread thread_id[MAX_NUM_WORKER_THREADS];
 	struct prime_bench_arg info[MAX_NUM_WORKER_THREADS];
+	struct primenetBenchmarkData pkt;
+
+/* Init */
+
+	memset (&pkt, 0, sizeof (pkt));
+	strcpy (pkt.computer_guid, COMPUTER_GUID);
 
 /* Output some initial informative text */
 
@@ -8631,14 +9094,40 @@ int primeBenchMultipleWorkers (
 	only_time_5678 = IniGetInt (INI_FILE, "OnlyBench5678", only_time_5678);
 	time_all_complex = IniGetInt (INI_FILE, "BenchAllComplex", time_all_complex);
 	all_bench = IniGetInt (INI_FILE, "AllBench", 0);	/* Benchmark all implementations of each FFT length */
-	bench_hyperthreading = IniGetInt (INI_FILE, "BenchHyperthreads", 1);	/* Benchmark hyperthreading */
-	bench_multithreading = IniGetInt (INI_FILE, "BenchMultithreads", 0);	/* Benchmark multi-threaded FFTs */
-	bench_oddballs = IniGetInt (INI_FILE, "BenchOddMultithreads", 0);	/* Benchmark odd multi-threaded combinations */
-	bench_one_or_all = IniGetInt (INI_FILE, "BenchOneOrAll", 0);		/* Benchmark only 1 or all cpus */
 	bench_arch = IniGetInt (INI_FILE, "BenchArch", 0);			/* CPU architecture to benchmark */
-	bench_max_cpus = IniGetInt (INI_FILE, "OnlyBenchMaxCpus", 1);		/* Benchmark all CPUs or only max CPUs */
-	bench_max_workers = IniGetInt (INI_FILE, "OnlyBenchMaxWorkers", 0);	/* Benchmark all worker combos or only max workers */
+	bench_one_core = IniGetInt (INI_FILE, "BenchOneCore", 0);		/* Benchmark one cpu core case */
+	bench_all_cores = IniGetInt (INI_FILE, "BenchAllCores", 1);		/* Benchmark all cpu cores case */
+	bench_in_between_cores = IniGetInt (INI_FILE, "BenchInBetweenCores", 0);/* Benchmark other cpu core combinations */
+	bench_hyperthreading = IniGetInt (INI_FILE, "BenchHyperthreads", 1);	/* Benchmark hyperthreading */
+	bench_one_worker = IniGetInt (INI_FILE, "BenchOneWorkerCase", 1);	/* Benchmark one worker using all CPU cores */
+	bench_max_workers = IniGetInt (INI_FILE, "BenchMaxWorkersCase", 1);	/* Benchmark one CPU core per worker */
+	bench_in_between_workers = IniGetInt (INI_FILE, "BenchInBetweenWorkerCases", 0); /* Benchmark other worker/core combinations */
+	bench_oddballs = IniGetInt (INI_FILE, "BenchOddWorkers", 1);		/* Benchmark oddball worker/core combinations */
 	bench_error_check = IniGetInt (INI_FILE, "BenchErrorCheck", 0);		/* Benchmark round-off checking */
+
+/* For CPUs with tons of cores, we support INI settings to limit number of cores and workers to test */
+
+	min_cores = IniGetInt (INI_FILE, "BenchMinCores", 1);
+	if (min_cores < 1) min_cores = 1;
+	if (min_cores > (int) NUM_CPUS) min_cores = NUM_CPUS;
+
+	max_cores = IniGetInt (INI_FILE, "BenchMaxCores", NUM_CPUS);
+	if (max_cores < 1) max_cores = 1;
+	if (max_cores > (int) NUM_CPUS) max_cores = NUM_CPUS;
+
+	incr_cores = IniGetInt (INI_FILE, "BenchCoresIncrement", 1);
+	if (incr_cores < 1) incr_cores = 1;
+
+	min_workers = IniGetInt (INI_FILE, "BenchMinWorkers", 1);
+	if (min_workers < 1) min_workers = 1;
+	if (min_workers > (int) NUM_CPUS) min_workers = NUM_CPUS;
+
+	max_workers = IniGetInt (INI_FILE, "BenchMaxWorkers", NUM_CPUS);
+	if (max_workers < 1) max_workers = 1;
+	if (max_workers > (int) NUM_CPUS) max_workers = NUM_CPUS;
+
+	incr_workers = IniGetInt (INI_FILE, "BenchWorkersIncrement", 1);
+	if (incr_workers < 1) incr_workers = 1;
 
 /* Loop over a variety of FFT lengths */
 
@@ -8687,88 +9176,90 @@ int primeBenchMultipleWorkers (
 		    continue;
 	    }
 
-/* Loop over all possible multithread possibilities */
-
-	    for (hypercpus = 1; hypercpus <= (int) CPU_HYPERTHREADS; hypercpus++) {
-	      if (hypercpus > 1 && !bench_hyperthreading) break;
-	      for (cpus = (bench_max_cpus ? NUM_CPUS : 1); cpus <= (int) NUM_CPUS; cpus++) {
-		if (bench_one_or_all && cpus > 1 && cpus < (int) NUM_CPUS) continue;
-	        for (workers = (bench_max_workers ? cpus : 1); workers <= cpus; workers++) {
-		  if (cpus > workers && !bench_multithreading) continue;
-		  if (cpus % workers != 0 && !bench_oddballs) continue;
-
-#ifdef OS_CANNOT_SET_AFFINITY
-		  /* If the OS cannot set affinity, then we can only bench hyperthreading on all CPUs */
-		  if (hypercpus > 1 && cpus != NUM_CPUS) continue;
-#endif
-		  /* Only SSE2 code supports multi-threaded FFTs */
-		  if ((cpus > workers || hypercpus > 1) && ! (CPU_FLAGS & CPU_SSE2)) continue;  
-
 /* If timing all implementations of an FFT, loop through all possible implementations */
 
-		  for (impl = 1; ; impl++) {
-			if (impl > 1) {
-				if (!all_bench) break;
-				gwinit (&lldata.gwdata);
-				gwset_sum_inputs_checking (&lldata.gwdata, SUM_INPUTS_ERRCHK);
-				gwset_minimum_fftlen (&lldata.gwdata, fftlen);
-				lldata.gwdata.bench_pick_nth_fft = impl;
-				stop_reason = lucasSetup (thread_num, fftlen * 17 + 1, plus1, &lldata);
-				if (stop_reason) break;	// Assume stop_reason set because there are no more implementations for this FFT
-			}
+	    for (impl = 1; ; impl++) {
+		if (impl > 1) {
+			if (!all_bench) break;
+			lucasDone (&lldata);
+			gwinit (&lldata.gwdata);
+			gwset_sum_inputs_checking (&lldata.gwdata, SUM_INPUTS_ERRCHK);
+			gwset_minimum_fftlen (&lldata.gwdata, fftlen);
+			lldata.gwdata.bench_pick_nth_fft = impl;
+			stop_reason = lucasSetup (thread_num, fftlen * 17 + 1, plus1, &lldata);
+			if (stop_reason) break;	// Assume stop_reason set because there are no more implementations for this FFT
+		}
+
+/* Loop over all possible multithread possibilities */
+
+		for (cpus = min_cores; cpus <= max_cores; cpus += incr_cores) {
+		    if (! ((cpus == 1 && bench_one_core) ||
+			   (cpus == NUM_CPUS && bench_all_cores) ||
+			   (cpus > 1 && cpus < (int) NUM_CPUS && bench_in_between_cores))) continue;
+		    for (hypercpus = 1; hypercpus <= (int) CPU_HYPERTHREADS; hypercpus++) {
+			if (hypercpus > 1 && !bench_hyperthreading) break;
+			/* If the OS cannot set affinity, then we can only bench hyperthreading on all CPUs */
+			if (!OS_CAN_SET_AFFINITY && hypercpus > 1 && cpus != NUM_CPUS) continue;
+			for (workers = min_workers; workers <= cpus && workers <= max_workers; workers += incr_workers) {
+			    if (! ((workers == 1 && bench_one_worker) ||
+				   (workers == cpus && bench_max_workers) ||
+				   (workers > 1 && workers < cpus && bench_in_between_workers))) continue;
+			    if (cpus % workers != 0 && !bench_oddballs) continue;
+			    /* Only SSE2 code supports multi-threaded FFTs */
+			    if ((cpus > workers || hypercpus > 1) && ! (CPU_FLAGS & CPU_SSE2)) continue;
 
 /* Output start message for this benchmark */
 
-			sprintf (buf, "Timing %luK%s FFT, %d cpu%s%s, %d worker%s.  ",
-				 fftlen / 1024, plus1 ? " all-complex" : "",
-				 cpus, cpus > 1 ? "s" : "",
-				 hypercpus > 1 ? " hyperthreaded" : "",
-				 workers, workers > 1 ? "s" : "");
-			OutputStr (thread_num, buf);
+			    sprintf (buf, "Timing %luK%s FFT, %d cpu%s%s, %d worker%s.  ",
+				     fftlen / 1024, plus1 ? " all-complex" : "",
+				     cpus, cpus > 1 ? "s" : "",
+				     hypercpus > 1 ? " hyperthreaded" : "",
+				     workers, workers > 1 ? "s" : "");
+			    OutputStr (thread_num, buf);
 
 /* Start the workers */
 
-			num_bench_workers = workers;
-			num_bench_workers_initialized = 0;
-			bench_worker_finished = FALSE;
-			gwevent_reset (&bench_workers_sync);
-			for (i = 0; i < workers; i++) {
+			    num_bench_workers = workers;
+			    num_bench_workers_initialized = 0;
+			    bench_worker_finished = FALSE;
+			    gwevent_reset (&bench_workers_sync);
+			    for (i = 0; i < workers; i++) {
 				info[i].main_thread_num = thread_num;
 				info[i].fftlen = fftlen;
 				info[i].plus1 = plus1;
-				info[i].impl = impl;
-				info[i].cpu_num = i * cpus/workers + (i < cpus%workers ? i : cpus%workers);
+				info[i].impl = (all_bench ? impl : 0);
+				info[i].cpu_num = i * (cpus/workers) + (i < cpus%workers ? i : cpus%workers);
 				info[i].threads = (cpus/workers + (i < cpus%workers ? 1 : 0)) * hypercpus;
 				info[i].hyperthreads = hypercpus;
 				info[i].error_check = bench_error_check;
 				gwthread_create_waitable (&thread_id[i], &primeBenchOneWorker, (void *) &info[i]);
-			}
+			    }
 
 /* Wait for all the workers to finish */
 
-			for (i = 0; i < workers; i++)
+			    for (i = 0; i < workers; i++)
 				gwthread_wait_for_exit (&thread_id[i]);
-			stop_reason = stopCheck (thread_num);
-			if (stop_reason) return (stop_reason);
+			    stop_reason = stopCheck (thread_num);
+			    if (stop_reason) return (stop_reason);
 
 /* Print the total throughput and average times for this FFT length */
 
-			strcpy (buf, "Average times: ");
-			throughput = 0.0;
-			for (i = 0; i < workers; i++) {
+			    strcpy (buf, "Average times: ");
+			    throughput = 0.0;
+			    for (i = 0; i < workers; i++) {
 				if (i) strcat (buf, ", ");
 				if (info[i].iterations) {
 					sprintf (buf+strlen(buf), "%5.2f", info[i].total_time / info[i].iterations * 1000.0);
 					throughput = throughput + info[i].iterations / info[i].total_time;
 				} else
 					strcat (buf, "INF");
-			}
-			sprintf (buf+strlen(buf), " ms.  Total throughput: %5.2f iter/sec.\n", throughput);
-			OutputStrNoTimeStamp (thread_num, buf);
+			    }
+			    sprintf (buf+strlen(buf), " ms.  Total throughput: %5.2f iter/sec.\n", throughput);
+			    OutputStrNoTimeStamp (thread_num, buf);
 
 /* Output to the results file the total throughput and average times for this FFT length */
 
-			if (all_bench) {
+			    if (all_bench) {
 				sprintf (buf,
 					 "FFTlen=%luK%s, Type=%d, Arch=%d, Pass1=%lu, Pass2=%lu, clm=%lu",
 					 fftlen / 1024, plus1 ? " all-complex" : "",
@@ -8776,64 +9267,83 @@ int primeBenchMultipleWorkers (
 					 fftlen / (lldata.gwdata.PASS2_SIZE ? lldata.gwdata.PASS2_SIZE : 1),
 					 lldata.gwdata.PASS2_SIZE,
 					 lldata.gwdata.PASS1_CACHE_LINES / ((CPU_FLAGS & CPU_AVX) ? 4 : 2));
-			} else {
+			    } else {
 				sprintf (buf, "Timings for %luK%s FFT length",
 					 fftlen / 1024, plus1 ? " all-complex" : "");
-			}
-			sprintf (buf+strlen(buf), " (%d cpu%s%s, %d worker%s): ",
-				 cpus, cpus > 1 ? "s" : "",
-				 hypercpus > 1 ? " hyperthreaded" : "",
-				 workers, workers > 1 ? "s" : "");
+			    }
+			    if (hypercpus <= 2)
+				sprintf (buf+strlen(buf), " (%d cpu%s%s, %d worker%s): ",
+					 cpus, cpus > 1 ? "s" : "",
+					 hypercpus > 1 ? " hyperthreaded" : "",
+					 workers, workers > 1 ? "s" : "");
+			    else
+				sprintf (buf+strlen(buf), " (%d cpu%s, %d threads, %d worker%s): ",
+					 cpus, cpus > 1 ? "s" : "",
+					 hypercpus * cpus,
+					 workers, workers > 1 ? "s" : "");
 
-			throughput = 0.0;
-			for (i = 0; i < workers; i++) {
+			    throughput = 0.0;
+			    for (i = 0; i < workers; i++) {
 				if (i) strcat (buf, ", ");
 				if (info[i].iterations) {
 					sprintf (buf+strlen(buf), "%5.2f", info[i].total_time / info[i].iterations * 1000.0);
 					throughput = throughput + info[i].iterations / info[i].total_time;
 				} else
 					strcat (buf, "INF");
-			}
-			sprintf (buf+strlen(buf), " ms.  Throughput: %5.2f iter/sec.\n", throughput);
-			writeResults (buf);
+			    }
+			    sprintf (buf+strlen(buf), " ms.  Throughput: %5.2f iter/sec.\n", throughput);
+			    writeResults (buf);
+
+/* Accumulate best throughput numbers to send to the server.  We send the non-hyperthreaded */
+/* all-cores timings for FFT lengths from 1M on up.  These timings should prove more useful in */
+/* comparing which CPUs are the most powerful. */
+
+			    if (!all_bench && is_a_5678 && !plus1 && cpus == NUM_CPUS && hypercpus == 1 && fftlen / 1024 >= 1024)
+				add_bench_data_to_pkt (&pkt, "TP%luK", fftlen, throughput, FALSE);
 
 /* Benchmark next FFT */
 
-			lucasDone (&lldata);
-	          }  // End impl loop
+			} // End workers loop
+		    } // End hypercpus loop
 		} // End cpus loop
-	      } // End workers loop
-	    } // End hypercpus loop
+		lucasDone (&lldata);
+	    }  // End impl loop
 	  }  // End fftlen loop
 	}  // End plus1 loop
+	OutputBoth (thread_num, "\n");
+
+/* Send the benchmark data to the server. */
+
+//bug - send bench data to server. (checkbox to allow sending data to server?)
+//only do this if guid is registered? Or should we auto-register computer
+//under ANONYMOUS userid for stress-testers.
+
+	if (pkt.num_data_points)
+		spoolMessage (PRIMENET_BENCHMARK_DATA, &pkt);
 
 /* Output completion message */
 
-	OutputStr (thread_num, "Benchmark for multiple workers complete.\n");
+	OutputStr (thread_num, "Throughput benchmark complete.\n");
 	return (0);
 }
 
-/* Time a few iterations of many FFT lengths */
+/* Perform a benchmark.  Several are supported:  FFT throughput, FFT timings, trial factoring */
 
 int primeBench (
-	int	thread_num)
+	int	thread_num,
+	int	bench_type)
 {
 	struct PriorityInfo sp_info;
 	llhandle lldata;
-	unsigned long i, ii, j, iterations;
+	unsigned long i, impl, j, iterations;
 	double	best_time, total_time;
 	char	buf[512];
-	unsigned int cpu, hypercpu;
+	int	min_cores, max_cores, incr_cores, cpu, hypercpu;
 	int	all_bench, only_time_5678, time_all_complex, plus1, stop_reason;
-	int	is_a_5678, bench_hyperthreading, bench_multithreading, bench_one_or_all, bench_arch;
+	int	is_a_5678, bench_one_core, bench_all_cores, bench_in_between_cores, bench_hyperthreading, bench_arch;
 	unsigned long fftlen, min_FFT_length, max_FFT_length;
 	double	timers[2];
 	struct primenetBenchmarkData pkt;
-
-/* Init */
-
-	memset (&pkt, 0, sizeof (pkt));
-	strcpy (pkt.computer_guid, COMPUTER_GUID);
 
 /* Output startup message */
 
@@ -8845,6 +9355,11 @@ int primeBench (
 
 	getCpuDescription (buf, 1);
 	writeResults (buf);
+	if (IniGetInt (INI_FILE, "BenchOutputTopology", 1)) {
+		writeResults ("Machine topology as determined by hwloc library:\n");
+		topology_print_children (hwloc_get_root_obj (hwloc_topology), 0);
+	}
+
 #ifdef X86_64
 	sprintf (buf, "Prime95 64-bit version %s, RdtscTiming=%d\n", VERSION, RDTSC_TIMING);
 #else
@@ -8857,9 +9372,34 @@ int primeBench (
 /* be confined to just one CPU core. */
 
 	sp_info.type = SET_PRIORITY_BENCHMARKING;
-	sp_info.thread_num = 0;
+	sp_info.worker_num = thread_num;
+	sp_info.verbose_flag = IniGetInt (INI_FILE, "AffinityVerbosityBench", 0);
 	sp_info.aux_thread_num = 0;
+	sp_info.bench_base_cpu_num = 0;
+	sp_info.bench_hyperthreads = 1;
 	SetPriority (&sp_info);
+
+/* Perform the requested type of benchmark */
+
+/* Throughput benchmark running multiple workers.  This will measure the effect of memory bandwidth */
+/* on LL testing.  This is the most useful benchmark for the typical GIMPS user. */
+
+	if (bench_type == 0) {
+		return (primeBenchMultipleWorkers (thread_num));
+	}
+
+/* Trial factoring benchmark. */
+
+	if (bench_type == 2) {
+		return (factorBench (thread_num));
+	}
+
+/* Fall through to the classic FFT timings benchmark. */
+
+/* Init */
+
+	memset (&pkt, 0, sizeof (pkt));
+	strcpy (pkt.computer_guid, COMPUTER_GUID);
 
 /* Decide which FFT lengths to time */
 
@@ -8878,46 +9418,57 @@ int primeBench (
 	only_time_5678 = IniGetInt (INI_FILE, "OnlyBench5678", only_time_5678);
 	time_all_complex = IniGetInt (INI_FILE, "BenchAllComplex", time_all_complex);
 	all_bench = IniGetInt (INI_FILE, "AllBench", 0);	/* Benchmark all implementations of each FFT length */
-	bench_hyperthreading = IniGetInt (INI_FILE, "BenchHyperthreads", 1);	/* Benchmark hyperthreading */
-	bench_multithreading = IniGetInt (INI_FILE, "BenchMultithreads", 1);	/* Benchmark multi-threaded FFTs */
-	bench_one_or_all = IniGetInt (INI_FILE, "BenchOneOrAll", 0);		/* Benchmark only 1 or all cpus */
 	bench_arch = IniGetInt (INI_FILE, "BenchArch", 0);	/* CPU architecture to benchmark */
-
-/* If requested skip over the classic single worker benchmarks. */
-
-	if (NUM_CPUS > 1 && IniGetInt (INI_FILE, "OnlyBenchThroughput", 0)) goto throughput_only;
+	bench_one_core = IniGetInt (INI_FILE, "BenchOneCore", 0);		/* Benchmark one cpu core case */
+	bench_all_cores = IniGetInt (INI_FILE, "BenchAllCores", 1);		/* Benchmark all cpu cores case */
+	bench_in_between_cores = IniGetInt (INI_FILE, "BenchInBetweenCores", 0);/* Benchmark other cpu core combinations */
+	bench_hyperthreading = IniGetInt (INI_FILE, "BenchHyperthreads", 1);	/* Benchmark hyperthreading */
 
 /* Keep CPU cores busy.  This should prevent "turbo boost" from kicking in. */
 /* We do this to hopefully produce more consistent benchmarks.  We don't want to report */
 /* a CPU speed of 1.87 GHz and then produce a benchmark running at a boosted 3.2 GHz */
 /* (this happens on a Core i7 Q840M processor). */
 
-	last_bench_cpu_num = 0;			// CPU #0 is benching
-	for (i = 1; i < NUM_CPUS; i++) {	// CPU #1 to NUM_CPUS-1 are busy looping
-		gwthread thread_id;
-		gwthread_create (&thread_id, &bench_busy_loop, (void *) (intptr_t) i);
+	if (IniGetInt (INI_FILE, "BenchDummyWorkers", 0)) {
+		last_bench_cpu_num = 0;			// CPU #0 is benching
+		for (i = 1; i < NUM_CPUS; i++) {	// CPU #1 to NUM_CPUS-1 are busy looping
+			gwthread thread_id;
+			gwthread_create (&thread_id, &bench_busy_loop, (void *) (intptr_t) i);
+		}
 	}
+
+/* For CPUs with tons of cores, we support INI settings to limit number of cores to test */
+
+	min_cores = IniGetInt (INI_FILE, "BenchMinCores", 1);
+	if (min_cores < 1) min_cores = 1;
+	if (min_cores > (int) NUM_CPUS) min_cores = NUM_CPUS;
+
+	max_cores = IniGetInt (INI_FILE, "BenchMaxCores", NUM_CPUS);
+	if (max_cores < 1) max_cores = 1;
+	if (max_cores > (int) NUM_CPUS) max_cores = NUM_CPUS;
+
+	incr_cores = IniGetInt (INI_FILE, "BenchCoresIncrement", 1);
+	if (incr_cores < 1) incr_cores = 1;
 
 /* Loop over all possible single-worker multithread possibilities */
 
-	for (cpu = 1; cpu <= NUM_CPUS; cpu++) {
-	  if (cpu > 1 && !bench_multithreading) continue;
-	  if (bench_one_or_all && cpu > 1 && cpu < NUM_CPUS) continue;
-	  for (hypercpu = 1; hypercpu <= CPU_HYPERTHREADS; hypercpu++) {
+	for (cpu = min_cores; cpu <= max_cores; cpu += incr_cores) {
+	  if (! ((cpu == 1 && bench_one_core) ||
+	        (cpu == (int) NUM_CPUS && bench_all_cores) ||
+	        (cpu > 1 && cpu < (int) NUM_CPUS && bench_in_between_cores))) continue;
+	  for (hypercpu = 1; hypercpu <= (int) CPU_HYPERTHREADS; hypercpu++) {
 	    if (hypercpu > 1 && !bench_hyperthreading) break;
 	    /* Only bench hyperthreading on one CPU and all CPUs */
 	    if (hypercpu > 1 && cpu != 1 && cpu != NUM_CPUS) continue;
-#ifdef OS_CANNOT_SET_AFFINITY
 	    /* If the OS cannot set affinity, then we can only bench hyperthreading on all CPUs */
-	    if (hypercpu > 1 && cpu != NUM_CPUS) continue;
-#endif
+	    if (!OS_CAN_SET_AFFINITY && hypercpu > 1 && cpu != NUM_CPUS) continue;
 	    /* Output a message if using multi-threaded FFT */
 	    if (cpu > 1 || hypercpu > 1) {
 	      if (! (CPU_FLAGS & CPU_SSE2)) continue;  // Only SSE2 code supports multi-threaded FFTs
 	      if (CPU_HYPERTHREADS == 1)
-	        sprintf (buf, "Timing FFTs using %d threads.\n", cpu);
+	        sprintf (buf, "Timing FFTs using %d cores.\n", cpu);
 	      else
-	        sprintf (buf, "Timing FFTs using %d threads on %d physical CPU%s.\n", cpu * hypercpu, cpu, cpu > 1 ? "s" : "");
+	        sprintf (buf, "Timing FFTs using %d threads on %d core%s.\n", cpu * hypercpu, cpu, cpu > 1 ? "s" : "");
 	      OutputBoth (thread_num, buf);
 	    }
 
@@ -8931,8 +9482,8 @@ int primeBench (
 	      if (plus1 == 0 && time_all_complex == 2) continue;
 	      if (plus1 == 1 && time_all_complex == 0) continue;
 	      for (fftlen = min_FFT_length * 1024; fftlen <= max_FFT_length * 1024; fftlen += 10) {
-	        for (ii = 1; ; ii++) {
-		  if (ii > 1 && !all_bench) break;
+	        for (impl = 1; ; impl++) {
+		  if (impl > 1 && !all_bench) break;
 
 /* Initialize for this FFT length.  Compute the number of iterations to */
 /* time.  This is based on the fact that it doesn't take too long for */
@@ -8943,11 +9494,12 @@ int primeBench (
 		  if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0))
 			gwset_use_large_pages (&lldata.gwdata);
 		  gwset_num_threads (&lldata.gwdata, cpu * hypercpu);
-		  sp_info.type = (hypercpu > 1) ? SET_PRIORITY_BENCHMARKING_HYPER : SET_PRIORITY_BENCHMARKING;
+		  sp_info.bench_base_cpu_num = 0;
+		  sp_info.bench_hyperthreads = hypercpu;
 		  gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
 		  gwset_thread_callback_data (&lldata.gwdata, &sp_info);
 		  gwset_minimum_fftlen (&lldata.gwdata, fftlen);
-		  if (all_bench) lldata.gwdata.bench_pick_nth_fft = ii;
+		  if (all_bench) lldata.gwdata.bench_pick_nth_fft = impl;
 		  stop_reason = lucasSetup (thread_num, fftlen * 17 + 1, plus1, &lldata);
 		  if (stop_reason) {
 			/* An error during all_bench is expected.  Continue on to next FFT length. */
@@ -8986,7 +9538,7 @@ int primeBench (
 
 /* Output a blank line between different FFT lengths when timing all implementations */
 
-		  if (all_bench && ii == 1) writeResults ("\n");
+		  if (all_bench && impl == 1) writeResults ("\n");
 
 /* Compute the number of iterations to time.  This is based on the fact that it doesn't */
 /* take too long for my 1400 MHz P4 to run 10 iterations of a 1792K FFT. */
@@ -9072,25 +9624,22 @@ int primeBench (
 		  }
 		  writeResults (buf);
 
-/* Accumulate best times to send to the server.  Limit the number sent since */
-/* we can only send fifty. */
+/* Accumulate best times to send to the server.  These are the "classic" best times -- that is, */
+/* best non-hyperthreaded single-core timings for FFT lengths from 1M on up. */
 
-		  if (!all_bench && is_a_5678 && !plus1 && hypercpu == 1 &&
-		      (cpu == 1 || (fftlen / 1024 > 768 && (cpu == 2 || cpu == 4))) &&
-		      pkt.num_data_points < PRIMENET_BENCH_MAX_DATAPOINTS) {
-			if (cpu == 1)
-				sprintf (pkt.data_points[pkt.num_data_points].bench,
-					 "FFT%luK", fftlen / 1024);
-			else
-				sprintf (pkt.data_points[pkt.num_data_points].bench,
-					 "FFT%luK %dT", fftlen / 1024, cpu);
-			pkt.data_points[pkt.num_data_points].timing = timer_value (timers, 0);
-			pkt.num_data_points++;
-		  }
+		  if (!all_bench && is_a_5678 && !plus1 && cpu == 1 && hypercpu == 1 && fftlen / 1024 >= 1024)
+			add_bench_data_to_pkt (&pkt, "FFT%luK", fftlen, timer_value (timers, 0), TRUE);
+
+/* Accumulate best times to send to the server.  We send the non-hyperthreaded all-cores */
+/* timings for FFT lengths from 1M on up.  These timings should prove more useful in */
+/* comparing which CPU is are most powerful. */
+
+		  if (!all_bench && is_a_5678 && !plus1 && cpu == NUM_CPUS && hypercpu == 1 && fftlen / 1024 >= 1024)
+			add_bench_data_to_pkt (&pkt, "AC%luK", fftlen, timer_value (timers, 0), TRUE);
 
 /* Time next FFT */
 
-	        }  // End ii implementation loop
+	        }  // End impl implementation loop
 	      }  // End fftlen loop
 	    }  // End plus1 loop
 	  } // End hyper loop
@@ -9100,16 +9649,9 @@ int primeBench (
 
 	last_bench_cpu_num = NUM_CPUS;
 
-/* Now benchmark the trial factoring code */
-
-	if (IniGetInt (INI_FILE, "BenchTrialFactoring", 0)) {
-		stop_reason = factorBench (thread_num, &pkt);
-		if (stop_reason) return (stop_reason);
-	}
-
 /* Single worker benchmark complete */
 
-	OutputStr (thread_num, "Benchmark for single worker complete.\n");
+	OutputStr (thread_num, "FFT timings benchmark complete.\n");
 
 /* Send the benchmark data to the server. */
 
@@ -9117,19 +9659,8 @@ int primeBench (
 //only do this if guid is registered? Or should we auto-register computer
 //under ANONYMOUS userid for stress-testers.
 
-	if (!all_bench)
+	if (pkt.num_data_points)
 		spoolMessage (PRIMENET_BENCHMARK_DATA, &pkt);
-
-/* Now benchmark running multiple workers.  This will measure the effect of memory bandwidth */
-/* on LL testing. */
-
-throughput_only:
-	if (NUM_CPUS > 1 && IniGetInt (INI_FILE, "BenchMultipleWorkers", 1)) {
-		OutputBoth (thread_num, "\n");
-		stop_reason = primeBenchMultipleWorkers (thread_num);
-		if (stop_reason) return (stop_reason);
-		OutputBoth (thread_num, "\n");
-	}
 
 	return (0);
 }
@@ -9320,7 +9851,8 @@ int prp (
 begin:	gwinit (&gwdata);
 	gwsetmaxmulbyconst (&gwdata, prp_base);
 	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&gwdata);
-	gwset_num_threads (&gwdata, THREADS_PER_TEST[thread_num]);
+	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreads = IniGetInt (LOCALINI_FILE, "HyperthreadLLcount", CPU_HYPERTHREADS);
+	gwset_num_threads (&gwdata, CORES_PER_TEST[thread_num] * sp_info->normal_work_hyperthreads);
 	gwset_thread_callback (&gwdata, SetAuxThreadPriority);
 	gwset_thread_callback_data (&gwdata, sp_info);
 	gwset_specific_fftlen (&gwdata, w->forced_fftlen);

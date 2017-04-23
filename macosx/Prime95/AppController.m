@@ -3,11 +3,12 @@
 //  Prime95
 //
 //  Created by George Woltman on 4/17/09.
-//  Copyright 2009-2012 Mersenne Research, Inc. All rights reserved.
+//  Copyright 2009-2017 Mersenne Research, Inc. All rights reserved.
 //
 
 #import "AppController.h"
 #import "AboutController.h"
+#import "BenchmarkController.h"
 #import "ContinueController.h"
 #import "CPUController.h"
 #import "ECMController.h"
@@ -520,7 +521,10 @@ AppController *myAppController;			// Global variable to allow access to this obj
 
 - (IBAction)optionsBenchmark:(id)sender
 {
-	LaunchBench ();
+	// Start the dialog box
+	if (!benchmarkController) benchmarkController = [[BenchmarkController alloc] init];
+	else [benchmarkController reInit];
+	[benchmarkController showWindow:self];
 }
 
 // This menu choice combines and uncombines the main and comm windows.

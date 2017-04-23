@@ -16,7 +16,7 @@
 | threads IF AND ONLY IF each uses a different gwhandle structure
 | initialized by gwinit.
 | 
-|  Copyright 2002-2016 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2002-2017 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWNUM_H
@@ -60,15 +60,9 @@ typedef double *gwnum;
 /* gwsetup verifies that the version numbers match.  This prevents bugs */
 /* from accidentally linking in the wrong gwnum library. */
 
-#define GWNUM_VERSION		"28.10"
+#define GWNUM_VERSION		"28.14"
 #define GWNUM_MAJOR_VERSION	28
-#define GWNUM_MINOR_VERSION	10
-#define GWNUM_FFT_IMPL_VERSION	"28.10"		/* This version number changes whenever FFT implementations change. */
-						/* By default, gwnum picks a default FFT implementation based on the CPU architecture. */
-						/* You can fine-tune performance by benchmarking the different FFT implementations */
-						/* on the end user machine looking for an FFT implementation that is faster than the */
-						/* default selection.  Any changes to this version number means you must */
-						/* discard old benchmarking data for your fine-tuning. */
+#define GWNUM_MINOR_VERSION	14
 
 /* Error codes returned by the three gwsetup routines */
 

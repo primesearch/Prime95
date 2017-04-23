@@ -1,6 +1,6 @@
 // WorkerDlg.cpp : implementation file
 //
-// Copyright 1995-2016 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved
 //
 
 #include "stdafx.h"
@@ -21,7 +21,7 @@ static char THIS_FILE[] = __FILE__;
 
 unsigned int max_num_workers (void)
 {
-	return (max (NUM_WORKER_THREADS, NUM_CPUS * user_configurable_hyperthreads ()));
+	return (max (NUM_WORKER_THREADS, NUM_CPUS));
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -57,11 +57,13 @@ void CWorkerDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_WORK_TYPE_TEXT, c_work_pref_text);
 	DDX_Control(pDX, IDC_COMBO2, c_work_pref);
 
-	DDX_Control(pDX, IDC_AFFINITY_TEXT, c_affinity_text);
-	DDX_Control(pDX, IDC_COMBO3, c_affinity);
-
 	DDX_Control(pDX, IDC_NUMCPUS_TEXT, c_numcpus_text);
 	DDX_Control(pDX, IDC_NUMCPUS, c_numcpus);
+
+	DDX_Check(pDX, IDC_HYPER_TF, m_hyper_tf);
+	DDX_Control(pDX, IDC_HYPER_TF, c_hyper_tf);
+	DDX_Check(pDX, IDC_HYPER_LL, m_hyper_ll);
+	DDX_Control(pDX, IDC_HYPER_LL, c_hyper_ll);
 
 	DDX_Control(pDX, IDC_WARN1, c_warn1_text);
 	DDX_Control(pDX, IDC_WARN2, c_warn2_text);
@@ -70,15 +72,15 @@ void CWorkerDlg::DoDataExchange(CDataExchange* pDX)
 	//}}AFX_DATA_MAP
 	c_num_thread_text.EnableWindow (max_num_workers () > 1);
 	c_num_thread.EnableWindow (max_num_workers () > 1);
-	c_workgroup.EnableWindow (USE_PRIMENET || NUM_CPUS * user_configurable_hyperthreads () > 1);
+	c_workgroup.EnableWindow (USE_PRIMENET || NUM_CPUS > 1);
 	c_threadnum_text.EnableWindow (m_num_thread > 1);
 	c_threadnum.EnableWindow (m_num_thread > 1);
 	c_work_pref_text.EnableWindow (USE_PRIMENET);
 	c_work_pref.EnableWindow (USE_PRIMENET);
-	c_affinity_text.EnableWindow (NUM_CPUS * user_configurable_hyperthreads () > 1);
-	c_affinity.EnableWindow (NUM_CPUS * user_configurable_hyperthreads () > 1);
-	c_numcpus_text.EnableWindow (m_num_thread < NUM_CPUS * user_configurable_hyperthreads () || !AreAllTheSame (m_numcpus) || m_numcpus[0] != 1);
-	c_numcpus.EnableWindow (m_num_thread < NUM_CPUS * user_configurable_hyperthreads () || !AreAllTheSame (m_numcpus) || m_numcpus[0] != 1);
+	c_numcpus_text.EnableWindow (m_num_thread < NUM_CPUS || !AreAllTheSame (m_numcpus) || m_numcpus[0] != 1);
+	c_numcpus.EnableWindow (m_num_thread < NUM_CPUS || !AreAllTheSame (m_numcpus) || m_numcpus[0] != 1);
+	c_hyper_tf.EnableWindow (CPU_HYPERTHREADS > 1);
+	c_hyper_ll.EnableWindow (CPU_HYPERTHREADS > 1);
 }
 
 
@@ -90,7 +92,6 @@ BEGIN_MESSAGE_MAP(CWorkerDlg, CDialog)
 	ON_CBN_SELCHANGE(IDC_COMBO1, &CWorkerDlg::OnCbnKillfocusThreadNum)
 	ON_CBN_KILLFOCUS(IDC_COMBO1, &CWorkerDlg::OnCbnKillfocusThreadNum)
 	ON_CBN_KILLFOCUS(IDC_COMBO2, &CWorkerDlg::OnCbnKillfocusWorkType)
-	ON_CBN_KILLFOCUS(IDC_COMBO3, &CWorkerDlg::OnCbnKillfocusAffinity)
 	ON_EN_KILLFOCUS(IDC_NUMCPUS, &CWorkerDlg::OnEnKillfocusNumCpus)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
@@ -213,33 +214,6 @@ void CWorkerDlg::InitComboBoxText (void)
 	if (sel == 10) c_work_pref.AddString ("Other");
 	c_work_pref.SetCurSel (sel);
 
-// Populate the affinity combo box.  If there is only one worker thread,
-// then smart affinity assignment is the same as run on any cpu.
-
-	c_affinity.ResetContent ();
-	if (thread_num) {
-		sel = m_affinity[thread_num-1];
-		if (m_num_thread > 1)
-			sel = (sel == 99) ? 0 : (sel == 100) ? 1 : sel + 2;
-		else
-			sel = (sel == 99 || sel == 100) ? 0 : sel + 1;
-	} else if (AreAllTheSame (m_affinity)) {
-		sel = m_affinity[0];
-		sel = (sel == 99) ? 0 : (sel == 100) ? 1 : sel + 2;
-	} else {
-		c_affinity.AddString ("Mixed Settings");
-		sel = 0;
-	}
-	c_affinity.AddString ("Run on any CPU");
-	if (m_num_thread > 1) c_affinity.AddString ("Smart assignment");
-	if (thread_num) {
-		for (i = 1; i <= (int) (NUM_CPUS * CPU_HYPERTHREADS); i++) {
-			sprintf (buf, "CPU #%d", i);
-			c_affinity.AddString (buf);
-		}
-	}
-	c_affinity.SetCurSel (sel);
-
 // Populate the num cpus edit box.
 
 	if (thread_num) {
@@ -251,8 +225,8 @@ void CWorkerDlg::InitComboBoxText (void)
 	} else {
 		c_numcpus.SetWindowText ("Mixed");
 	}
-	c_numcpus_text.EnableWindow (m_num_thread < NUM_CPUS * user_configurable_hyperthreads () || !AreAllTheSame (m_numcpus) || m_numcpus[0] != 1);
-	c_numcpus.EnableWindow (m_num_thread < NUM_CPUS * user_configurable_hyperthreads () || !AreAllTheSame (m_numcpus) || m_numcpus[0] != 1);
+	c_numcpus_text.EnableWindow (m_num_thread < NUM_CPUS || !AreAllTheSame (m_numcpus) || m_numcpus[0] != 1);
+	c_numcpus.EnableWindow (m_num_thread < NUM_CPUS || !AreAllTheSame (m_numcpus) || m_numcpus[0] != 1);
 }
 
 
@@ -351,29 +325,6 @@ void CWorkerDlg::OnCbnKillfocusWorkType()
 	}
 }
 
-void CWorkerDlg::OnCbnKillfocusAffinity()
-{
-	int	sel, i, affinity;
-
-	sel = c_affinity.GetCurSel ();
-	if (thread_num) {
-		if (m_num_thread > 1)
-			affinity = (sel == 0) ? 99 : (sel == 1) ? 100 : sel - 2;
-		else
-			affinity = (sel >= 1) ? sel - 1 :
-				   (m_affinity[0] == 100) ? 100 : 99;
-		m_affinity[thread_num-1] = affinity;
-	} else if (AreAllTheSame (m_affinity)) {
-		affinity = (sel == 0) ? 99 : (sel == 1) ? 100 : sel - 2;
-		for (i = 0; i < MAX_NUM_WORKER_THREADS; i++)
-			m_affinity[i] = affinity;
-	} else if (sel) {
-		affinity = (sel == 1) ? 99 : (sel == 2) ? 100 : sel - 3;
-		for (i = 0; i < MAX_NUM_WORKER_THREADS; i++)
-			m_affinity[i] = affinity;
-	}
-}
-
 void CWorkerDlg::OnEnKillfocusNumCpus()
 {
 	char	buf[80];
@@ -384,8 +335,8 @@ void CWorkerDlg::OnEnKillfocusNumCpus()
 	if (buf[0] >= '0' && buf[0] <= '9') {
 		num_cpus = atoi (buf);
 		if (num_cpus < 1) num_cpus = 1;
-		if (num_cpus > NUM_CPUS * user_configurable_hyperthreads ())
-			num_cpus = NUM_CPUS * user_configurable_hyperthreads ();
+		if (num_cpus > NUM_CPUS)
+			num_cpus = NUM_CPUS;
 		if (thread_num) {
 			min_cores = min_cores_for_work_type (m_work_pref[thread_num-1]);
 			if (num_cpus < min_cores) num_cpus = min_cores;
@@ -405,7 +356,7 @@ void CWorkerDlg::OnEnKillfocusNumCpus()
 			}
 		}
 	}
-	c_numcpus_text.EnableWindow (m_num_thread < NUM_CPUS * user_configurable_hyperthreads () || !AreAllTheSame (m_numcpus) || m_numcpus[0] != 1);
-	c_numcpus.EnableWindow (m_num_thread < NUM_CPUS * user_configurable_hyperthreads () || !AreAllTheSame (m_numcpus) || m_numcpus[0] != 1);
+	c_numcpus_text.EnableWindow (m_num_thread < NUM_CPUS || !AreAllTheSame (m_numcpus) || m_numcpus[0] != 1);
+	c_numcpus.EnableWindow (m_num_thread < NUM_CPUS || !AreAllTheSame (m_numcpus) || m_numcpus[0] != 1);
 }
 

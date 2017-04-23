@@ -49,6 +49,7 @@
 #define HIDD_TIME                               0x20086
 #define HIDD_PREFERENCES                        0x20087
 #define HIDD_PRIMENET                           0x20091
+#define HIDD_BENCHMARK                          0x20092
 #define HIDD_MANUAL_COMM                        0x20095
 #define HIDD_ECM                                0x20096
 #define HIDD_PMINUS1                            0x20098

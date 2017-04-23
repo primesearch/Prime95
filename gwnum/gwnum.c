@@ -5,7 +5,7 @@
 | in the multi-precision arithmetic routines.  That is, all routines
 | that deal with the gwnum data type.
 | 
-|  Copyright 2002-2016 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2002-2017 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -565,7 +565,13 @@ int calculate_bif (
 		else
 			retval = BIF_FMA3;	/* Look for FFTs optimized for Haswell CPUs with FMA3 support */
 		break;
-	case CPU_ARCHITECTURE_INTEL_OTHER:	/* This is probably one of Intel's next generation CPUs */ 
+	case CPU_ARCHITECTURE_PHI:		/* Intel's Xeon Phi CPUs */		// BUG - write AVX-512 code!!!
+		if (! (gwdata->cpu_flags & CPU_FMA3))
+			retval = BIF_I7;	/* Look for FFTs optimized for Core i3/i5/i7 */
+		else
+			retval = BIF_FMA3;	/* Look for FFTs optimized for Haswell CPUs with FMA3 support */
+		break;
+	case CPU_ARCHITECTURE_INTEL_OTHER:	/* This is probably one of Intel's next generation CPUs */
 		if (! (gwdata->cpu_flags & CPU_FMA3))
 			retval = BIF_I7;	/* Look for FFTs optimized for Core i3/i5/i7 */
 		else
@@ -577,9 +583,16 @@ int calculate_bif (
 	case CPU_ARCHITECTURE_AMD_K10:
 		retval = BIF_K10;		/* Look for FFTs optimized for K10 */
 		break;
-	case CPU_ARCHITECTURE_AMD_BULLDOZER:
+	case CPU_ARCHITECTURE_AMD_BULLDOZER:	/* Bulldozer CPUs are horrible at AVX.  Go back to K10 optimized. */
 //		retval = BIF_BULL;		/* Look for FFTs optimized for Bulldozer */
-		retval = BIF_K10;		/* Look for FFTs optimized for K10 until we write Bulldozer specific FFTs */
+		retval = BIF_K10;		/* Look for FFTs optimized for K10 */
+		break;
+	case CPU_ARCHITECTURE_AMD_ZEN:		/* For now, assume ZEN has corrected Bulldozer's sorry AVX performance */
+	case CPU_ARCHITECTURE_AMD_OTHER:	/* For no particularly good reason, assume future AMD processors do well with Intel FFTs */
+		if (! (gwdata->cpu_flags & CPU_FMA3))
+			retval = BIF_I7;	/* Look for FFTs optimized for Core i3/i5/i7 */
+		else
+			retval = BIF_FMA3;	/* Look for FFTs optimized for Intel FMA3 CPUs */
 		break;
 	case CPU_ARCHITECTURE_OTHER:		/* Probably a VIA processor */
 		if (! (gwdata->cpu_flags & CPU_AVX))
@@ -590,7 +603,6 @@ int calculate_bif (
 			retval = BIF_FMA3;	/* Look for FFTs optimized for Haswell CPUs with FMA3 support */
 		break;
 	case CPU_ARCHITECTURE_PRE_SSE2:		/* Cannot happen, gwinfo should have selected x87 FFTs */
-	case CPU_ARCHITECTURE_AMD_OTHER:	/* Bulldozer AVX FFTs are slower than SSE2 FFTs, assume same for future AMD processors */
 	default:				/* For no particularly good reason, look for FFTs optimized for Core 2 */
 		retval = BIF_CORE2;
 		break;
@@ -1725,9 +1737,11 @@ void gwinit2 (
 	if (! (gwdata->cpu_flags & CPU_AVX)) gwdata->cpu_flags &= ~CPU_FMA3;
 
 /* AMD Bulldozer is faster using SSE2 rather than AVX. */
+/* Why do we do this here when calculate_bif selects K10 FFTs???  Is it so that gwnum_map_to_timing and other */
+/* informational routines return more accurate information?   Since the code below seens to work, leave it as is. */
 
-	if (gwdata->cpu_flags & CPU_AVX && gwdata->cpu_flags & CPU_3DNOW_PREFETCH)
-		gwdata->cpu_flags &= ~CPU_AVX;
+	if (CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_BULLDOZER)
+		gwdata->cpu_flags &= ~(CPU_AVX | CPU_FMA3);
 }
 
 /* Allocate memory and initialize assembly code for arithmetic */
@@ -4319,7 +4333,7 @@ int pass1_state1_assign_first_block (
 	if (gwdata->pass1_carry_sections[i].next_block == gwdata->pass1_carry_sections[i].last_block) {
 		unsigned int j, largest_unfinished, largest_unfinished_size, min_split_size;
 
-		/* Calculate minimum split size.  It must be a multiple of num_postfft_blocks. */
+		/* Calculate minimum split size.  It must be at least num_postfft_blocks. */
 		/* It must also be a multiple of 8 if AVX zero-padded (because of using YMM_SRC_INCR[0-7] in */
 		/* ynorm012 macros and all SSE2 FFTs because of using BIGLIT_INCR4 in xnorm012 macros. */
 		min_split_size = gwdata->num_postfft_blocks;
@@ -4333,14 +4347,14 @@ int pass1_state1_assign_first_block (
 			unsigned int size;
 
 			if (gwdata->pass1_carry_sections[j].section_state >= 2) continue;
-			/* Since each section must be at least num_postfft_blocks in size, make sure */
-			/* the section we are splitting is at least 2*num_postfft_blocks in size. */
+			/* Since new section must be at least num_postfft_blocks in size and the existing */
+			/* section is prefetching the next block, make sure we are splitting at least */
+			/* num_postfft_blocks + asm_data->cache_line_multiplier in size. */
 			/* Note: deadlocks can occur if we don't take over sections that haven't started. */
-			if (gwdata->pass1_carry_sections[j].section_state != 0 &&
-			    gwdata->pass1_carry_sections[j].last_block - gwdata->pass1_carry_sections[j].start_block <
-					gwdata->num_postfft_blocks + gwdata->num_postfft_blocks) continue;
-			/* See if this section is big enough and the largest one thusfar. */
 			size = gwdata->pass1_carry_sections[j].last_block - gwdata->pass1_carry_sections[j].next_block;
+			if (gwdata->pass1_carry_sections[j].section_state != 0 &&
+			    size < gwdata->num_postfft_blocks + asm_data->cache_line_multiplier) continue;
+			/* See if this section is big enough and the largest one thusfar. */
 			if (size > largest_unfinished_size && size >= min_split_size) {
 				largest_unfinished = j;
 				largest_unfinished_size = size;
@@ -4359,6 +4373,7 @@ int pass1_state1_assign_first_block (
 			gwdata->pass1_carry_sections[largest_unfinished].start_block =
 			gwdata->pass1_carry_sections[largest_unfinished].next_block =
 				gwdata->pass1_carry_sections[largest_unfinished].last_block;
+			gwdata->pass1_carry_sections[largest_unfinished].dependent_section = -1;
 		}
 
 		/* Split the target section */
@@ -4371,6 +4386,14 @@ int pass1_state1_assign_first_block (
 				new_size = round_up_to_multiple_of (new_size, 8);
 			if (new_size < gwdata->num_postfft_blocks) new_size = gwdata->num_postfft_blocks;
 
+			// Make sure the new size is a multiple of num_postfft_blocks.  This is necessary because
+			// a multihreaded PRP test of 66666*5^1560000-1 will fail if we don't.  It fails because the
+			// we need more than 4 carry words and the FFT has a clm of 1 (which is 4 words).  If the
+			// start_block in a section is not a multiple of num_postfft_blocks, then normval2
+			// used in ynorm012_wpn will not properly correct the big/lit flags pointer.
+			new_size = round_up_to_multiple_of (new_size, gwdata->num_postfft_blocks);
+
+			// Peel off the ending blocks of largest_unfinished section
 			gwdata->pass1_carry_sections[i].start_block =
 			gwdata->pass1_carry_sections[i].next_block =
 				gwdata->pass1_carry_sections[largest_unfinished].last_block - new_size;
@@ -4379,6 +4402,7 @@ int pass1_state1_assign_first_block (
 			gwdata->pass1_carry_sections[i].can_carry_into_next =
 				gwdata->pass1_carry_sections[largest_unfinished].can_carry_into_next;
 
+			// Shrink largest_unfinished section
 			gwdata->pass1_carry_sections[largest_unfinished].last_block -= new_size;
 			gwdata->pass1_carry_sections[largest_unfinished].can_carry_into_next = FALSE;
 			gwdata->pass1_carry_sections[i].dependent_section = largest_unfinished;
@@ -4674,7 +4698,9 @@ void pass1_wake_up_threads (
 {
 	gwhandle *gwdata = asm_data->gwdata;
 
-/* Obtain the lock if multithreading */
+/* Obtain the lock if multithreading. */
+/* Why?  The other threads should be off right now, but we've seen in the debugger that it */
+/* is possible to get here with the lock held by an auxiliary thread that is finishing up. */
 
 	if (gwdata->num_threads > 1) {
 		gwmutex_lock (&gwdata->thread_lock);
@@ -4737,6 +4763,13 @@ void pass1_wake_up_threads (
 			if ((gwdata->cpu_flags & CPU_AVX && gwdata->ZERO_PADDED_FFT) || (! (gwdata->cpu_flags & CPU_AVX)))
 				num_blocks = round_up_to_multiple_of (num_blocks, 8);
 			if (num_blocks < (int) gwdata->num_postfft_blocks) num_blocks = gwdata->num_postfft_blocks;
+
+			// Make sure the new size is a multiple of num_postfft_blocks.  This is necessary because
+			// a 5 or 7 threaded PRP test of 66666*5^1560000-1 will fail if we don't.  It fails because the
+			// we need more than 4 carry words and the FFT has a clm of 1 (which is 4 words).  If the
+			// start_block in a section is not a multiple of num_postfft_blocks, then normval2
+			// used in ynorm012_wpn will not properly correct the big/lit flags pointer.
+			num_blocks = round_up_to_multiple_of (num_blocks, gwdata->num_postfft_blocks);
 
 			/* Init section info */
 			gwdata->pass1_carry_sections[i].start_block = num_blocks_allocated;
@@ -5020,6 +5053,7 @@ int pass1_get_next_block_mt (
 /* 1 = section being processed */
 /* 2 = section is adding carries into the next section */
 /* 3 = section is doing postfft processing of next section */
+/* 4 = section complete */
 
 /* Handle the common case, we're in the middle of processing a section */
 
@@ -5037,6 +5071,7 @@ int pass1_get_next_block_mt (
 				 (gwdata->pass1_carry_sections[dep].last_block == gwdata->num_pass1_blocks &&
 				  gwdata->pass1_carry_sections[i].start_block == 0));
 			gwdata->pass1_carry_sections[dep].can_carry_into_next = TRUE;
+			gwdata->pass1_carry_sections[i].dependent_section = -1;
 			gwevent_signal (&gwdata->can_carry_into);
 		}
 
@@ -5187,7 +5222,9 @@ void pass2_wake_up_threads (
 {
 	gwhandle *gwdata = asm_data->gwdata;
 
-/* Obtain the lock if multithreading */
+/* Obtain the lock if multithreading. */
+/* Why?  The other threads should be off right now, but we've seen in the debugger that it */
+/* is possible to get here with the lock held by an auxiliary thread that is finishing up. */
 
 	if (gwdata->num_threads > 1) {
 		gwmutex_lock (&gwdata->thread_lock);
@@ -5241,27 +5278,23 @@ int pass2_get_next_block_mt (
 {
 	gwhandle *gwdata = asm_data->gwdata;
 
-/* Grab lock before reading or writing any gwdata values. */
-
-	gwmutex_lock (&gwdata->thread_lock);
-
 /* There are no more blocks to process when the next block is the same */
 /* as the block just processed.  In that case, if this is the main thread */
 /* wait for auxiliary threads to complete.  If this is an auxiliary thread */
 /* then return code telling the assembly code to exit. */
 
 	if (asm_data->this_block == asm_data->next_block) {
-		if (asm_data->thread_num) {
-			gwmutex_unlock (&gwdata->thread_lock);
-			return (TRUE);
-		}
-		gwmutex_unlock (&gwdata->thread_lock);
+		if (asm_data->thread_num) return (TRUE);
 		gwevent_wait (&gwdata->all_threads_done, 0);
 		asm_data->DIST_TO_FFTSRCARG = 0;
 		if (asm_data->ffttype == 1)
 			((uint32_t *) asm_data->DESTARG)[-7] = 3; // Set has-been-FFTed flag
 		return (TRUE);
 	}
+
+/* Grab lock before reading or writing any gwdata values. */
+
+	gwmutex_lock (&gwdata->thread_lock);
 
 /* Copy prefetched block and addresses to this block.  Get next available */
 /* block to prefetch. */
@@ -6463,7 +6496,8 @@ unsigned long gwmap_to_estimated_size (
 
 /* Speed of other AVX processors compared to a Sandy Bridge */
 
-#define REL_BULLDOZER_SPEED	1.9	/* Bulldozer is slower than a Sandy Bridge */
+#define REL_BULLDOZER_SPEED	1.9	/* Bulldozer is slower than Sandy Bridge */
+#define REL_ZEN_SPEED		1.4	/* Zen is likely slower than Sandy Bridge which has true 256-bit AVX support whereas Zen has FMA3 */
 
 /* Make a guess as to how long a squaring will take.  If the number cannot */
 /* be handled, then kludgily return 100.0. */
@@ -6497,8 +6531,10 @@ double gwmap_to_timing (
 /* AMD64s and Pentium Ms are slower than P4s. */
 
 	if (gwdata.cpu_flags & CPU_AVX) {
-		timing = 0.10 * timing + 0.90 * timing * 4100.0 / CPU_SPEED;
-		if (strstr (CPU_BRAND, "AMD")) timing *= REL_BULLDOZER_SPEED;
+		timing = 0.10 * timing + 0.90 * timing * 4100.0 / CPU_SPEED;	/* Calibrated for Sandy Bridge */
+		if (CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_OTHER) timing *= REL_ZEN_SPEED;  /* Complete guess for future AMD CPUs */
+		else if (CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_ZEN) timing *= REL_ZEN_SPEED;
+		else if (strstr (CPU_BRAND, "AMD")) timing *= REL_BULLDOZER_SPEED;
 		if (gwdata.cpu_flags & CPU_FMA3) timing *= REL_FMA3_SPEED;
 	} else if (gwdata.cpu_flags & CPU_SSE2) {
 		timing = 0.10 * timing + 0.90 * timing * 1400.0 / CPU_SPEED;

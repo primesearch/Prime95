@@ -3,7 +3,7 @@
 |
 | This file contains handy #defines that I use in all my projects
 | 
-|  Copyright 2005-2010 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2005-2016 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWCOMMON_H
@@ -25,6 +25,7 @@
 #ifdef _MSC_VER
 typedef __int32			int32_t;
 typedef unsigned __int32	uint32_t;
+typedef __int64			int64_t;
 typedef unsigned __int64	uint64_t;
 #ifdef _WIN64
 typedef __int64			intptr_t;

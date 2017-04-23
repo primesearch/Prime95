@@ -11,7 +11,8 @@
 	#error include 'stdafx.h' before including this file for PCH
 #endif
 
-#include "resource.h"       // main symbols
+#include "resource.h"		// main symbols
+#include "hwloc.h"		// hwloc library
 //#define SERVER_TESTING
 #define NO_GUI		0
 #include "common.h"

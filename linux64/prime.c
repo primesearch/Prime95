@@ -1,4 +1,4 @@
-/* Copyright 1995-2016 Mersenne Research, Inc. */
+/* Copyright 1995-2017 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -113,7 +113,10 @@ int MENUING = 0;
 
 void sigterm_handler(int signo)
 {
+	int	i;
+
 	stop_workers_for_escape ();	// Gracefully stop any active worker threads
+	for (i = 0; WORKER_THREADS_STOPPING && i < 100; i++) Sleep (50);  // Give the worker threads some time to stop gracefully
 	if (signo != SIGINT) {
 		KILL_MENUS = TRUE;	// Set flag so we exit the menus
 		fclose (stdin);		// Makes fgets in menu.c return.  Thus, mprime will terminate rather than waiting for a menu choice.
@@ -137,8 +140,35 @@ int main (
 /* catch termination signals */
 
 	(void)signal(SIGTERM, sigterm_handler);
-	(void)signal(SIGINT, sigterm_handler);
-	(void)signal(SIGHUP, sigterm_handler);	/* See discussion in http://www.mersenneforum.org/showthread.php?t=21496 */
+
+	/* SIGINT handling.  See discussion in http://www.mersenneforum.org/showthread.php?t=21672 */
+	if (signal(SIGINT, sigterm_handler) == SIG_DFL) {
+		/* If we are run asynchronously, keep SIGINT ignored. */
+		/* (e.g. `sh -c 'mprime & other_command'`) */
+		(void)signal(SIGHUP, SIG_DFL);
+	}
+
+	/* SIGHUP handling.  See discussions in http://www.mersenneforum.org/showthread.php?t=21496 */
+	/* and http://www.mersenneforum.org/showthread.php?t=21672 */
+	if (signal(SIGHUP, sigterm_handler) == SIG_DFL) {
+		/* If we are run through 'nohup', keep SIGHUP ignored. */
+		(void)signal(SIGHUP, SIG_DFL);
+	}
+
+	/* This code was suggested for handling SIGPIPE.  Since 99.9% of mprime installs use */
+	/* LIBCURL rather than the archaic sockets code, we ought to be OK with sigterm_handler. */
+	/* This assumes LIBCURL does not depend on the SIGPIPE signal.  That said, perhaps it */
+	/* is OK to stick with ignoring or using the default signal handler.  See the mersenneforum */
+	/* threads mentioned above for more discussion. */
+//#if !defined(SO_NOSIGPIPE) && !defined(MSG_NOSIGNAL)
+//	(void)signal(SIGPIPE, SIG_IGN);
+//#else
+//	/* SIGPIPE might be generated when user pipes stdout to another */
+//	/* program (e.g. `mprime | tee log.txt`), and that "tee" dies. */
+//	/* Handle this to terminate when we're sure we never receive */
+//	/* SIGPIPE from sockets. */
+//	(void)signal(SIGPIPE, sigterm_handler);
+//#endif
 
 /* No buffering of output */
 
@@ -427,11 +457,6 @@ void linuxContinue (
 #define PROCNAME	"/proc/%d/file"
 #endif
 	pid_t	my_pid, running_pid;
-	char	filename[30];
-	int	fd;
-	struct stat filedata;
-	dev_t	dev1, dev2;
-	ino_t	inode1, inode2;
 
 /* Compare this process' ID and the pid from the INI file */
 
@@ -462,6 +487,13 @@ void linuxContinue (
 
 /* See if the two pids are running the same executable */
 
+	{
+	char	filename[30];
+	int	fd;
+	struct stat filedata;
+	dev_t	dev1, dev2;
+	ino_t	inode1, inode2;
+
 	sprintf (filename, PROCNAME, my_pid);
 	fd = _open (filename, _O_RDONLY);
 	if (fd < 0) goto ok;
@@ -477,6 +509,7 @@ void linuxContinue (
 	inode2 = filedata.st_ino;
 	_close (fd);
 	if (dev1 != dev2 || inode1 != inode2) goto ok;
+	}
 #endif
 
 /* The two pids are running the same executable, raise an error and return */
@@ -491,7 +524,7 @@ ok:	IniWriteInt (LOCALINI_FILE, "Pid", my_pid);
 	if (wait_flag) IniWriteInt (LOCALINI_FILE, "Pid", 0);
 }
 
-/* Implemenet the rest of the OS-specific routines */
+/* Implement the rest of the OS-specific routines */
 
 #include "os_routines.c"
 
