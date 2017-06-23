@@ -3,7 +3,7 @@
 //  Prime95
 //
 //  Created by George Woltman on 4/25/09.
-//  Copyright 2009-2010 Mersenne Research, Inc. All rights reserved.
+//  Copyright 2009-2017 Mersenne Research, Inc. All rights reserved.
 //
 
 #import "TortureTestController.h"

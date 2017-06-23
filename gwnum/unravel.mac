@@ -1,4 +1,4 @@
-; Copyright 1995-2016 - Mersenne Research, Inc.  All rights reserved
+; Copyright 1995-2017 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -1549,10 +1549,14 @@ x64 MACRO stmt:vararg
 
 ; Macros that control whether the AVX FFTs use the wpn1 macros or newer (slower but less memory) wpn4 macros.
 ; Also controls whether we use even newer (slower but less memory) reduced sin/cos macros.
+; Also controls whether we use latest, greatest shared pass1 code - not implemented for 32-bit.
 
 ;YIMPL_WPN1_FFTS = 1
 YIMPL_WPN4_FFTS = 1
 YIMPL_REDUCED_SINCOS_FFTS = 1
+IFDEF X86_64
+YIMPL_SHARED_PASS1_CODE = 1
+ENDIF
 
 ; Macros to implement all possible implementations of an FFT.  We do this
 ; to find the fastest implementation to include in the final release.
@@ -1587,6 +1591,7 @@ Q	EQU	<QWORD PTR>
 bump	MACRO	reg, amt
 	IFNB <reg>
 	IFNB <amt>
+	IF ((OPATTR([0+amt])) AND 100b) NE 0 ;; Is amt a number constant -- OPATTR returns 36
 	IF amt EQ 128
 	sub	reg, -99		;; Workaround MASM bug.  It won't
 					;; generate one byte immediates
@@ -1600,7 +1605,18 @@ bump	MACRO	reg, amt
 	ELSEIF amt NE 0
 	add	reg, amt
 	ENDIF
+	ELSE				;; amt contains a register -- OPATTR returns 34
+	lea	reg, [reg+amt]
 	ENDIF
+	ENDIF
+	ENDIF
+	ENDM
+
+;; Bump a pointer by an amount (val * reg) - generates no code if amount is zero
+
+bump2	MACRO	reg, val, reg2
+	IF val NE 0
+	bump	reg, val*reg2
 	ENDIF
 	ENDM
 

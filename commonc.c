@@ -92,7 +92,11 @@ int	WORKTODO_CHANGED = 0;	/* Flag indicating worktodo file needs */
 				/* writing */
 
 hwloc_topology_t hwloc_topology;	/* Hardware topology */
+unsigned int NUM_NUMA_NODES = 1;	/* Number of NUMA nodes in the computer */
+unsigned int NUM_THREADING_NODES = 1;	/* Number of nodes where it might be beneficial to keep a worker's threads in the same node */
 int	OS_CAN_SET_AFFINITY = 1;	/* hwloc supports setting CPU affinity (known exception is Apple) */
+
+gwevent AUTOBENCH_EVENT;	/* Event to wake up workers after an auto-benchmark */
 
 #include "md5.c"
 
@@ -354,9 +358,18 @@ void getCpuInfo (void)
 	NUM_CPUS = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_CORE);
 	CPU_HYPERTHREADS = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PU) / NUM_CPUS;
 
-/* Allow overriding the number of physical processors.  For historical */
-/* reasons, this code uses a variable called NUM_CPUS rather */
-/* than the CPU_CORES value set by guessCpuType. */
+/* New in version 29, determine the number of NUMA nodes.  We may use this later on to allocate memory from the proper NUMA node. */
+/* We also compute the number of "threading nodes".  That is, number of nodes where we don't want to split a worker's thread */
+/* across 2 threading nodes.  For example, there may well be a performance penalty if a worker's threads are on two different */
+/* physical CPUS or access data from two different L3 caches. */
+// bug -- very likely need much more sophisticated hwloc code here.  such as factoring in sharing L3 caches, or asymetric cores per node
+
+	NUM_NUMA_NODES = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_NUMANODE);
+	if (NUM_NUMA_NODES < 1 || NUM_CPUS % NUM_NUMA_NODES != 0) NUM_NUMA_NODES = 1;
+	NUM_THREADING_NODES = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PACKAGE);		// bug:  also look at L3 caches???
+	if (NUM_THREADING_NODES < 1 || NUM_CPUS % NUM_THREADING_NODES != 0) NUM_THREADING_NODES = 1;
+
+/* Allow overriding the hwloc's generated values for number of physical processors, hyperthreads, and NUMA nodes. */
 
 	NUM_CPUS = IniGetInt (LOCALINI_FILE, "NumCPUs", NUM_CPUS);
 	temp = IniGetInt (LOCALINI_FILE, "NumPhysicalCores", 9999);
@@ -365,6 +378,8 @@ void getCpuInfo (void)
 		if (CPU_HYPERTHREADS < 1) CPU_HYPERTHREADS = 1;
 		NUM_CPUS = temp;
 	}
+	NUM_NUMA_NODES = IniGetInt (LOCALINI_FILE, "NumNUMANodes", NUM_NUMA_NODES);
+	NUM_THREADING_NODES = IniGetInt (LOCALINI_FILE, "NumThreadingNodes", NUM_THREADING_NODES);
 
 /* Calculate hardware GUID (global unique identifier) using the CPUID info. */
 /* Well, it isn't unique but it is about as good as we can do and still have */
@@ -759,6 +774,42 @@ uint64_t modinv (uint64_t x, uint64_t f)		/* Compute 1/x mod f */
 	return (d);
 }
 
+/* Add val to an array.  Horrible performance for big arrays. */
+
+void sorted_add_unique (int *vals, int *numvals, int newval)
+{
+	int	i, j;
+
+	for (i = 0; i < *numvals; i++) {
+		if (vals[i] == newval) return;
+		if (vals[i] < newval) continue;
+		j = vals[i];
+		vals[i] = newval;
+		newval = j;
+	}
+	vals[*numvals] = newval;
+	(*numvals)++;
+}
+
+/* Determine is number is included in a comma separated list of ranges (e.g. "1,4-6") */
+
+int is_number_in_list (int val, const char *list)
+{
+	const char *p, *dash, *comma;
+	int	start, end;
+
+	for (p = list; ; p = comma+1) {		// Loop through comma-separated list
+		start = atoi (p);
+		dash = strchr (p, '-');
+		comma = strchr (p, ',');
+		if (dash != NULL && (comma == NULL || dash < comma)) end = atoi (dash+1);
+		else end = start;
+		if (val >= start && val <= end) return (TRUE);
+		if (comma == NULL) break;
+	}
+	return (FALSE);
+}
+
 /* Upper case a string */
 
 void strupper (
@@ -1049,6 +1100,19 @@ void nameAndReadIniFiles (
 /* Start some initial timers */
 
 	add_timed_event (TE_ROLLING_AVERAGE, 6*60*60);
+	if (IniGetInt (INI_FILE, "AutoBench", 1)) {
+		time_t	current_time;
+		struct tm *x;
+		int	seconds;
+		gwevent_init (&AUTOBENCH_EVENT);
+		time (&current_time);
+		x = localtime (&current_time);
+		if (x->tm_hour < 4)
+			seconds = (5 - x->tm_hour) * 60 * 60;	// Start benchmark around 5AM today
+		else
+			seconds = (29 - x->tm_hour) * 60 * 60;	// Start benchmark around 5AM tomorrow
+		add_timed_event (TE_BENCH, seconds);
+	}
 }
 
 /* Init the communications code.  We used to do this at the end of */
@@ -1082,21 +1146,16 @@ void initCommCode (void) {
 
 int good_default_for_num_workers (void)
 {
-	int	packages, cores_per_package;
+	int	cores_per_node;
 
 // bug -- very likely need much more sophisticated hwloc code here.  such as factoring in sharing L3 caches,
 // NUMA, asymetric package core counts
 // warning: we'll need to mimic the more sophisticated code in read_cores_per_test
 
-/* Get a count of CPUs (not cores).  Our simple goal is to not split a worker across two physical chips. */
-
-	packages = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PACKAGE);
-	if (packages < 1 || NUM_CPUS % packages != 0) packages = 1;
-
 /* Default to roughly 4 workers per worker */
 
-	cores_per_package = NUM_CPUS / packages;
-	return (packages * (cores_per_package <= 6 ? 1 : ((cores_per_package + 3) / 4)));
+	cores_per_node = NUM_CPUS / NUM_THREADING_NODES;
+	return (NUM_THREADING_NODES * (cores_per_node <= 6 ? 1 : ((cores_per_node + 3) / 4)));
 }
 
 /* Read CoresPerTest values.  This may require upgrading ThreadsPerTest to CoresPerTest. */
@@ -1156,28 +1215,24 @@ void read_cores_per_test (void)
 /* spanning across CPUs. */
 
 	if (CORES_PER_TEST[0] == 0) {
-		int	packages, cores_per_package, workers, workers_this_package, cores_this_package;
+		int	cores_per_node, nodes, workers, workers_this_node, cores_this_node;
 
 // bug -- very likely need much more sophisticated hwloc code here.  such as factoring in sharing L3 caches,
 // NUMA, asymetric package core counts
 // warning: we'll need to mimic the more sophisticated code in good_default_for_num_workers
 
-/* Get a count of CPUs (not cores).  Our simple goal is to not split a worker across two physical chips. */
-
-		packages = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PACKAGE);
-		if (packages < 1 || NUM_CPUS % packages != 0) packages = 1;
-		cores_per_package = NUM_CPUS / packages;
-
-/* Decide how many workers will run on each package.  Then distribute the package's cores among those workers. */
+/* Decide how many workers will run on each node.  Then distribute the cores among those workers. */
 
 		i = 0;
+		cores_per_node = NUM_CPUS / NUM_THREADING_NODES;
+		nodes = NUM_THREADING_NODES;
 		workers = NUM_WORKER_THREADS;
-		for ( ; packages; packages--) {
-			cores_this_package = cores_per_package;
-			workers_this_package = workers / packages; workers -= workers_this_package;
-			for ( ; workers_this_package; workers_this_package--) {
-				temp[i] = cores_this_package / workers_this_package;
-				cores_this_package -= temp[i];
+		for ( ; nodes; nodes--) {
+			cores_this_node = cores_per_node;
+			workers_this_node = workers / nodes; workers -= workers_this_node;
+			for ( ; workers_this_node; workers_this_node--) {
+				temp[i] = cores_this_node / workers_this_node;
+				cores_this_node -= temp[i];
 				i++;
 			}
 		}
@@ -1960,6 +2015,79 @@ void pct_complete_from_savefile (
 	w->pct_complete = 0.0;
 }
 
+/* Add a known Fermat factor to the known_factors list */
+
+void addKnownFermatFactor (
+	struct work_unit *w,	/* Work unit to modify */
+	const char *factor)	/* Known Fermat factor */
+{
+	if (w->known_factors == NULL) {
+		w->known_factors = (char *) malloc (strlen (factor) + 1);
+		if (w->known_factors != NULL) {
+			strcpy (w->known_factors, factor);
+			WORKTODO_CHANGED = TRUE;
+		}
+	}
+	else if (strstr (w->known_factors, factor) == NULL) {
+		char	*new_factor_list;
+		new_factor_list = (char *) malloc (strlen (w->known_factors) + strlen (factor) + 2);
+		if (new_factor_list != NULL) {
+			sprintf (new_factor_list, "%s,%s", w->known_factors, factor);
+			free (w->known_factors);
+			w->known_factors = new_factor_list;
+			WORKTODO_CHANGED = TRUE;
+		}
+	}
+}
+
+/* Add all known Fermat factors to the known_factors list */
+
+void addKnownFermatFactors (
+	struct work_unit *w)	/* Work unit to modify */
+{
+
+/* If this is ECM or P-1 on a Fermat number, then automatically add known Fermat factors */
+
+	if (w->k == 1.0 && w->b == 2 && w->c == 1 &&
+	    (w->work_type == WORK_ECM || w->work_type == WORK_PMINUS1) &&
+	    IniGetInt (INI_FILE, "AddKnownFermatFactors", 1)) {
+		if (w->n == 4096) addKnownFermatFactor (w, "114689");
+		if (w->n == 4096) addKnownFermatFactor (w, "26017793");
+		if (w->n == 4096) addKnownFermatFactor (w, "63766529");
+		if (w->n == 4096) addKnownFermatFactor (w, "190274191361");
+		if (w->n == 4096) addKnownFermatFactor (w, "1256132134125569");
+		if (w->n == 4096) addKnownFermatFactor (w, "568630647535356955169033410940867804839360742060818433");
+		if (w->n == 8192) addKnownFermatFactor (w, "2710954639361");
+		if (w->n == 8192) addKnownFermatFactor (w, "2663848877152141313");
+		if (w->n == 8192) addKnownFermatFactor (w, "3603109844542291969");
+		if (w->n == 8192) addKnownFermatFactor (w, "319546020820551643220672513");
+		if (w->n == 16384) addKnownFermatFactor (w, "116928085873074369829035993834596371340386703423373313");
+		if (w->n == 32768) addKnownFermatFactor (w, "1214251009");
+		if (w->n == 32768) addKnownFermatFactor (w, "2327042503868417");
+		if (w->n == 32768) addKnownFermatFactor (w, "168768817029516972383024127016961");
+		if (w->n == 65536) addKnownFermatFactor (w, "825753601");
+		if (w->n == 65536) addKnownFermatFactor (w, "188981757975021318420037633");
+		if (w->n == 131072) addKnownFermatFactor (w, "31065037602817");
+		if (w->n == 131072) addKnownFermatFactor (w, "7751061099802522589358967058392886922693580423169");
+		if (w->n == 262144) addKnownFermatFactor (w, "13631489");
+		if (w->n == 262144) addKnownFermatFactor (w, "81274690703860512587777");
+		if (w->n == 524288) addKnownFermatFactor (w, "70525124609");
+		if (w->n == 524288) addKnownFermatFactor (w, "646730219521");
+		if (w->n == 524288) addKnownFermatFactor (w, "37590055514133754286524446080499713");
+		if (w->n == 2097152) addKnownFermatFactor (w, "4485296422913");
+		if (w->n == 4194304) addKnownFermatFactor (w, "64658705994591851009055774868504577");
+		if (w->n == 8388608) addKnownFermatFactor (w, "167772161");
+		if (w->n == 33554432) addKnownFermatFactor (w, "25991531462657");
+		if (w->n == 33554432) addKnownFermatFactor (w, "204393464266227713");
+		if (w->n == 33554432) addKnownFermatFactor (w, "2170072644496392193");
+		if (w->n == 67108864) addKnownFermatFactor (w, "76861124116481");
+		if (w->n == 134217728) addKnownFermatFactor (w, "151413703311361");
+		if (w->n == 134217728) addKnownFermatFactor (w, "231292694251438081");
+		if (w->n == 268435456) addKnownFermatFactor (w, "1766730974551267606529");
+		if (w->n == 536870912) addKnownFermatFactor (w, "2405286912458753");
+	}
+}	    
+
 /* Add a work_unit to the work_unit array.  Grow the work_unit */
 /* array if necessary */
 
@@ -2166,7 +2294,7 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 	    w->k = 1.0;
 	    w->b = 2;
 	    w->c = -1;
-	    w->forced_fftlen = 0;
+	    w->minimum_fftlen = 0;
 	    w->extension[0] = 0;
 
 /* Parse the optional assignment_uid */
@@ -2218,7 +2346,7 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		safe_strcpy (value, p);
 		if ((sse2 && (CPU_FLAGS & CPU_SSE2)) ||
 		    (!sse2 && ! (CPU_FLAGS & CPU_SSE2)))
-			w->forced_fftlen = fftlen;
+			w->minimum_fftlen = fftlen;
 	    }
 
 /* Parse the optional file extension to use on save files (no good use */
@@ -2494,6 +2622,10 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 			if (!isdigit (w->known_factors[i])) w->known_factors[i] = ',';
 	    }
 
+/* If this is ECM or P-1 on a Fermat number, then automatically add known Fermat factors */
+
+	    addKnownFermatFactors (w);
+
 /* Make sure this line of work from the file makes sense. The exponent */
 /* should be a prime number, bounded by values we can handle, and we */
 /* should never be asked to factor a number more than we are capable of. */
@@ -2510,8 +2642,9 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 	         w->work_type == WORK_DBLCHK ||
 	         w->work_type == WORK_ADVANCEDTEST) &&
 	        (w->n < MIN_PRIME ||
-		 (w->forced_fftlen == 0 &&
-		  w->n > (unsigned long) (CPU_FLAGS & (CPU_AVX | CPU_SSE2) ? MAX_PRIME_SSE2 : MAX_PRIME)))) {
+		 (w->minimum_fftlen == 0 &&
+		  w->n > (unsigned long) (CPU_FLAGS & CPU_FMA3 ? MAX_PRIME_FMA3 :
+					  (CPU_FLAGS & (CPU_AVX | CPU_SSE2) ? MAX_PRIME_SSE2 : MAX_PRIME))))) {
 		char	buf[80];
 		sprintf (buf, "Error: Worktodo.txt file contained bad LL exponent: %ld\n", w->n);
 		OutputBoth (MAIN_THREAD_NUM, buf);
@@ -2538,14 +2671,14 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 /* The quick workaround here is to ignore FFT lengths from the worktodo file if that FFT */
 /* length is not supported.  This is non-optimal because the proper FFT size will */
 /* have to be recalculated. */
-
-	    if (w->forced_fftlen && gwmap_fftlen_to_max_exponent (w->forced_fftlen) == 0) {
-		    char	buf[100];
-		    sprintf (buf, "Warning: Ignoring unsupported FFT length, %ld, on line %u of worktodo.txt.\n",
-			     w->forced_fftlen, linenum);
-		    OutputBoth (MAIN_THREAD_NUM, buf);
-		    w->forced_fftlen = 0;
-	    }
+//  This should not be necessary now that we use gwnum's minimum_fftlen
+//	    if (w->minimum_fftlen && gwmap_fftlen_to_max_exponent (w->minimum_fftlen) == 0) {
+//		    char	buf[100];
+//		    sprintf (buf, "Warning: Ignoring unsupported FFT length, %ld, on line %u of worktodo.txt.\n",
+//			     w->minimum_fftlen, linenum);
+//		    OutputBoth (MAIN_THREAD_NUM, buf);
+//		    w->minimum_fftlen = 0;
+//	    }
 
 /* Do more initialization of the work_unit structure */
 
@@ -2743,15 +2876,15 @@ int writeWorkToDoFile (
 
 /* Format the FFT length */
 
-		if (w->forced_fftlen) {
+		if (w->minimum_fftlen) {
 			strcat (idbuf, "FFT");
 			if (CPU_FLAGS & CPU_SSE2) strcat (idbuf, "2");
-			if ((w->forced_fftlen & 0xFFFFF) == 0)
-				sprintf (idbuf+strlen(idbuf), "=%luM,", w->forced_fftlen >> 20);
-			else if ((w->forced_fftlen & 0x3FF) == 0)
-				sprintf (idbuf+strlen(idbuf), "=%luK,", w->forced_fftlen >> 10);
+			if ((w->minimum_fftlen & 0xFFFFF) == 0)
+				sprintf (idbuf+strlen(idbuf), "=%luM,", w->minimum_fftlen >> 20);
+			else if ((w->minimum_fftlen & 0x3FF) == 0)
+				sprintf (idbuf+strlen(idbuf), "=%luK,", w->minimum_fftlen >> 10);
 			else
-				sprintf (idbuf+strlen(idbuf), "=%lu,", w->forced_fftlen);
+				sprintf (idbuf+strlen(idbuf), "=%lu,", w->minimum_fftlen);
 		}
 
 /* Output the optional file name extension (no good use right now, */
@@ -2965,6 +3098,10 @@ int addWorkToDoLine (
 	if (malloc_w == NULL) return (OutOfMemory (MAIN_THREAD_NUM));
 	memcpy (malloc_w, w, sizeof (struct work_unit));
 
+/* If this is ECM or P-1 on a Fermat number, then automatically add known Fermat factors */
+
+	addKnownFermatFactors (malloc_w);
+
 /* Grab the lock so that comm thread and/or worker threads do not */
 /* access structure while the other is adding/deleting lines. */
 
@@ -3128,7 +3265,7 @@ double work_estimate (
 		}
 
 		timing = gwmap_to_timing (w->k, w->b, w->n, w->c);
-		bits = (int) (w->n * log ((double) w->b) / log (2.0));
+		bits = (int) (w->n * _log2 (w->b));
 		if (bits <= 80000) overhead = 1.10;
 		else if (bits >= 1500000) overhead = 1.20;
 		else overhead = 1.10 + ((double) bits - 80000.0) / 1420000.0 * (1.20 - 1.10);
@@ -3321,10 +3458,12 @@ unsigned int factorLimit (
 	if (w->factor_to != 0.0) return ((unsigned int) w->factor_to);
 
 /* For LL tests, determine the optimal trial factoring end point. */
-/* This is based on timings from my 2GHz P4. */
+/* See commonc.h for how these breakeven points were calculated. */
 
 	p = w->n;
-	if (p > FAC80) test = 80;	/* Test all 80 bit factors */
+	if (p > FAC82) test = 82;	/* Test all 82 bit factors */
+	else if (p > FAC81) test = 81;	/* Test all 81 bit factors */
+	else if (p > FAC80) test = 80;	/* Test all 80 bit factors */
 	else if (p > FAC79) test = 79;	/* Test all 79 bit factors */
 	else if (p > FAC78) test = 78;	/* Test all 78 bit factors */
 	else if (p > FAC77) test = 77;	/* Test all 77 bit factors */
@@ -6087,8 +6226,7 @@ void timed_events_scheduler (void *arg)
 				UpdateEndDates ();
 				break;
 			case TE_THROTTLE:	/* Sleep due to Throttle=n event */
-				timed_events[i].time_to_fire =
-					this_time + handleThrottleTimerEvent ();
+				timed_events[i].time_to_fire = this_time + handleThrottleTimerEvent ();
 				break;
 			case TE_SAVE_FILES:	/* Timer to trigger writing save files */
 						/* Also check for add files */
@@ -6115,6 +6253,10 @@ void timed_events_scheduler (void *arg)
 			case TE_LOAD_AVERAGE:	/* Check load average event */
 				timed_events[i].active = FALSE;
 				checkLoadAverage ();
+				break;
+			case TE_BENCH:		/* Benchmark throughput for optimal FFT selection */
+				timed_events[i].time_to_fire = this_time + TE_BENCH_FREQ;
+				autoBench ();
 				break;
 			}
 		}

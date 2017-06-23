@@ -90,6 +90,7 @@ int ecm (int, struct PriorityInfo *, struct work_unit *);
 int pminus1 (int, struct PriorityInfo *, struct work_unit *);
 int pfactor (int, struct PriorityInfo *, struct work_unit *);
 double guess_pminus1_probability (struct work_unit *w);
+void autoBench (void);
 
 /* Utility routines */
 
@@ -113,6 +114,7 @@ void makestr (unsigned long, unsigned long, unsigned long, char *);
 #define STOP_WORK_UNIT_COMPLETE	50	/* Work unit is done! */
 #define STOP_PRIORITY_WORK	51	/* Priority work, restart thread */
 #define STOP_BATTERY		52	/* On battery - pause */
+#define STOP_AUTOBENCH		53	/* Stop worker for a little while to run auto-benchmarks */
 #define STOP_REREAD_INI		100	/* Reread prime.ini because a */
 					/* during/else time period has changed */
 #define STOP_RESTART		101	/* Important INI option changed */

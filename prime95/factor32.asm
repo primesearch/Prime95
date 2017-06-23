@@ -1,4 +1,4 @@
-; Copyright 1995-2016 Mersenne Research, Inc., all rights reserved
+; Copyright 1995-2017 Mersenne Research, Inc., all rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -1407,7 +1407,7 @@ idone2:	mov	initval0, eax		; Save bits 65-96 of initval
 	mov	eax, OFFSET tlp86	; 75-86 bit SSE2 version
 	cmp	ecx, 3FFh		; Are we testing 75-bits or greater?
 	ja	short cp1		; Yes, jump
-	mov	eax, OFFSET tlp74	; 64-74 bit SSE2 version
+	mov	eax, OFFSET tlp74	; 65-74 bit SSE2 version
 	jmp	short cp1		; Yes, jump
 not65:	mov	eax, OFFSET tlp64	; 64 bit all cpus version
 	cmp	edx, 3FFFFFFFh		; Are we testing 63-bits or greater?

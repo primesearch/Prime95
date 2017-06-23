@@ -2,7 +2,7 @@
 | This file contains various utility routines that may be used by gwnum
 | setup.
 |
-|  Copyright 2011-2014 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2011-2017 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWTABLES_H
@@ -196,7 +196,7 @@ struct gwasm_data {
 		intptr_t YMM_NORM_INCR6;
 		intptr_t YMM_NORM_INCR7;
 		void	*YMM_CARRIES_ROUTINE;	/* Routine to propagate carries in 2-pass FFTs */
-		intptr_t UNUSED_YMM_PTRS[1];
+		void	*YMM_PASS2_ROUTINE;	/* Routine to call to do pass 2 of the FFT */
 
 		double	YMM_MINUS_C[4];	/* -c stored as double */
 		double	YMM_HALF[4];	/* 0.5 */

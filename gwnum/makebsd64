@@ -2,14 +2,14 @@
 #
 
 CC = cc
-CFLAGS = -I.. -DX86_64 -O2
+CFLAGS = -I.. -I../sqlite-amalgamation-3180000 -DX86_64 -O2
 
 CPP = cc
 CPPFLAGS = -I.. -I../qd -DX86_64 -O2
 
 AR = ar
 
-LINUXOBJS = cpuid.o gwnum.o gwtables.o gwthread.o gwini.o gwutil.o gwdbldbl.o giants.o ecmstag1.o
+LINUXOBJS = cpuid.o gwnum.o gwtables.o gwthread.o gwini.o gwbench.o gwutil.o gwdbldbl.o giants.o ecmstag1.o
 
 LIB = gwnum.a
 

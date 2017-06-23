@@ -18,6 +18,7 @@
 #include "common.h"
 #include "cpuid.h"
 #include "gwnum.h"
+#include "gwbench.h"
 #include "gwini.h"
 #include "gwutil.h"
 #include "commona.h"

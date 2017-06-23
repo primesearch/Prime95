@@ -816,7 +816,7 @@ again:		gwinit (&gwdata);
 			sprintf (buf, "Trying gwsetup on %s.\n", numstr);
 			OutputBoth (thread_num, buf);
 		}
-		gwset_specific_fftlen (&gwdata, SPECIFIC_FFTLEN);
+		gwset_minimum_fftlen (&gwdata, SPECIFIC_FFTLEN);
 		gwset_num_threads (&gwdata, threads);
 		gwset_thread_callback (&gwdata, SetAuxThreadPriority);
 		gwset_thread_callback_data (&gwdata, sp_info);

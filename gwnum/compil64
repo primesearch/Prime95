@@ -6,17 +6,20 @@
 # objconv comes courtesy of Agner Fog.  Download available at
 # http://www.agner.org/optimize/#objconv
 
+#### -EP can be useful instead of a listing
 masm64=HJWasm32 /c /DX86_64 /DWINDOWS64 -win64
-#masm64=HJWasm32 /c /DX86_64 /DWINDOWS64 /Fl /Sf /Sa /Sg  -win64
+#masm64=HJWasm32 /c /DX86_64 /DWINDOWS64 /Fl /Sf /Sa -win64
 #masm64=ml64 /c /DX86_64 /DWINDOWS64
 #masm64=ml64 /c /DX86_64 /DWINDOWS64 /Fl /Sf /Sa
 masm64lx=HJWasm32 /c /DX86_64 /DLINUX64 -win64
+#masm64lx=HJWasm32 /c /DX86_64 /DLINUX64 /Fl /Sf /Sa -win64
 #masm64lx=ml64 /c /DX86_64 /DLINUX64
 objconv=c:\objconv\objconv
 
 # Use the 64-bit C compiler
 
 cl64=cl /GF /W3 /MT /DX86_64 /D_CRT_SECURE_NO_DEPRECATE /O2 /c
+cl64o1=cl /GF /W3 /MT /DX86_64 /D_CRT_SECURE_NO_DEPRECATE /O1 /c
 cl64d=cl /GF /W3 /MT /DX86_64 /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Z7 /c
 cl64do=cl /GF /W3 /MT /DX86_64 /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Z7 /O2 /c
 
@@ -26,8 +29,8 @@ all:	gwnum64.lib gwnum64d.lib linux64\gwnum.a macosx64\gwnum.a amd64\release\ecm
 
 # Make libraries out of the object files
 
-gwnum64.lib: amd64\release\cpuid.obj amd64\release\gwnum.obj amd64\release\gwtables.obj \
-	     amd64\release\gwthread.obj amd64\release\gwini.obj amd64\release\gwutil.obj amd64\release\gwdbldbl.obj \
+gwnum64.lib: amd64\release\cpuid.obj amd64\release\gwnum.obj amd64\release\gwtables.obj amd64\release\gwthread.obj \
+	     amd64\release\gwini.obj amd64\release\gwbench.obj amd64\release\gwutil.obj amd64\release\gwdbldbl.obj \
 	     amd64\release\giants.obj amd64\xmult1ax.obj amd64\xmult2.obj amd64\xmult2a_core.obj amd64\xmult2a_k8.obj amd64\xmult2ax.obj \
 	     amd64\xmult3.obj amd64\xmult3a_core.obj amd64\xmult3a_k8.obj amd64\xmult3ax.obj \
 	     amd64\hg_blend.obj amd64\hg_core.obj amd64\hg_p4.obj amd64\hg_k8.obj amd64\hg_k10.obj \
@@ -40,14 +43,14 @@ gwnum64.lib: amd64\release\cpuid.obj amd64\release\gwnum.obj amd64\release\gwtab
 	     amd64\r4dwpn5_core.obj amd64\r4dwpn5_p4.obj amd64\r4dwpn5_k8.obj amd64\r4dwpn5_k10.obj \
 	     amd64\ymult1ax_core.obj amd64\ymult1ax_fma3.obj amd64\yr4_core.obj amd64\yr4_fma3.obj \
 	     amd64\ymult3.obj amd64\ymult3a_core.obj amd64\ymult3a_fma3.obj amd64\ymult3ax.obj \
-	     amd64\yr4dwpn_core.obj amd64\yr4dwpn3_core.obj amd64\yr4dwpn5_core.obj \
-	     amd64\yr4dwpn_fma3.obj amd64\yr4dwpn3_fma3.obj amd64\yr4dwpn5_fma3.obj \
+	     amd64\yr4dwpn_core.obj amd64\yr4dwpn3_core.obj amd64\yr4dwpn4_core.obj amd64\yr4dwpn5_core.obj \
+	     amd64\yr4dwpn_fma3.obj amd64\yr4dwpn3_fma3.obj amd64\yr4dwpn4_fma3.obj amd64\yr4dwpn5_fma3.obj \
 	     amd64\cpuidhlp.obj amd64\mult.obj amd64\gianthlp.obj amd64\timeit.obj
     del gwnum64.lib
     lib /OUT:gwnum64.lib amd64\release\*.obj amd64\*.obj
 
-gwnum64d.lib: amd64\debug\cpuid.obj amd64\debug\gwnum.obj amd64\debug\gwtables.obj \
-	      amd64\debug\gwthread.obj amd64\debug\gwini.obj amd64\debug\gwutil.obj amd64\debug\gwdbldbl.obj \
+gwnum64d.lib: amd64\debug\cpuid.obj amd64\debug\gwnum.obj amd64\debug\gwtables.obj amd64\debug\gwthread.obj \
+	      amd64\debug\gwini.obj amd64\debug\gwbench.obj amd64\debug\gwutil.obj amd64\debug\gwdbldbl.obj \
 	      amd64\debug\giants.obj amd64\xmult1ax.obj amd64\xmult2.obj amd64\xmult2a_core.obj amd64\xmult2a_k8.obj amd64\xmult2ax.obj \
 	      amd64\xmult3.obj amd64\xmult3a_core.obj amd64\xmult3a_k8.obj amd64\xmult3ax.obj \
 	      amd64\hg_blend.obj amd64\hg_core.obj amd64\hg_p4.obj amd64\hg_k8.obj amd64\hg_k10.obj \
@@ -60,8 +63,8 @@ gwnum64d.lib: amd64\debug\cpuid.obj amd64\debug\gwnum.obj amd64\debug\gwtables.o
 	      amd64\r4dwpn5_core.obj amd64\r4dwpn5_p4.obj amd64\r4dwpn5_k8.obj amd64\r4dwpn5_k10.obj \
 	      amd64\ymult1ax_core.obj amd64\ymult1ax_fma3.obj amd64\yr4_core.obj amd64\yr4_fma3.obj \
 	      amd64\ymult3.obj amd64\ymult3a_core.obj amd64\ymult3a_fma3.obj amd64\ymult3ax.obj \
-	      amd64\yr4dwpn_core.obj amd64\yr4dwpn3_core.obj amd64\yr4dwpn5_core.obj \
-	      amd64\yr4dwpn_fma3.obj amd64\yr4dwpn3_fma3.obj amd64\yr4dwpn5_fma3.obj \
+	      amd64\yr4dwpn_core.obj amd64\yr4dwpn3_core.obj amd64\yr4dwpn4_core.obj amd64\yr4dwpn5_core.obj \
+	      amd64\yr4dwpn_fma3.obj amd64\yr4dwpn3_fma3.obj amd64\yr4dwpn4_fma3.obj amd64\yr4dwpn5_fma3.obj \
 	      amd64\cpuidhlp.obj amd64\mult.obj amd64\gianthlp.obj amd64\timeit.obj
     del gwnum64d.lib
     lib /OUT:gwnum64d.lib amd64\debug\*.obj amd64\*.obj
@@ -78,8 +81,8 @@ linux64\gwnum.a: linux64\xmult1ax.obj linux64\xmult2.obj linux64\xmult2a_core.ob
 		 linux64\r4dwpn5_core.obj linux64\r4dwpn5_p4.obj linux64\r4dwpn5_k8.obj linux64\r4dwpn5_k10.obj \
 		 linux64\ymult1ax_core.obj linux64\ymult1ax_fma3.obj linux64\yr4_core.obj linux64\yr4_fma3.obj \
 		 linux64\ymult3.obj linux64\ymult3a_core.obj linux64\ymult3a_fma3.obj linux64\ymult3ax.obj \
-		 linux64\yr4dwpn_core.obj linux64\yr4dwpn3_core.obj linux64\yr4dwpn5_core.obj \
-		 linux64\yr4dwpn_fma3.obj linux64\yr4dwpn3_fma3.obj linux64\yr4dwpn5_fma3.obj \
+		 linux64\yr4dwpn_core.obj linux64\yr4dwpn3_core.obj linux64\yr4dwpn4_core.obj linux64\yr4dwpn5_core.obj \
+		 linux64\yr4dwpn_fma3.obj linux64\yr4dwpn3_fma3.obj linux64\yr4dwpn4_fma3.obj linux64\yr4dwpn5_fma3.obj \
 		 linux64\cpuidhlp.obj linux64\mult.obj linux64\gianthlp.obj linux64\timeit.obj
     attrib -r linux64\gwnum.a
     del linux64\gwnum.a
@@ -100,8 +103,8 @@ macosx64\gwnum.a: linux64\xmult1ax.obj linux64\xmult2.obj linux64\xmult2a_core.o
 		  linux64\r4dwpn5_core.obj linux64\r4dwpn5_p4.obj \
 		  linux64\ymult1ax_core.obj linux64\ymult1ax_fma3.obj linux64\yr4_core.obj linux64\yr4_fma3.obj \
 		  linux64\ymult3.obj linux64\ymult3a_core.obj linux64\ymult3a_fma3.obj linux64\ymult3ax.obj \
-		  linux64\yr4dwpn_core.obj linux64\yr4dwpn3_core.obj linux64\yr4dwpn5_core.obj \
-		  linux64\yr4dwpn_fma3.obj linux64\yr4dwpn3_fma3.obj linux64\yr4dwpn5_fma3.obj \
+		  linux64\yr4dwpn_core.obj linux64\yr4dwpn3_core.obj linux64\yr4dwpn4_core.obj linux64\yr4dwpn5_core.obj \
+		  linux64\yr4dwpn_fma3.obj linux64\yr4dwpn3_fma3.obj linux64\yr4dwpn4_fma3.obj linux64\yr4dwpn5_fma3.obj \
 		  linux64\cpuidhlp.obj macosx64\mult.obj linux64\gianthlp.obj linux64\timeit.obj
     attrib -r macosx64\gwnum.a
     del /q macosx64\foo
@@ -154,6 +157,15 @@ amd64\release\gwini.obj: gwini.c gwini.h
 
 amd64\debug\gwini.obj: gwini.c gwini.h
     $(cl64d) /Foamd64\debug\gwini.obj gwini.c
+
+# Compiler problem with /O2.  SQL data does not commit properly.  That is, freshly added
+# autobench data is not used when workers restart.  Prime95 must exit and restart for
+# new benchmark data to be used in FFT implementation selection.
+amd64\release\gwbench.obj: gwbench.c gwbench.h
+    $(cl64o1) /I..\sqlite-amalgamation-3180000 /Foamd64\release\gwbench.obj gwbench.c
+
+amd64\debug\gwbench.obj: gwbench.c gwbench.h
+    $(cl64d) /I..\sqlite-amalgamation-3180000 /Foamd64\debug\gwbench.obj gwbench.c
 
 amd64\release\gwutil.obj: gwutil.c gwutil.h
     $(cl64) /Foamd64\release\gwutil.obj gwutil.c
@@ -397,6 +409,14 @@ amd64\yr4dwpn3_fma3.obj: yr4dwpn3.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.mac 
     $(masm64) /DARCH=FMA3 /Foamd64\yr4dwpn3_fma3.obj yr4dwpn3.asm
     strip amd64\yr4dwpn3_fma3.obj
 
+amd64\yr4dwpn4_core.obj: yr4dwpn4.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac yr4dwpnpass1sc.mac yr4dwpnpass2.mac
+    $(masm64) /DARCH=CORE /Foamd64\yr4dwpn4_core.obj yr4dwpn4.asm
+    strip amd64\yr4dwpn4_core.obj
+
+amd64\yr4dwpn4_fma3.obj: yr4dwpn4.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac yr4dwpnpass1sc.mac yr4dwpnpass2.mac
+    $(masm64) /DARCH=FMA3 /Foamd64\yr4dwpn4_fma3.obj yr4dwpn4.asm
+    strip amd64\yr4dwpn4_fma3.obj
+
 amd64\yr4dwpn5_core.obj: yr4dwpn5.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac yr4dwpnpass1sc.mac yr4dwpnpass2.mac
     $(masm64) /DARCH=CORE /Foamd64\yr4dwpn5_core.obj yr4dwpn5.asm
     strip amd64\yr4dwpn5_core.obj
@@ -586,6 +606,12 @@ linux64\yr4dwpn3_core.obj: yr4dwpn3.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.ma
 
 linux64\yr4dwpn3_fma3.obj: yr4dwpn3.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac yr4dwpnpass1sc.mac yr4dwpnpass2.mac
     $(masm64lx) /DARCH=FMA3 /Folinux64\yr4dwpn3_fma3.obj yr4dwpn3.asm
+
+linux64\yr4dwpn4_core.obj: yr4dwpn4.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac yr4dwpnpass1sc.mac yr4dwpnpass2.mac
+    $(masm64lx) /DARCH=CORE /Folinux64\yr4dwpn4_core.obj yr4dwpn4.asm
+
+linux64\yr4dwpn4_fma3.obj: yr4dwpn4.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac yr4dwpnpass1sc.mac yr4dwpnpass2.mac
+    $(masm64lx) /DARCH=FMA3 /Folinux64\yr4dwpn4_fma3.obj yr4dwpn4.asm
 
 linux64\yr4dwpn5_core.obj: yr4dwpn5.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac yr4dwpnpass1sc.mac yr4dwpnpass2.mac
     $(masm64lx) /DARCH=CORE /Folinux64\yr4dwpn5_core.obj yr4dwpn5.asm

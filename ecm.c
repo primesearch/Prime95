@@ -877,7 +877,7 @@ int setN (
 /* Create the binary representation of the number we are factoring */
 /* Allocate 5 extra words to handle any possible k value. */
 
-	bits = (unsigned long) (w->n * log ((double) w->b) / log ((double) 2.0));
+	bits = (unsigned long) (w->n * _log2 (w->b));
 	*N = allocgiant ((bits >> 5) + 5);
 	if (*N == NULL) return (OutOfMemory (thread_num));
 
@@ -905,7 +905,7 @@ int setN (
 				divg (tmp, *N);
 			}
 			free (tmp);
-			/* w->forced_fftlen = w->n; */ /*=== too late to do this here. Moved before gwsetup() --SB. */
+			/* w->minimum_fftlen = w->n; */ /*=== too late to do this here. Moved before gwsetup() --SB. */
 			if (!w->known_factors || !strcmp (w->known_factors, "1")) {
 				p = sprintf (buf, "M%lu", w->n/q); if(q != w->n/q) p += sprintf (buf+p, "/M%d", q);
 				w->known_factors = (char *) malloc (p+1);
@@ -926,7 +926,7 @@ int setN (
 		if (w->c == 1) subg (tmp, *N); else addg (tmp, *N);
 		iaddg (1, *N);
 		free (tmp);
-		/* w->forced_fftlen = w->n; */ /*=== too late to do this here. Moved before gwsetup() --SB. */
+		/* w->minimum_fftlen = w->n; */ /*=== too late to do this here. Moved before gwsetup() --SB. */
 		if (!w->known_factors) {
 			p = sprintf (buf, "(%lu^%lu%+ld)", w->b, w->n/3, w->c);
 			w->known_factors = (char *) malloc (p+1);
@@ -2368,12 +2368,18 @@ return 0;
 	gwinit (&ecmdata.gwdata);
 	gwset_sum_inputs_checking (&ecmdata.gwdata, SUM_INPUTS_ERRCHK);
 	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
-	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreads = IniGetInt (LOCALINI_FILE, "HyperthreadLLcount", CPU_HYPERTHREADS);
+	if (HYPERTHREAD_LL) {
+		sp_info->normal_work_hyperthreads = IniGetInt (LOCALINI_FILE, "HyperthreadLLcount", CPU_HYPERTHREADS);
+		gwset_will_hyperthread (&ecmdata.gwdata, sp_info->normal_work_hyperthreads);
+	}
+	gwset_bench_cores (&ecmdata.gwdata, NUM_CPUS);
+	gwset_bench_workers (&ecmdata.gwdata, NUM_WORKER_THREADS);
+	if (ERRCHK) gwset_will_error_check (&ecmdata.gwdata);
 	gwset_num_threads (&ecmdata.gwdata, CORES_PER_TEST[thread_num] * sp_info->normal_work_hyperthreads);
 	gwset_thread_callback (&ecmdata.gwdata, SetAuxThreadPriority);
 	gwset_thread_callback_data (&ecmdata.gwdata, sp_info);
 	gwset_safety_margin (&ecmdata.gwdata, IniGetFloat (INI_FILE, "ExtraSafetyMargin", 0.0));
-	gwset_specific_fftlen (&ecmdata.gwdata, w->forced_fftlen);
+	gwset_minimum_fftlen (&ecmdata.gwdata, w->minimum_fftlen);
 	res = gwsetup (&ecmdata.gwdata, w->k, w->b, w->n, w->c);
 	if (res) {
 		sprintf (buf, "Cannot initialize FFT code, errcode=%d\n", res);
@@ -4013,7 +4019,7 @@ double cost_pminus1_plan (
 /* at a cost of about 1.5 multiplies per bit.  In other words, */
 /* (E+1) * E*log2(startpoint) * 1.5. */
 
-	cost = passes * (e+1) * e*log((double)(d/2))/log((double)2.0) * 1.5 +
+	cost = passes * (e+1) * e*_log2(d/2) * 1.5 +
 
 /* Then there are the D/2 calls to fd_next at E multiplies each. */
 
@@ -4022,7 +4028,7 @@ double cost_pminus1_plan (
 /* Compute the eQx setup costs.  To calculate eQx values, one fd_init is */
 /* required on each pass with a start point of B. */
 
-		passes * (e+1) * e*log((double)B)/log((double)2.0) * 1.5;
+		passes * (e+1) * e*_log2(B) * 1.5;
 
 /* If E=1 add the cost of (C-B)/D fd_next calls.  If E>=2, add the cost */
 /* of (C-B)/(D+D) calls to fd_next (E multiplies). */
@@ -4513,12 +4519,19 @@ restart:
 	gwinit (&pm1data.gwdata);
 	gwset_sum_inputs_checking (&pm1data.gwdata, SUM_INPUTS_ERRCHK);
 	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pm1data.gwdata);
-	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreads = IniGetInt (LOCALINI_FILE, "HyperthreadLLcount", CPU_HYPERTHREADS);
+	if (HYPERTHREAD_LL) {
+		sp_info->normal_work_hyperthreads = IniGetInt (LOCALINI_FILE, "HyperthreadLLcount", CPU_HYPERTHREADS);
+		gwset_will_hyperthread (&pm1data.gwdata, sp_info->normal_work_hyperthreads);
+	}
+	gwset_bench_cores (&pm1data.gwdata, NUM_CPUS);
+	gwset_bench_workers (&pm1data.gwdata, NUM_WORKER_THREADS);
+	if (ERRCHK) gwset_will_error_check (&pm1data.gwdata);
+	else gwset_will_error_check_near_limit (&pm1data.gwdata);
 	gwset_num_threads (&pm1data.gwdata, CORES_PER_TEST[thread_num] * sp_info->normal_work_hyperthreads);
 	gwset_thread_callback (&pm1data.gwdata, SetAuxThreadPriority);
 	gwset_thread_callback_data (&pm1data.gwdata, sp_info);
 	gwset_safety_margin (&pm1data.gwdata, IniGetFloat (INI_FILE, "ExtraSafetyMargin", 0.0));
-	gwset_specific_fftlen (&pm1data.gwdata, w->forced_fftlen);
+	gwset_minimum_fftlen (&pm1data.gwdata, w->minimum_fftlen);
 	res = gwsetup (&pm1data.gwdata, w->k, w->b, w->n, w->c);
 	if (res) {
 		sprintf (buf, "Cannot initialize FFT code, errcode=%d\n", res);
@@ -5409,8 +5422,7 @@ errchk:		if (gw_test_for_error (&pm1data.gwdata) ||
 /* Print out round off error */
 
 	if (ERRCHK) {
-		sprintf (buf, "Round off: %.10g\n",
-			 gw_get_maxerr (&pm1data.gwdata));
+		sprintf (buf, "Round off: %.10g\n", gw_get_maxerr (&pm1data.gwdata));
 		OutputStr (thread_num, buf);
 		gw_clear_maxerr (&pm1data.gwdata);
 	}

@@ -30,6 +30,7 @@ extern "C" {
 
 void IniGetString (const char *, const char *, char *, unsigned int, const char *);
 void IniSectionGetString (const char *, const char *, const char *, char *, unsigned int, const char *);
+void IniGetNthString (const char *, const char *, int, char *, unsigned int, const char *);
 void IniSectionGetNthString (const char *, const char *, const char *, int, char *, unsigned int, const char *);
 
 void IniGetTimedString (const char *, const char *, char *, unsigned int, const char *, unsigned int *);
@@ -50,6 +51,7 @@ float IniSectionGetTimedFloat (const char *, const char *, const char *, float, 
 
 void IniWriteString (const char *, const char *, const char *);
 void IniSectionWriteString (const char *, const char *, const char *, const char *);
+void IniWriteNthString (const char *, const char *, int, const char *);
 void IniSectionWriteNthString (const char *, const char *, const char *, int, const char *);
 
 void IniWriteInt (const char *, const char *, long);
@@ -59,6 +61,9 @@ void IniWriteFloat (const char *, const char *, float);
 void IniSectionWriteFloat (const char *, const char *, const char *, float);
 
 /* More obscure INI file routines */
+
+void IniDelayWrites (const char *);
+void IniResumeImmediateWrites (const char *);
 
 extern void (*INI_ERROR_CALLBACK)(const char *, int, const char *);	/* Callback routine when illegal line read from INI file. */
 									/* Arguments are file name, line number, text on the line. */

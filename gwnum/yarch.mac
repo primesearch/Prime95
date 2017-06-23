@@ -1,4 +1,4 @@
-; Copyright 2011-2013 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2017 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -81,5 +81,13 @@ buildfor MACRO archs, ops:vararg
 	IF (@INSTR(,%yarch,<BULL>) NE 0) AND (local_archs AND BULL) NE 0
 	&ops
 	ENDIF
+	ENDM
+
+
+;; Used to conditionally assemble FFT implementations for various CPU architectures
+build421 MACRO archs4, archs2, archs1, ops:vararg
+	buildfor &archs4, &ops, 4
+	buildfor &archs2, &ops, 2
+	buildfor &archs1, &ops, 1
 	ENDM
 

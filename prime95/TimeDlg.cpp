@@ -31,6 +31,7 @@ void CTimeDlg::DoDataExchange(CDataExchange* pDX)
 	//{{AFX_DATA_MAP(CTimeDlg)
 	DDX_Text(pDX, IDC_P, m_p);
 	DDV_MinMaxUInt(pDX, m_p, MIN_PRIME,
+		       CPU_FLAGS & CPU_FMA3 ? MAX_PRIME_FMA3 :
 		       CPU_FLAGS & CPU_SSE2 ? MAX_PRIME_SSE2 : MAX_PRIME);
 	DDX_Text(pDX, IDC_EDIT1, m_iter);
 	DDV_MinMaxUInt(pDX, m_iter, 1, 1000);

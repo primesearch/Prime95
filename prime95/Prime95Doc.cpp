@@ -772,34 +772,50 @@ void CPrime95Doc::OnUpdateBenchmark(CCmdUI* pCmdUI)
 void CPrime95Doc::OnBenchmark() 
 {
 	CBenchmarkDlg dlg;
+	char	default_cores_string[80], default_workers_string[80];
+	int	i, vals[4], numvals;
 
+	// Init FFT size dialog box entries
 	dlg.m_minFFT = IniGetInt (INI_FILE, "MinBenchFFT", 2048);
 	dlg.m_maxFFT = IniGetInt (INI_FILE, "MaxBenchFFT", 8192);
-	dlg.m_all_FFT_sizes = !IniGetInt (INI_FILE, "OnlyBench5678", 1);
+	dlg.m_errchk = ERRCHK;				// IniGetInt (INI_FILE, "BenchErrorCheck", 0);
+	dlg.m_all_complex = 0;				// IniGetInt (INI_FILE, "BenchAllComplex", 0);
+	dlg.m_limit_FFT_sizes = 0;			// IniGetInt (INI_FILE, "OnlyBench5678", 1);
 
-	dlg.m_bench_one_core = IniGetInt (INI_FILE, "BenchOneCore", 0);
-	dlg.m_bench_all_cores = IniGetInt (INI_FILE, "BenchAllCores", 1);
-	dlg.m_bench_in_between_cores = IniGetInt (INI_FILE, "BenchInBetweenCores", 0);
+	// Init CPU cores dialog box entries
+	sprintf (default_cores_string, "%lu", NUM_CPUS);
+	dlg.m_bench_cores = default_cores_string;
 	dlg.m_hyperthreading = IniGetInt (INI_FILE, "BenchHyperthreads", 1);
 
-	dlg.m_bench_one_worker = IniGetInt (INI_FILE, "BenchOneWorkerCase", 1);
-	dlg.m_bench_max_workers = IniGetInt (INI_FILE, "BenchMaxWorkersCase", 1);
-	dlg.m_bench_in_between_workers = IniGetInt (INI_FILE, "BenchInBetweenWorkerCases", 0);
+	// Init throughput dialog box entries
+	dlg.m_all_FFT_impl = IniGetInt (INI_FILE, "AllBench", 0);
 	dlg.m_bench_time = IniGetInt (INI_FILE, "BenchTime", 15);
+	// If testing all FFT implementations. then default to the current num_workers.
+	// Otherwise, assume user is trying to figure out how many workers to run and form a string
+	// with the most common best values for number of workers: 1, num_threading_nodes, num_cores, num_workers
+	numvals = 0;
+	sorted_add_unique (vals, &numvals, NUM_WORKER_THREADS);
+	if (!dlg.m_all_FFT_impl) {
+		sorted_add_unique (vals, &numvals, 1);
+		sorted_add_unique (vals, &numvals, NUM_THREADING_NODES);
+		sorted_add_unique (vals, &numvals, NUM_CPUS);
+	}
+	sprintf (default_workers_string, "%d", vals[0]);
+	for (i = 1; i < numvals; i++) sprintf (default_workers_string + strlen (default_workers_string), ",%d", vals[i]);
+	dlg.m_bench_workers = default_workers_string;
 
 	if (dlg.DoModal () == IDOK) {
 		IniWriteInt (INI_FILE, "MinBenchFFT", dlg.m_minFFT);
 		IniWriteInt (INI_FILE, "MaxBenchFFT", dlg.m_maxFFT);
-		IniWriteInt (INI_FILE, "OnlyBench5678", !dlg.m_all_FFT_sizes);
+		IniWriteInt (INI_FILE, "BenchErrorCheck", dlg.m_errchk);
+		IniWriteInt (INI_FILE, "BenchAllComplex", dlg.m_all_complex ? 2 : 0);
+		IniWriteInt (INI_FILE, "OnlyBench5678", dlg.m_limit_FFT_sizes);
 
-		IniWriteInt (INI_FILE, "BenchOneCore", dlg.m_bench_one_core);
-		IniWriteInt (INI_FILE, "BenchAllCores", dlg.m_bench_all_cores);
-		IniWriteInt (INI_FILE, "BenchInBetweenCores", dlg.m_bench_in_between_cores);
+		IniWriteString (INI_FILE, "BenchCores", dlg.m_bench_cores);
 		IniWriteInt (INI_FILE, "BenchHyperthreads", dlg.m_hyperthreading);
 
-		IniWriteInt (INI_FILE, "BenchOneWorkerCase", dlg.m_bench_one_worker);
-		IniWriteInt (INI_FILE, "BenchMaxWorkersCase", dlg.m_bench_max_workers);
-		IniWriteInt (INI_FILE, "BenchInBetweenWorkerCases", dlg.m_bench_in_between_workers);
+		IniWriteString (INI_FILE, "BenchWorkers", dlg.m_bench_workers);
+		IniWriteInt (INI_FILE, "AllBench", dlg.m_all_FFT_impl);
 		IniWriteInt (INI_FILE, "BenchTime", dlg.m_bench_time);
 		LaunchBench (dlg.m_bench_type);
 	}

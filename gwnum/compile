@@ -25,8 +25,8 @@ all:	gwnumd.lib gwnum.lib linux\gwnum.a macosx\gwnum.a release\ecmstag1.obj debu
 
 # Make libraries out of the object files
 
-gwnumd.lib: debug\cpuid.obj debug\gwnum.obj debug\gwtables.obj debug\gwthread.obj debug\gwini.obj debug\gwutil.obj debug\gwdbldbl.obj \
-	    debug\giants.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2aux.obj \
+gwnumd.lib: debug\cpuid.obj debug\gwnum.obj debug\gwtables.obj debug\gwthread.obj debug\gwini.obj debug\gwbench.obj debug\gwutil.obj \
+	    debug\gwdbldbl.obj debug\giants.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2aux.obj \
 	    mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj \
 	    xmult1ax.obj xmult2.obj xmult2a_core.obj xmult2a_k8.obj xmult2ax.obj xmult3.obj xmult3a_core.obj xmult3a_k8.obj xmult3ax.obj \
 	    hg_blend.obj hg_core.obj hg_p4.obj hg_p4tp.obj hg_k8.obj hg_k10.obj \
@@ -39,14 +39,14 @@ gwnumd.lib: debug\cpuid.obj debug\gwnum.obj debug\gwtables.obj debug\gwthread.ob
 	    r4dwpn5_core.obj r4dwpn5_p4.obj r4dwpn5_p4tp.obj r4dwpn5_k8.obj r4dwpn5_k10.obj \
 	    ymult1ax_core.obj yr4_core.obj \
 	    ymult3.obj ymult3a_core.obj ymult3ax.obj \
-	    yr4dwpn_core.obj yr4dwpn3_core.obj yr4dwpn5_core.obj \
+	    yr4dwpn_core.obj yr4dwpn3_core.obj yr4dwpn4_core.obj yr4dwpn5_core.obj \
 	    timeit.obj
     del gwnumd.lib
     lib /OUT:gwnumd.lib debug\*.obj *.obj
 
-gwnum.lib: release\cpuid.obj release\gwnum.obj release\gwtables.obj release\gwthread.obj release\gwini.obj release\gwutil.obj release\gwdbldbl.obj \
-	   release\giants.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2aux.obj \
-	   mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj \
+gwnum.lib: release\cpuid.obj release\gwnum.obj release\gwtables.obj release\gwthread.obj release\gwini.obj release\gwbench.obj \
+	   release\gwutil.obj release\gwdbldbl.obj release\giants.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj \
+	   mult2aux.obj mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj \
 	   xmult1ax.obj xmult2.obj xmult2a_core.obj xmult2a_k8.obj xmult2ax.obj xmult3.obj xmult3a_core.obj xmult3a_k8.obj xmult3ax.obj \
 	   hg_blend.obj hg_core.obj hg_p4.obj hg_p4tp.obj hg_k8.obj hg_k10.obj \
 	   r4_core.obj r4_p4.obj r4_p4tp.obj r4_k8.obj r4_k10.obj \
@@ -58,7 +58,7 @@ gwnum.lib: release\cpuid.obj release\gwnum.obj release\gwtables.obj release\gwth
 	   r4dwpn5_core.obj r4dwpn5_p4.obj r4dwpn5_p4tp.obj r4dwpn5_k8.obj r4dwpn5_k10.obj \
 	   ymult1ax_core.obj yr4_core.obj \
 	   ymult3.obj ymult3a_core.obj ymult3ax.obj \
-	   yr4dwpn_core.obj yr4dwpn3_core.obj yr4dwpn5_core.obj \
+	   yr4dwpn_core.obj yr4dwpn3_core.obj yr4dwpn4_core.obj yr4dwpn5_core.obj \
 	   timeit.obj
     del gwnum.lib
     lib /OUT:gwnum.lib release\*.obj *.obj
@@ -76,7 +76,7 @@ linux\gwnum.a: mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj m
 	       r4dwpn5_core.obj r4dwpn5_p4.obj r4dwpn5_p4tp.obj r4dwpn5_k8.obj r4dwpn5_k10.obj \
 	       ymult1ax_core.obj yr4_core.obj \
 	       ymult3.obj ymult3a_core.obj ymult3ax.obj \
-	       yr4dwpn_core.obj yr4dwpn3_core.obj yr4dwpn5_core.obj \
+	       yr4dwpn_core.obj yr4dwpn3_core.obj yr4dwpn4_core.obj yr4dwpn5_core.obj \
 	       timeit.obj
     attrib -r linux\gwnum.a
     del linux\gwnum.a
@@ -99,7 +99,7 @@ macosx\gwnum.a: macosx\mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult
 		r4dwpn5_core.obj r4dwpn5_p4.obj \
 		ymult1ax_core.obj yr4_core.obj \
 		ymult3.obj ymult3a_core.obj ymult3ax.obj \
-		yr4dwpn_core.obj yr4dwpn3_core.obj yr4dwpn5_core.obj \
+		yr4dwpn_core.obj yr4dwpn3_core.obj yr4dwpn4_core.obj yr4dwpn5_core.obj \
 		timeit.obj
     attrib -r macosx\gwnum.a
     del /q macosx\foo
@@ -153,6 +153,12 @@ release\gwini.obj: gwini.c gwini.h
 
 debug\gwini.obj: gwini.c gwini.h
     $(cld) /Fodebug\gwini.obj gwini.c
+
+release\gwbench.obj: gwbench.c gwbench.h
+    $(cl) /I..\sqlite-amalgamation-3180000 /Forelease\gwbench.obj gwbench.c
+
+debug\gwbench.obj: gwbench.c gwbench.h
+    $(cld) /I..\sqlite-amalgamation-3180000 /Fodebug\gwbench.obj gwbench.c
 
 release\gwutil.obj: gwutil.c gwutil.h
     $(cl) /Forelease\gwutil.obj gwutil.c
@@ -470,6 +476,10 @@ yr4dwpn_core.obj: yr4dwpn.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac 
 yr4dwpn3_core.obj: yr4dwpn3.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac yr4dwpnpass1sc.mac yr4dwpnpass2.mac
     $(masm) /DARCH=CORE /Foyr4dwpn3_core.obj yr4dwpn3.asm
     strip yr4dwpn3_core.obj
+
+yr4dwpn4_core.obj: yr4dwpn4.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac yr4dwpnpass1sc.mac yr4dwpnpass2.mac
+    $(masm) /DARCH=CORE /Foyr4dwpn4_core.obj yr4dwpn4.asm
+    strip yr4dwpn4_core.obj
 
 yr4dwpn5_core.obj: yr4dwpn5.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac yr4dwpnpass1sc.mac yr4dwpnpass2.mac
     $(masm) /DARCH=CORE /Foyr4dwpn5_core.obj yr4dwpn5.asm

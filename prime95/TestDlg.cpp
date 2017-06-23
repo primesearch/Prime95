@@ -51,6 +51,7 @@ void CTestDlg::DoDataExchange(CDataExchange* pDX)
 	c_thread_text.EnableWindow (NUM_WORKER_THREADS > 1);
 	c_thread.EnableWindow (NUM_WORKER_THREADS > 1);
 	DDV_MinMaxUInt(pDX, m_p, MIN_PRIME,
+		       CPU_FLAGS & CPU_FMA3 ? MAX_PRIME_FMA3 :
 		       CPU_FLAGS & CPU_SSE2 ? MAX_PRIME_SSE2 : MAX_PRIME);
 	DDV_prime(pDX, m_p);
 }

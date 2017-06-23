@@ -24,12 +24,12 @@ CBenchmarkDlg::CBenchmarkDlg(CWnd* pParent /*=NULL*/)
 	m_bench_type = 0;
 	m_minFFT = 0;
 	m_maxFFT = 0;
-	m_all_FFT_sizes = 0;
-	m_bench_time = 0;
-	m_bench_one_core = 0;
-	m_bench_all_cores = 0;
-	m_bench_in_between_cores = 0;
+	m_errchk = 0;
+	m_all_complex = 0;
+	m_limit_FFT_sizes = 0;
 	m_hyperthreading = 0;
+	m_all_FFT_impl = 0;
+	m_bench_time = 0;
 	//}}AFX_DATA_INIT
 }
 
@@ -48,24 +48,24 @@ void CBenchmarkDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_MAXFFT, c_maxFFT);
 	DDX_Text(pDX, IDC_MAXFFT, m_maxFFT);
 	DDV_MinMaxUInt(pDX, m_maxFFT, 1, 32768);
-	DDX_Control(pDX, IDC_ALL_FFT_SIZES, c_all_FFT_sizes);
-	DDX_Check(pDX, IDC_ALL_FFT_SIZES, m_all_FFT_sizes);
+	DDX_Control(pDX, IDC_ERRCHK, c_errchk);
+	DDX_Check(pDX, IDC_ERRCHK, m_errchk);
+	DDX_Control(pDX, IDC_ALL_COMPLEX, c_all_complex);
+	DDX_Check(pDX, IDC_ALL_COMPLEX, m_all_complex);
+	DDX_Control(pDX, IDC_LIMIT_FFT_SIZES, c_limit_FFT_sizes);
+	DDX_Check(pDX, IDC_LIMIT_FFT_SIZES, m_limit_FFT_sizes);
 
-	DDX_Control(pDX, IDC_ONE_CORE, c_bench_one_core);
-	DDX_Check(pDX, IDC_ONE_CORE, m_bench_one_core);
-	DDX_Control(pDX, IDC_ALL_CORES, c_bench_all_cores);
-	DDX_Check(pDX, IDC_ALL_CORES, m_bench_all_cores);
-	DDX_Control(pDX, IDC_OTHER_CORES, c_bench_in_between_cores);
-	DDX_Check(pDX, IDC_OTHER_CORES, m_bench_in_between_cores);
+	DDX_Control(pDX, IDC_CORES_TEXT, c_bench_cores_text);
+	DDX_Control(pDX, IDC_CORES, c_bench_cores);
+	DDX_Text(pDX, IDC_CORES, m_bench_cores);
 	DDX_Control(pDX, IDC_HYPERTHREADING, c_hyperthreading);
 	DDX_Check(pDX, IDC_HYPERTHREADING, m_hyperthreading);
 
-	DDX_Control(pDX, IDC_ONE_WORKER, c_bench_one_worker);
-	DDX_Check(pDX, IDC_ONE_WORKER, m_bench_one_worker);
-	DDX_Control(pDX, IDC_MAX_WORKERS, c_bench_max_workers);
-	DDX_Check(pDX, IDC_MAX_WORKERS, m_bench_max_workers);
-	DDX_Control(pDX, IDC_OTHER_WORKERS, c_bench_in_between_workers);
-	DDX_Check(pDX, IDC_OTHER_WORKERS, m_bench_in_between_workers);
+	DDX_Control(pDX, IDC_WORKERS_TEXT, c_bench_workers_text);
+	DDX_Control(pDX, IDC_WORKERS, c_bench_workers);
+	DDX_Text(pDX, IDC_WORKERS, m_bench_workers);
+	DDX_Control(pDX, IDC_ALL_FFT_IMPL, c_all_FFT_impl);
+	DDX_Check(pDX, IDC_ALL_FFT_IMPL, m_all_FFT_impl);
 	DDX_Control(pDX, IDC_TIMEFFT_TEXT, c_bench_time_text);
 	DDX_Control(pDX, IDC_TIMEFFT, c_bench_time);
 	DDX_Text(pDX, IDC_TIMEFFT, m_bench_time);
@@ -75,14 +75,15 @@ void CBenchmarkDlg::DoDataExchange(CDataExchange* pDX)
 	c_minFFT.EnableWindow (m_bench_type != 2);
 	c_maxFFT_text.EnableWindow (m_bench_type != 2);
 	c_maxFFT.EnableWindow (m_bench_type != 2);
-	c_all_FFT_sizes.EnableWindow (m_bench_type != 2 && m_minFFT != m_maxFFT);
-	c_bench_one_core.EnableWindow (NUM_CPUS > 1);
-	c_bench_all_cores.EnableWindow (NUM_CPUS > 1);
-	c_bench_in_between_cores.EnableWindow (NUM_CPUS > 2);
+	c_errchk.EnableWindow (m_bench_type != 2);
+	c_all_complex.EnableWindow (m_bench_type != 2);
+	c_limit_FFT_sizes.EnableWindow (m_minFFT != m_maxFFT && ((m_bench_type == 0 && !m_all_FFT_impl) || m_bench_type == 1));
+	c_bench_cores_text.EnableWindow (NUM_CPUS > 1);
+	c_bench_cores.EnableWindow (NUM_CPUS > 1);
 	c_hyperthreading.EnableWindow (CPU_HYPERTHREADS > 1);
-	c_bench_one_worker.EnableWindow (m_bench_type == 0 && NUM_CPUS > 1);
-	c_bench_max_workers.EnableWindow (m_bench_type == 0 && NUM_CPUS > 1);
-	c_bench_in_between_workers.EnableWindow (m_bench_type == 0 && NUM_CPUS > 2);
+	c_bench_workers_text.EnableWindow (m_bench_type == 0 && (NUM_CPUS > 1 || m_hyperthreading));
+	c_bench_workers.EnableWindow (m_bench_type == 0 && (NUM_CPUS > 1 || m_hyperthreading));
+	c_all_FFT_impl.EnableWindow (m_bench_type == 0);
 	c_bench_time_text.EnableWindow (m_bench_type == 0);
 	c_bench_time.EnableWindow (m_bench_type == 0);
 }
@@ -94,6 +95,7 @@ BEGIN_MESSAGE_MAP(CBenchmarkDlg, CDialog)
 	ON_CBN_KILLFOCUS(IDC_COMBO1, &CBenchmarkDlg::OnCbnKillfocusBenchType)
 	ON_EN_KILLFOCUS(IDC_MINFFT, &CBenchmarkDlg::OnEnKillfocusMinFFT)
 	ON_EN_KILLFOCUS(IDC_MAXFFT, &CBenchmarkDlg::OnEnKillfocusMaxFFT)
+	ON_BN_CLICKED(IDC_ALL_FFT_IMPL, &CBenchmarkDlg::OnBnClickedAllFFTImpl)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
@@ -118,12 +120,14 @@ BOOL CBenchmarkDlg::OnInitDialog()
 void CBenchmarkDlg::OnEnChangeBenchType() 
 {
 	m_bench_type = c_bench_type.GetCurSel ();
+	if (m_bench_type != 0) c_all_FFT_impl.SetCheck (BST_UNCHECKED);
 	UpdateData ();		// Get the values from the dialog box
 }
 
 void CBenchmarkDlg::OnCbnKillfocusBenchType()
 {
 	m_bench_type = c_bench_type.GetCurSel ();
+	if (m_bench_type != 0) c_all_FFT_impl.SetCheck (BST_UNCHECKED);
 	UpdateData ();		// Get the values from the dialog box
 }
 
@@ -134,6 +138,13 @@ void CBenchmarkDlg::OnEnKillfocusMinFFT()
 
 void CBenchmarkDlg::OnEnKillfocusMaxFFT()
 {
+	UpdateData ();		// Get the values from the dialog box
+}
+
+void CBenchmarkDlg::OnBnClickedAllFFTImpl()
+{
+	UpdateData ();		// Get the values from the dialog box
+	if (m_all_FFT_impl) c_limit_FFT_sizes.SetCheck (BST_UNCHECKED);
 	UpdateData ();		// Get the values from the dialog box
 }
 

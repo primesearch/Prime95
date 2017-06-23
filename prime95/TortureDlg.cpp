@@ -37,11 +37,15 @@ void CTortureDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Text(pDX, IDC_MINFFT, m_minfft);
 	DDV_MinMaxInt(pDX, m_minfft,
 		(CPU_FLAGS & CPU_AVX) ? 0 : 7,
-		((CPU_FLAGS & CPU_SSE2) ? MAX_FFTLEN_SSE2 : MAX_FFTLEN) / 1024);
+		(CPU_FLAGS & CPU_FMA3) ? MAX_FFTLEN_FMA3 / 1024 :
+		(CPU_FLAGS & CPU_SSE2) ? MAX_FFTLEN_SSE2 / 1024 :
+					 MAX_FFTLEN / 1024);
 	DDX_Text(pDX, IDC_MAXFFT, m_maxfft);
 	DDV_MinMaxInt(pDX, m_maxfft,
 		(CPU_FLAGS & CPU_AVX) ? 1 : 7,
-		(CPU_FLAGS & CPU_SSE2 ? MAX_FFTLEN_SSE2 : MAX_FFTLEN) / 1024);
+		(CPU_FLAGS & CPU_FMA3) ? MAX_FFTLEN_FMA3 / 1024 :
+		(CPU_FLAGS & CPU_SSE2) ? MAX_FFTLEN_SSE2 / 1024 :
+					 MAX_FFTLEN / 1024);
 	DDX_Check(pDX, IDC_IN_PLACE_FFT, m_in_place_fft);
 	DDX_Text(pDX, IDC_MEMORY, m_memory);
 	DDX_Text(pDX, IDC_TIMEFFT, m_timefft);

@@ -24,24 +24,24 @@ public:
 	CStatic	c_maxFFT_text;
 	CEdit	c_maxFFT;
 	UINT	m_maxFFT;
-	CButton	c_all_FFT_sizes;
-	BOOL	m_all_FFT_sizes;
+	CButton	c_errchk;
+	BOOL	m_errchk;
+	CButton	c_all_complex;
+	BOOL	m_all_complex;
+	CButton	c_limit_FFT_sizes;
+	BOOL	m_limit_FFT_sizes;
 
-	CButton	c_bench_one_core;
-	BOOL	m_bench_one_core;
-	CButton	c_bench_all_cores;
-	BOOL	m_bench_all_cores;
-	CButton	c_bench_in_between_cores;
-	BOOL	m_bench_in_between_cores;
+	CStatic	c_bench_cores_text;
+	CEdit	c_bench_cores;
+	CString	m_bench_cores;
 	CButton	c_hyperthreading;
 	BOOL	m_hyperthreading;
 
-	CButton	c_bench_one_worker;
-	BOOL	m_bench_one_worker;
-	CButton	c_bench_max_workers;
-	BOOL	m_bench_max_workers;
-	CButton	c_bench_in_between_workers;
-	BOOL	m_bench_in_between_workers;
+	CStatic	c_bench_workers_text;
+	CEdit	c_bench_workers;
+	CString	m_bench_workers;
+	CButton	c_all_FFT_impl;
+	BOOL	m_all_FFT_impl;
 	CStatic	c_bench_time_text;
 	CEdit	c_bench_time;
 	UINT	m_bench_time;
@@ -64,6 +64,7 @@ protected:
 	afx_msg void OnCbnKillfocusBenchType();
 	afx_msg void OnEnKillfocusMinFFT();
 	afx_msg void OnEnKillfocusMaxFFT();
+	afx_msg void OnBnClickedAllFFTImpl();
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };

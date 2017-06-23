@@ -2,8 +2,8 @@
 
 /* Constants */
 
-#define VERSION		"29.1"
-#define BUILD_NUM	"16"
+#define VERSION		"29.2"
+#define BUILD_NUM	"4"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -69,8 +69,12 @@
 */
 
 /* These breakeven points we're calculated on a 2.5 GHz Core 2 using 64-bit prime95 v26.6: */
+/* These should be recalculated for version 29 which now supports multithreaded TF and AVX-512 support */
+/* However, GPUs make all these numbers somewhat obsolete. */
 
-#define FAC80	600000000L	/* The actual FAC80 breakeven point is even higher! */
+#define FAC82	1071000000L
+#define FAC81	842000000L
+#define FAC80	662000000L
 #define FAC79	516800000L
 #define FAC78	408400000L
 #define FAC77	322100000L
@@ -225,9 +229,13 @@ extern int GIMPS_QUIT;			/* TRUE if we just successfully */
 extern gwthread COMMUNICATION_THREAD;	/* Handle for comm thread.  Set when */
 					/* comm thread is active. */
 
+extern gwevent AUTOBENCH_EVENT;		/* Event to wake up workers after an auto-benchmark */
+
 /* Topology variables and routines */
 
 extern hwloc_topology_t hwloc_topology;	/* Hardware topology */
+extern unsigned int NUM_NUMA_NODES;	/* Number of NUMA nodes in the computer */
+extern unsigned int NUM_THREADING_NODES;/* Number of nodes where it might be beneficial to keep a worker's threads in the same node */
 extern int OS_CAN_SET_AFFINITY;		/* hwloc supports setting CPU affinity (known exception is Apple) */
 void topology_print_children (hwloc_obj_t obj, int);
 
@@ -244,6 +252,9 @@ uint64_t sieve (void *si);
 void end_sieve (void *si);
 uint64_t modinv (uint64_t x, uint64_t f);
 int relatively_prime (unsigned long, unsigned long);
+
+void sorted_add_unique (int *, int *, int);
+int is_number_in_list (int, const char *);
 
 unsigned int strToMinutes (const char *);
 void minutesToStr (unsigned int, char *);
@@ -310,7 +321,7 @@ struct work_unit {		/* One line from the worktodo file */
 	unsigned long b;	/* B in k*b^n+c */
 	unsigned long n;	/* N in k*b^n+c */
 	signed long c;		/* C in k*b^n+c */
-	unsigned long forced_fftlen;/* Forced FFT length to use.  Primarily */
+	unsigned long minimum_fftlen;/* Minimum FFT length to use.  Primarily */
 				/* used for implementing soft FFT */
 				/* crossovers.  Zero means default fftlen */
 	double	sieve_depth;	/* How far it has been trial factored */
@@ -441,8 +452,9 @@ int PRIMENET (short, void *);
 #define TE_READ_INI_FILE	12	/* Reread prime.txt settings because */
 					/* a during/else time period has ended */
 #define TE_LOAD_AVERAGE		13	/* Linux/FreeBSD/Apple load average check */
+#define TE_BENCH		14	/* Generate benchmark data for best FFT selection */
 
-#define MAX_TIMED_EVENTS	14	/* Maximum number of timed events */
+#define MAX_TIMED_EVENTS	15	/* Maximum number of timed events */
 
 void init_timed_event_handler (void);
 
@@ -464,3 +476,4 @@ time_t timed_event_fire_time (
 #define TE_BATTERY_CHECK_FREQ	 15	/* Check battery every 15 sec. */
 #define TE_THROTTLE_FREQ	 5	/* Throttle every 5 sec. */
 #define TE_ROLLING_AVERAGE_FREQ	 12*60*60 /* Adjust rolling every 12 hr. */
+#define TE_BENCH_FREQ		 21*60*60 /* Generate auto-benchmark data every 21 hrs. */

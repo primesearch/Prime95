@@ -153,6 +153,27 @@ void writeIniFile (			/* Write a changed INI file to disk */
 	_close (fd);
 }
 
+/* Delay writing changes to the INI file */
+
+void IniDelayWrites (
+	const char *filename)
+{
+	struct IniCache *p;
+	p = openIniFile (filename, 0);
+	p->immediate_writes = FALSE;
+}
+
+/* Resume immediately writing changes to the INI file */
+
+void IniResumeImmediateWrites (
+	const char *filename)
+{
+	struct IniCache *p;
+	p = openIniFile (filename, 0);
+	p->immediate_writes = TRUE;
+	if (p->dirty) writeIniFile (p);
+}
+
 /* Merge one "add file" into an ini file.  Assumes the ini file has been */
 /* freshly re-read from disk.  This can also is used to copy one ini file */
 /* into a section of another ini file. */
@@ -231,6 +252,17 @@ void IniSectionGetString (		/* Get a string value from the specified section of 
 	const char *default_val)
 {
 	IniSectionGetNthString (filename, section, keyword, 1, val, val_bufsize, default_val);
+}
+
+void IniGetNthString (			/* Get keyword's Nth string value from the specified section of the INI file */
+	const char *filename,
+	const char *keyword,
+	int	nth,
+	char	*val,
+	unsigned int val_bufsize,
+	const char *default_val)
+{
+	IniSectionGetNthString (filename, NULL, keyword, nth, val, val_bufsize, default_val);
 }
 
 void IniSectionGetNthString (		/* Get keyword's Nth string value from the specified section of the INI file */
@@ -381,6 +413,15 @@ void IniSectionWriteString (		/* Write a string value to a specified section of 
 	const char *val)
 {
 	IniSectionWriteNthString (filename, section, keyword, 1, val);
+}
+
+void IniWriteNthString (		/* Write keyword's Nth string value to a specified section of the INI file. */
+	const char *filename,
+	const char *keyword,
+	int	nth,
+	const char *val)		/* New value.  If NULL, delete all occurrences of keyword entry */
+{
+	IniSectionWriteNthString (filename, NULL, keyword, nth, val);
 }
 
 void IniSectionWriteNthString (		/* Write keyword's Nth string value to a specified section of the INI file. */
