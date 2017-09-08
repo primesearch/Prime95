@@ -29,7 +29,7 @@ CPP = g++
 CPPFLAGS = -I.. -I../gwnum -O2 -march=i486 -malign-double
 
 LFLAGS = -Wl,-M -Wl,-L/usr/local/lib
-LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -Wl,-Bstatic -lhwloc -Wl,-Bstatic -lcurl -Wl,-Bdynamic -lrt -lstdc++ -ldl
+LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -Wl,-Bstatic -lhwloc -Wl,-Bstatic -lcurl -Wl,-Bdynamic -lrt -lstdc++ -ldl -lgmp
 
 FACTOROBJ = factor32.o
 LINUXOBJS = prime.o menu.o

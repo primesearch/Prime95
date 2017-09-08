@@ -15,10 +15,11 @@
 static const char ERRMSG0[] = "Iteration: %ld/%ld, %s";
 static const char ERRMSG1A[] = "ERROR: ILLEGAL SUMOUT\n";
 static const char ERRMSG1B[] = "ERROR: SUM(INPUTS) != SUM(OUTPUTS), %.16g != %.16g\n";
-static const char ERRMSG1C[] = "Possible error: round off (%.10g) > 0.40625\n";
+static const char ERRMSG1C[] = "Possible error: round off (%.10g) > %.5g\n";
 static const char ERRMSG1D[] = "ERROR: Shift counter corrupt.\n";
 static const char ERRMSG1E[] = "ERROR: Illegal double encountered.\n";
 static const char ERRMSG1F[] = "ERROR: FFT data has been zeroed!\n";
+static const char ERRMSG1G[] = "ERROR: Jacobi error check failed!\n";
 static const char ERRMSG2[] = "Possible hardware failure, consult readme.txt file.\n";
 static const char ERRMSG3[] = "Continuing from last save file.\n";
 static const char ERRMSG4[] = "Waiting five minutes before restarting.\n";
@@ -90,6 +91,9 @@ char	ACTIVE_WORKERS[MAX_NUM_WORKER_THREADS] = {0};
 char	WRITE_SAVE_FILES[MAX_NUM_WORKER_THREADS] = {0};
 				/* Flags indicating it is time to write */
 				/* a save file. */
+char	JACOBI_ERROR_CHECK[MAX_NUM_WORKER_THREADS] = {0};
+				/* Flags indicating it is time to execute */
+				/* a Jacobi error check. */
 
 char	WORK_AVAILABLE_OR_STOP_INITIALIZED[MAX_NUM_WORKER_THREADS] = {0};
 gwevent WORK_AVAILABLE_OR_STOP[MAX_NUM_WORKER_THREADS] = {0};
@@ -769,6 +773,7 @@ void init_stop_code (void)
 	memset (STOP_FOR_THROTTLE, 0, sizeof (STOP_FOR_THROTTLE));
 	memset (STOP_FOR_ABORT, 0, sizeof (STOP_FOR_ABORT));
 	memset (WRITE_SAVE_FILES, 0, sizeof (WRITE_SAVE_FILES));
+	memset (JACOBI_ERROR_CHECK, 0, sizeof (JACOBI_ERROR_CHECK));
 }
 
 /* Signal threads waiting for work to do */
@@ -951,6 +956,41 @@ int testSaveFilesFlag (
 {
 	if (WRITE_SAVE_FILES[thread_num]) {
 		WRITE_SAVE_FILES[thread_num] = 0;
+		return (TRUE);
+	}
+	return (FALSE);
+}
+
+/* Start Jacobi error check timer */
+
+void start_Jacobi_timer ()
+{
+	add_timed_event (TE_JACOBI, JACOBI_TIME * 60 * 60);
+}
+
+/* Stop Jacobi error check timer */
+
+void stop_Jacobi_timer ()
+{
+	delete_timed_event (TE_JACOBI);
+}
+
+/* Set flags so that worker threads will execute a Jacobi error check */
+/* at next convenient opportunity. */
+
+void JacobiTimer ()
+{
+	memset (JACOBI_ERROR_CHECK, 1, sizeof (JACOBI_ERROR_CHECK));
+	start_Jacobi_timer ();
+}
+
+/* Return TRUE if it is time to do a Jacobi error check. */
+
+int testJacobiFlag (
+	int	thread_num)
+{
+	if (JACOBI_ERROR_CHECK[thread_num]) {
+		JACOBI_ERROR_CHECK[thread_num] = 0;
 		return (TRUE);
 	}
 	return (FALSE);
@@ -2867,6 +2907,10 @@ again:	clearThreadHandleArray ();
 
 		start_save_files_timer ();
 
+/* Start timer that tells us to run Jacobi error checks every so often */
+
+		start_Jacobi_timer ();
+
 /* Start the timer that checks battery status */
 
 		start_battery_timer ();
@@ -2934,6 +2978,7 @@ again:	clearThreadHandleArray ();
 /* Clear timers we started earlier */
 
 		stop_save_files_timer ();
+		stop_Jacobi_timer ();
 		stop_battery_timer ();
 		stop_priority_work_timer ();
 		stop_pause_while_running_timer ();
@@ -3401,7 +3446,7 @@ void uniquifySaveFile (
 /* Data structure used in reading save files and their backups as well as */
 /* renaming bad save files. */
 
-typedef struct save_file_state {
+typedef struct read_save_file_state {
 	int	thread_num;
 	int	read_attempt;
 	int	a_save_file_existed;
@@ -3410,12 +3455,12 @@ typedef struct save_file_state {
 	int	num_save_files_renamed;
 	char	base_filename[80];
 	char	current_filename[80];
-} saveFileState;
+} readSaveFileState;
 
 /* Prepare for reading save files */
 
-void saveFileStateInit (
-	saveFileState *state,
+void readSaveFileStateInit (
+	readSaveFileState *state,
 	int	thread_num,
 	char	*filename)
 {
@@ -3432,7 +3477,7 @@ void saveFileStateInit (
 /* of its backups exists. */
 
 int saveFileExists (
-	saveFileState *state)
+	readSaveFileState *state)
 {
 	int	i, maxbad;
 	char	buf[256];
@@ -3522,7 +3567,7 @@ winner:	if (state->read_attempt != 1) {
 /* possible later use. */
 
 void saveFileBad (
-	saveFileState *state)
+	readSaveFileState *state)
 {
 	char	buf[256];
 	char	filename[256];
@@ -3577,13 +3622,34 @@ void saveFileBad (
 	state->num_save_files_renamed++;
 }
 
+/* Data structure used in writing save files and their backups */
+
+typedef struct write_save_file_state {
+	char	base_filename[80];
+	int	num_ordinary_save_files;
+	int	num_special_save_files;		/* Example: Number of save files to keep that passed the Jacobi error check */
+	int	special;			/* Which ordinary save file is also special (zero if none) */
+} writeSaveFileState;
+
+/* Prepare for writing save files */
+
+void writeSaveFileStateInit (
+	writeSaveFileState *state,
+	char	*filename,
+	int	num_special_save_files)
+{
+	strcpy (state->base_filename, filename);
+	state->num_ordinary_save_files = NUM_BACKUP_FILES;
+	state->num_special_save_files = num_special_save_files;
+	state->special = 0;			/* Init with "no ordinary file is special" */
+}
+
 /* Open the save file for writing.  Either overwrite or generate a temporary */
 /* file name to write to, where we will rename the file after the file is */
 /* successully written. */
 
 int openWriteSaveFile (
-	char	*filename,
-	int	num_backup_files)	     /* Between 1 and 3, 99 = overwrite */
+	writeSaveFileState *state)
 {
 	char	output_filename[32];
 	int	fd;
@@ -3595,10 +3661,10 @@ int openWriteSaveFile (
 /* NOTE: This behavior is different than v24 where when the user selected one save */
 /* file, then he got the dangerous overwrite option. */
 
-	if (num_backup_files == 99)
-		strcpy (output_filename, filename);
+	if (state->num_ordinary_save_files == 99)
+		strcpy (output_filename, state->base_filename);
 	else
-		sprintf (output_filename, "%s.write", filename);
+		sprintf (output_filename, "%s.write", state->base_filename);
 
 /* Now save to the intermediate file */
 
@@ -3610,11 +3676,11 @@ int openWriteSaveFile (
 /* save file, and rename just written save file. */
 
 void closeWriteSaveFile (
-	char	*filename,
-	int	fd,
-	int	num_backup_files)	     /* Between 1 and 3, 99 = overwrite */
+	writeSaveFileState *state,
+	int	fd)
 {
-	char	output_filename[32];
+	char	dest_filename[32], src_filename[32];
+	int	rename_count;
 
 /* Flush data to disk and close the save file. */
 
@@ -3623,88 +3689,86 @@ void closeWriteSaveFile (
 
 /* If no renaming is needed, we're done */
 
-	if (num_backup_files == 99) return;
+	if (state->num_ordinary_save_files == 99) return;
 
-/* Handle the one save file case (delete the existing save file) */
+/* Decide how many save files need renaming */
 
-	if (num_backup_files == 1)
-		_unlink (filename);
+	rename_count = (state->special == state->num_ordinary_save_files) ?
+			       state->num_ordinary_save_files + state->num_special_save_files : state->num_ordinary_save_files;
 
-/* Handle the two save files case (delete the second save file and */
-/* rename the first save file so that it is now the second save file) */
+/* Delete the last file in the rename chain */
 
-	else if (num_backup_files == 2) {
-		char	second_filename[32];
-		sprintf (second_filename, "%s.bu", filename);
-		_unlink (second_filename);
-		rename (filename, second_filename);
+	if (rename_count == 1) strcpy (dest_filename, state->base_filename);
+	else if (rename_count == 2) sprintf (dest_filename, "%s.bu", state->base_filename);
+	else sprintf (dest_filename, "%s.bu%d", state->base_filename, rename_count-1);
+	_unlink (dest_filename);
+
+/* Perform the proper number of renames */
+
+	while (rename_count--) {
+		if (rename_count == 0) sprintf (src_filename, "%s.write", state->base_filename);
+		else if (rename_count == 1) strcpy (src_filename, state->base_filename);
+		else if (rename_count == 2) sprintf (src_filename, "%s.bu", state->base_filename);
+		else sprintf (src_filename, "%s.bu%d", state->base_filename, rename_count-1);
+		rename (src_filename, dest_filename);
+		strcpy (dest_filename, src_filename);
 	}
 
-/* Handle the three save files case (delete the third save file and */
-/* rename the second save file so that it is now the third save file */
-/* and rename the first save file so that it is now the second save file) */
+/* If there was an ordinary save file that was special, it is one step further down the chain */
+/* or has finally reached the special save files. */
 
-	else {
-		char	second_filename[32], third_filename[32];
-		sprintf (second_filename, "%s.bu", filename);
-		sprintf (third_filename, "%s.bu2", filename);
-		_unlink (third_filename);
-		rename (second_filename, third_filename);
-		rename (filename, second_filename);
-	}
-
-/* Recreate the output filename and rename it as the first save file */
-
-	sprintf (output_filename, "%s.write", filename);
-	rename (output_filename, filename);
+	if (state->special > 0 && state->special < state->num_ordinary_save_files) state->special++;
+	else state->special = 0;
 }
 
 /* Close and delete the save file we were writing.  This is done */
 /* when an error occurs while writing the save file. */
 
 void deleteWriteSaveFile (
-	char	*filename,
-	int	fd,
-	int	num_backup_files)	     /* Between 1 and 3, 99 = overwrite */
+	writeSaveFileState *state,
+	int	fd)
 {
 	char	output_filename[32];
 
 /* Close and delete the save file */
 
 	_close (fd);
-	if (num_backup_files == 99)
-		strcpy (output_filename, filename);
+	if (state->num_ordinary_save_files == 99)
+		strcpy (output_filename, state->base_filename);
 	else
-		sprintf (output_filename, "%s.write", filename);
+		sprintf (output_filename, "%s.write", state->base_filename);
 	_unlink (output_filename);
 }
 
 /* Delete save files when work unit completes. */
 
 void unlinkSaveFiles (
-	char	*filename)
+	writeSaveFileState *state)
 {
 	int	i, maxbad;
 	char	unlink_filename[80];
 
 	maxbad = IniGetInt (INI_FILE, "MaxBadSaveFiles", 10);
 	for (i = 1; i <= maxbad; i++) {
-		sprintf (unlink_filename, "%s.bad%d", filename, i);
+		sprintf (unlink_filename, "%s.bad%d", state->base_filename, i);
 		_unlink (unlink_filename);
 	}
-	sprintf (unlink_filename, "%s.write", filename);
-	_unlink (unlink_filename);
-	sprintf (unlink_filename, "%s.bu2", filename);
-	_unlink (unlink_filename);
-	sprintf (unlink_filename, "%s.bu", filename);
-	_unlink (unlink_filename);
-	if (filename[0] == 'p') {
-		sprintf (unlink_filename, "q%s", filename+1);
+	if (state->num_ordinary_save_files != 99) {
+		for (i = 1; i < state->num_ordinary_save_files + state->num_special_save_files; i++) {
+			if (i == 1) sprintf (unlink_filename, "%s.bu", state->base_filename);
+			else sprintf (unlink_filename, "%s.bu%d", state->base_filename, i);
+			_unlink (unlink_filename);
+		}
+	}
+	if (state->base_filename[0] == 'p') {
+		sprintf (unlink_filename, "q%s", state->base_filename+1);
 		_unlink (unlink_filename);
-		sprintf (unlink_filename, "r%s", filename+1);
+		sprintf (unlink_filename, "r%s", state->base_filename+1);
 		_unlink (unlink_filename);
 	}
-	_unlink (filename);
+	sprintf (unlink_filename, "%s.write", state->base_filename);
+	_unlink (unlink_filename);
+	_unlink (state->base_filename);
 }
 
 /************************/
@@ -5164,7 +5228,8 @@ int primeFactor (
 	unsigned long pass;		/* Factoring pass 0 through 15 */
 	unsigned long report_bits;	/* When to report results one bit */
 					/* at a time */
-	saveFileState save_file_state;	/* Manage savefile names during reading */
+	readSaveFileState read_save_file_state; /* Manage savefile names during reading */
+	writeSaveFileState write_save_file_state; /* Manage savefile names during writing */
 	char	filename[32];
 	char	buf[200], str[80];
 	double	timers[2];
@@ -5267,15 +5332,16 @@ begin:	factor_found = 0;
 /* to read in case there is an error deleting bad save files. */
 
 	filename[0] = 'f';
-	saveFileStateInit (&save_file_state, thread_num, filename);
+	readSaveFileStateInit (&read_save_file_state, thread_num, filename);
+	writeSaveFileStateInit (&write_save_file_state, filename, 0);
 	for ( ; ; ) {
 
-		if (! saveFileExists (&save_file_state)) {
+		if (! saveFileExists (&read_save_file_state)) {
 			/* If there were save files, they are all bad.  Report a message */
 			/* and temporarily abandon the work unit.  We do this in hopes that */
 			/* we can successfully read one of the bad save files at a later time. */
 			/* This sounds crazy, but has happened when OSes get in a funky state. */
-			if (save_file_state.a_non_bad_save_file_existed) {
+			if (read_save_file_state.a_non_bad_save_file_existed) {
 				OutputBoth (thread_num, ALLSAVEBAD_MSG);
 				return (0);
 			}
@@ -5283,7 +5349,7 @@ begin:	factor_found = 0;
 			break;
 		}
 
-		fd = _open (save_file_state.current_filename, _O_BINARY | _O_RDONLY);
+		fd = _open (read_save_file_state.current_filename, _O_BINARY | _O_RDONLY);
 		if (fd > 0) {
 			unsigned long version, sum, fachsw, facmsw;
 			if (read_magicnum (fd, FACTOR_MAGICNUM) &&
@@ -5306,7 +5372,7 @@ begin:	factor_found = 0;
 		}
 
 		/* Close and rename the bad save file */
-		saveFileBad (&save_file_state);
+		saveFileBad (&read_save_file_state);
 	}
 
 /* Init the title */
@@ -5522,7 +5588,7 @@ begin:	factor_found = 0;
 					else facdata.asm_data->FACHSW = endpthi;
 					facdata.asm_data->FACMSW = endptlo - 1;
 				}
-				fd = openWriteSaveFile (filename, NUM_BACKUP_FILES);
+				fd = openWriteSaveFile (&write_save_file_state);
 				if (fd > 0 &&
 				    write_header (fd, FACTOR_MAGICNUM, FACTOR_VERSION, w) &&
 				    write_long (fd, factor_found, NULL) &&
@@ -5532,11 +5598,11 @@ begin:	factor_found = 0;
 				    write_long (fd, facdata.asm_data->FACMSW, NULL) &&
 				    write_long (fd, endpthi, NULL) &&
 				    write_long (fd, endptlo, NULL))
-					closeWriteSaveFile (filename, fd, NUM_BACKUP_FILES);
+					closeWriteSaveFile (&write_save_file_state, fd);
 				else {
 					sprintf (buf, WRITEFILEERR, filename);
 					OutputBoth (thread_num, buf);
-					if (fd > 0) deleteWriteSaveFile (filename, fd, NUM_BACKUP_FILES);
+					if (fd > 0) deleteWriteSaveFile (&write_save_file_state, fd);
 				}
 				if (stop_reason) {
 					factorDone (&facdata);
@@ -5680,7 +5746,7 @@ nextpass:	;
 
 /* Delete the continuation file(s) */
 
-	unlinkSaveFiles (filename);
+	unlinkSaveFiles (&write_save_file_state);
 
 /* If we found a factor, then we likely performed much less work than */
 /* we estimated.  Make sure we do not update the rolling average with */
@@ -5842,83 +5908,6 @@ int generateResidue64 (
 	return (1);
 }
 
-/* Read the data portion of an intermediate Lucas-Lehmer results file */
-
-int convertOldStyleLLSaveFile (
-	llhandle *lldata,
-	int	fd,
-	unsigned long *counter,
-	unsigned long *error_count)
-{
-	unsigned long i, buggy_error_count;
-	unsigned long fftlen;
-	unsigned long sum, filesum;
-	int	bits, zero;		/* Guard against a zeroed out file */
-	unsigned short type;
-
-	_lseek (fd, 0, SEEK_SET);
-	if (! read_short (fd, (short *) &type)) goto err;
-	if (! read_long (fd, counter, NULL)) goto err;
-
-/* Check for corrupt LL continuation files. */
-/* Type 2 files are factoring continuation files */
-/* Type 3 files are obsolete Advanced / Factoring continuation files */
-/* Type 4 files are Advanced / Factoring continuation files */
-
-	if (type <= 7) goto err;
-
-/* Deduce the fftlen from the type field */
-
-	if (type & 1)
-		fftlen = (unsigned long) type - 1;
-	else	
-		fftlen = (unsigned long) type * 1024;
-
-/* Handle case where the save file was for a different FFT length than */
-/* we would prefer to use. */
-
-	if (fftlen != gwfftlen (&lldata->gwdata)) {
-		OutputStr (MAIN_THREAD_NUM, "FFT length mismatch in old LL save file\n");
-		goto err;
-	}
-
-/* Read the fft data */
-
-	bits = (int) lldata->gwdata.NUM_B_PER_SMALL_WORD + 1;
-	sum = 0;
-	zero = TRUE;
-	for (i = 0; i < gwfftlen (&lldata->gwdata); i++) {
-		long	x;
-		if (bits <= 15) {
-			short y;
-			if (! read_short (fd, &y)) goto err;
-			x = (long) y;
-		} else {
-			if (! read_slong (fd, &x, NULL)) goto err;
-		}
-		if ((x & 0xFF000000) != 0 && (x & 0xFF000000) != 0xFF000000)
-			goto err;
-		sum = (uint32_t) (sum + x);
-		if (x) zero = FALSE;
-		set_fft_value (&lldata->gwdata, lldata->lldata, i, x);
-	}
-	if (!read_long (fd, &filesum, NULL)) goto err;
-	if (!read_long (fd, &lldata->units_bit, &sum)) goto err;
-	if (!read_long (fd, &buggy_error_count, &sum)) goto err;
-	/* Now read in the correct V19 error count */
-	if (!read_long (fd, error_count, &sum)) goto err;
-	/* Kludge so that buggy v17 save files are rejected */
-	/* V18 and later flip the bottom checksum bit */
-	if (lldata->units_bit != 0) sum ^= 0x1;
-	if (filesum != sum) goto err;
-	if (zero) goto err;
-	if (lldata->units_bit >= lldata->gwdata.n) goto err;
-	_close (fd);
-	return (TRUE);
-err:	_close (fd);
-	return (FALSE);
-}
-
 /* Write intermediate Lucas-Lehmer results to a file */
 /* The LL save file format is: */
 /*	52-bytes	standard header for all work types */
@@ -5933,8 +5922,7 @@ err:	_close (fd);
 
 int writeLLSaveFile (
 	llhandle *lldata,
-	char	*filename,
-	int	num_backup_files,	     /* Between 1 and 3, 99 = overwrite */
+	writeSaveFileState *write_save_file_state,
 	struct work_unit *w,
 	unsigned long counter,
 	unsigned long error_count)
@@ -5944,7 +5932,7 @@ int writeLLSaveFile (
 
 /* Open the save file */
 
-	fd = openWriteSaveFile (filename, num_backup_files);
+	fd = openWriteSaveFile (write_save_file_state);
 	if (fd < 0) return (FALSE);
 
 	if (!write_header (fd, LL_MAGICNUM, LL_VERSION, w)) goto err;
@@ -5956,12 +5944,12 @@ int writeLLSaveFile (
 
 	if (!write_checksum (fd, sum)) goto err;
 
-	closeWriteSaveFile (filename, fd, num_backup_files);
+	closeWriteSaveFile (write_save_file_state, fd);
 	return (TRUE);
 
 /* An error occured.  Delete the current file. */
 
-err:	deleteWriteSaveFile (filename, fd, num_backup_files);
+err:	deleteWriteSaveFile (write_save_file_state, fd);
 	return (FALSE);
 }
 
@@ -6015,9 +6003,7 @@ int readLLSaveFile (
 	fd = _open (filename, _O_BINARY | _O_RDONLY);
 	if (fd <= 0) return (FALSE);
 
-	if (!read_magicnum (fd, LL_MAGICNUM))
-		return (convertOldStyleLLSaveFile (lldata, fd, counter,
-						   error_count));
+	if (!read_magicnum (fd, LL_MAGICNUM)) goto err;
 	if (!read_header (fd, &version, w, &filesum)) goto err;
 	if (version != LL_VERSION) goto err;
 
@@ -6036,24 +6022,32 @@ err:	_close (fd);
 	return (FALSE);
 }
 
-/* Increment the error counter.  The error counter is one 32-bit */
-/* field that contains 5 values - a flag if this is a contiuation */
-/* from a save file that did not track error counts, a count of */
-/* errors that were reproducible, a count of ILLEAL SUMOUTs, */
-/* a count of convolution errors above 0.4, and a count of */
-/* SUMOUTs not close enough to SUMINPs. */
+/* Increment the error counter.  The error counter is one 32-bit field containing 5 values.  Prior to version 29.3, this was */
+/* a one-bit flag if this is a continuation from a save file that did not track error counts, a 7-bit count of errors that were */
+/* reproducible, a 8-bit count of ILLEGAL SUMOUTs or zeroed FFT data or corrupt units_bit, a 8-bit count of convolution errors */
+/* above 0.4, and a 8-bit count of SUMOUTs not close enough to SUMINPs. */
+/* NOTE:  The server considers an LL run clean if the error code is XXaaYY00 and XX = YY and aa is ignored.  That is, repeatable */
+/* round off errors and all ILLEGAL SUMOUTS are ignored. */
+/* In version 29.3, a.k.a. Wf in result lines, the 32-bit field changed.  See comments in the code below. */
 
 void inc_error_count (
 	int	type,
 	unsigned long *error_count)
 {
-	unsigned long addin, maxval, temp;
-	
-	addin = 1 << (type * 8);
-	maxval = ((type == 3) ? 127 : 255) * addin;
-	temp = *error_count & maxval;
-	if (temp != maxval) temp += addin;
-	*error_count = (*error_count & ~maxval) + temp;
+	unsigned long addin, orin, maxval;
+
+	addin = orin = 0;
+	if (type == 0) addin = 1, maxval = 0xF;				// SUMINP != SUMOUT
+	else if (type == 4) addin = 1 << 4, maxval = 0x0F << 4;		// Jacobi error check
+	else if (type == 1) addin = 1 << 8, maxval = 0x3F << 8;		// Roundoff > 0.4
+	else if (type == 5) orin = 1 << 14;				// Zeroed FFT data
+	else if (type == 6) orin = 1 << 15;				// Units bit counter corrupted
+	else if (type == 2) addin = 1 << 16, maxval = 0xF << 16;	// ILLEGAL SUMOUT
+	else if (type == 7) addin = 1 << 20, maxval = 0xF << 20;	// Gerbicz PRP error check
+	else if (type == 3) addin = 1 << 24, maxval = 0x3F << 24;	// Repeatable error
+
+	if (addin && (*error_count & maxval) != maxval) *error_count += addin;
+	*error_count |= orin;
 }
 
 /* Create a message if the non-repeatable error count is more than zero */
@@ -6066,19 +6060,21 @@ int make_error_count_message (
 	int	buflen)
 {
 	int	count_repeatable, count_suminp, count_roundoff, count_illegal_sumout, count_total;
-	int	count_bad_errors;
+	int	count_jacobi, count_gerbicz, count_bad_errors;
 	char	local_buf[400], counts_buf[200], confidence[25];
 
 /* Parse the error counts variable */
 
-	count_repeatable = (error_count >> 24) & 0x7F;
-	count_illegal_sumout = (error_count >> 16) & 0xFF;
-	count_roundoff = (error_count >> 8) & 0xFF;
-	count_suminp = error_count & 0xFF;
+	count_repeatable = (error_count >> 24) & 0x3F;
+	count_illegal_sumout = (error_count >> 16) & 0xF;
+	count_roundoff = (error_count >> 8) & 0x3F;
+	count_jacobi = (error_count >> 4) & 0xF;
+	count_gerbicz = (error_count >> 20) & 0xF;
+	count_suminp = error_count & 0xF;
 
 /* Return if no hardware errors have occurred */
 
-	count_total = count_illegal_sumout + count_suminp + count_roundoff;
+	count_total = count_illegal_sumout + count_suminp + count_roundoff + count_jacobi + count_gerbicz;
 	if (count_total - count_repeatable == 0) return (FALSE);
 
 /* Format the error counts */
@@ -6099,6 +6095,14 @@ int make_error_count_message (
 	}
 
 	if (message_type == 3) {
+		if (count_jacobi >= 1) {
+			sprintf (local_buf, "%d JACOBI ERRORS, ", count_jacobi);
+			strcat (counts_buf, local_buf);
+		}
+		if (count_gerbicz >= 1) {
+			sprintf (local_buf, "%d GERBICZ ERRORS, ", count_gerbicz);
+			strcat (counts_buf, local_buf);
+		}
 		if (count_roundoff >= 1) {
 			sprintf (local_buf, "%d ROUNDOFF > 0.4, ", count_roundoff);
 			strcat (counts_buf, local_buf);
@@ -6123,7 +6127,7 @@ int make_error_count_message (
 
 /* Guess our confidence in the end result */
 
-	count_bad_errors = count_suminp + count_roundoff - count_repeatable;
+	count_bad_errors = count_jacobi + count_suminp + count_roundoff - count_repeatable;
 	strcpy (confidence, count_bad_errors == 0 ? "excellent" :
 			    count_bad_errors <= 3 ? "fair" :
 			    count_bad_errors <= 6 ? "poor" : "very poor");
@@ -6134,10 +6138,12 @@ int make_error_count_message (
 		sprintf (local_buf, ", %s, confidence: %s", counts_buf, confidence);
 	}
 	if (message_type == 2) {
-		sprintf (local_buf, "Possible hardware errors!  %s.  Confidence in end result is %s.\n", counts_buf, confidence);
+		if (count_jacobi || count_gerbicz) sprintf (local_buf, "Hardware errors!  %s.  Confidence in end result is %s.\n", counts_buf, confidence);
+		else sprintf (local_buf, "Possible hardware errors!  %s.  Confidence in end result is %s.\n", counts_buf, confidence);
 	}
 	if (message_type == 3) {
-		strcpy (local_buf, "Possible hardware errors have occurred during the test!");
+		if (count_jacobi || count_gerbicz) strcpy (local_buf, "Hardware errors have occurred during the test!");
+		else strcpy (local_buf, "Possible hardware errors have occurred during the test!");
 		if (strlen (counts_buf) <= 25) strcat (local_buf, " ");
 		else strcat (local_buf, "\n");
 		strcat (local_buf, counts_buf);
@@ -6322,6 +6328,85 @@ void good_news (void *arg)
 	}
 }
 
+/* Perform a Jacobi test on the current LL iteration.  This check has a 50% chance of catching */
+/* a calculation error.  See http://www.mersenneforum.org/showthread.php?t=22471 especially */
+/* starting at post #30. */
+
+int jacobi_test (
+	int	thread_num,		/* Window to display messages in */
+	unsigned long p,		/* Mersenne exponent */
+	llhandle *lldata)		/* Struct that points us to the LL data */
+{
+	giant	v, vlo;
+	mpz_t	a, b;
+	int	err_code, Jacobi_symbol;
+	double	timers[1];
+	char	buf[80];
+
+/* Clear and start a timer */
+
+	clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
+	start_timer (timers, 0);
+
+/* Convert current iteration to binary */
+
+	v = popg (&lldata->gwdata.gdata, (p >> 5) + 5);
+	if (v == NULL) goto oom;
+	err_code = gwtogiant (&lldata->gwdata, lldata->lldata, v);
+	if (err_code < 0) {		/* LL value could not be calculated.  Should not happen, return failed-Jacobi-test */
+		OutputBoth (thread_num, "LL value corrupt.  Could not run Jacobi error check.\n");
+		pushg (&lldata->gwdata.gdata, 1);
+		return (0);
+	}
+
+/* Apply the shift count, putting the LL value in "a" */
+
+	vlo = popg (&lldata->gwdata.gdata, (p >> 5) + 5);
+	if (vlo == NULL) {
+		pushg (&lldata->gwdata.gdata, 1);
+		goto oom;
+	}
+	gtog (v, vlo);
+	gshiftright (lldata->units_bit, v);		// Shift the data above the units bit down
+	gmaskbits (lldata->units_bit, vlo);		// Get the bits below the shift count (we'll shift them left later)
+	mpz_init (a);
+	mpz_init (b);
+	gtompz (vlo, a);
+	mpz_mul_2exp (a, a, p - lldata->units_bit);	// Shift left the bits below the shift count
+	gtompz (v, b);
+	mpz_add (a, a, b);				// Add in the bits above the shift count
+	pushg (&lldata->gwdata.gdata, 2);
+
+/* Generate the Mersenne number */
+
+	mpz_ui_pow_ui (b, 2, p);
+	mpz_sub_ui (b, b, 1);
+
+/* Free giants, compute the Jacobi symbol (a-2|Mp) */
+
+	OutputStr (thread_num, "Running Jacobi error check.  ");
+	mpz_sub_ui (a, a, 2);
+	if (mpz_sgn (a) < 0) mpz_add (a, a, b);
+	Jacobi_symbol = mpz_jacobi (a, b);
+
+/* End the timer, print out PASS/FAIL message along with time taken */
+
+	end_timer (timers, 0);
+	sprintf (buf, "%s.  Time: %6.3f sec.\n", Jacobi_symbol == -1 ? "Passed" : "Failed", timer_value (timers, 0));
+	OutputStrNoTimeStamp (thread_num, buf);
+
+/* Cleanup and return */
+
+	mpz_clear (a);
+	mpz_clear (b);
+	return (Jacobi_symbol == -1);
+
+/* Memory allocation error */
+
+oom:	OutputBoth (thread_num, "Memory allocation error.  Could not run Jacobi error check.\n");
+	return (1);			/* Assume the Jacobi test would have passed */
+}
+
 /* Do the Lucas-Lehmer test */
 
 int prime (
@@ -6335,13 +6420,15 @@ int prime (
 	unsigned long counter;
 	unsigned long error_count;
 	unsigned long iters;
-	saveFileState save_file_state;	/* Manage savefile names during reading */
+	readSaveFileState read_save_file_state; /* Manage savefile names during reading */
+	writeSaveFileState write_save_file_state; /* Manage savefile names during writing */
 	char	filename[32];
 	double	timers[2];
 	double	inverse_p;
 	double	reallyminerr = 1.0;
 	double	reallymaxerr = 0.0;
 	double	*addr1;
+	int	Jacobi_testing_enabled, Jacobi_testing;
 	int	first_iter_msg, saving, near_fft_limit, sleep5;
 	unsigned long high32, low32;
 	int	rc, isPrime, stop_reason;
@@ -6353,13 +6440,17 @@ int prime (
 	double	last_suminp = 0.0;
 	double	last_sumout = 0.0;
 	double	last_maxerr = 0.0;
-	double	output_frequency, output_title_frequency;
+	double	allowable_maxerr, output_frequency, output_title_frequency;
 	int	actual_frequency;
 	int	error_count_messages;
 
 /* Initialize */
 
 	p = w->n;
+
+/* Grab setting from INI file */
+
+	Jacobi_testing_enabled = IniGetInt (INI_FILE, "JacobiErrorCheck", 1);
 
 /* Do some of the trial factoring.  We treat factoring that is part of a */
 /* LL test as priority work (done in pass 1).  We don't do all the trial */
@@ -6453,18 +6544,19 @@ begin:	gwinit (&lldata.gwdata);
 /* files we try to read in case there is an error deleting bad save files. */
 
 	tempFileName (w, filename);
-	saveFileStateInit (&save_file_state, thread_num, filename);
+	readSaveFileStateInit (&read_save_file_state, thread_num, filename);
+	writeSaveFileStateInit (&write_save_file_state, filename, NUM_JACOBI_BACKUP_FILES);
 	for ( ; ; ) {
 
 /* If there are no more save files, start off with the 1st Lucas number. */
 
-		if (! saveFileExists (&save_file_state)) {
+		if (! saveFileExists (&read_save_file_state)) {
 			/* If there were save files, they are all bad.  Report a message */
 			/* and temporarily abandon the work unit.  We do this in hopes that */
 			/* we can successfully read one of the bad save files at a later time. */
 			/* This sounds crazy, but has happened when OSes get in a funky state. */
-			if (save_file_state.a_non_bad_save_file_existed ||
-			    (pass == 3 && save_file_state.a_save_file_existed)) {
+			if (read_save_file_state.a_non_bad_save_file_existed ||
+			    (pass == 3 && read_save_file_state.a_save_file_existed)) {
 				OutputBoth (thread_num, ALLSAVEBAD_MSG);
 				return (0);
 			}
@@ -6477,15 +6569,17 @@ begin:	gwinit (&lldata.gwdata);
 
 /* Read an LL save file.  If successful, break out of loop. */
 
-		if (readLLSaveFile (&lldata, save_file_state.current_filename, w, &counter, &error_count) &&
-		    counter <= w->n) {
+		if (readLLSaveFile (&lldata, read_save_file_state.current_filename, w, &counter, &error_count) &&
+		    counter <= w->n &&
+		    (!Jacobi_testing_enabled || jacobi_test (thread_num, p, &lldata))) {
 			first_iter_msg = TRUE;
+			if (Jacobi_testing_enabled) write_save_file_state.special = 1;
 			break;
 		}
 
 /* On read error, output message and loop to try the next backup save file. */
 
-		saveFileBad (&save_file_state);
+		saveFileBad (&read_save_file_state);
 	}
 
 /* Hyperthreading backoff is an option to pause the program when iterations */
@@ -6565,6 +6659,13 @@ begin:	gwinit (&lldata.gwdata);
 
 	near_fft_limit = exponent_near_fft_limit (&lldata.gwdata);
 
+/* Figure out the maximum round-off error we will allow.  By default this is 27/64 when near the FFT limit and 26/64 otherwise. */
+/* We've found that this default catches errors without raising too many spurious error messages.  We let the user override */
+/* this default for user "Never Odd Or Even" who tests exponents well beyond an FFT's limit.  He does his error checking by */
+/* running the first-test and double-check simultaneously. */
+
+	allowable_maxerr = IniGetFloat (INI_FILE, "MaxRoundoffError", (float) (near_fft_limit ? 0.421875 : 0.40625));
+
 /* Get address of second FFT data element.  We'll use this for very */
 /* quickly checking for zeroed FFT data. */
 
@@ -6589,13 +6690,15 @@ begin:	gwinit (&lldata.gwdata);
 /* 30 minute interval expired), and every 128th iteration. */
 
 		stop_reason = stopCheck (thread_num);
-		saving = stop_reason ||
-			 (counter == 2 && p > 1500000) ||
-			 counter == last_counter-8 ||
-			 counter == last_counter ||
-			 testSaveFilesFlag (thread_num);
-		echk = saving || near_fft_limit || ERRCHK ||
-			(counter >= p - 50) || ((counter & 127) == 0);
+		Jacobi_testing = Jacobi_testing_enabled && (counter == p - 1 || testJacobiFlag (thread_num));
+		saving = counter+1 != p &&
+			 (stop_reason ||
+			  Jacobi_testing ||
+			  (counter == 2 && p > 1500000) ||
+			  counter == last_counter-8 ||
+			  counter == last_counter ||
+			  testSaveFilesFlag (thread_num));
+		echk = saving || near_fft_limit || ERRCHK || (counter >= p - 50) || ((counter & 127) == 0);
 		gw_clear_maxerr (&lldata.gwdata);
 
 /* Do a Lucas-Lehmer iteration */
@@ -6629,11 +6732,10 @@ begin:	gwinit (&lldata.gwdata);
 			gwsetnormroutine (&lldata.gwdata, 0, echk, 0);
 			gwstartnextfft (&lldata.gwdata,
 					!saving && !maxerr_recovery_mode &&
+					!Jacobi_testing &&
 					counter+1 != p &&
-					(INTERIM_FILES == 0 ||
-					 (counter+1) % INTERIM_FILES > 0) &&
-					(INTERIM_RESIDUES == 0 ||
-					 (counter+1) % INTERIM_RESIDUES > 2));
+					(INTERIM_FILES == 0 || (counter+1) % INTERIM_FILES > 0) &&
+					(INTERIM_RESIDUES == 0 || (counter+1) % INTERIM_RESIDUES > 2));
 			lucas_fixup (&lldata, p);
 			gwsquare (&lldata.gwdata, lldata.lldata);
 		}
@@ -6697,11 +6799,8 @@ begin:	gwinit (&lldata.gwdata);
 /* then repeat the iteration using a safer, slower method.  This can */
 /* happen when operating near the limit of an FFT. */
 
-		if (echk &&
-		    (gw_get_maxerr (&lldata.gwdata) > 0.421875 ||			/* 27/64 */
-		     (!near_fft_limit && gw_get_maxerr (&lldata.gwdata) > 0.40625))) {	/* 26/64 */
-			if (counter == last_counter &&
-			    gw_get_maxerr (&lldata.gwdata) == last_maxerr) {
+		if (echk && gw_get_maxerr (&lldata.gwdata) > allowable_maxerr) {
+			if (counter == last_counter && gw_get_maxerr (&lldata.gwdata) == last_maxerr) {
 				OutputBoth (thread_num, ERROK);
 				inc_error_count (3, &error_count);
 				gw_clear_error (&lldata.gwdata);
@@ -6711,7 +6810,7 @@ begin:	gwinit (&lldata.gwdata);
 				goto restart;
 			} else {
 				char	msg[100];
-				sprintf (msg, ERRMSG1C, gw_get_maxerr (&lldata.gwdata));
+				sprintf (msg, ERRMSG1C, gw_get_maxerr (&lldata.gwdata), allowable_maxerr);
 				sprintf (buf, ERRMSG0, counter, p, msg);
 				OutputBoth (thread_num, buf);
 				last_counter = counter;
@@ -6730,8 +6829,17 @@ begin:	gwinit (&lldata.gwdata);
 		if (lldata.units_bit >= p) {
 			sprintf (buf, ERRMSG0, counter, p, ERRMSG1D);
 			OutputBoth (thread_num, buf);
-			inc_error_count (2, &error_count);
+			inc_error_count (6, &error_count);
 			sleep5 = TRUE;
+			goto restart;
+		}
+
+/* Check the Jacobi symbol */
+
+		if (Jacobi_testing && !jacobi_test (thread_num, p, &lldata)) {
+			sprintf (buf, ERRMSG0, counter, p, ERRMSG1G);
+			OutputBoth (thread_num, buf);
+			inc_error_count (4, &error_count);
 			goto restart;
 		}
 
@@ -6747,7 +6855,7 @@ begin:	gwinit (&lldata.gwdata);
 				if (i == 50) {
 					sprintf (buf, ERRMSG0, counter, p, ERRMSG1F);
 					OutputBoth (thread_num, buf);
-					inc_error_count (2, &error_count);
+					inc_error_count (5, &error_count);
 					last_counter = counter;
 					sleep5 = TRUE;
 					goto restart;
@@ -6791,8 +6899,10 @@ begin:	gwinit (&lldata.gwdata);
 			else if (!CLASSIC_OUTPUT) {
 				double speed;
 				/* Append roundoff error */
-				if ((OUTPUT_ROUNDOFF || ERRCHK) && reallymaxerr >= 0.001)
+				if ((OUTPUT_ROUNDOFF || ERRCHK) && reallymaxerr >= 0.001) {
 					sprintf (buf+strlen(buf), ", roundoff: %5.3f", reallymaxerr);
+					if (!CUMULATIVE_ROUNDOFF) reallyminerr = 1.0, reallymaxerr = 0.0;
+				}
 				/* Append ms/iter */
 				speed = timer_value (timers, 0) / (double) iters;
 				sprintf (buf+strlen(buf), ", ms/iter: %6.3f", speed * 1000.0);
@@ -6807,6 +6917,7 @@ begin:	gwinit (&lldata.gwdata);
 				/* Append optional roundoff message */
 				if (ERRCHK && counter > 30) {
 					sprintf (buf+strlen(buf), ".  Round off: %10.10f to %10.10f", reallyminerr, reallymaxerr);
+					if (!CUMULATIVE_ROUNDOFF) reallyminerr = 1.0, reallymaxerr = 0.0;
 				}
 				if (CUMULATIVE_TIMING) {
 					strcat (buf, ".  Total time: ");
@@ -6840,11 +6951,11 @@ begin:	gwinit (&lldata.gwdata);
 /* disk-full situation) */
 
 		if (saving) {
-			if (! writeLLSaveFile (&lldata, filename, NUM_BACKUP_FILES,
-					       w, counter, error_count)) {
+			if (! writeLLSaveFile (&lldata, &write_save_file_state, w, counter, error_count)) {
 				sprintf (buf, WRITEFILEERR, filename);
 				OutputBoth (thread_num, buf);
 			}
+			if (Jacobi_testing) write_save_file_state.special = 1;
 		}
 
 /* If an escape key was hit, write out the results and return */
@@ -6864,7 +6975,7 @@ begin:	gwinit (&lldata.gwdata);
 		if (INTERIM_RESIDUES && counter % INTERIM_RESIDUES <= 2) {
 			generateResidue64 (&lldata, p, &high32, &low32);
 			sprintf (buf, 
-				 "M%ld interim We%d residue %08lX%08lX at iteration %ld\n",
+				 "M%ld interim Wf%d residue %08lX%08lX at iteration %ld\n",
 				 p, PORT, high32, low32, counter);
 			OutputBoth (thread_num, buf);
 		}
@@ -6873,10 +6984,11 @@ begin:	gwinit (&lldata.gwdata);
 
 		if (INTERIM_FILES && counter % INTERIM_FILES == 0) {
 			char	interimfile[32];
-			sprintf (interimfile, "%s.%03ld",
-				 filename, counter / INTERIM_FILES);
-			writeLLSaveFile (&lldata, interimfile, 99, w,
-					 counter, error_count);
+			writeSaveFileState state;
+			sprintf (interimfile, "%s.%03ld", filename, counter / INTERIM_FILES);
+			writeSaveFileStateInit (&state, interimfile, 0);
+			state.num_ordinary_save_files = 99;
+			writeLLSaveFile (&lldata, &state, w, counter, error_count);
 		}
 
 /* If ten iterations take 40% longer than a typical iteration, then */
@@ -6890,8 +7002,7 @@ begin:	gwinit (&lldata.gwdata);
 				best_iteration_time = timers[1];
 			if (timers[1] > 1.40 * best_iteration_time) {
 				if (slow_iteration_count == 10) {
-					sprintf (buf, "Pausing %lu seconds.\n",
-						 HYPERTHREADING_BACKOFF);
+					sprintf (buf, "Pausing %lu seconds.\n", HYPERTHREADING_BACKOFF);
 					OutputStr (thread_num, buf);
 					Sleep (HYPERTHREADING_BACKOFF * 1000);
 				}
@@ -6918,11 +7029,11 @@ begin:	gwinit (&lldata.gwdata);
 /* Format the output message */
 
 	if (isPrime)
-		sprintf (buf, "M%ld is prime! We%d: %08lX,%08lX\n",
+		sprintf (buf, "M%ld is prime! Wf%d: %08lX,%08lX\n",
 			 p, PORT, SEC1 (p), error_count);
 	else
 		sprintf (buf,
-			 "M%ld is not prime. Res64: %08lX%08lX. We%d: %08lX,%ld,%08lX\n",
+			 "M%ld is not prime. Res64: %08lX%08lX. Wf%d: %08lX,%ld,%08lX\n",
 			 p, high32, low32, PORT,
 			 SEC2 (p, high32, low32, lldata.units_bit, error_count),
 			 lldata.units_bit, error_count);
@@ -6953,7 +7064,7 @@ begin:	gwinit (&lldata.gwdata);
 /* was successful. */
 
 	if (!isPrime || isKnownMersennePrime (p)) {
-		if (rc) unlinkSaveFiles (filename);
+		if (rc) unlinkSaveFiles (&write_save_file_state);
 	}
 
 /* Clean up */
@@ -9493,6 +9604,18 @@ void autoBench (void)
 	} ffts_to_bench[200];
 	struct primenetBenchmarkData pkt;
 
+/* If workers are not active, do not benchmark now */
+
+	if (!WORKER_THREADS_ACTIVE || WORKER_THREADS_STOPPING) return;
+
+/* If we're not supposed to run while on battery and we are on battery power now, then skip this benchmark */
+
+	if (!RUN_ON_BATTERY && OnBattery ()) return;
+
+/* If any worker is paused due to PauseWhileRunning, then skip auto-bench */
+
+	for (i = 0; i < (int) NUM_WORKER_THREADS; i++) if (STOP_FOR_PAUSE[i] != NULL) return;
+
 // BUG/FEATURE -- purge bench DB of old or anomalous results so that we can replace them with new, hopefully accurate, benchmarks?
 
 /* Calculate number of cores/workers used in FFT selection process */
@@ -10007,8 +10130,7 @@ int primeBench (
 int writePRPSaveFile (
 	gwhandle *gwdata,
 	gwnum	x,
-	char	*filename,
-	int	num_backup_files,	     /* Between 1 and 3, 99 = overwrite */
+	writeSaveFileState *write_save_file_state,
 	struct work_unit *w,
 	unsigned long counter,
 	unsigned long error_count)
@@ -10018,7 +10140,7 @@ int writePRPSaveFile (
 
 /* Now save to the intermediate file */
 
-	fd = openWriteSaveFile (filename, num_backup_files);
+	fd = openWriteSaveFile (write_save_file_state);
 	if (fd < 0) return (FALSE);
 
 	if (!write_header (fd, PRP_MAGICNUM, PRP_VERSION, w)) goto err;
@@ -10029,12 +10151,12 @@ int writePRPSaveFile (
 
 	if (!write_checksum (fd, sum)) goto err;
 
-	closeWriteSaveFile (filename, fd, num_backup_files);
+	closeWriteSaveFile (write_save_file_state, fd);
 	return (TRUE);
 
 /* An error occured.  Delete the current file. */
 
-err:	deleteWriteSaveFile (filename, fd, num_backup_files);
+err:	deleteWriteSaveFile (write_save_file_state, fd);
 	return (FALSE);
 }
 
@@ -10108,7 +10230,8 @@ int prp (
 	double	reallyminerr = 1.0;
 	double	reallymaxerr = 0.0;
 	double	best_iteration_time;
-	saveFileState save_file_state;	/* Manage savefile names during reading */
+	readSaveFileState read_save_file_state; /* Manage savefile names during reading */
+	writeSaveFileState write_save_file_state; /* Manage savefile names during writing */
 	char	filename[32];
 	char	buf[400], fft_desc[100], res64[17];
 	unsigned long last_counter = 0;		/* Iteration of last error */
@@ -10116,7 +10239,7 @@ int prp (
 	double	last_suminp = 0.0;
 	double	last_sumout = 0.0;
 	double	last_maxerr = 0.0;
-	double	output_frequency, output_title_frequency;
+	double	allowable_maxerr, output_frequency, output_title_frequency;
 	int	actual_frequency;
 	char	string_rep[80];
 	int	string_rep_truncated;
@@ -10239,18 +10362,19 @@ begin:	gwinit (&gwdata);
 /* files we try to read in case there is an error deleting bad save files. */
 
 	tempFileName (w, filename);
-	saveFileStateInit (&save_file_state, thread_num, filename);
+	readSaveFileStateInit (&read_save_file_state, thread_num, filename);
+	writeSaveFileStateInit (&write_save_file_state, filename, 0);
 	for ( ; ; ) {
 
 /* If there are no more save files, start off with the 1st PRP squaring. */
 
-		if (! saveFileExists (&save_file_state)) {
+		if (! saveFileExists (&read_save_file_state)) {
 			/* If there were save files, they are all bad.  Report a message */
 			/* and temporarily abandon the work unit.  We do this in hopes that */
 			/* we can successfully read one of the bad save files at a later time. */
 			/* This sounds crazy, but has happened when OSes get in a funky state. */
-			if (save_file_state.a_non_bad_save_file_existed ||
-			    (pass == 3 && save_file_state.a_save_file_existed)) {
+			if (read_save_file_state.a_non_bad_save_file_existed ||
+			    (pass == 3 && read_save_file_state.a_save_file_existed)) {
 				OutputBoth (thread_num, ALLSAVEBAD_MSG);
 				return (0);
 			}
@@ -10264,14 +10388,14 @@ begin:	gwinit (&gwdata);
 
 /* Read a PRP save file.  If successful, break out of loop. */
 
-		if (readPRPSaveFile (&gwdata, x, save_file_state.current_filename, w, &counter, &error_count)) {
+		if (readPRPSaveFile (&gwdata, x, read_save_file_state.current_filename, w, &counter, &error_count)) {
 			first_iter_msg = TRUE;
 			break;
 		}
 
 /* On read error, output message and loop to try the next backup save file. */
 
-		saveFileBad (&save_file_state);
+		saveFileBad (&read_save_file_state);
 	}
 
 /* Output a message saying we are starting/resuming the PRP test. */
@@ -10331,6 +10455,13 @@ begin:	gwinit (&gwdata);
 /* will error check all iterations */
 
 	near_fft_limit = exponent_near_fft_limit (&gwdata);
+
+/* Figure out the maximum round-off error we will allow.  By default this is 27/64 when near the FFT limit and 26/64 otherwise. */
+/* We've found that this default catches errors without raising too many spurious error messages.  We let the user override */
+/* this default for user "Never Odd Or Even" who tests exponents well beyond an FFT's limit.  He does his error checking by */
+/* running the first-test and double-check simultaneously. */
+
+	allowable_maxerr = IniGetFloat (INI_FILE, "MaxRoundoffError", (float) (near_fft_limit ? 0.421875 : 0.40625));
 
 /* Do the PRP test */
 
@@ -10474,11 +10605,8 @@ OutputStr (thread_num, "Iteration failed.\n");
 /* then repeat the iteration using a safer, slower method.  This can */
 /* happen when operating near the limit of an FFT. */
 
-		if (echk &&
-		    (gw_get_maxerr (&gwdata) > 0.421875 ||			/* 27/64 */
-		     (!near_fft_limit && gw_get_maxerr (&gwdata) > 0.40625))) {	/* 26/64 */
-			if (counter == last_counter &&
-			    gw_get_maxerr (&gwdata) == last_maxerr) {
+		if (echk && gw_get_maxerr (&gwdata) > allowable_maxerr) {
+			if (counter == last_counter && gw_get_maxerr (&gwdata) == last_maxerr) {
 				OutputBoth (thread_num, ERROK);
 				inc_error_count (3, &error_count);
 				gw_clear_error (&gwdata);
@@ -10488,7 +10616,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 				goto restart;
 			} else {
 				char	msg[100];
-				sprintf (msg, ERRMSG1C, gw_get_maxerr (&gwdata));
+				sprintf (msg, ERRMSG1C, gw_get_maxerr (&gwdata), allowable_maxerr);
 				sprintf (buf, ERRMSG0, counter+1, Nlen-1, msg);
 				OutputBoth (thread_num, buf);
 				last_counter = counter;
@@ -10534,8 +10662,10 @@ OutputStr (thread_num, "Iteration failed.\n");
 			else if (!CLASSIC_OUTPUT) {
 				double speed;
 				/* Append roundoff error */
-				if ((OUTPUT_ROUNDOFF || ERRCHK) && reallymaxerr >= 0.001)
+				if ((OUTPUT_ROUNDOFF || ERRCHK) && reallymaxerr >= 0.001) {
 					sprintf (buf+strlen(buf), ", roundoff: %5.3f", reallymaxerr);
+					if (!CUMULATIVE_ROUNDOFF) reallyminerr = 1.0, reallymaxerr = 0.0;
+				}
 				/* Append ms/iter */
 				speed = timer_value (timers, 0) / (double) iters;
 				sprintf (buf+strlen(buf), ", ms/iter: %6.3f", speed * 1000.0);
@@ -10550,6 +10680,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 				/* Append optional roundoff message */
 				if (ERRCHK && counter > 30) {
 					sprintf (buf+strlen(buf), ".  Round off: %10.10f to %10.10f", reallyminerr, reallymaxerr);
+					if (!CUMULATIVE_ROUNDOFF) reallyminerr = 1.0, reallymaxerr = 0.0;
 				}
 				if (CUMULATIVE_TIMING) {
 					strcat (buf, ".  Total time: ");
@@ -10583,8 +10714,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 /* disk-full situation) */
 
 		if (saving) {
-			if (! writePRPSaveFile (&gwdata, x, filename, NUM_BACKUP_FILES,
-						w, counter, error_count)) {
+			if (! writePRPSaveFile (&gwdata, x, &write_save_file_state, w, counter, error_count)) {
 				sprintf (buf, WRITEFILEERR, filename);
 				OutputBoth (thread_num, buf);
 			}
@@ -10607,7 +10737,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 			tmp = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 5) + 5);
 			gwtogiant (&gwdata, x, tmp);
 			if (w->known_factors) {	iaddg (1, N); modg (N, tmp); iaddg (-1, N); }
-			sprintf (buf, "%s interim We%d residue %08lX%08lX at iteration %ld\n",
+			sprintf (buf, "%s interim Wf%d residue %08lX%08lX at iteration %ld\n",
 				 string_rep, PORT, (unsigned long) tmp->n[1], (unsigned long) tmp->n[0], counter);
 			OutputBoth (thread_num, buf);
 			pushg (&gwdata.gdata, 1);
@@ -10617,10 +10747,11 @@ OutputStr (thread_num, "Iteration failed.\n");
 
 		if (INTERIM_FILES && counter % INTERIM_FILES == 0) {
 			char	interimfile[32];
-			sprintf (interimfile, "%s.%03ld",
-				 filename, counter / INTERIM_FILES);
-			writePRPSaveFile (&gwdata, x, interimfile, 99, w,
-					  counter, error_count);
+			writeSaveFileState state;
+			sprintf (interimfile, "%s.%03ld", filename, counter / INTERIM_FILES);
+			writeSaveFileStateInit (&state, interimfile, 0);
+			state.num_ordinary_save_files = 99;
+			writePRPSaveFile (&gwdata, x, &state, w, counter, error_count);
 		}
 
 /* If ten iterations take 40% longer than a typical iteration, then */
@@ -10634,8 +10765,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 				best_iteration_time = timers[1];
 			if (timers[1] > 1.40 * best_iteration_time) {
 				if (slow_iteration_count == 10) {
-					sprintf (buf, "Pausing %lu seconds.\n",
-						 HYPERTHREADING_BACKOFF);
+					sprintf (buf, "Pausing %lu seconds.\n", HYPERTHREADING_BACKOFF);
 					OutputStr (thread_num, buf);
 					Sleep (HYPERTHREADING_BACKOFF * 1000);
 				}
@@ -10664,13 +10794,13 @@ pushg(&gwdata.gdata, 2);}
 
 	if (isProbablePrime) {
 		if (prp_base == 3)
-			sprintf (buf, "%s is a probable prime! We%d: %08lX,%08lX\n",
+			sprintf (buf, "%s is a probable prime! Wf%d: %08lX,%08lX\n",
 				 string_rep, PORT, SEC1 (w->n), error_count);
 		else
-			sprintf (buf, "%s is a probable prime (%d-PRP)! We%d: %08lX,%08lX\n",
+			sprintf (buf, "%s is a probable prime (%d-PRP)! Wf%d: %08lX,%08lX\n",
 				 string_rep, prp_base, PORT, SEC1 (w->n), error_count);
 	} else
-		sprintf (buf, "%s is not prime.  RES64: %s. We%d: %08lX,%08lX\n",
+		sprintf (buf, "%s is not prime.  RES64: %s. Wf%d: %08lX,%08lX\n",
 			 string_rep, res64, PORT, SEC1 (w->n), error_count);
 	OutputStr (thread_num, buf);
 	formatMsgForResultsFile (buf, w);
@@ -10681,11 +10811,6 @@ pushg(&gwdata.gdata, 2);}
 	    (!isProbablePrime && IniGetInt (INI_FILE, "OutputComposites", 1)))
 		writeResults (buf);
 
-//if (ERRCHK) {
-//	sprintf (buf, "Round off: %10.10f to %10.10f\n", reallyminerr, reallymaxerr);
-//	OutputBoth (thread_num, buf);
-//}
-
 /* Output results to the server */
 
 	{
@@ -10694,8 +10819,7 @@ pushg(&gwdata.gdata, 2);}
 		strcpy (pkt.computer_guid, COMPUTER_GUID);
 		strcpy (pkt.assignment_uid, w->assignment_uid);
 		strcpy (pkt.message, buf);
-		pkt.result_type =
-			isProbablePrime ? PRIMENET_AR_PRP_PRIME : PRIMENET_AR_PRP_RESULT;
+		pkt.result_type = isProbablePrime ? PRIMENET_AR_PRP_PRIME : PRIMENET_AR_PRP_RESULT;
 		pkt.k = w->k;
 		pkt.b = w->b;
 		pkt.n = w->n;
@@ -10723,7 +10847,7 @@ pushg(&gwdata.gdata, 2);}
 
 /* Delete the continuation files. */
 
-	unlinkSaveFiles (filename);
+	unlinkSaveFiles (&write_save_file_state);
 
 /* Output good news to the screen in an infinite loop */
 

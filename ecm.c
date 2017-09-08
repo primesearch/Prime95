@@ -1060,7 +1060,8 @@ int setN (
 
 /* Do a GCD of the input value and N to see if a factor was found. */
 /* The GCD is returned in factor iff a factor is found. */
-/* Returns TRUE if GCD completed, FALSE if it was interrupted */
+/* This routine used to be interruptible and thus returns a stop_reason. */
+/* Since switching to GMP's mpz code to implement the GCD this routine is no longer interruptible. */
 
 int gcd (
 	gwhandle *gwdata,
@@ -1069,44 +1070,38 @@ int gcd (
 	giant	N,		/* Number we are factoring */
 	giant	*factor)	/* Factor found if any */
 {
-	giant	v, save;
-	int	stop_reason;
+	giant	v;
+	mpz_t	a, b;
 
 /* Convert input number to binary */
 
 	v = popg (&gwdata->gdata, ((int) gwdata->bit_length >> 5) + 10);
 	if (v == NULL) goto oom;
-	save = popg (&gwdata->gdata, ((int) gwdata->bit_length >> 5) + 10);
-	if (save == NULL) goto oom;
 	gwtogiant (gwdata, gg, v);
-	gtog (v, save);
 
 /* Do the GCD and let the gcdg code use gwnum gg's memory. */
 
-	gwfree_temporarily (gwdata, gg);
-	stop_reason = gcdgi (&gwdata->gdata, thread_num, N, v);
-	if (stop_reason == GIANT_OUT_OF_MEMORY)
-		stop_reason = OutOfMemory (thread_num);
-	gwrealloc_temporarily (gwdata, gg);
-
-/* Restore the input argument */
-
-	gianttogw (gwdata, save, gg);
+	mpz_init (a);
+	mpz_init (b);
+	gtompz (v, a);
+	gtompz (N, b);
+	pushg (&gwdata->gdata, 1);
+	mpz_gcd (a, a, b);
 
 /* If a factor was found, save it in FAC */
 
-	if (stop_reason == 0 && ! isone (v) && gcompg (N, v)) {
-		*factor = allocgiant (v->sign);
+	if (mpz_cmp_ui (a, 1) && mpz_cmp (a, b)) {
+		*factor = allocgiant (mpz_sizeinbase (a, 32));
 		if (*factor == NULL) goto oom;
-		gtog (v, *factor);
-	}
-	else
+		mpztog (a, *factor);
+	} else
 		*factor = NULL;
 
 /* Cleanup and return */
 
-	pushg (&gwdata->gdata, 2);
-	return (stop_reason);
+	mpz_clear (a);
+	mpz_clear (b);
+	return (0);
 
 /* Out of memory exit path */
 
@@ -1945,7 +1940,7 @@ replan:	stop_reason = avail_mem (thread_num,
 
 void ecm_save (
 	ecmhandle *ecmdata,
-	char	*filename,
+	writeSaveFileState *write_save_file_state,
 	struct work_unit *w,
 	int	stage,
 	unsigned long curve,
@@ -1961,7 +1956,7 @@ void ecm_save (
 
 /* Create the intermediate file */
 
-	fd = openWriteSaveFile (filename, NUM_BACKUP_FILES);
+	fd = openWriteSaveFile (write_save_file_state);
 	if (fd < 0) return;
 
 /* Write the file header. */
@@ -1986,13 +1981,13 @@ void ecm_save (
 
 	if (! write_checksum (fd, sum)) goto writeerr;
 
-	closeWriteSaveFile (filename, fd, NUM_BACKUP_FILES);
+	closeWriteSaveFile (write_save_file_state, fd);
 	return;
 
 /* An error occured.  Close and delete the current file. */
 
 writeerr:
-	deleteWriteSaveFile (filename, fd, NUM_BACKUP_FILES);
+	deleteWriteSaveFile (write_save_file_state, fd);
 }
 
 /* Read a save file */
@@ -2133,7 +2128,8 @@ int ecm (
 	double	sigma, last_output, last_output_t, one_over_B, one_over_C_minus_B;
 	double	output_frequency, output_title_frequency;
 	unsigned long i, j, curve, min_memory;
-	saveFileState save_file_state;	/* Manage savefile names during reading */
+	readSaveFileState read_save_file_state;	/* Manage savefile names during reading */
+	writeSaveFileState write_save_file_state; /* Manage savefile names during writing */
 	char	filename[32], buf[255], fft_desc[100];
 	int	res, stop_reason, stage, first_iter_msg;
 	gwnum	x, z, t1, t2, gg;
@@ -2481,16 +2477,17 @@ OutputStr (thread_num, buf);
 /* Check for a continuation file.  Limit number of backup files we try */
 /* to read in case there is an error deleting bad save files. */
 
-	saveFileStateInit (&save_file_state, thread_num, filename);
+	readSaveFileStateInit (&read_save_file_state, thread_num, filename);
+	writeSaveFileStateInit (&write_save_file_state, filename, 0);
 	for ( ; ; ) {
 		uint64_t save_B, save_B_processed, save_C_processed;
 
-		if (! saveFileExists (&save_file_state)) {
+		if (! saveFileExists (&read_save_file_state)) {
 			/* If there were save files, they are all bad.  Report a message */
 			/* and temporarily abandon the work unit.  We do this in hopes that */
 			/* we can successfully read one of the bad save files at a later time. */
 			/* This sounds crazy, but has happened when OSes get in a funky state. */
-			if (save_file_state.a_non_bad_save_file_existed) {
+			if (read_save_file_state.a_non_bad_save_file_existed) {
 				OutputBoth (thread_num, ALLSAVEBAD_MSG);
 				return (0);
 			}
@@ -2509,13 +2506,13 @@ OutputStr (thread_num, buf);
 /* Read in the save file.  If the save file is no good ecm_restore will have */
 /* deleted it.  Loop trying to read a backup save file. */
 
-		if (! ecm_restore (&ecmdata, thread_num, save_file_state.current_filename, w, &stage,
+		if (! ecm_restore (&ecmdata, thread_num, read_save_file_state.current_filename, w, &stage,
 				   &curve, &sigma, &save_B, &save_B_processed,
 				   &save_C_processed, x, z)) {
 			gwfree (&ecmdata.gwdata, x);
 			gwfree (&ecmdata.gwdata, z);
 			/* Close and rename the bad save file */
-			saveFileBad (&save_file_state);
+			saveFileBad (&read_save_file_state);
 			continue;
 		}
 
@@ -2686,8 +2683,7 @@ restart1:
 
 		stop_reason = stopCheck (thread_num);
 		if (stop_reason || testSaveFilesFlag (thread_num)) {
-			ecm_save (&ecmdata, filename, w, ECM_STAGE1, curve,
-				  sigma, B, prime, 0, x, z);
+			ecm_save (&ecmdata, &write_save_file_state, w, ECM_STAGE1, curve, sigma, B, prime, 0, x, z);
 			if (stop_reason) goto exit;
 		}
 	}
@@ -2717,8 +2713,7 @@ restart1:
 skip_stage_2:	start_timer (timers, 0);
 		stop_reason = gcd (&ecmdata.gwdata, thread_num, z, N, &factor);
 		if (stop_reason) {
-			ecm_save (&ecmdata, filename, w, ECM_STAGE1, curve, sigma,
-				  B, B, 0, x, z);
+			ecm_save (&ecmdata, &write_save_file_state, w, ECM_STAGE1, curve, sigma, B, B, 0, x, z);
 			goto exit;
 		}
 		end_timer (timers, 0);
@@ -2812,8 +2807,7 @@ restart3:
 	stop_reason = choose_stage2_plan (thread_num, &ecmdata, B, C);
 	if (stop_reason) {
 		if (gg == NULL) {
-			ecm_save (&ecmdata, filename, w, ECM_STAGE1, curve,
-				  sigma, B, B, 0, x, z);
+			ecm_save (&ecmdata, &write_save_file_state, w, ECM_STAGE1, curve, sigma, B, B, 0, x, z);
 		}
 		goto exit;
 	}
@@ -2886,9 +2880,8 @@ restart3:
 		stop_reason = stopCheck (thread_num);
 		if (stop_reason) {
 			if (gg == NULL) {
-				ecm_save (&ecmdata, filename, w, ECM_STAGE1,
-					  curve, sigma, B, B, 0,
-					  Qdiffx, Qdiffz);
+				ecm_save (&ecmdata, &write_save_file_state, w, ECM_STAGE1,
+					  curve, sigma, B, B, 0, Qdiffx, Qdiffz);
 			}
 			goto exit;
 		}
@@ -2942,7 +2935,7 @@ restart3:
 			gwfft (&ecmdata.gwdata, Q2x, Q2x);
 			gwfftfftmul (&ecmdata.gwdata, Q2x, Qiminus2x, Qiminus2x);
 			gwfftfftmul (&ecmdata.gwdata, Q2x, Qiminus2z, Qiminus2z);
-			ecm_save (&ecmdata, filename, w, ECM_STAGE1, curve,
+			ecm_save (&ecmdata, &write_save_file_state, w, ECM_STAGE1, curve,
 				  sigma, B, B, 0, Qiminus2x, Qiminus2z);
 		}
 		goto exit;
@@ -3020,7 +3013,7 @@ restart3:
 			dbltogw (&ecmdata.gwdata, 1.0, t1);
 			gwmul (&ecmdata.gwdata, t1, gg);
 			gwfftfftmul (&ecmdata.gwdata, t1, ecmdata.nQx[0], ecmdata.nQx[0]);
-			ecm_save (&ecmdata, filename, w, ECM_STAGE2, curve,
+			ecm_save (&ecmdata, &write_save_file_state, w, ECM_STAGE2, curve,
 				  sigma, B, B, prime, ecmdata.nQx[0], gg);
 			gwfree (&ecmdata.gwdata, t1);
 			goto exit;
@@ -3125,7 +3118,7 @@ restart3:
 			dbltogw (&ecmdata.gwdata, 1.0, t1);
 			gwmul (&ecmdata.gwdata, t1, gg);
 			gwfftfftmul (&ecmdata.gwdata, t1, ecmdata.nQx[0], t1);
-			ecm_save (&ecmdata, filename, w, ECM_STAGE2, curve,
+			ecm_save (&ecmdata, &write_save_file_state, w, ECM_STAGE2, curve,
 				  sigma, B, B, prime, t1, gg);
 			gwfree (&ecmdata.gwdata, t1);
 			if (stop_reason) goto exit;
@@ -3165,8 +3158,7 @@ restart4:
 	start_timer (timers, 0);
 	stop_reason = gcd (&ecmdata.gwdata, thread_num, gg, N, &factor);
 	if (stop_reason) {
-		ecm_save (&ecmdata, filename, w, ECM_STAGE2, curve, sigma,
-			  B, B, C, gg, gg);
+		ecm_save (&ecmdata, &write_save_file_state, w, ECM_STAGE2, curve, sigma, B, B, C, gg, gg);
 		goto exit;
 	}
 	end_timer (timers, 0);
@@ -3216,7 +3208,7 @@ more_curves:
 
 /* Delete the save file */
 
-	unlinkSaveFiles (filename);
+	unlinkSaveFiles (&write_save_file_state);
 
 /* Free memory and return */
 
@@ -3312,7 +3304,7 @@ bingo:	sprintf (buf, "ECM found a factor in curve #%ld, stage #%d\n",
 /* for this number from the worktodo file. */
 
 		if (continueECM) {
-			unlinkSaveFiles (filename);
+			unlinkSaveFiles (&write_save_file_state);
 			w->curves_to_do -= curve;
 			stop_reason = updateWorkToDoLine (thread_num, w);
 			if (stop_reason) return (stop_reason);
@@ -3336,7 +3328,7 @@ bad_factor_recovery:
 /* this inaccurate data. */
 
 	if (!continueECM) {
-		unlinkSaveFiles (filename);
+		unlinkSaveFiles (&write_save_file_state);
 		stop_reason = STOP_WORK_UNIT_COMPLETE;
 		invalidateNextRollingAverageUpdate ();
 		goto exit;
@@ -3685,7 +3677,7 @@ void fd_term (
 
 void pm1_save (
 	pm1handle *pm1data,
-	char	*filename,
+	writeSaveFileState *write_save_file_state,
 	struct work_unit *w,
 	uint64_t processed,
 	gwnum	x,
@@ -3696,7 +3688,7 @@ void pm1_save (
 
 /* Create the intermediate file */
 
-	fd = openWriteSaveFile (filename, NUM_BACKUP_FILES);
+	fd = openWriteSaveFile (write_save_file_state);
 	if (fd < 0) return;
 
 /* Write the file header */
@@ -3741,13 +3733,13 @@ void pm1_save (
 
 	if (! write_checksum (fd, sum)) goto writeerr;
 
-	closeWriteSaveFile (filename, fd, NUM_BACKUP_FILES);
+	closeWriteSaveFile (write_save_file_state, fd);
 	return;
 
 /* An error occured.  Close and delete the current file. */
 
 writeerr:
-	deleteWriteSaveFile (filename, fd, NUM_BACKUP_FILES);
+	deleteWriteSaveFile (write_save_file_state, fd);
 }
 
 /* Read a save file */
@@ -4421,13 +4413,14 @@ int pminus1 (
 	unsigned long i, j, stage2incr, len, bit_number;
 	unsigned long error_recovery_mode = 0;
 	gwnum	x, gg, t3;
-	saveFileState save_file_state;	/* Manage savefile names during reading */
+	readSaveFileState read_save_file_state;	/* Manage savefile names during reading */
+	writeSaveFileState write_save_file_state; /* Manage savefile names during writing */
 	char	filename[32], buf[255], testnum[100];
 	int	have_save_file;
 	int	res, stop_reason, stage, saving, near_fft_limit, echk;
 	double	one_over_len, one_over_B, one_pair_pct;
 	double	base_pct_complete, last_output, last_output_t, last_output_r;
-	double	output_frequency, output_title_frequency;
+	double	allowable_maxerr, output_frequency, output_title_frequency;
 	int	first_iter_msg;
 	int	using_t3;	/* Indicates we are using the gwnum t3 */
 				/* to avoid a gwfftadd3 in stage 2 */
@@ -4565,6 +4558,13 @@ restart:
 	near_fft_limit = exponent_near_fft_limit (&pm1data.gwdata);
 	gwsetnormroutine (&pm1data.gwdata, 0, ERRCHK || near_fft_limit, 0);
 
+/* Figure out the maximum round-off error we will allow.  By default this is 27/64 when near the FFT limit and 26/64 otherwise. */
+/* We've found that this default catches errors without raising too many spurious error messages.  We let the user override */
+/* this default for user "Never Odd Or Even" who tests exponents well beyond an FFT's limit.  He does his error checking by */
+/* running the first-test and double-check simultaneously. */
+
+	allowable_maxerr = IniGetFloat (INI_FILE, "MaxRoundoffError", (float) (near_fft_limit ? 0.421875 : 0.40625));
+
 /* Compute the number we are factoring */
 
 	stop_reason = setN (&pm1data.gwdata, thread_num, w, &N);
@@ -4576,14 +4576,15 @@ restart:
 /* to read in case there is an error deleting bad save files. */
 
 	have_save_file = FALSE;
-	saveFileStateInit (&save_file_state, thread_num, filename);
+	readSaveFileStateInit (&read_save_file_state, thread_num, filename);
+	writeSaveFileStateInit (&write_save_file_state, filename, 0);
 	for ( ; ; ) {
-		if (! saveFileExists (&save_file_state)) {
+		if (! saveFileExists (&read_save_file_state)) {
 			/* If there were save files, they are all bad.  Report a message */
 			/* and temporarily abandon the work unit.  We do this in hopes that */
 			/* we can successfully read one of the bad save files at a later time. */
 			/* This sounds crazy, but has happened when OSes get in a funky state. */
-			if (save_file_state.a_non_bad_save_file_existed) {
+			if (read_save_file_state.a_non_bad_save_file_existed) {
 				OutputBoth (thread_num, ALLSAVEBAD_MSG);
 				return (0);
 			}
@@ -4591,9 +4592,9 @@ restart:
 			break;
 		}
 
-		if (!pm1_restore (&pm1data, save_file_state.current_filename, w, &processed, &x, &gg)) {
+		if (!pm1_restore (&pm1data, read_save_file_state.current_filename, w, &processed, &x, &gg)) {
 			/* Close and rename the bad save file */
-			saveFileBad (&save_file_state);
+			saveFileBad (&read_save_file_state);
 			continue;
 		}
 
@@ -4629,7 +4630,7 @@ restart:
 			gwstartnextfft (&pm1data.gwdata, FALSE);
 			gwsetnormroutine (&pm1data.gwdata, 0, 0, 0);
 			gwsquare_carefully (&pm1data.gwdata, x);
-			pm1_save (&pm1data, filename, w, processed, x, gg);
+			pm1_save (&pm1data, &write_save_file_state, w, processed, x, gg);
 			error_recovery_mode = 0;
 		}
 
@@ -4797,7 +4798,7 @@ restart0:
 
 /* Test for an error */
 
-		if (gw_test_for_error (&pm1data.gwdata) || gw_get_maxerr (&pm1data.gwdata) >= 0.40625) goto error;
+		if (gw_test_for_error (&pm1data.gwdata) || gw_get_maxerr (&pm1data.gwdata) > allowable_maxerr) goto error;
 		bit_number++;
 
 /* Calculate our stage 1 percentage complete */
@@ -4850,7 +4851,7 @@ restart0:
 /* Check for escape and/or if its time to write a save file */
 
 		if (stop_reason || saving) {
-			pm1_save (&pm1data, filename, w, bit_number, x, NULL);
+			pm1_save (&pm1data, &write_save_file_state, w, bit_number, x, NULL);
 			if (stop_reason) goto exit;
 		}
 	}
@@ -4863,7 +4864,7 @@ restart0:
 		gwstartnextfft (&pm1data.gwdata, FALSE);
 		gwsetnormroutine (&pm1data.gwdata, 0, 0, 0);
 		gwsquare_carefully (&pm1data.gwdata, x);
-		pm1_save (&pm1data, filename, w, bit_number, x, NULL);
+		pm1_save (&pm1data, &write_save_file_state, w, bit_number, x, NULL);
 		error_recovery_mode = 0;
 	}
 
@@ -4914,8 +4915,7 @@ restart1:
 
 /* Test for an error */
 
-		if (gw_test_for_error (&pm1data.gwdata) ||
-		    gw_get_maxerr (&pm1data.gwdata) >= 0.40625) goto error;
+		if (gw_test_for_error (&pm1data.gwdata) || gw_get_maxerr (&pm1data.gwdata) > allowable_maxerr) goto error;
 
 /* Calculate our stage 1 percentage complete */
 
@@ -4971,7 +4971,7 @@ restart1:
 /* Check for escape and/or if its time to write a save file */
 
 		if (stop_reason || testSaveFilesFlag (thread_num)) {
-			pm1_save (&pm1data, filename, w, prime, x, NULL);
+			pm1_save (&pm1data, &write_save_file_state, w, prime, x, NULL);
 			if (stop_reason) goto exit;
 		}
 	}
@@ -5025,7 +5025,7 @@ restart2:
 		stop_reason = gcd (&pm1data.gwdata, thread_num, x, N, &factor);
 		gwaddsmall (&pm1data.gwdata, x, 1);
 		if (stop_reason) {
-			pm1_save (&pm1data, filename, w, B, x, NULL);
+			pm1_save (&pm1data, &write_save_file_state, w, B, x, NULL);
 			goto exit;
 		}
 		end_timer (timers, 0);
@@ -5070,7 +5070,7 @@ more_C:	pm1data.C_start = (C_start > pm1data.C_done) ? C_start : pm1data.C_done;
 	pm1data.C = C;
 	stop_reason = choose_pminus1_plan (&pm1data, w);
 	if (stop_reason) {
-		pm1_save (&pm1data, filename, w, 0, x, gg);
+		pm1_save (&pm1data, &write_save_file_state, w, 0, x, gg);
 		goto exit;
 	}
 	if (pm1data.D == 0) { /* We'll never have enough memory for stage 2 */
@@ -5080,7 +5080,7 @@ more_C:	pm1data.C_start = (C_start > pm1data.C_done) ? C_start : pm1data.C_done;
 	}
 	stop_reason = fill_pminus1_bitarray (&pm1data);
 	if (stop_reason) {
-		pm1_save (&pm1data, filename, w, 0, x, gg);
+		pm1_save (&pm1data, &write_save_file_state, w, 0, x, gg);
 		goto exit;
 	}
 	pm1data.rels_done = 0;
@@ -5112,7 +5112,7 @@ restart3b:
 
 replan:	stop_reason = choose_pminus1_implementation (&pm1data, w, &using_t3);
 	if (stop_reason) {
-		pm1_save (&pm1data, filename, w, 0, x, gg);
+		pm1_save (&pm1data, &write_save_file_state, w, 0, x, gg);
 		goto exit;
 	}
 
@@ -5174,14 +5174,13 @@ replan:	stop_reason = choose_pminus1_implementation (&pm1data, w, &using_t3);
 		if (i >= pm1data.D) break;
 		if (numrels == pm1data.rels_this_pass) break;
 		fd_next (&pm1data);
-		if (gw_test_for_error (&pm1data.gwdata) ||
-		    gw_get_maxerr (&pm1data.gwdata) >= 0.40625) goto error;
+		if (gw_test_for_error (&pm1data.gwdata) || gw_get_maxerr (&pm1data.gwdata) > allowable_maxerr) goto error;
 		stop_reason = stopCheck (thread_num);
 		if (stop_reason) {
 			fd_term (&pm1data);
 			gwstartnextfft (&pm1data.gwdata, FALSE);
 			gwfftfftmul (&pm1data.gwdata, x, x, x);	/* Unfft x - generates x^2 */
-			pm1_save (&pm1data, filename, w, 0, x, gg);
+			pm1_save (&pm1data, &write_save_file_state, w, 0, x, gg);
 			goto exit;
 		}
 	}
@@ -5307,8 +5306,7 @@ found_a_bit:;
 
 /* Test for errors */
 
-errchk:		if (gw_test_for_error (&pm1data.gwdata) ||
-		    gw_get_maxerr (&pm1data.gwdata) >= 0.40625) goto error;
+errchk:		if (gw_test_for_error (&pm1data.gwdata) || gw_get_maxerr (&pm1data.gwdata) > allowable_maxerr) goto error;
 
 /* Output the title every so often */
 
@@ -5363,7 +5361,7 @@ errchk:		if (gw_test_for_error (&pm1data.gwdata) ||
 			if (stop_reason) fd_term (&pm1data);
 			if (using_t3) gwfree (&pm1data.gwdata, t3);
 			gwtouch (&pm1data.gwdata, gg);
-			pm1_save (&pm1data, filename, w, 0, x, gg);
+			pm1_save (&pm1data, &write_save_file_state, w, 0, x, gg);
 			if (stop_reason) goto exit;
 			saving = FALSE;
 			if (using_t3) {
@@ -5446,7 +5444,7 @@ restart4:
 	start_timer (timers, 0);
 	stop_reason = gcd (&pm1data.gwdata, thread_num, gg, N, &factor);
 	if (stop_reason) {
-		pm1_save (&pm1data, filename, w, C, x, gg);
+		pm1_save (&pm1data, &write_save_file_state, w, C, x, gg);
 		goto exit;
 	}
 	pm1data.stage = PM1_DONE;
@@ -5499,9 +5497,9 @@ msg_and_exit:
 /* save file. */
 
 	if (w->work_type == WORK_PMINUS1 && IniGetInt (INI_FILE, "KeepPminus1SaveFiles", 1))
-		pm1_save (&pm1data, filename, w, 0, x, NULL);
+		pm1_save (&pm1data, &write_save_file_state, w, 0, x, NULL);
 	else
-		unlinkSaveFiles (filename);
+		unlinkSaveFiles (&write_save_file_state);
 
 /* Return stop code indicating success or work unit complete */ 
 
@@ -5527,7 +5525,7 @@ exit:	pm1_cleanup (&pm1data);
 /* Low on memory, reduce memory settings and try again */
 
 lowmem:	fd_term (&pm1data);
-	pm1_save (&pm1data, filename, w, 0, x, gg);
+	pm1_save (&pm1data, &write_save_file_state, w, 0, x, gg);
 	pm1_cleanup (&pm1data);
 	free (N);
 	N = NULL;
@@ -5573,7 +5571,7 @@ bingo:	if (stage == 1)
 		sprintf (msg, "ERROR: Bad factor for %s found: %s\n",
 			 gwmodulo_as_string (&pm1data.gwdata), str);
 		OutputBoth (thread_num, msg);
-		unlinkSaveFiles (filename);
+		unlinkSaveFiles (&write_save_file_state);
 		OutputStr (thread_num, "Restarting P-1 from scratch.\n");
 		stop_reason = 0;
 		goto error_restart;
@@ -5621,16 +5619,16 @@ bingo:	if (stage == 1)
 /* If LL testing, free all save files -- including possible LL save files */
 
 	if (w->work_type != WORK_PMINUS1 || !IniGetInt (INI_FILE, "KeepPminus1SaveFiles", 1)) {
-		unlinkSaveFiles (filename);
-		filename[0] = 'p';
-		unlinkSaveFiles (filename);
+		unlinkSaveFiles (&write_save_file_state);
+		write_save_file_state.base_filename[0] = 'p';
+		unlinkSaveFiles (&write_save_file_state);
 	}
 
 /* Otherwise create save file so that we can expand bound 1 or bound 2 */
 /* at a later date. */
 
 	else
-		pm1_save (&pm1data, filename, w, 0, x, NULL);
+		pm1_save (&pm1data, &write_save_file_state, w, 0, x, NULL);
 
 /* Since we found a factor, then we may have performed less work than */
 /* expected.  Make sure we do not update the rolling average with */
@@ -5646,7 +5644,7 @@ bingo:	if (stage == 1)
 /* Output an error message saying we are restarting. */
 /* Sleep five minutes before restarting from last save file. */
 
-error:	if (near_fft_limit && gw_get_maxerr (&pm1data.gwdata) >= 0.40625) {
+error:	if (gw_get_maxerr (&pm1data.gwdata) > allowable_maxerr) {
 		sprintf (buf, "Possible roundoff error (%.8g), backtracking to last save file.\n", gw_get_maxerr (&pm1data.gwdata));
 		OutputStr (thread_num, buf);
 	} else {

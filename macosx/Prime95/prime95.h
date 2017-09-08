@@ -20,6 +20,7 @@
 
 /* Include our common C header files */
 
+#include <gmp.h>
 #include <hwloc.h>
 #include "common.h"
 #include "cpuid.h"

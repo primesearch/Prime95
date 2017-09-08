@@ -69,7 +69,7 @@ void gwbench_read_data (void);
 int gwbench_implementation_id (gwhandle *, int);
 int internal_implementation_id (int, int, int, int, int, int, int, int, int);
 int internal_implementation_ids_match (int, int, int, int, int, int, int, int);
-void gwbench_get_max_throughput (int, int, int, int, int, int, int *, double *);
+void gwbench_get_max_throughput (int, int, int, int, int, int, int, int *, double *);
 
 #ifdef __cplusplus
 }

@@ -10,7 +10,7 @@
  *	    20 Apr 97  RDW
  *
  *	c. 1997 Perfectly Scientific, Inc.
- *	c. 1998-2015 Mersenne Research, Inc.
+ *	c. 1998-2017 Mersenne Research, Inc.
  *	All Rights Reserved.
  *
  **************************************************************/
@@ -280,5 +280,11 @@ extern int (*StopCheckRoutine)(int);
 #ifdef __cplusplus
 }
 #endif
+
+/* Conversion to/from GMP mpz_t data type.  Caller responsible for calling mpz_init and mpz_clear. */
+/* Also responsible for allocating the giant with appropriate size. */
+
+#define gtompz(g,m)	mpz_import (m, (g)->sign, -1, sizeof ((g)->n[0]), 0, 0, (g)->n)
+#define mpztog(m,g)	{size_t	count; mpz_export ((g)->n, &count, -1, sizeof ((g)->n[0]), 0, 0, m); (g)->sign = count;}
 
 #endif

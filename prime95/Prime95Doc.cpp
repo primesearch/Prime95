@@ -1002,7 +1002,8 @@ void CPrime95Doc::OnMergeComm()
 
 void CPrime95Doc::OnUpdateMergeAll(CCmdUI* pCmdUI)
 {
-	pCmdUI->Enable (NUM_WORKER_THREADS > 1);
+//	pCmdUI->Enable (NUM_WORKER_THREADS > 1);
+	pCmdUI->Enable (TRUE);					/* Stress testers may want to set this option */
 	pCmdUI->SetCheck (MERGE_WINDOWS & MERGE_WORKER_WINDOWS);
 }
 

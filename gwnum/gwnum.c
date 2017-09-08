@@ -725,14 +725,15 @@ int is_fft_implemented (
 
 		for (i = 0; i <= 1; i++) {
 			struct gwasm_jmptab *next_jmptab;
-			int	error_check, impl, next_impl;
+			int	error_check, no_r4dwpn, impl, next_impl;
 			double	throughput, next_throughput;
 
 			if (gwdata->will_error_check == 0) error_check = i;	/* Look for no-error-checking benchmarks first */
 			if (gwdata->will_error_check == 1) error_check = !i;	/* Look for error-checking benchmarks first */
 			if (gwdata->will_error_check == 2) error_check = i;	/* Need a more sophisticated approach in this case */
+			no_r4dwpn = (gwdata->sum_inputs_checking && ! gwdata->ALL_COMPLEX_FFT && ! (gwdata->cpu_flags & CPU_AVX));
 			gwbench_get_max_throughput (jmptab->fftlen, num_cores, num_workers, num_hyperthreads,
-						    all_complex, error_check, &impl, &throughput);
+						    all_complex, error_check, no_r4dwpn, &impl, &throughput);
 			if (throughput <= 0.0) continue;
 
 			for (next_jmptab = NEXT_SET_OF_JMPTABS(jmptab); ; next_jmptab = NEXT_SET_OF_JMPTABS(next_jmptab)) {
@@ -742,7 +743,7 @@ int is_fft_implemented (
 					return (TRUE);
 				}
 				gwbench_get_max_throughput (next_jmptab->fftlen, num_cores, num_workers, num_hyperthreads,
-							    all_complex, error_check, &next_impl, &next_throughput);
+							    all_complex, error_check, no_r4dwpn, &next_impl, &next_throughput);
 				if (next_throughput <= 0.0) break;		/* We don't have enough bench data to know if slightly larger FFT length will be faster */
 				if (next_throughput > throughput) return (FALSE); /* Larger FFT length is faster */
 			}

@@ -13,7 +13,7 @@ CPP = cc
 CPPFLAGS = -I.. -I../gwnum -DX86_64 -O2
 
 LFLAGS = -L/usr/local/lib -Wl,-M
-LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread /usr/local/lib/libhwloc.a -lcurl -lstdc++ -lcompat
+LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread /usr/local/lib/libhwloc.a -lcurl -lstdc++ -lcompat -lgmp
 
 FACTOROBJ = factor64.o
 OBJS = prime.o menu.o

@@ -2,8 +2,8 @@
 
 /* Constants */
 
-#define VERSION		"29.2"
-#define BUILD_NUM	"4"
+#define VERSION		"29.3"
+#define BUILD_NUM	"1"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -166,14 +166,15 @@ extern unsigned long volatile ITER_OUTPUT_RES;/* Iterations between results */
 extern unsigned long volatile DISK_WRITE_TIME;
 					/* Number of minutes between writing */
 					/* intermediate results to disk */
+extern unsigned long volatile JACOBI_TIME; /* Run a Jacobi test every N hours */
 extern unsigned int MODEM_RETRY_TIME;	/* How often to try sending msgs */
 					/* to primenet server whem modem off */
 extern unsigned int NETWORK_RETRY_TIME;	/* How often to try sending msgs */
 					/* to primenet server */
 extern float DAYS_BETWEEN_CHECKINS;	/* Days between sending updated */
 					/* completion dates to the server */
-extern int NUM_BACKUP_FILES;		/* Between 1 and 3 backup files (or 99 */
-					/* for overwrite) */
+extern int NUM_BACKUP_FILES;		/* Between 1 and 3 backup files (or 99 for overwrite) */
+extern int NUM_JACOBI_BACKUP_FILES;	/* Number of extra backup files (they've passed the Jacobi error check) */
 extern int SILENT_VICTORY;		/* Quiet find of new Mersenne prime */
 extern int SILENT_VICTORY_PRP;		/* Quiet find of new PRP */
 extern int RUN_ON_BATTERY;		/* Run program even on battery power */
@@ -199,7 +200,8 @@ extern unsigned int PRECISION;		/* Number of decimal places to output*/
 					/* in percent complete lines */
 extern int RDTSC_TIMING;		/* True if RDTSC is used to time */
 extern int TIMESTAMPING;		/* True is timestamps to be output */
-extern int CUMULATIVE_TIMING;		/* True if outputting cumulative time*/
+extern int CUMULATIVE_TIMING;		/* True if outputting cumulative time */
+extern int CUMULATIVE_ROUNDOFF;		/* True if outputting cumulative min and max roundoff error */
 extern int SEQUENTIAL_WORK;		/* TRUE (the  default) if undocumented */
 					/* SequentialWorkToDo is set */
 extern int WELL_BEHAVED_WORK;		/* TRUE if undocumented feature */
@@ -453,8 +455,9 @@ int PRIMENET (short, void *);
 					/* a during/else time period has ended */
 #define TE_LOAD_AVERAGE		13	/* Linux/FreeBSD/Apple load average check */
 #define TE_BENCH		14	/* Generate benchmark data for best FFT selection */
+#define TE_JACOBI		15	/* Trigger a Jacobi error check */
 
-#define MAX_TIMED_EVENTS	15	/* Maximum number of timed events */
+#define MAX_TIMED_EVENTS	16	/* Maximum number of timed events */
 
 void init_timed_event_handler (void);
 

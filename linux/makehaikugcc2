@@ -10,7 +10,7 @@ CPP = g++
 CPPFLAGS = -I.. -I../gwnum -O2 -march=i586 -malign-double
 
 LFLAGS = -Wl,-M -L/usr/local/lib
-LIBS   = -L/boot/common/lib ../gwnum/gwnum.a ../gwnum/gwnum.ld -lnetwork -lhwloc -lcurl -lstdc++.r4
+LIBS   = -L/boot/common/lib ../gwnum/gwnum.a ../gwnum/gwnum.ld -lnetwork -lhwloc -lcurl -lstdc++.r4 -lgmp
 
 FACTOROBJ = factor32.o
 HAIKUOBJS = prime.o menu.o

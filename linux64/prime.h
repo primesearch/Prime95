@@ -91,6 +91,8 @@
 #include <hwloc.h>
 #endif
 
+#include <gmp.h>
+
 #include <time.h>
 /*#define SERVER_TESTING*/
 extern int NO_GUI;

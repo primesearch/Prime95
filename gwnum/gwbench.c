@@ -514,12 +514,13 @@ void gwbench_get_max_throughput (
 	int	num_cores,			/* Return bench data where this number of cores were used */
 	int	num_workers,			/* Return bench data where this number of workers were used */
 	int	num_hyperthreads,		/* Return bench data where this number of hyperthreads were used */
-	int	all_complex,			/* TRUE is all complex FFT bench data should be returned */
-	int	error_check,			/* TRUE is error_checking bench data should be returned */
+	int	all_complex,			/* TRUE if all complex FFT bench data should be returned */
+	int	error_check,			/* TRUE if error_checking bench data should be returned */
+	int	no_r4dwpn,			/* TRUE if FFT type FFT_TYPE_RADIX_4_DWPN should not be considered */
 	int	*impl,				/* Implementation ID of best FFT implementation */
 	double	*throughput)			/* Throughput of best FFT implementation (or -1 if cannot be determined) */
 {
-	int	errcode, impl_bits;
+	int	errcode, impl_bits, exclude_fft_type;
 
 /* Assume we will fail to get throughput data */
 
@@ -548,13 +549,18 @@ void gwbench_get_max_throughput (
 #endif
 	if (all_complex) impl_bits |= 0x8000000;
 	if (error_check) impl_bits |= 0x10000;
+	if (no_r4dwpn)
+		exclude_fft_type = FFT_TYPE_RADIX_4_DWPN << 24;		/* Exclude r4dwpn FFT type */
+	else
+		exclude_fft_type = -1;					/* Do not exclude any FFT types */
 
 /* Prepare a SQL statement to get benchmark data */
 
 	if (!get_max_sql_stmt_prepared) {
 		errcode = sqlite3_prepare_v2 (BENCH_DB, "SELECT impl, avg_throughput FROM avgbest3 \
 							 WHERE fftlen = ?1 AND num_cores = ?2 AND num_workers = ?3 AND \
-								num_hyperthreads = ?4 AND (impl & 0x8010008) = ?5 \
+								num_hyperthreads = ?4 AND (impl & 0x8010008) = ?5 AND \
+								(impl & 0x7000000) <> ?6 \
 							 ORDER BY avg_throughput DESC LIMIT 1", -1, &get_max_sql_stmt, NULL);
 		if (errcode != SQLITE_OK) goto stmt_error;
 		get_max_sql_stmt_prepared = TRUE;
@@ -575,6 +581,9 @@ void gwbench_get_max_throughput (
 	if (errcode != SQLITE_OK) goto stmt_error;
 
 	errcode = sqlite3_bind_int (get_max_sql_stmt, 5, impl_bits);
+	if (errcode != SQLITE_OK) goto stmt_error;
+
+	errcode = sqlite3_bind_int (get_max_sql_stmt, 6, exclude_fft_type);
 	if (errcode != SQLITE_OK) goto stmt_error;
 
 	errcode = sqlite3_step (get_max_sql_stmt);

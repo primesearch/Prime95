@@ -471,9 +471,10 @@
 				"OTHER_LDFLAGS[arch=x86_64]" = (
 					../../prime95/macosx64/factor64.o,
 					../../gwnum/amd64/debug/gwnum.a,
-					"-lhwloc",
+					/usr/local/lib/libhwloc.a,
 					"-lcurl",
 					"-lstdc++",
+					"-lgmp",
 				);
 				PRELINK_LIBS = "";
 				PRODUCT_NAME = Prime95;
@@ -528,9 +529,10 @@
 				"OTHER_LDFLAGS[arch=x86_64]" = (
 					../../prime95/macosx64/factor64.o,
 					../../gwnum/amd64/release/gwnum.a,
-					"-lhwloc",
+					/usr/local/lib/libhwloc.a,
 					"-lcurl",
 					"-lstdc++",
+					"-lgmp",
 				);
 				PRELINK_LIBS = "";
 				PRODUCT_NAME = Prime95;

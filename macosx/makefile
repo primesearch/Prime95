@@ -13,7 +13,7 @@ CPP = g++
 CPPFLAGS = -I.. -I../gwnum -I../linux -O2 -m32 -march=i686 -DCOMMAND_LINE_MPRIME
 
 LFLAGS = -Wl,-no_pie -L/usr/local/lib
-LIBS   = ../gwnum/release/gwnum.a -lm -lpthread -lhwloc -lcurl -framework IOKit -framework CoreFoundation -lstdc++
+LIBS   = ../gwnum/release/gwnum.a -lm -lpthread -lhwloc -lcurl -framework IOKit -framework CoreFoundation -lstdc++ -lgmp
 
 FACTOROBJ = ../prime95/macosx/factor32.o
 OBJS = prime.o menu.o
