@@ -2,8 +2,8 @@
 
 /* Constants */
 
-#define VERSION		"29.3"
-#define BUILD_NUM	"1"
+#define VERSION		"29.4"
+#define BUILD_NUM	"2"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -247,6 +247,8 @@ void generate_application_string (char *);
 void getCpuInfo (void);
 void getCpuDescription (char *, int);
 
+unsigned int countCommas (const char *);
+
 int isPrime (unsigned long p);
 int start_sieve (int thread_num, uint64_t start, void **returned_si);		// Default sieve eliminates numbers with factors < 64K
 int start_sieve_with_limit (int thread_num, uint64_t start, uint32_t max_elimination_factor, void **returned_si);
@@ -334,8 +336,9 @@ struct work_unit {		/* One line from the worktodo file */
 	double	B2;		/* ECM and P-1 - Stage #2 end */
 	unsigned int curves_to_do; /* ECM - curves to try */
 	double	curve;		/* ECM - Specific curve to test (debug tool) */
-	double	tests_saved;	/* Pfactor - primality tests saved if */
-				/* a factor is found */
+	double	tests_saved;	/* Pfactor - primality tests saved if a factor is found */
+	unsigned int prp_base;	/* PRP base to use */	
+	int	prp_residue_type; /* PRP residue to output -- see primenet.h */
 	char	*known_factors;	/* ECM, P-1, PRP - list of known factors */
 	char	*comment;	/* Comment line in worktodo.ini */
 		/* Runtime variables */

@@ -163,15 +163,22 @@ DQ
                                                 <menu key="menu" title="OtherViews" id="110">
                                                     <items>
                                                         <menuItem title="Whatever makes the most sense" id="127"/>
-                                                        <menuItem title="World record sized numbers to test" id="111"/>
-                                                        <menuItem title="First time tests" id="128"/>
-                                                        <menuItem title="Double-check tests" id="129"/>
+                                                        <menuItem title="First time LL tests" id="128"/>
+                                                        <menuItem title="World record sized numbers to LL test" id="111"/>
+                                                        <menuItem title="Double-check LL tests" id="129"/>
+                                                        <menuItem title="First time PRP tests" id="Guu-eN-7Zg"/>
+                                                        <menuItem title="World record sized numbers to PRP test" id="rGY-8y-gWt"/>
+                                                        <menuItem title="Double-check PRP tests" id="hWS-vi-GlN"/>
                                                         <menuItem title="Trial factoring" id="130"/>
                                                         <menuItem title="P-1 factoring" id="131"/>
-                                                        <menuItem title="Trial factoring to low limits" id="132"/>
-                                                        <menuItem title="ECM on small Mersenne numbers" id="155"/>
+                                                        <menuItem title="100,000,000 digit numbers to PRP test" id="157"/>
+                                                        <menuItem title="100,000,000 digit numbers to LL test (not recommended)" id="8nx-Et-95H"/>
+                                                        <menuItem title="First time PRP on Mersenne cofactors" id="7Ya-9P-hpZ"/>
+                                                        <menuItem title="Double check PRP on Mersenne cofactors" id="h9n-d3-0HY"/>
+                                                        <menuItem title="ECM for first factors of Mersenne numbers" id="155"/>
+                                                        <menuItem title="ECM on Mersenne cofactors" id="3Ax-ld-dWx"/>
                                                         <menuItem title="ECM on Fermat numbers" id="156"/>
-                                                        <menuItem title="100,000,000 digit numbers to test" id="157"/>
+                                                        <menuItem title="Trial factoring to low limits" id="132"/>
                                                     </items>
                                                 </menu>
                                             </popUpButtonCell>

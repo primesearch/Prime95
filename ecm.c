@@ -871,7 +871,6 @@ int setN (
 	giant	*N)		/* k*b^n+c as a giant */
 {
 	unsigned long bits, p;
-	FILE	*fd;
 	char	buf[2500];
 
 /* Create the binary representation of the number we are factoring */
@@ -961,33 +960,37 @@ int setN (
 
 			ctog (p, f);
 			if (gsign (f) < 1 || isone (f)) {
-				char	msg[100];
+				char	msg[1000];
 				strcpy (buf, p);
 				buf[10] = 0;
-				sprintf (msg, "Error parsing comma separated known factor list near: %s\n", buf);
+				sprintf (msg, "Error parsing known factors of %s near: '%s'\n", gwmodulo_as_string (gwdata), buf);
 				OutputStr (thread_num, msg);
+				free (f);
+				free (tmp);
+				deleteWorkToDoLine (thread_num, w, FALSE);
+				return (STOP_ABORT);
 			}
 
 /* Divide N by factor - then verify the factor */
 
-			else {
-				gtog (*N, tmp);
-				divg (f, tmp);
-				mulg (tmp, f);
-				if (gcompg (f, *N)) {
-					strcpy (buf, p);
-					comma = strchr (buf, ',');
-					if (comma != NULL) *comma = 0;
-					sprintf (buf+strlen(buf),
-						 " does not divide %s\n",
-						 gwmodulo_as_string (gwdata));
-					OutputBoth (thread_num, buf);
-				} else
-					gtog (tmp, *N);
+			gtog (*N, tmp);
+			divg (f, tmp);
+			mulg (tmp, f);
+			if (gcompg (f, *N)) {
+				strcpy (buf, p);
+				comma = strchr (buf, ',');
+				if (comma != NULL) *comma = 0;
+				sprintf (buf+strlen(buf), " does not divide %s\n", gwmodulo_as_string (gwdata));
+				OutputBoth (thread_num, buf);
+				free (f);
+				free (tmp);
+				deleteWorkToDoLine (thread_num, w, FALSE);
+				return (STOP_ABORT);
 			}
+			gtog (tmp, *N);
 
 /* Skip to next factor in list */
-			
+
 			comma = strchr (p, ',');
 			if (comma == NULL) break;
 			p = comma + 1;
@@ -997,64 +1000,8 @@ int setN (
 		return (0);
 	}
 
-/* Ignore file of known factors when QAing */
+/* Return success */
 
-	if (QA_IN_PROGRESS) return (0);
-
-/* Open file of known factors.  This code has been obsoleted by the */
-/* known factors list in worktodo.ini. */
-
-	if (w->k != 1.0 || w->b != 2 || abs(w->c) != 1) return (0);
-	fd = fopen (w->c == 1 ? "lowp.txt" : "lowm.txt", "r");
-	if (fd == NULL) return (0);
-
-/* Loop until the entire file is processed */
-/* We are looking for lines of the form: "M( 2843 )C: 142151" */
-
-	while (fscanf (fd, "%s", buf) != EOF) {
-		giant	tmp, f;
-
-		if (buf[0] != 'M' && buf[0] != 'P') continue;
-		(void) fscanf (fd, "%ld", &p);
-		if (p > w->n) break;
-		if (p < w->n) continue;
-		(void) fscanf (fd, "%s", buf);
-		if (buf[1] != 'C') continue;
-
-/* Allocate space for factor verification */
-
-		tmp = allocgiant ((bits >> 5) + 5);
-		if (tmp == NULL) return (OutOfMemory (thread_num));
-		f = allocgiant ((bits >> 5) + 5);
-		if (f == NULL) return (OutOfMemory (thread_num));
-
-/* Get the factor */
-
-		(void) fscanf (fd, "%s", buf);
-		ctog (buf, f);
-
-/* Divide N by factor - but first verify the factor */
-
-		gtog (*N, tmp);
-		divg (f, tmp);
-		mulg (tmp, f);
-		if (gcompg (f, *N)) {
-			char bigbuf[3000];
-			sprintf (bigbuf,
-				 "Factor %s in %s does not divide %s\n",
-				 buf,
-				 w->c == 1 ? "lowp.txt" : "lowm.txt",
-				 gwmodulo_as_string (gwdata));
-			OutputBoth (thread_num, bigbuf);
-		} else
-			gtog (tmp, *N);
-		free (f);
-		free (tmp);
-	}
-
-/* Close file and return */
-
-	fclose (fd);
 	return (0);
 }
 
@@ -1091,7 +1038,7 @@ int gcd (
 /* If a factor was found, save it in FAC */
 
 	if (mpz_cmp_ui (a, 1) && mpz_cmp (a, b)) {
-		*factor = allocgiant (mpz_sizeinbase (a, 32));
+		*factor = allocgiant ((int) mpz_sizeinbase (a, 32));
 		if (*factor == NULL) goto oom;
 		mpztog (a, *factor);
 	} else
@@ -3176,7 +3123,7 @@ more_curves:
 
 /* Output line to results file indicating the number of curves run */
 
-	sprintf (buf, "%s completed %u ECM %s, B1=%.0f, B2=%.0f, We%d: %08lX\n",
+	sprintf (buf, "%s completed %u ECM %s, B1=%.0f, B2=%.0f, Wg%d: %08lX\n",
 		 gwmodulo_as_string (&ecmdata.gwdata), w->curves_to_do,
 		 w->curves_to_do == 1 ? "curve" : "curves",
 		 (double) B, (double) C, PORT, SEC5 (w->n, B, C));
@@ -3517,12 +3464,12 @@ void pm1_cleanup (
 
 /* Raises number to the given power */
 
-int pm1_mul (
+void pm1_mul (
 	pm1handle *pm1data,
 	gwnum	xx,
+	gwnum	orig_xx_fft,
 	uint64_t n)
 {
-	gwnum	orig_xx_fft;
 	uint64_t c;
 
 /* Find most significant bit and then ignore it */
@@ -3534,8 +3481,6 @@ int pm1_mul (
 
 /* Handle the second most significant bit */
 
-	orig_xx_fft = gwalloc (&pm1data->gwdata);
-	if (orig_xx_fft== NULL) goto oom;
 	gwstartnextfft (&pm1data->gwdata, c > 1);
 	gwfft (&pm1data->gwdata, xx, orig_xx_fft);
 	gwfftfftmul (&pm1data->gwdata, orig_xx_fft, orig_xx_fft, xx);
@@ -3550,12 +3495,6 @@ int pm1_mul (
 		if (c&n) gwfftmul (&pm1data->gwdata, orig_xx_fft, xx);
 		c >>= 1;
 	}
-	gwfree (&pm1data->gwdata, orig_xx_fft);
-	return (0);
-
-/* Out of memory exit path */
-
-oom:	return (OutOfMemory (pm1data->thread_num));
 }
 
 /* Code to init "finite differences" for computing successive */
@@ -4412,7 +4351,7 @@ int pminus1 (
 	unsigned long numrels, first_rel, last_rel;
 	unsigned long i, j, stage2incr, len, bit_number;
 	unsigned long error_recovery_mode = 0;
-	gwnum	x, gg, t3;
+	gwnum	x, gg, tmp_gwnum, t3;
 	readSaveFileState read_save_file_state;	/* Manage savefile names during reading */
 	writeSaveFileState write_save_file_state; /* Manage savefile names during writing */
 	char	filename[32], buf[255], testnum[100];
@@ -4890,14 +4829,22 @@ restart1:
 	start_timer (timers, 0);
 	start_timer (timers, 1);
 	pm1data.stage = PM1_STAGE1;
+	tmp_gwnum = gwalloc (&pm1data.gwdata);
+	if (tmp_gwnum == NULL) goto oom;
 	SQRT_B = (unsigned long) sqrt ((double) pm1data.B);
 	for ( ; prime <= pm1data.B; prime = sieve (pm1data.sieve_info)) {
+
+/* Test for user interrupt, save files, and error checking */
+
+		stop_reason = stopCheck (thread_num);
+		saving = testSaveFilesFlag (thread_num);
+		echk = stop_reason || saving || ERRCHK || near_fft_limit || ((prime & 127) == 127);
+		gwsetnormroutine (&pm1data.gwdata, 0, echk, 0);
 
 /* Apply as many powers of prime as long as prime^n <= B */
 
 		if (prime > pm1data.B_done) {
-			stop_reason = pm1_mul (&pm1data, x, prime);
-			if (stop_reason) goto exit;
+			pm1_mul (&pm1data, x, tmp_gwnum, prime);
 		}
 		if (prime <= SQRT_B) {
 			uint64_t mult, max;
@@ -4906,8 +4853,7 @@ restart1:
 			for ( ; ; ) {
 				mult *= prime;
 				if (mult > pm1data.B_done) {
-					stop_reason = pm1_mul (&pm1data, x, prime);
-					if (stop_reason) goto exit;
+					pm1_mul (&pm1data, x, tmp_gwnum, prime);
 				}
 				if (mult > max) break;
 			}
@@ -4920,10 +4866,6 @@ restart1:
 /* Calculate our stage 1 percentage complete */
 
 		w->pct_complete = (double) prime * one_over_B;
-
-/* Test for user interrupt */
-
-		stop_reason = stopCheck (thread_num);
 
 /* Output the title every so often */
 
@@ -4970,11 +4912,12 @@ restart1:
 
 /* Check for escape and/or if its time to write a save file */
 
-		if (stop_reason || testSaveFilesFlag (thread_num)) {
+		if (stop_reason || saving) {
 			pm1_save (&pm1data, &write_save_file_state, w, prime, x, NULL);
 			if (stop_reason) goto exit;
 		}
 	}
+	gwfree (&pm1data.gwdata, tmp_gwnum);
 	pm1data.B_done = pm1data.B;
 	pm1data.C_done = pm1data.B;
 	end_timer (timers, 0);
@@ -5465,7 +5408,7 @@ msg_and_exit:
 		else
 			sprintf (buf+strlen(buf), ", B2=%.0f, E=%lu", (double) C, pm1data.E);
 	}
-	sprintf (buf+strlen(buf), ", We%d: %08lX\n", PORT, SEC5 (w->n, B, C));
+	sprintf (buf+strlen(buf), ", Wg%d: %08lX\n", PORT, SEC5 (w->n, B, C));
 	OutputStr (thread_num, buf);
 	formatMsgForResultsFile (buf, w);
 	writeResults (buf);

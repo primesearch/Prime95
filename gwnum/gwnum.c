@@ -657,6 +657,9 @@ static __inline struct gwasm_jmptab *LAST_JMPTAB (struct gwasm_jmptab *x)
 }
 static __inline struct gwasm_jmptab *NEXT_SET_OF_JMPTABS (struct gwasm_jmptab *x)
 {
+	// Handle case where there are no FFT implementations
+	if (x->flags == 0) return ((struct gwasm_jmptab *) &x->proc_ptr);
+	// Get pointer to the last FFT implementation
 	x = LAST_JMPTAB (x);
 	// Adjust for jmptab containing two proc ptrs
 	if (x->flags & 0x40000000) x = (struct gwasm_jmptab *) ((char *)(x) + sizeof(void*));
@@ -665,8 +668,6 @@ static __inline struct gwasm_jmptab *NEXT_SET_OF_JMPTABS (struct gwasm_jmptab *x
 	// Next set of jmptabs is after the zero count
 	return ((struct gwasm_jmptab *) &x->counts[1]);
 }
-
-#define DEC_JMPTAB_1(x)	x = (struct gwasm_jmptab *) ((char *)(x) - sizeof(uint32_t) - sizeof(void*) - sizeof(uint32_t))
 
 /* This routine checks to see if there is an FFT implementation for this FFT length and */
 /* CPU architecture.  For example, when the FFT length is just less than a power of two, on */

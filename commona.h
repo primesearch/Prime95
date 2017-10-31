@@ -12,4 +12,4 @@
 
 void sanitizeString (char *);
 void rangeStatusMessage (char *, unsigned int);
-int min_cores_for_work_type (int work_type);
+int min_cores_for_work_pref (int work_pref);

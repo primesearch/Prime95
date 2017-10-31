@@ -16,7 +16,7 @@ ENDIF
 
 INCLUDE	unravel.mac
 
-VERSION_NUMBER = 2902		;; Version 29.2
+VERSION_NUMBER = 2904		;; Version 29.4
 
 ;
 ; Global variables needed by FFT setup code
@@ -281,6 +281,10 @@ PRCENTRY2 MACRO procname, mem_needed, best_impl_for
 		PRCENTRY3 @CATSTR(procname, <_FMA3>), mem_needed, FMA3
 		bif = bif AND NOT MAYBE_FMA3
 	ENDIF
+	IF (bif AND RYZEN) NE 0
+		PRCENTRY3 @CATSTR(procname, <_FMA3>), mem_needed, RYZEN
+		bif = bif AND NOT MAYBE_FMA3
+	ENDIF
 	IF (bif AND P4_1024) NE 0
 		PRCENTRY3 @CATSTR(procname, <_P4>), mem_needed, P4_1024
 		bif = bif AND NOT MAYBE_P4
@@ -317,7 +321,7 @@ PRCENTRY2 MACRO procname, mem_needed, best_impl_for
 		PRCENTRY3 @CATSTR(procname, <_CORE>), mem_needed, 0
 	ENDIF
 	IF (bif AND MAYBE_FMA3) NE 0
-		PRCENTRY3 @CATSTR(procname, <_FMA3>), mem_needed, FMA3
+		PRCENTRY3 @CATSTR(procname, <_FMA3>), mem_needed, 0
 	ENDIF
 	IF (bif AND MAYBE_K8) NE 0
 		PRCENTRY3 @CATSTR(procname, <_K8>), mem_needed, 0

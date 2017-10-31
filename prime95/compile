@@ -6,7 +6,7 @@
 # objconv comes courtesy of Agner Fog.  Download available at
 # http://www.agner.org/optimize/#objconv
 
-masm=HJWasm32 /c -coff /I..\gwnum
+masm=uasm32 /c -coff /I..\gwnum
 #masm=ml /c /coff /I..\gwnum
 #masm=ml /c /coff /I..\gwnum /Fl /Sf /Sa
 

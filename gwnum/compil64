@@ -7,12 +7,12 @@
 # http://www.agner.org/optimize/#objconv
 
 #### -EP can be useful instead of a listing
-masm64=HJWasm32 /c /DX86_64 /DWINDOWS64 -win64
-#masm64=HJWasm32 /c /DX86_64 /DWINDOWS64 /Fl /Sf /Sa -win64
+masm64=uasm32 /c /DX86_64 /DWINDOWS64 -win64
+#masm64=uasm32 /c /DX86_64 /DWINDOWS64 /Fl /Sf /Sa -win64
 #masm64=ml64 /c /DX86_64 /DWINDOWS64
 #masm64=ml64 /c /DX86_64 /DWINDOWS64 /Fl /Sf /Sa
-masm64lx=HJWasm32 /c /DX86_64 /DLINUX64 -win64
-#masm64lx=HJWasm32 /c /DX86_64 /DLINUX64 /Fl /Sf /Sa -win64
+masm64lx=uasm32 /c /DX86_64 /DLINUX64 -win64
+#masm64lx=uasm32 /c /DX86_64 /DLINUX64 /Fl /Sf /Sa -win64
 #masm64lx=ml64 /c /DX86_64 /DLINUX64
 objconv=c:\objconv\objconv
 
@@ -161,10 +161,10 @@ amd64\debug\gwini.obj: gwini.c gwini.h
 # Compiler problem with /O2.  SQL data does not commit properly.  That is, freshly added
 # autobench data is not used when workers restart.  Prime95 must exit and restart for
 # new benchmark data to be used in FFT implementation selection.
-amd64\release\gwbench.obj: gwbench.c gwbench.h
+amd64\release\gwbench.obj: gwbench.c gwbench.h gwnum.h
     $(cl64o1) /I..\sqlite-amalgamation-3180000 /Foamd64\release\gwbench.obj gwbench.c
 
-amd64\debug\gwbench.obj: gwbench.c gwbench.h
+amd64\debug\gwbench.obj: gwbench.c gwbench.h gwnum.h
     $(cl64d) /I..\sqlite-amalgamation-3180000 /Foamd64\debug\gwbench.obj gwbench.c
 
 amd64\release\gwutil.obj: gwutil.c gwutil.h

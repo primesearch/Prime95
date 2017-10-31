@@ -1283,7 +1283,7 @@ int readIniFiles (void)
 	if (!IniGetInt (INI_FILE, "V24OptionsConverted", 0)) {
 		IniWriteInt (INI_FILE, "V24OptionsConverted", 1);
 		if (IniGetInt (INI_FILE, "WorkPreference", 0) == 16) // Ten million digit
-			IniWriteInt (INI_FILE, "WorkPreference", PRIMENET_WP_WORLD_RECORD);
+			IniWriteInt (INI_FILE, "WorkPreference", PRIMENET_WP_LL_WORLD_RECORD);
 		else if (IniGetInt (INI_FILE, "WorkPreference", 0) == 2)
 			IniWriteInt (INI_FILE, "WorkPreference", PRIMENET_WP_LL_FIRST);
 		else if (IniGetInt (INI_FILE, "WorkPreference", 0) == 4)
@@ -2577,9 +2577,10 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		}
 	    }
 
-/* Handle PRP= lines.							*/
-/*	PRP=k,b,n,c[,how_far_factored,tests_saved][,known_factors]	*/
-/* A tests_saved value of 0.0 will bypass any P-1 factoring		*/
+/* Handle PRP= lines.									*/
+/*	PRP=k,b,n,c[,how_far_factored,tests_saved[,base,residue_type]][,known_factors]	*/
+/* A tests_saved value of 0.0 will bypass any P-1 factoring				*/
+/* The PRP residue type is defined in primenet.h					*/
 
 	    else if (_stricmp (keyword, "PRP") == 0) {
 		char	*q;
@@ -2592,14 +2593,21 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 			if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
 		q = strchr (q+1, ',');
 
+		w->sieve_depth = 0.0;
+		w->tests_saved = 0.0;
+		w->prp_base = 0;
+		w->prp_residue_type = 0;
 		if (q != NULL && q[1] != '"') {
 			w->sieve_depth = atof (q+1);
 			if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
 			w->tests_saved = atof (q+1);
 			q = strchr (q+1, ',');
-		} else {
-			w->sieve_depth = 0.0;
-			w->tests_saved = 0.0;
+			if (q != NULL && q[1] != '"') {
+				w->prp_base = atoi (q+1);
+				if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+				w->prp_residue_type = atoi (q+1);
+				q = strchr (q+1, ',');
+			}
 		}
 		if (q != NULL && q[1] == '"') {
 			w->known_factors = (char *) malloc (strlen (q));
@@ -2967,8 +2975,11 @@ int writeWorkToDoFile (
 
 		case WORK_PRP:
 			sprintf (buf, "PRP=%s%.0f,%lu,%lu,%ld", idbuf, w->k, w->b, w->n, w->c);
-			if (w->tests_saved > 0.0)
+			if (w->tests_saved > 0.0 || w->prp_base || w->prp_residue_type) {
 				sprintf (buf + strlen (buf), ",%g,%g", w->sieve_depth, w->tests_saved);
+				if (w->prp_base || w->prp_residue_type)
+					sprintf (buf + strlen (buf), ",%u,%d", w->prp_base, w->prp_residue_type);
+			}
 			if (w->known_factors != NULL)
 				sprintf (buf + strlen (buf), ",\"%s\"", w->known_factors);
 			break;
@@ -2979,8 +2990,7 @@ int writeWorkToDoFile (
 		strcat (buf, "\n");
 		len = (unsigned int) strlen (buf);
 		if (_write (fd, buf, len) != len) {
-write_error:		OutputBoth (MAIN_THREAD_NUM,
-				    "Error writing worktodo.txt file\n");
+write_error:		OutputBoth (MAIN_THREAD_NUM, "Error writing worktodo.txt file\n");
 			_close (fd);
 			return (STOP_FILE_IO_ERROR);
 		}
@@ -4468,9 +4478,8 @@ void spoolMessage (
 /* If this is a maintain user info message, then set the header */
 /* word appropriately.  At Scott's request also send computer info. */
 
-	else if (msgType == PRIMENET_UPDATE_COMPUTER_INFO) {
+	else if (msgType == PRIMENET_UPDATE_COMPUTER_INFO)
 		header_word |= HEADER_FLAG_UC;
-	}
 
 /* If this is a exchange program options message, then set the header */
 /* word appropriately. */
@@ -4490,7 +4499,7 @@ void spoolMessage (
 	else if (msgType == MSG_QUIT_GIMPS)
 		header_word |= HEADER_FLAG_QUIT_GIMPS;
 
-/* Otherwise this is a result, unreserve, or benchmark data */
+/* Otherwise this is a result, interim residue, unreserve, or benchmark data */
 
 	else
 		header_word |= HEADER_FLAG_MSGS;
@@ -4502,7 +4511,8 @@ void spoolMessage (
 
 /* Write out a full message */
 
-	if (msgType == PRIMENET_ASSIGNMENT_RESULT ||
+	if (msgType == -PRIMENET_ASSIGNMENT_PROGRESS ||
+	    msgType == PRIMENET_ASSIGNMENT_RESULT ||
 	    msgType == PRIMENET_ASSIGNMENT_UNRESERVE ||
 	    msgType == PRIMENET_BENCHMARK_DATA) {
 		char	buf[1024];
@@ -4514,11 +4524,12 @@ void spoolMessage (
 
 /* Append the latest message */
 
-		datalen = (msgType == PRIMENET_ASSIGNMENT_RESULT) ?
-			sizeof (struct primenetAssignmentResult) :
-			(msgType == PRIMENET_ASSIGNMENT_UNRESERVE) ?
-			sizeof (struct primenetAssignmentUnreserve) :
-			sizeof (struct primenetBenchmarkData);
+		datalen = (msgType == -PRIMENET_ASSIGNMENT_PROGRESS) ? sizeof (struct primenetAssignmentProgress) :
+			  (msgType == PRIMENET_ASSIGNMENT_RESULT) ? sizeof (struct primenetAssignmentResult) :
+			  (msgType == PRIMENET_ASSIGNMENT_UNRESERVE) ? sizeof (struct primenetAssignmentUnreserve) :
+			  sizeof (struct primenetBenchmarkData);
+		// Undo the ugly msgType hack for sending interim residues
+		if (msgType == -PRIMENET_ASSIGNMENT_PROGRESS) msgType = PRIMENET_ASSIGNMENT_PROGRESS;
 		(void) _write (fd, &msgType, sizeof (short));
 		(void) _write (fd, &datalen, sizeof (short));
 		(void) _write (fd, msg, datalen);
@@ -4532,13 +4543,14 @@ void spoolMessage (
 /* complete the initial startup dialog boxes and we are not doing manual */
 /* communication and the communication thread is not already active and we */
 /* are not waiting some time to retry after a failed communication attempt. */
+/* Assignment progress reports with interim residue messages can wait. */
 
 	if (!STARTUP_IN_PROGRESS &&
 	    !MANUAL_COMM &&
 	    !COMMUNICATION_THREAD &&
-	    !is_timed_event_active (TE_COMM_SERVER))
-		gwthread_create (&COMMUNICATION_THREAD,
-				 &communicateWithServer, NULL);
+	    !is_timed_event_active (TE_COMM_SERVER) &&
+	    msgType != -PRIMENET_ASSIGNMENT_PROGRESS)
+		gwthread_create (&COMMUNICATION_THREAD, &communicateWithServer, NULL);
 
 /* Release mutex before accessing spool file */
 
@@ -4812,7 +4824,8 @@ void readMessage (
 
 /* Return if msgType is one we expected. */
 
-		if (*msgType == PRIMENET_ASSIGNMENT_RESULT ||
+		if (*msgType == PRIMENET_ASSIGNMENT_PROGRESS ||
+		    *msgType == PRIMENET_ASSIGNMENT_RESULT ||
 		    *msgType == PRIMENET_ASSIGNMENT_UNRESERVE ||
 		    *msgType == PRIMENET_BENCHMARK_DATA)
 			return;
@@ -4883,8 +4896,7 @@ int sendMessage (
 			strcpy (timebuf, ctime (&this_time)+4);
 			safe_strcpy (timebuf+6, timebuf+15);
 			aid_to_text (info, ((struct primenetAssignmentProgress *)pkt)->assignment_uid);
-			sprintf (buf, "Sending expected completion date for %s: %s",
-				 info, timebuf);
+			sprintf (buf, "Sending expected completion date for %s: %s", info, timebuf);
 			LogMsg (buf);
 		}
 		break;
@@ -5457,6 +5469,7 @@ retry:
 	for ( ; ; ) {
 		short	msgType;
 		union {
+			struct primenetAssignmentProgress ap;
 			struct primenetAssignmentResult ar;
 			struct primenetAssignmentUnreserve au;
 			struct primenetBenchmarkData bd;
@@ -5469,6 +5482,7 @@ retry:
 		fd = _open (SPOOL_FILE, _O_RDONLY | _O_BINARY);
 		if (fd < 0) goto locked_leave;
 		_lseek (fd, msg_offset, SEEK_SET);
+		memset (&msg, 0, sizeof (msg));		// Clear msg in case spool file was written by an older prime95 version
 		readMessage (fd, &msg_offset, &msgType, &msg);
 		new_offset = _lseek (fd, 0, SEEK_CUR);
 		_close (fd);
@@ -5773,16 +5787,16 @@ retry:
 			w.c = pkt1.c;
 			w.sieve_depth = pkt1.how_far_factored;
 			w.tests_saved = pkt1.tests_saved;
+			w.prp_base = pkt1.prp_base;
+			w.prp_residue_type = pkt1.prp_residue_type;
 			break;
 		default:
-			sprintf (buf, "Received unknown work type: %lu.\n",
-				 (unsigned long) pkt1.work_type);
+			sprintf (buf, "Received unknown work type: %lu.\n", (unsigned long) pkt1.work_type);
 			LogMsg (buf);
 			goto error_exit;
 		}
 		if (pkt1.known_factors[0]) { /* ECM, P-1, PRP may have this */
-			w.known_factors = (char *)
-				malloc (strlen (pkt1.known_factors) + 1);
+			w.known_factors = (char *) malloc (strlen (pkt1.known_factors) + 1);
 			if (w.known_factors == NULL) {
 				LogMsg ("Memory allocation error\n");
 				goto error_exit;

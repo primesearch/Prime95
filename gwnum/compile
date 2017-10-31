@@ -6,9 +6,9 @@
 # objconv comes courtesy of Agner Fog.  Download available at
 # http://www.agner.org/optimize/#objconv
 
-masm=HJWasm32 /c -coff
-#masm=HJWasm32 /c -Fl -coff
-#masm=HJWasm32 /c -Fl -Sf -Sa -Sg -coff
+masm=uasm32 /c -coff
+#masm=uasm32 /c -Fl -coff
+#masm=uasm32 /c -Fl -Sf -Sa -Sg -coff
 #masm=ml /c /coff
 #masm=ml /c /coff /Fl /Sf /Sa
 
@@ -154,10 +154,10 @@ release\gwini.obj: gwini.c gwini.h
 debug\gwini.obj: gwini.c gwini.h
     $(cld) /Fodebug\gwini.obj gwini.c
 
-release\gwbench.obj: gwbench.c gwbench.h
+release\gwbench.obj: gwbench.c gwbench.h gwnum.h
     $(cl) /I..\sqlite-amalgamation-3180000 /Forelease\gwbench.obj gwbench.c
 
-debug\gwbench.obj: gwbench.c gwbench.h
+debug\gwbench.obj: gwbench.c gwbench.h gwnum.h
     $(cld) /I..\sqlite-amalgamation-3180000 /Fodebug\gwbench.obj gwbench.c
 
 release\gwutil.obj: gwutil.c gwutil.h

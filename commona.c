@@ -191,11 +191,11 @@ void rangeStatusMessage (
 		sprintf (buf+strlen(buf), STAT1, ll_cnt, (long) (1.0 / prob));
 }
 
-/* Return the suggested minimum number of cores that should be used for a work type. */
+/* Return the suggested minimum number of cores that should be used for a work preference. */
 /* Used in the Worker Windows dialog box. */
 
-int min_cores_for_work_type (
-	int	work_type)
+int min_cores_for_work_pref (
+	int	work_pref)
 {
 	int	cores;
 
@@ -203,9 +203,9 @@ int min_cores_for_work_type (
 
 	cores = 1;
 
-// If LL testing 100M digit numbers, use at least 4 cores (or all cores)
+// If LL or PRP testing 100M digit numbers, use at least 4 cores (or all cores)
 
-	if (work_type == PRIMENET_WP_LL_100M) {
+	if (work_pref == PRIMENET_WP_LL_100M || work_pref == PRIMENET_WP_PRP_100M) {
 		if (NUM_CPUS < 8) cores = NUM_CPUS;
 		else cores = 4;
 	}

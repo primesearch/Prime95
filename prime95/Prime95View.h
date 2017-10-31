@@ -1,3 +1,5 @@
+/* Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved */
+
 // Prime95View.h : interface of the CPrime95View class
 //
 /////////////////////////////////////////////////////////////////////////////
@@ -38,7 +40,7 @@ public:
 protected:
 	char	BaseTitle[80];		// Base Title (prefix) of MDI window
 	char	Title[80];		// Title of MDI window
-	char	LineData[MAX_VIEW_LINES][160]; // Data area for lines of text
+	char	LineData[MAX_VIEW_LINES][200]; // Data area for lines of text
 	char	*Lines[MAX_VIEW_LINES];	// Pointers to lines of text
 	int	NumLines;		// Number of text lines we have
 	int	MaxLineSize;		// Number of chars in widest line

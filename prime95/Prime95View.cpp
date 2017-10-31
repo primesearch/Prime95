@@ -1,4 +1,4 @@
-/* Copyright 1995-2015 Mersenne Research, Inc.  All rights reserved */
+/* Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved */
 
 // Prime95View.cpp : implementation of the CPrime95View class
 //
@@ -859,7 +859,7 @@ void CPrime95View::RealOutputStr (
 // the character to the line.
 
 		if (*str == '\n') *p = 0, LineFeed (), p = Lines[0];
-		else if (p - Lines[0] < 159) *p++ = *str;
+		else if (p - Lines[0] < 199) *p++ = *str;
 	}
 	*p = 0;
 	gwmutex_unlock (&VIEW_LINES_MUTEX);

@@ -285,6 +285,6 @@ extern int (*StopCheckRoutine)(int);
 /* Also responsible for allocating the giant with appropriate size. */
 
 #define gtompz(g,m)	mpz_import (m, (g)->sign, -1, sizeof ((g)->n[0]), 0, 0, (g)->n)
-#define mpztog(m,g)	{size_t	count; mpz_export ((g)->n, &count, -1, sizeof ((g)->n[0]), 0, 0, m); (g)->sign = count;}
+#define mpztog(m,g)	{size_t	count; mpz_export ((g)->n, &count, -1, sizeof ((g)->n[0]), 0, 0, m); (g)->sign = (int) count;}
 
 #endif

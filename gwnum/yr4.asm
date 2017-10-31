@@ -1,4 +1,4 @@
-; Copyright 2011-2014 Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2017 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -53,9 +53,9 @@ buildfor               ,	yonepass 6K, 0
 buildfor               ,	yonepass 8K, 0
 buildfor               ,	yonepass 10K, 0
 buildfor               ,	yonepass 12K, 0
-buildfor               ,	yonepass 16K, 0
-buildfor               ,	yonepass 20K, 0
+buildfor        FMA3_64,	yonepass 16K, 0
 buildfor               ,	yonepass 18K, 0
+buildfor        FMA3_64,	yonepass 20K, 0
 buildfor               ,	yonepass 24K, 0
 buildfor               ,	yonepass 32K, 0
 

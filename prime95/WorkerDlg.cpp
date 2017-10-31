@@ -115,26 +115,40 @@ int map_work_pref_to_sel (
 	switch (work_pref) {
 	case PRIMENET_WP_WHATEVER:
 		return (0);
-	case PRIMENET_WP_WORLD_RECORD:
-		return (1);
 	case PRIMENET_WP_LL_FIRST:
+		return (1);
+	case PRIMENET_WP_LL_WORLD_RECORD:
 		return (2);
 	case PRIMENET_WP_LL_DBLCHK:
 		return (3);
-	case PRIMENET_WP_FACTOR:
+	case PRIMENET_WP_PRP_FIRST:
 		return (4);
-	case PRIMENET_WP_PFACTOR:
+	case PRIMENET_WP_PRP_WORLD_RECORD:
 		return (5);
-	case PRIMENET_WP_FACTOR_LMH:
+	case PRIMENET_WP_PRP_DBLCHK:
 		return (6);
-	case PRIMENET_WP_ECM_SMALL:
+	case PRIMENET_WP_FACTOR:
 		return (7);
-	case PRIMENET_WP_ECM_FERMAT:
+	case PRIMENET_WP_PFACTOR:
 		return (8);
-	case PRIMENET_WP_LL_100M:
+	case PRIMENET_WP_PRP_100M:
 		return (9);
-	default:
+	case PRIMENET_WP_LL_100M:
 		return (10);
+	case PRIMENET_WP_PRP_COFACTOR:
+		return (11);
+	case PRIMENET_WP_PRP_COFACTOR_DBLCHK:
+		return (12);
+	case PRIMENET_WP_ECM_SMALL:
+		return (13);
+	case PRIMENET_WP_ECM_COFACTOR:
+		return (14);
+	case PRIMENET_WP_ECM_FERMAT:
+		return (15);
+	case PRIMENET_WP_FACTOR_LMH:
+		return (16);
+	default:
+		return (17);
 	}
 }
 
@@ -145,23 +159,37 @@ int map_sel_to_work_pref (
 	case 0:
 		return (PRIMENET_WP_WHATEVER);
 	case 1:
-		return (PRIMENET_WP_WORLD_RECORD);
-	case 2:
 		return (PRIMENET_WP_LL_FIRST);
+	case 2:
+		return (PRIMENET_WP_LL_WORLD_RECORD);
 	case 3:
 		return (PRIMENET_WP_LL_DBLCHK);
 	case 4:
-		return (PRIMENET_WP_FACTOR);
+		return (PRIMENET_WP_PRP_FIRST);
 	case 5:
-		return (PRIMENET_WP_PFACTOR);
+		return (PRIMENET_WP_PRP_WORLD_RECORD);
 	case 6:
-		return (PRIMENET_WP_FACTOR_LMH);
+		return (PRIMENET_WP_PRP_DBLCHK);
 	case 7:
-		return (PRIMENET_WP_ECM_SMALL);
+		return (PRIMENET_WP_FACTOR);
 	case 8:
-		return (PRIMENET_WP_ECM_FERMAT);
+		return (PRIMENET_WP_PFACTOR);
 	case 9:
+		return (PRIMENET_WP_PRP_100M);
+	case 10:
 		return (PRIMENET_WP_LL_100M);
+	case 11:
+		return (PRIMENET_WP_PRP_COFACTOR);
+	case 12:
+		return (PRIMENET_WP_PRP_COFACTOR_DBLCHK);
+	case 13:
+		return (PRIMENET_WP_ECM_SMALL);
+	case 14:
+		return (PRIMENET_WP_ECM_COFACTOR);
+	case 15:
+		return (PRIMENET_WP_ECM_FERMAT);
+	case 16:
+		return (PRIMENET_WP_FACTOR_LMH);
 	}
 	return (-1);
 }
@@ -202,16 +230,23 @@ void CWorkerDlg::InitComboBoxText (void)
 		sel = 0;
 	}
 	c_work_pref.AddString ("Whatever makes the most sense");
-	c_work_pref.AddString ("World record sized numbers to test");
-	c_work_pref.AddString ("First time tests");
-	c_work_pref.AddString ("Double-check tests");
+	c_work_pref.AddString ("First time LL tests");
+	c_work_pref.AddString ("World record sized numbers to LL test");
+	c_work_pref.AddString ("Double-check LL tests");
+	c_work_pref.AddString ("First time PRP tests");
+	c_work_pref.AddString ("World record sized numbers to PRP test");
+	c_work_pref.AddString ("Double-check PRP tests");
 	c_work_pref.AddString ("Trial factoring");
 	c_work_pref.AddString ("P-1 factoring");
-	c_work_pref.AddString ("Trial factoring to low limits");
-	c_work_pref.AddString ("ECM on small Mersenne numbers");
+	c_work_pref.AddString ("100,000,000 digit numbers to PRP test");
+	c_work_pref.AddString ("100,000,000 digit numbers to LL test (not recommended)");
+	c_work_pref.AddString ("First time PRP on Mersenne cofactors");
+	c_work_pref.AddString ("Double-check PRP on Mersenne cofactors");
+	c_work_pref.AddString ("ECM for first factors of Mersenne numbers");
+	c_work_pref.AddString ("ECM on Mersenne cofactors");
 	c_work_pref.AddString ("ECM on Fermat numbers");
-	c_work_pref.AddString ("100,000,000 digit numbers to test");
-	if (sel == 10) c_work_pref.AddString ("Other");
+	c_work_pref.AddString ("Trial factoring to low limits");
+	if (sel == 13) c_work_pref.AddString ("Other");
 	c_work_pref.SetCurSel (sel);
 
 // Populate the num cpus edit box.
@@ -294,7 +329,7 @@ void CWorkerDlg::OnCbnKillfocusWorkType()
 	sel = c_work_pref.GetCurSel ();
 	if (thread_num) {
 		work_pref = map_sel_to_work_pref (sel);
-		min_cores = min_cores_for_work_type (work_pref);
+		min_cores = min_cores_for_work_pref (work_pref);
 		if (work_pref != -1) {
 			m_work_pref[thread_num-1] = work_pref;
 			if (m_numcpus[thread_num-1] < min_cores) {
@@ -306,7 +341,7 @@ void CWorkerDlg::OnCbnKillfocusWorkType()
 	}
 	else if (AreAllTheSame (m_work_pref)) {
 		work_pref = map_sel_to_work_pref (sel);
-		min_cores = min_cores_for_work_type (work_pref);
+		min_cores = min_cores_for_work_pref (work_pref);
 		if (work_pref != -1) {
 			for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
 				m_work_pref[i] = work_pref;
@@ -316,7 +351,7 @@ void CWorkerDlg::OnCbnKillfocusWorkType()
 		}
 	} else if (sel) {
 		work_pref = map_sel_to_work_pref (sel-1);
-		min_cores = min_cores_for_work_type (work_pref);
+		min_cores = min_cores_for_work_pref (work_pref);
 		for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
 			m_work_pref[i] = work_pref;
 			if (m_numcpus[i] < min_cores) m_numcpus[i] = min_cores;
@@ -338,14 +373,14 @@ void CWorkerDlg::OnEnKillfocusNumCpus()
 		if (num_cpus > NUM_CPUS)
 			num_cpus = NUM_CPUS;
 		if (thread_num) {
-			min_cores = min_cores_for_work_type (m_work_pref[thread_num-1]);
+			min_cores = min_cores_for_work_pref (m_work_pref[thread_num-1]);
 			if (num_cpus < min_cores) num_cpus = min_cores;
 			m_numcpus[thread_num-1] = num_cpus;
 			sprintf (buf, "%d", num_cpus);
 			c_numcpus.SetWindowText (buf);
 		} else {
 			for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
-				min_cores = min_cores_for_work_type (m_work_pref[i]);
+				min_cores = min_cores_for_work_pref (m_work_pref[i]);
 				m_numcpus[i] = (num_cpus > min_cores ? num_cpus : min_cores);
 			}
 			if (AreAllTheSame (m_numcpus)) {
