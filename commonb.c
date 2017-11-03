@@ -3487,71 +3487,62 @@ void readSaveFileStateInit (
 int saveFileExists (
 	readSaveFileState *state)
 {
-	int	i, maxbad;
+	int	maxbad;
 	char	buf[256];
 
-/* Bump the read_attempt counter so that we try the next save file */
+/* Loop looking for progressively higher numbered save files */
 
-	state->read_attempt++;
+	for ( ; ; ) {
+		state->read_attempt++;
 
 /* If the simple save file name exists, use it */
 
-	if (state->read_attempt <= 1) {
-		state->read_attempt = 1;
-		strcpy (state->current_filename, state->base_filename);
-		if (fileExists (state->current_filename)) goto winner;
-	}
+		if (state->read_attempt == 1) {
+			strcpy (state->current_filename, state->base_filename);
+			if (fileExists (state->current_filename)) goto winner;
+			continue;
+		}
 
 /* If the second save file exists, use it */
 
-	if (state->read_attempt <= 2) {
-		state->read_attempt = 2;
-		sprintf (state->current_filename, "%s.bu", state->base_filename);
-		if (fileExists (state->current_filename)) goto winner;
-	}
+		if (state->read_attempt == 2) {
+			sprintf (state->current_filename, "%s.bu", state->base_filename);
+			if (fileExists (state->current_filename)) goto winner;
+			continue;
+		}
 
-/* If the third save file exists, use it */
+/* If the third and higher save file exists (.bu2, .bu3, .bu4, etc.), use it */
 
-	if (state->read_attempt <= 3) {
-		state->read_attempt = 3;
-		sprintf (state->current_filename, "%s.bu2", state->base_filename);
-		if (fileExists (state->current_filename)) goto winner;
-	}
+		if (state->read_attempt <= NUM_BACKUP_FILES + NUM_JACOBI_BACKUP_FILES) {
+			sprintf (state->current_filename, "%s.bu%d", state->base_filename, state->read_attempt - 1);
+			if (fileExists (state->current_filename)) goto winner;
+			continue;
+		}
 
 /* If the save file created during writing and before renaming exists, use it */
 
-	if (state->read_attempt <= 4) {
-		state->read_attempt = 4;
-		sprintf (state->current_filename, "%s.write", state->base_filename);
-		if (fileExists (state->current_filename)) goto winner;
-	}
-
-/* In v24 we changed the first letter of the save file name.  We no longer do */
-/* this but we'll use them if we find them. */
-
-	if (state->base_filename[0] == 'p') {
-		if (state->read_attempt <= 5) {
-			state->read_attempt = 5;
-			sprintf (state->current_filename, "q%s", state->base_filename+1);
+		if (state->read_attempt == NUM_BACKUP_FILES + NUM_JACOBI_BACKUP_FILES + 1) {
+			state->read_attempt = 49;	// Special value to look for bad save files next
+			sprintf (state->current_filename, "%s.write", state->base_filename);
 			if (fileExists (state->current_filename)) goto winner;
+			continue;
 		}
-		if (state->read_attempt <= 6) {
-			state->read_attempt = 6;
-			sprintf (state->current_filename, "r%s", state->base_filename+1);
-			if (fileExists (state->current_filename)) goto winner;
-		}
-	}
 
 /* Now retry old bad save files in case they were good but the OS was in a funky state earlier. */
 /* Retry these files in highest to lowest order (but don't try any files we just renamed) so */
 /* that more recent bad files are tried first. */
 
-	if (state->num_original_bad_files >= 0) maxbad = state->num_original_bad_files;
-	else maxbad = IniGetInt (INI_FILE, "MaxBadSaveFiles", 10);
-	for (i = (state->read_attempt > 10) ? (state->read_attempt - 10) : 0; i < maxbad; i++) {
-		state->read_attempt = 10 + i;
-		sprintf (state->current_filename, "%s.bad%d", state->base_filename, maxbad - i);
-		if (fileExists (state->current_filename)) goto winner;
+		if (state->num_original_bad_files >= 0) maxbad = state->num_original_bad_files;
+		else maxbad = IniGetInt (INI_FILE, "MaxBadSaveFiles", 10);
+		if (state->read_attempt >= 50 && state->read_attempt < 50 + maxbad) {
+			sprintf (state->current_filename, "%s.bad%d", state->base_filename, maxbad - (state->read_attempt - 50));
+			if (fileExists (state->current_filename)) goto winner;
+			continue;
+		}
+
+/* We've run out of save files to look for */
+
+		break;
 	}
 
 /* No useable save file found */
@@ -3565,7 +3556,7 @@ winner:	if (state->read_attempt != 1) {
 		OutputBoth (state->thread_num, buf);
 	}
 	state->a_save_file_existed = 1;
-	if (state->read_attempt < 10) state->a_non_bad_save_file_existed = 1;
+	if (state->read_attempt < 50) state->a_non_bad_save_file_existed = 1;
 	return (TRUE);
 }
 
@@ -3588,7 +3579,7 @@ void saveFileBad (
 
 /* Don't rename a bad save file */
 
-	if (state->read_attempt >= 10) return;
+	if (state->read_attempt >= 50) return;
 
 /* If we aren't renaming save files, then just return */
 
@@ -10843,7 +10834,7 @@ begin:	gwinit (&gwdata);
 
 	tempFileName (w, filename);
 	readSaveFileStateInit (&read_save_file_state, thread_num, filename);
-	writeSaveFileStateInit (&write_save_file_state, filename, 0);
+	writeSaveFileStateInit (&write_save_file_state, filename, NUM_JACOBI_BACKUP_FILES);
 	for ( ; ; ) {
 
 /* If there are no more save files, start off with the 1st PRP squaring. */
