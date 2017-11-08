@@ -461,7 +461,7 @@ again:	if (max_num_workers () > 1)
 			printf ("\n");
 
 		if (USE_PRIMENET) {
-			askNum ("Type of work to get", &m_work_pref[i], 0, 150);
+			askNum ("Type of work to get", &m_work_pref[i], 0, 161);
 			if (m_numcpus[i] < min_cores_for_work_pref (m_work_pref[i]))
 				m_numcpus[i] = min_cores_for_work_pref (m_work_pref[i]);
 		}
