@@ -4891,7 +4891,7 @@ int sendMessage (
 	case PRIMENET_ASSIGNMENT_PROGRESS:
 		aid_to_text (info, ((struct primenetAssignmentProgress *)pkt)->assignment_uid);
 		if (((struct primenetAssignmentProgress *)pkt)->iteration) {
-			sprintf (buf, "Sending interim residue %d for %s", ((struct primenetAssignmentProgress *)pkt)->iteration, info);
+			sprintf (buf, "Sending interim residue %d for %s\n", ((struct primenetAssignmentProgress *)pkt)->iteration, info);
 			LogMsg (buf);
 		} else {
 			time_t	this_time;

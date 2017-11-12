@@ -6478,9 +6478,10 @@ int prime (
 
 	p = w->n;
 
-/* Grab setting from INI file */
+/* Grab setting from INI file.  Fast Jacobi testing was introduced in GMP version 5.0.0. */
 
 	Jacobi_testing_enabled = IniGetInt (INI_FILE, "JacobiErrorCheck", 1);
+	if (atoi (gmp_version) < 5) Jacobi_testing_enabled = FALSE;
 
 /* Do some of the trial factoring.  We treat factoring that is part of a */
 /* LL test as priority work (done in pass 1).  We don't do all the trial */
