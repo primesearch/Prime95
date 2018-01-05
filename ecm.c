@@ -3612,7 +3612,7 @@ void fd_term (
 /* Routines to create and read save files for a P-1 factoring job */
 
 #define PM1_MAGICNUM	0x317a394b
-#define PM1_VERSION	1
+#define PM1_VERSION	2				/* Changed in 29.4 build 7 -- corrected calc_exp bug */
 
 void pm1_save (
 	pm1handle *pm1data,
@@ -3647,10 +3647,8 @@ void pm1_save (
 	if (! write_long (fd, pm1data->E, &sum)) goto writeerr;
 	if (! write_long (fd, pm1data->rels_done, &sum)) goto writeerr;
 	if (! write_long (fd, pm1data->bitarray_len, &sum)) goto writeerr;
-	if (! write_array (fd, pm1data->bitarray, pm1data->bitarray_len, &sum))
-		goto writeerr;
-	if (! write_longlong (fd, pm1data->bitarray_first_number, &sum))
-		goto writeerr;
+	if (! write_array (fd, pm1data->bitarray, pm1data->bitarray_len, &sum)) goto writeerr;
+	if (! write_longlong (fd, pm1data->bitarray_first_number, &sum)) goto writeerr;
 	if (! write_long (fd, pm1data->pairs_set, &sum)) goto writeerr;
 	if (! write_long (fd, pm1data->pairs_done, &sum)) goto writeerr;
 
@@ -3664,8 +3662,7 @@ void pm1_save (
 			gwstartnextfft (&pm1data->gwdata, FALSE);
 			gwsquare (&pm1data->gwdata, gg);
 		}
-		if (! write_gwnum (fd, &pm1data->gwdata, gg, &sum))
-			goto writeerr;
+		if (! write_gwnum (fd, &pm1data->gwdata, gg, &sum)) goto writeerr;
 	}
 
 /* Write the checksum, we're done */
@@ -3683,83 +3680,8 @@ writeerr:
 
 /* Read a save file */
 
-int old_pm1_restore (			/* For version 24 save files */
-	pm1handle *pm1data,
-	int	fd,
-	uint64_t *processed,
-	gwnum	*x,
-	gwnum	*gg)
-{
-	unsigned long magicnum, version;
-	unsigned long sum = 0, i;
-
-/* Read the file header */
-
-	_lseek (fd, 0, SEEK_SET);
-	if (!read_long (fd, &magicnum, NULL)) return (FALSE);
-	if (magicnum != 0x1a2b3c4d) return (FALSE);
-
-	if (!read_long (fd, &version, NULL)) return (FALSE);
-	if (version != 4) return (FALSE);
-
-/* Read the file data */
-
-	if (! read_long (fd, &pm1data->stage, &sum)) return (FALSE);
-	if (! read_long (fd, &i, &sum)) return (FALSE);
-	pm1data->B_done = i;
-	if (! read_long (fd, &i, &sum)) return (FALSE);
-	pm1data->B = i;
-	if (! read_long (fd, &i, &sum)) return (FALSE);
-	pm1data->C_done = i;
-	if (! read_long (fd, &i, &sum)) return (FALSE);
-	pm1data->C_start = i;
-	if (! read_long (fd, &i, &sum)) return (FALSE);
-	pm1data->C = i;
-	if (! read_long (fd, &i, &sum)) return (FALSE);
-	*processed = i;
-	if (! read_long (fd, &pm1data->D, &sum)) return (FALSE);
-	if (! read_long (fd, &pm1data->E, &sum)) return (FALSE);
-	if (! read_long (fd, &pm1data->rels_done, &sum)) return (FALSE);
-	if (! read_long (fd, &pm1data->bitarray_len, &sum)) return (FALSE);
-
-/* The new bitarray code is not compatible with the old bitarray code */
-/* Restart stage 2 from scratch */
-
-	if (pm1data->bitarray_len) {
-		pm1data->bitarray = (char *) malloc (pm1data->bitarray_len);
-		if (pm1data->bitarray == NULL) return (FALSE);
-		if (! read_array (fd, pm1data->bitarray,
-				  pm1data->bitarray_len, &sum))
-			return (FALSE);
-		free (pm1data->bitarray);
-		pm1data->bitarray = NULL;
-		pm1data->bitarray_len = 0;
-	}
-	if (! read_long (fd, &pm1data->pairs_set, &sum)) return (FALSE);
-	if (! read_long (fd, &pm1data->pairs_done, &sum)) return (FALSE);
-
-/* Read the values */
-
-	*x = gwalloc (&pm1data->gwdata);
-	if (*x == NULL) return (FALSE);
-	if (! read_gwnum (fd, &pm1data->gwdata, *x, &sum)) return (FALSE);
-
-	*gg = NULL;
-	if (pm1data->stage == PM1_STAGE2) {
-		*gg = gwalloc (&pm1data->gwdata);
-		if (*gg == NULL) return (FALSE);
-		if (! read_gwnum (fd, &pm1data->gwdata, *gg, &sum)) return (FALSE);
-	}
-
-/* Read and compare the checksum */
-
-	if (! read_long (fd, &i, NULL)) return (FALSE);
-	if (i != sum) return (FALSE);
-	_close (fd);
-	return (TRUE);
-}
-
-int pm1_restore (			/* For version 25 save files */
+int pm1_restore (			/* For version 25 and later save files */
+	int	thread_num,
 	pm1handle *pm1data,
 	char	*filename,
 	struct work_unit *w,
@@ -3778,13 +3700,9 @@ int pm1_restore (			/* For version 25 save files */
 
 /* Read the file header */
 
-	if (! read_magicnum (fd, PM1_MAGICNUM)) {
-		if (! old_pm1_restore (pm1data, fd, processed, x, gg))
-			goto readerr;
-		return (TRUE);
-	}
+	if (! read_magicnum (fd, PM1_MAGICNUM)) goto readerr;
 	if (! read_header (fd, &version, w, &filesum)) goto readerr;
-	if (version != PM1_VERSION) goto readerr;
+	if (version != 1 && version != 2) goto readerr;
 
 /* Read the file data */
 
@@ -3802,14 +3720,18 @@ int pm1_restore (			/* For version 25 save files */
 	if (pm1data->bitarray_len) {
 		pm1data->bitarray = (char *) malloc (pm1data->bitarray_len);
 		if (pm1data->bitarray == NULL) goto readerr;
-		if (! read_array (fd, pm1data->bitarray,
-				  pm1data->bitarray_len, &sum))
-			goto readerr;
+		if (! read_array (fd, pm1data->bitarray, pm1data->bitarray_len, &sum)) goto readerr;
 	}
-	if (! read_longlong (fd, &pm1data->bitarray_first_number, &sum))
-		goto readerr;
+	if (! read_longlong (fd, &pm1data->bitarray_first_number, &sum)) goto readerr;
 	if (! read_long (fd, &pm1data->pairs_set, &sum)) goto readerr;
 	if (! read_long (fd, &pm1data->pairs_done, &sum)) goto readerr;
+
+/* Note version 29.4 build 7 changed the calc_exp algorithm which invalidates earlier save files that are in stage 0. */
+
+	if (version == 1 && pm1data->stage == PM1_STAGE0) {
+		OutputBoth (thread_num, "P-1 save file incompatible with this program version.  Restarting stage 1 from the beginning.\n");
+		goto readerr;
+	}
 
 /* Read the values */
 
@@ -3821,14 +3743,16 @@ int pm1_restore (			/* For version 25 save files */
 	if (pm1data->stage == PM1_STAGE2) {
 		*gg = gwalloc (&pm1data->gwdata);
 		if (*gg == NULL) goto readerr;
-		if (! read_gwnum (fd, &pm1data->gwdata, *gg, &sum))
-			goto readerr;
+		if (! read_gwnum (fd, &pm1data->gwdata, *gg, &sum)) goto readerr;
 	}
 
 /* Read and compare the checksum */
 
 	if (filesum != sum) goto readerr;
 	_close (fd);
+
+/* All done */
+
 	return (TRUE);
 
 /* An error occured.  Cleanup and return. */
@@ -4284,28 +4208,28 @@ void calc_exp (
 	unsigned long b,	/* B in K*B^N+C */
 	unsigned long n,	/* N in K*B^N+C */
 	signed long c,		/* C in K*B^N+C */
-	giant	g,
+	mpz_t	g,		/* Variable to accumulate multiplied small primes */
 	uint64_t B1,		/* P-1 stage 1 bound */
-	uint64_t *p,
+	uint64_t *p,		/* Variable to fetch next small prime into */
 	unsigned long lower,
 	unsigned long upper)
 {
 	unsigned long len;
 
-/* Compute the number of result words we are to calculate */
+/* Compute the number of result bits we are to calculate */
 
 	len = upper - lower;
 
 /* Use recursion to compute the exponent.  This will perform better */
-/* because mulg will be handling arguments of equal size. */
+/* because mpz_mul will be handling arguments of equal size. */
 
-	if (len >= 50) {
-		giant	x;
+	if (len >= 1024) {
+		mpz_t	x;
 		calc_exp (pm1data, k, b, n, c, g, B1, p, lower, lower + (len >> 1));
-		x = allocgiant (len);
+		mpz_init (x);
 		calc_exp (pm1data, k, b, n, c, x, B1, p, lower + (len >> 1), upper);
-		mulg (x, g);
-		free (x);
+		mpz_mul (g, x, g);
+		mpz_clear (x);
 		return;
 	}
 
@@ -4315,19 +4239,23 @@ void calc_exp (
 /* have pointed out that Fermat numbers should include 4n and generalized Fermat should include 2n). */
 /* Heck, maybe other forms may also need n included, so just always include 2n -- it is very cheap. */
 
-//	if (lower == 0 && k == 1.0 && b == 2 && c == -1) itog (2*n, g);
-//	else if (lower == 0 && k == 1.0 && c == 1) itog (n, g);
-//	else setone (g);
-	itog (2*n, g);
+	if (lower == 0) mpz_set_ui (g, 2*n);
+	else mpz_set_ui (g, 1);
 
 /* Find all the primes in the range and use as many powers as possible */
 
-	for ( ; *p <= B1 && (unsigned long) g->sign < len; *p = sieve (pm1data->sieve_info)) {
+	for ( ; *p <= B1 && mpz_sizeinbase (g, 2) < len; *p = sieve (pm1data->sieve_info)) {
 		uint64_t val, max;
 		val = *p;
 		max = B1 / *p;
 		while (val <= max) val *= *p;
-		ullmulg (val, g);
+		if (sizeof (unsigned int) == 4 && val > 0xFFFFFFFF) {
+			mpz_t	mpz_val;
+			mpz_init_set_d (mpz_val, (double) val);		/* Works for B1 up to 2^53 */
+			mpz_mul (g, g, mpz_val);
+			mpz_clear (mpz_val);
+		} else
+			mpz_mul_ui (g, g, (unsigned int) val);
 	}
 }
 
@@ -4345,7 +4273,8 @@ int pminus1 (
 	uint64_t processed;	/* Data read from save file */
 	giant	N;		/* Number being factored */
 	giant	factor;		/* Factor found, if any */
-	giant	exp;
+	mpz_t	exp;
+	int	exp_initialized;
 	uint64_t stage_0_limit, prime, m;
 	unsigned long memused, SQRT_B;
 	unsigned long numrels, first_rel, last_rel;
@@ -4377,10 +4306,10 @@ int pminus1 (
 
 	memset (&pm1data, 0, sizeof (pm1handle));
 	N = NULL;
-	exp = NULL;
 	factor = NULL;
 	str = NULL;
 	msg = NULL;
+	exp_initialized = FALSE;
 
 /* Init local copies of B1 and B2 */
 
@@ -4531,7 +4460,7 @@ restart:
 			break;
 		}
 
-		if (!pm1_restore (&pm1data, read_save_file_state.current_filename, w, &processed, &x, &gg)) {
+		if (!pm1_restore (thread_num, &pm1data, read_save_file_state.current_filename, w, &processed, &x, &gg)) {
 			/* Close and rename the bad save file */
 			saveFileBad (&read_save_file_state);
 			continue;
@@ -4679,8 +4608,8 @@ restart:
 
 /* First restart point.  Compute the big exponent (a multiple of small */
 /* primes).  Then compute 3^exponent.  The exponent always contains 2*p. */
-/* We only compute 1.5 * B bits (up to 1.5 million).  The rest of the */
-/* exponent will be done one prime at a time in the second part of stage 1. */
+/* We only compute 1.5 * B bits (up to about 20 million bits).  The rest of the */
+/* exponentiation will be done one prime at a time in the second part of stage 1. */
 /* This stage uses 2 transforms per exponent bit. */
 
 restart0:
@@ -4692,14 +4621,13 @@ restart0:
 	stop_reason = start_sieve (thread_num, 2, &pm1data.sieve_info);
 	if (stop_reason) goto exit;
 	prime = sieve (pm1data.sieve_info);
-	stage_0_limit = (pm1data.B > 1000000) ? 1000000 : pm1data.B;
-	i = ((unsigned long) (stage_0_limit * 1.5) >> 5) + 4;
-	exp = allocgiant (i);
-	calc_exp (&pm1data, w->k, w->b, w->n, w->c, exp, pm1data.B, &prime, 0, i);
+	stage_0_limit = (pm1data.B > 13333333) ? 13333333 : pm1data.B;
+	mpz_init (exp);  exp_initialized = TRUE;
+	calc_exp (&pm1data, w->k, w->b, w->n, w->c, exp, pm1data.B, &prime, 0, (unsigned long) (stage_0_limit * 1.5));
 
 /* Find number of bits, ignoring the most significant bit */
 
-	len = bitlen (exp) - 1;
+	len = (unsigned long) mpz_sizeinbase (exp, 2) - 1;
 	one_over_len = 1.0 / (double) len;
 	if (prime < B) one_over_len *= (double) prime / (double) B;
 
@@ -4713,7 +4641,7 @@ restart0:
 
 		if (error_recovery_mode && bit_number == error_recovery_mode) {
 			gwstartnextfft (&pm1data.gwdata, FALSE);
-			gwsetnormroutine (&pm1data.gwdata, 0, 0, bitval (exp, len - bit_number - 1));
+			gwsetnormroutine (&pm1data.gwdata, 0, 0, mpz_tstbit (exp, len - bit_number - 1));
 			gwsquare_carefully (&pm1data.gwdata, x);
 			error_recovery_mode = 0;
 			saving = TRUE;
@@ -4730,7 +4658,7 @@ restart0:
 
 #ifndef SERVER_TESTING
 			gwstartnextfft (&pm1data.gwdata, !stop_reason && !saving && bit_number+1 != error_recovery_mode && bit_number+1 != len);
-			gwsetnormroutine (&pm1data.gwdata, 0, echk, bitval (exp, len - bit_number - 1));
+			gwsetnormroutine (&pm1data.gwdata, 0, echk, mpz_tstbit (exp, len - bit_number - 1));
 			gwsquare (&pm1data.gwdata, x);
 #endif
 		}
@@ -4810,8 +4738,7 @@ restart0:
 /* Do stage 0 cleanup */
 
 	gwsetnormroutine (&pm1data.gwdata, 0, ERRCHK || near_fft_limit, 0);
-	free (exp);
-	exp = NULL;
+	mpz_clear (exp), exp_initialized = FALSE;
 	end_timer (timers, 0);
 	end_timer (timers, 1);
 
@@ -5459,10 +5386,10 @@ done:	if (w->work_type == WORK_PMINUS1 || w->work_type == WORK_PFACTOR)
 
 exit:	pm1_cleanup (&pm1data);
 	free (N);
-	free (exp);
 	free (factor);
 	free (str);
 	free (msg);
+	if (exp_initialized) mpz_clear (exp);
 	return (stop_reason);
 
 /* Low on memory, reduce memory settings and try again */
@@ -5598,16 +5525,11 @@ error:	if (gw_get_maxerr (&pm1data.gwdata) > allowable_maxerr) {
 	error_recovery_mode = bit_number ? bit_number : 1;
 error_restart:
 	pm1_cleanup (&pm1data);
-	free (N);
-	N = NULL;
-	free (exp);
-	exp = NULL;
-	free (factor);
-	factor = NULL;
-	free (str);
-	str = NULL;
-	free (msg);
-	msg = NULL;
+	free (N), N = NULL;
+	free (factor), factor = NULL;
+	free (str), str = NULL;
+	free (msg), msg = NULL;
+	if (exp_initialized) mpz_clear (exp), exp_initialized = FALSE;
 	goto restart;
 }
 

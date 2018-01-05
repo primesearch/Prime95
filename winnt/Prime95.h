@@ -6,11 +6,15 @@
 #endif
 
 #include <time.h>
+#include <hwloc.h>
+#include <gmp.h>
 //#define SERVER_TESTING
 #define NO_GUI		1
 #include "common.h"
 #include "cpuid.h"
 #include "gwnum.h"
+#include "gwini.h"
+#include "gwbench.h"
 #include "commonb.h"
 #include "commonc.h"
 #include "comm95b.h"

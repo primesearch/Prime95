@@ -297,6 +297,7 @@
 				8D1107290486CEB800E47090 /* Resources */,
 				8D11072C0486CEB800E47090 /* Sources */,
 				8D11072E0486CEB800E47090 /* Frameworks */,
+				5ECC058E1FD9F3FB00971B38 /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -367,6 +368,22 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		5ECC058E1FD9F3FB00971B38 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "cp /usr/local/lib/libgmp.10.dylib $BUILT_PRODUCTS_DIR/$EXECUTABLE_FOLDER_PATH\ninstall_name_tool -change /usr/local/lib/libgmp.10.dylib @executable_path/libgmp.10.dylib $BUILT_PRODUCTS_DIR/$EXECUTABLE_FOLDER_PATH/Prime95\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		8D11072C0486CEB800E47090 /* Sources */ = {
