@@ -1,4 +1,4 @@
-; Copyright 2011-2017 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2018 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -642,6 +642,23 @@ yloop_set_clm_L3_prefetch MACRO rate
 	yloop_set_rate rate
 	ENDM
 
+;; Set alternate prefetch pointer increment.  The yloops macros were built on the premise
+;; of bumping the prefetch pointer by one cache line (64 bytes) on every prefetch.  This
+;; macros lets us choose a smaller increment so that the caller can avoid prefetching
+;; too many cache lines.  For example, if the caller loops 100 times but only wants to
+;; prefetch 80 cache lines then we can set our prefetch increment to 64 * 80 / 100 bytes.
+;; Note this is not the preferred solution.  In the example above it would be better to
+;; back up the prefetch pointer by 20 cache lines sometime during the looping process.
+;; This is preferred because there is no guarantee (due to rounding) that we can prefetch
+;; exactly the number of cache lines requested.  Unfortunately, the looping structure
+;; or a register shortage may prevent us from using the preferred solution.
+
+yloop_set_alternate_prefetch_increment MACRO cache_lines_to_prefetch, number_of_loops
+	;; Set increment so that we prefetch at least the requested number of cache lines
+	;; The formula is (cache_lines_to_prefetch * 64) / number_of_loops
+	yloop_pfincr = ((cache_lines_to_prefetch) * 64) / (number_of_loops)
+	ENDM
+
 ;; Adjust the loop counter so that fewer iterations are performed.  This is an ugly hack
 ;; as it requires the caller to understand the inner workings of how looping is implemented.
 yloop_adjust MACRO new_loop_count
@@ -815,6 +832,7 @@ yloop_set_rate MACRO rate, N
 		yloop_prefetch_iter = N
 		yloop_prefetch_count = 1
 	ENDIF
+	yloop_pfincr = 64
 	;; Handle supported prefetch amounts
 	IF (PREFETCHING EQ 0)
 		yloop_prefetch_rate = YNONE
@@ -903,19 +921,19 @@ yloop_prefetch MACRO
 			yprefetcht1 [yloop_pfreg]
 		ENDIF
 		IF yloop_prefetch_count GE 2 AND yloop_prefetched_early LT 2
-			yprefetcht1 [yloop_pfreg + PREFETCHING]
+			yprefetcht1 [yloop_pfreg + yloop_pfincr]
 		ENDIF
 		IF yloop_prefetch_count GE 3 AND yloop_prefetched_early LT 3
-			yprefetcht1 [yloop_pfreg + 2 * PREFETCHING]
+			yprefetcht1 [yloop_pfreg + 2 * yloop_pfincr]
 		ENDIF
 		IF yloop_prefetch_count GE 4 AND yloop_prefetched_early LT 4
-			yprefetcht1 [yloop_pfreg + 3 * PREFETCHING]
+			yprefetcht1 [yloop_pfreg + 3 * yloop_pfincr]
 		ENDIF
 		IF yloop_prefetch_count GE 5 AND yloop_prefetched_early LT 5
 			prefetch_count_too_large
 		ENDIF
 
-		bump	yloop_pfreg, yloop_prefetch_count * PREFETCHING	;; Next prefetch pointer
+		bump	yloop_pfreg, yloop_prefetch_count * yloop_pfincr	;; Next prefetch pointer
 
 	;; Handle "clm prefetching" where we bump the prefetch pointer every 64*clm bytes
 	ELSEIF yloop_prefetch_type EQ 2

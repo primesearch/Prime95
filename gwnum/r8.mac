@@ -1,4 +1,4 @@
-; Copyright 2009-2016 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2009-2017 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -759,8 +759,8 @@ r8_x8c_simple_fft_with_mult MACRO src,altsrc,d1,d2
 	subpd	xmm3, xmm1			;; I5 = I5 - I6 (new I6)
 	addpd	xmm1, xmm7			;; I6 = I5 + I6 (new I5)
 
-	xp_complex_mult xmm2, xmm3, Q [altsrc+d2+16], Q [altsrc+d2+48], xmm6, xmm7 ;; Mult R6/I6
-	xp_complex_mult xmm0, xmm1, Q [altsrc+d2], Q [altsrc+d2+32], xmm6, xmm7 ;; Mult R5/I5
+	xp_complex_mult xmm2, xmm3, XX [altsrc+d2+16], XX [altsrc+d2+48], xmm6, xmm7 ;; Mult R6/I6
+	xp_complex_mult xmm0, xmm1, XX [altsrc+d2], XX [altsrc+d2+32], xmm6, xmm7 ;; Mult R5/I5
 
 	xcopy	xmm7, xmm0			;; Copy R5
 	subpd	xmm0, xmm2			;; R5 = R5 - R6 (new R6)
@@ -787,8 +787,8 @@ r8_x8c_simple_fft_with_mult MACRO src,altsrc,d1,d2
 	subpd	xmm0, xmm1			;; I7 = I7 - R8 (new I8)
 	addpd	xmm1, xmm7			;; R8 = I7 + R8 (new I7)
 
-	xp_complex_mult xmm5, xmm0, Q [altsrc+d2+d1+16], Q [altsrc+d2+d1+48], xmm6, xmm7 ;; Mult R8/I8
-	xp_complex_mult xmm4, xmm1, Q [altsrc+d2+d1], Q [altsrc+d2+d1+32], xmm6, xmm7 ;; Mult R7/I7
+	xp_complex_mult xmm5, xmm0, XX [altsrc+d2+d1+16], XX [altsrc+d2+d1+48], xmm6, xmm7 ;; Mult R8/I8
+	xp_complex_mult xmm4, xmm1, XX [altsrc+d2+d1], XX [altsrc+d2+d1+32], xmm6, xmm7 ;; Mult R7/I7
 
 	xcopy	xmm7, xmm5			;; Copy R8
 	subpd	xmm5, xmm4			;; R8 = R8 - R7 (new I8)
@@ -815,8 +815,8 @@ r8_x8c_simple_fft_with_mult MACRO src,altsrc,d1,d2
 	subpd	xmm5, xmm6			;; I1 = I1 - I2 (new I2)
 	addpd	xmm6, xmm7			;; I2 = I1 + I2 (new I1)
 
-	xp_complex_mult xmm3, xmm5, Q [altsrc+16], Q [altsrc+48], xmm0, xmm7 ;; Mult R2/I2
-	xp_complex_mult xmm4, xmm6, Q [altsrc], Q [altsrc+32], xmm0, xmm7 ;; Mult R1/I1
+	xp_complex_mult xmm3, xmm5, XX [altsrc+16], XX [altsrc+48], xmm0, xmm7 ;; Mult R2/I2
+	xp_complex_mult xmm4, xmm6, XX [altsrc], XX [altsrc+32], xmm0, xmm7 ;; Mult R1/I1
 
 	xcopy	xmm7, xmm4			;; Copy R1
 	subpd	xmm4, xmm3			;; R1 = R1 - R2 (new R2)
@@ -843,8 +843,8 @@ r8_x8c_simple_fft_with_mult MACRO src,altsrc,d1,d2
 	subpd	xmm3, xmm4			;; I3 = I3 - R4 (final I4)
 	addpd	xmm4, xmm7			;; R4 = I3 + R4 (final I3)
 
-	xp_complex_mult xmm6, xmm3, Q [altsrc+d1+16], Q [altsrc+d1+48], xmm0, xmm7 ;; Mult R4/I4
-	xp_complex_mult xmm5, xmm4, Q [altsrc+d1], Q [altsrc+d1+32], xmm0, xmm7 ;; Mult R3/I3
+	xp_complex_mult xmm6, xmm3, XX [altsrc+d1+16], XX [altsrc+d1+48], xmm0, xmm7 ;; Mult R4/I4
+	xp_complex_mult xmm5, xmm4, XX [altsrc+d1], XX [altsrc+d1+32], xmm0, xmm7 ;; Mult R3/I3
 
 	xcopy	xmm7, xmm6			;; Copy R4
 	subpd	xmm6, xmm5			;; R4 = R4 - R3 (new I4)
@@ -882,8 +882,8 @@ r8_x8c_simple_fft_with_mulf MACRO srcreg,d1,d2,dst
 	xload	xmm0, [srcreg+d2][rbx]		;; R5
 	xload	xmm1, [srcreg+d2+32][rbx]	;; I5
 
-	xp_complex_mult xmm2, xmm3, Q [srcreg+d2+16][rbp], Q [srcreg+d2+48][rbp], xmm6, xmm7 ;; Mult R6/I6
-	xp_complex_mult xmm0, xmm1, Q [srcreg+d2][rbp], Q [srcreg+d2+32][rbp], xmm6, xmm7 ;; Mult R5/I5
+	xp_complex_mult xmm2, xmm3, XX [srcreg+d2+16][rbp], XX [srcreg+d2+48][rbp], xmm6, xmm7 ;; Mult R6/I6
+	xp_complex_mult xmm0, xmm1, XX [srcreg+d2][rbp], XX [srcreg+d2+32][rbp], xmm6, xmm7 ;; Mult R5/I5
 
 	xcopy	xmm7, xmm0			;; Copy R5
 	subpd	xmm0, xmm2			;; R5 = R5 - R6 (new R6)
@@ -903,8 +903,8 @@ r8_x8c_simple_fft_with_mulf MACRO srcreg,d1,d2,dst
 	xload	xmm4, [srcreg+d2+d1][rbx]	;; R7
 	xload	xmm1, [srcreg+d2+d1+32][rbx]	;; I7
 
-	xp_complex_mult xmm5, xmm0, Q [srcreg+d2+d1+16][rbp], Q [srcreg+d2+d1+48][rbp], xmm6, xmm7 ;; Mult R8/I8
-	xp_complex_mult xmm4, xmm1, Q [srcreg+d2+d1][rbp], Q [srcreg+d2+d1+32][rbp], xmm6, xmm7 ;; Mult R7/I7
+	xp_complex_mult xmm5, xmm0, XX [srcreg+d2+d1+16][rbp], XX [srcreg+d2+d1+48][rbp], xmm6, xmm7 ;; Mult R8/I8
+	xp_complex_mult xmm4, xmm1, XX [srcreg+d2+d1][rbp], XX [srcreg+d2+d1+32][rbp], xmm6, xmm7 ;; Mult R7/I7
 
 	xcopy	xmm7, xmm5			;; Copy R8
 	subpd	xmm5, xmm4			;; R8 = R8 - R7 (new I8)
@@ -924,8 +924,8 @@ r8_x8c_simple_fft_with_mulf MACRO srcreg,d1,d2,dst
 	xload	xmm4, [srcreg][rbx]		;; R1
 	xload	xmm6, [srcreg+32][rbx]		;; I1
 
-	xp_complex_mult xmm3, xmm5, Q [srcreg+16][rbp], Q [srcreg+48][rbp], xmm0, xmm7 ;; Mult R2/I2
-	xp_complex_mult xmm4, xmm6, Q [srcreg][rbp], Q [srcreg+32][rbp], xmm0, xmm7 ;; Mult R1/I1
+	xp_complex_mult xmm3, xmm5, XX [srcreg+16][rbp], XX [srcreg+48][rbp], xmm0, xmm7 ;; Mult R2/I2
+	xp_complex_mult xmm4, xmm6, XX [srcreg][rbp], XX [srcreg+32][rbp], xmm0, xmm7 ;; Mult R1/I1
 
 	xcopy	xmm7, xmm4			;; Copy R1
 	subpd	xmm4, xmm3			;; R1 = R1 - R2 (new R2)
@@ -945,8 +945,8 @@ r8_x8c_simple_fft_with_mulf MACRO srcreg,d1,d2,dst
 	xload	xmm5, [srcreg+d1][rbx]		;; R3
 	xload	xmm4, [srcreg+d1+32][rbx]	;; I3
 
-	xp_complex_mult xmm6, xmm3, Q [srcreg+d1+16][rbp], Q [srcreg+d1+48][rbp], xmm0, xmm7 ;; Mult R4/I4
-	xp_complex_mult xmm5, xmm4, Q [srcreg+d1][rbp], Q [srcreg+d1+32][rbp], xmm0, xmm7 ;; Mult R3/I3
+	xp_complex_mult xmm6, xmm3, XX [srcreg+d1+16][rbp], XX [srcreg+d1+48][rbp], xmm0, xmm7 ;; Mult R4/I4
+	xp_complex_mult xmm5, xmm4, XX [srcreg+d1][rbp], XX [srcreg+d1+32][rbp], xmm0, xmm7 ;; Mult R3/I3
 
 	xcopy	xmm7, xmm6			;; Copy R4
 	subpd	xmm6, xmm5			;; R4 = R4 - R3 (new I4)

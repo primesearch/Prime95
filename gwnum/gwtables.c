@@ -4,7 +4,7 @@
 | This file contains the C routines to build sin/cos and weights tables
 | that the FFT assembly code needs.
 | 
-|  Copyright 2002-2014 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2002-2018 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -19,6 +19,9 @@
 #define USE_WPN4
 #define USE_REDUCED_SINCOS_FFTS
 
+#define round_to_cache_line(p)	(void *) (((intptr_t)(p) + 63) & ~63)
+#define bitset(a,i)		{ ((char *)a)[(i) >> 3] |= (1 << ((i) & 7)); }
+
 /* Find the power of two greater than or equal to N. */
 
 unsigned long pow_two_above_or_equal (
@@ -30,6 +33,1501 @@ unsigned long pow_two_above_or_equal (
 	for (n = n - 1; n; n = n >> 1) result = result << 1;
 	return (result);
 }
+
+
+/*************************************************************/
+/*                    AVX-512 FFT tables                     */
+/*************************************************************/
+
+/* Helper routine for two pass AVX-512 build routines */
+
+static __inline int zr4dwpn_delay_count (gwhandle *gwdata)
+{
+
+/* Determine number of delay groups.  In a standard radix-8 FFT, there is only one sin/cos */
+/* group in the last pass 1 level.  We reduce our memory usage by using a fixed sin/cos */
+/* table in the first FFT levels and having multiple groups of sin/cos data in the last pass 1 level. */
+/* I call these groups of sin/cos data in the last pass 1 level "delay groups". */
+
+//	if (gwdata->PASS1_SIZE == 80) return (5);	// BUG - delay count of 5 is not working yet and may never work
+	if (gwdata->PASS1_SIZE == 192 || gwdata->PASS1_SIZE == 960 || gwdata->PASS1_SIZE == 1152 || gwdata->PASS1_SIZE == 1344 ||
+	    gwdata->PASS1_SIZE == 1920 || gwdata->PASS1_SIZE == 2304 || gwdata->PASS1_SIZE == 3072) return (12);  // BUG Could do 1536 this way instead -- will use less memory
+	return (8);		// BUG:  applies to pass1 size = 128, 640, 768, 896, 1024, 1280, 1536, 2048
+}
+
+/* This routine builds the sin/cos table used in pass 1 by the radix-8 DJB */
+/* FFT with delayed sin/cos multiplies and with partial normalization. */
+
+double *zr4dwpn_build_pass1_table (
+	gwhandle *gwdata,	/* Handle initialized by gwsetup */
+	double	*table)		/* Pointer to the table to fill in */
+{
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
+	unsigned long pass1_size, pass1_increment, delay_count;
+	unsigned long group, i, j, k, N, temp, upper_avx512_word;
+
+/* Special code to initialize one-pass FFTs */
+
+	if (gwdata->PASS1_SIZE == 0) {
+
+/* Output the 8 column multipliers and 8 inverse column multipliers used in real pass 1 wrapper routines. */
+/* Unlike two-pass FFTs, the 1/FFTLEN correction is applied in the inverse group multiplier rather than the */
+/* inverse column multiplier.  This lets us save one clock in the unfft wrapper. */
+
+		if (!gwdata->ALL_COMPLEX_FFT) {
+			double *weights, *inverse_weights;
+			weights = table;
+			inverse_weights = weights + 8;
+			table = inverse_weights + 8;
+			for (i = 0; i < 8; i++) {
+				gwfft_weights3 (gwdata->dd_data, i, weights, inverse_weights, NULL);
+				weights++;
+				inverse_weights++;
+			}
+		}
+
+/* For the all complex pass 1 FFT wrapper, we combine the premultiplier sine with the column weight to save a few clocks. */
+/* In the all complex pass 1 unFFT wrapper, we must multiply the precomputed premultiplier sine * weight by 1/weight^2 to get */
+/* the premultiplier sine * inverse column weight. */
+/* Compute the roots-of-minus-one premultipliers.  The root-of-minus-one premultiplier is for 2N, and a root-of-minus-one-of-2N is */
+/* the same as a root unity for 4N.  We output the cosine/sine value and the sine value premultiplied by the column weight. */
+
+		else {
+			double	*inverse_weights, colweights[128];
+
+			/* Generate the 8 inverse column weights (squared) */
+			inverse_weights = table;
+			table = inverse_weights + 8;
+			for (i = 0; i < 8; i++) *inverse_weights++ = gwfft_weight_inverse_squared (gwdata->dd_data, i);
+			/* Generate the 8 column weights in a scratch area */
+			gwfft_colweights (gwdata->dd_data, &colweights, 8);
+			/* Generate the complex premultipliers times the column weights */
+			N = gwdata->FFTLEN / 2;			/* Number of complex values */
+			upper_avx512_word = 8;
+			for (j = 0; j < gwdata->FFTLEN / 2; j += 8 * upper_avx512_word) {
+				gwsincos1plus01234567by8_colweighted (j, 1, N * 4, &colweights, table);
+				gwsincos1plus01234567by8_colweighted (j + upper_avx512_word, 1, N * 4, &colweights, table + 1);
+				gwsincos1plus01234567by8_colweighted (j + 2 * upper_avx512_word, 1, N * 4, &colweights, table + 2);
+				gwsincos1plus01234567by8_colweighted (j + 3 * upper_avx512_word, 1, N * 4, &colweights, table + 3);
+				gwsincos1plus01234567by8_colweighted (j + 4 * upper_avx512_word, 1, N * 4, &colweights, table + 4);
+				gwsincos1plus01234567by8_colweighted (j + 5 * upper_avx512_word, 1, N * 4, &colweights, table + 5);
+				gwsincos1plus01234567by8_colweighted (j + 6 * upper_avx512_word, 1, N * 4, &colweights, table + 6);
+				gwsincos1plus01234567by8_colweighted (j + 7 * upper_avx512_word, 1, N * 4, &colweights, table + 7);
+				table += 128;
+			}
+		}
+
+/* Reserve space for the group multiplier fudge flags. There are FFTLEN fudge flags which takes FFTLEN / 8 bytes. */
+/* One pass FFTs do not compress the fudge flags and one-eighth of the fudge flags are known to be zero and not output. */
+/* For zero-padded FFTs, the fudge flags could be half the size, but we have not implemented that. */
+
+		table = (double *) ((char *) table + gwdata->FFTLEN / 8 * 7 / 8);
+
+/* Reserve space for the big/little flags. There are FFTLEN big/lit flags which takes FFTLEN / 8 bytes. */
+/* The big/lit flags will be compressed at an 8:1 ratio, thus FFTLEN / 64 bytes are needed. */
+/* Rational FFTs have no big/lit table, zero-padded FFTs have a half-size big/lit table. */
+
+		gwdata->biglit_data_offset = (unsigned long) ((char *) table - (char *) gwdata->pass1_var_data);
+		if (gwdata->RATIONAL_FFT);
+		else if (gwdata->ZERO_PADDED_FFT) table = (double *) ((char *) table + gwdata->FFTLEN / 64 / 2);
+		else table = (double *) ((char *) table + gwdata->FFTLEN / 64);
+
+/* Round memory usage to a multiple of the cache line size */
+
+		table = round_to_cache_line(table);
+		gwdata->pass1_var_data_size = (unsigned long) ((char *) table - (char *) gwdata->pass1_var_data);
+
+/* Return address of the end of the table */
+
+		return (table);
+	}
+
+/* Initialize some needed constants */
+
+	pass1_size = gwdata->PASS1_SIZE;
+	upper_avx512_word = gwdata->PASS2_SIZE;
+	pass1_increment = gwdata->PASS2_SIZE * 8;
+
+/* Determine number of delay groups.  In a standard radix-8 FFT, there is only one sin/cos */
+/* group in the last pass 1 level.  We reduce our memory usage by using a fixed sin/cos */
+/* table in the first FFT levels and having multiple groups of sin/cos data in the last pass 1 level. */
+/* I call these groups of sin/cos data in the last pass 1 level "delay groups". */
+
+	delay_count = zr4dwpn_delay_count (gwdata);
+
+/* Loop through all the pass 1 groups in the same order the assembly code will process the groups. */
+
+	for (group = 0; group < upper_avx512_word; group += gwdata->PASS1_CACHE_LINES) {
+
+		pass1_size = gwdata->PASS1_SIZE;
+		pass1_size /= (delay_count * 2);	/* Complex values we're generating sin/cos data for */
+		N = gwdata->PASS2_SIZE;
+
+/* Output the sin/cos/premultiplier values for the radix-8 block that does the last 3 levels in pass 1. */
+
+		N = N * 8;
+
+/* For the zr8_rsc_wpn_sgreg_eight_complex and zr8_rsc_wpn_sgreg_sixteen_reals building blocks output */
+/* a separate table of column normalization values before the sin/cos data for the complex delay groups. */
+/* The weights and inverse weights are output in separate tables so that we can group data in cache lines better. */
+
+		{
+			double *weights, *inverse_weights;
+			weights = table;
+			inverse_weights = weights + gwdata->PASS1_CACHE_LINES;
+			table = inverse_weights + gwdata->PASS1_CACHE_LINES;
+			for (i = 0; i < gwdata->PASS1_CACHE_LINES; i++) {
+				gwfft_weights3 (gwdata->dd_data, group + i, weights, NULL, inverse_weights);
+				weights++;
+				inverse_weights++;
+			}
+		}
+
+/* Output the complex sin/cos values needed for a standard zr8sg_eight_complex_djbfft */
+/* in the last pass 1 levels.  At runtime, we compute the actual sin/cos values from these. */
+
+		for (i = 0; i < gwdata->PASS1_CACHE_LINES; i += 8) {
+			// Asm code swizzles the input so that upper_avx512_word is 1
+			temp = group + i;
+			gwsincos1234by8_raw (temp, N, table);
+			gwsincos1234by8_raw (temp + 1, N, table+1);
+			gwsincos1234by8_raw (temp + 2, N, table+2);
+			gwsincos1234by8_raw (temp + 3, N, table+3);
+			gwsincos1234by8_raw (temp + 4, N, table+4);
+			gwsincos1234by8_raw (temp + 5, N, table+5);
+			gwsincos1234by8_raw (temp + 6, N, table+6);
+			gwsincos1234by8_raw (temp + 7, N, table+7);
+			table += 64;
+		}
+
+/* For the zr8sg_sixteen_reals_fft8 building block, output the extra */
+/* sin/cos values needed for the sixteen_reals. */
+
+		if (!gwdata->ALL_COMPLEX_FFT) {
+			for (i = 0; i < gwdata->PASS1_CACHE_LINES; i += 8) {
+//bug - would gwsincos1357by8 work here?  If not, why not.
+				// Asm code swizzles the input so that upper_avx512_word is 1
+				temp = group + i;
+				gwsincos159Dby8 (temp, N*2, table);
+				gwsincos159Dby8 (temp + 1, N*2, table+1);
+				gwsincos159Dby8 (temp + 2, N*2, table+2);
+				gwsincos159Dby8 (temp + 3, N*2, table+3);
+				gwsincos159Dby8 (temp + 4, N*2, table+4);
+				gwsincos159Dby8 (temp + 5, N*2, table+5);
+				gwsincos159Dby8 (temp + 6, N*2, table+6);
+				gwsincos159Dby8 (temp + 7, N*2, table+7);
+				table += 64;
+			}
+		}
+
+/* Output the sin/cos values for the complex delay groups -- specifically the zr8sg_rsc_eight_complex_fft8 macro. */
+
+		for (k = 0; k < delay_count; k++) {
+			if (k == 0 && !gwdata->ALL_COMPLEX_FFT) continue;
+			for (i = 0; i < gwdata->PASS1_CACHE_LINES; i += 8) {
+				unsigned long bigN, ktemp, actemp, avx512_word;
+
+/* Work on each AVX-512 word */
+
+				for (avx512_word = 0; avx512_word < 8; avx512_word++) {
+					unsigned long final_group = group + i + avx512_word;
+
+/* If this is an all-complex FFT, the roots of minus 1 (same as roots of FFTLEN*2) are */
+/* split to reduce memory requirements.  We apply part of the all-complex premultiplier here. */
+
+					if (gwdata->ALL_COMPLEX_FFT) {
+						bigN = gwdata->FFTLEN * 2;
+						actemp = final_group;
+					} else {
+						bigN = gwdata->FFTLEN;
+						actemp = 0;
+					}
+
+/* Factor in the delayed part of the sin/cos multiplies from the first levels.  In the first levels */
+/* we use a fixed sin/cos table based only on j, leaving the group+i part to be applied here by */
+/* creating delay_count table entries. */
+
+					if (gwdata->ALL_COMPLEX_FFT) {
+						if (k <= delay_count/2) ktemp = k * final_group * 4;
+						else ktemp = bigN - (delay_count - k) * final_group * 4;
+					}
+					else {
+						ktemp = k * final_group;
+					}
+
+/* We now calculate the group all-complex premultiplier roots of minus 1 (same as roots of FFTLEN*2) */
+/* combined with the delayed group multipliers. */
+
+					gwsincos1by8_raw (actemp + ktemp, bigN, table + avx512_word);
+				}
+				table += 16;
+			}
+		}
+		pass1_size /= 8;
+
+/* For the zr12_twelve_complex_djbfft building block levels, output the sin/cos values. */
+
+		while (pass1_size == 12) {
+			N = N * 12;
+
+/* Output the sin/cos data for the complex sections, (the zr12_twelve_complex_djbfft building block). */
+
+			for (j = 0; j < N / 12; j += pass1_increment) {
+				for (i = 0; i < gwdata->PASS1_CACHE_LINES; i++) {
+					temp = (group + j + i);
+					gwsincos123456by8 (temp, N, table);
+					gwsincos123456by8 (temp + upper_avx512_word, N, table+1);
+					gwsincos123456by8 (temp + 2 * upper_avx512_word, N, table+2);
+					gwsincos123456by8 (temp + 3 * upper_avx512_word, N, table+3);
+					gwsincos123456by8 (temp + 4 * upper_avx512_word, N, table+4);
+					gwsincos123456by8 (temp + 5 * upper_avx512_word, N, table+5);
+					gwsincos123456by8 (temp + 6 * upper_avx512_word, N, table+6);
+					gwsincos123456by8 (temp + 7 * upper_avx512_word, N, table+7);
+					table += 96;
+
+/* The zr12_csc_twentyfour_real building blocks require extra sin/cos values.  The twentyfour_real doubles N */
+/* because the real part of the FFT is one level behind the complex part of the FFT. */
+
+					if (!gwdata->ALL_COMPLEX_FFT) {
+						gwsincos13579Bby8 (temp, N*2, table);
+						gwsincos13579Bby8 (temp + upper_avx512_word, N*2, table+1);
+						gwsincos13579Bby8 (temp + 2 * upper_avx512_word, N*2, table+2);
+						gwsincos13579Bby8 (temp + 3 * upper_avx512_word, N*2, table+3);
+						gwsincos13579Bby8 (temp + 4 * upper_avx512_word, N*2, table+4);
+						gwsincos13579Bby8 (temp + 5 * upper_avx512_word, N*2, table+5);
+						gwsincos13579Bby8 (temp + 6 * upper_avx512_word, N*2, table+6);
+						gwsincos13579Bby8 (temp + 7 * upper_avx512_word, N*2, table+7);
+						table += 96;
+					}
+				}
+			}
+			pass1_size /= 12;
+		}
+
+/* For the zr10_ten_complex_djbfft building block levels, output the sin/cos values. */
+
+		while (pass1_size == 10) {
+			N = N * 10;
+
+/* Output the sin/cos data for the complex sections, (the zr10_ten_complex_djbfft building block). */
+
+			for (j = 0; j < N / 10; j += pass1_increment) {
+				for (i = 0; i < gwdata->PASS1_CACHE_LINES; i++) {
+					temp = (group + j + i);
+					gwsincos12345by8 (temp, N, table);
+					gwsincos12345by8 (temp + upper_avx512_word, N, table+1);
+					gwsincos12345by8 (temp + 2 * upper_avx512_word, N, table+2);
+					gwsincos12345by8 (temp + 3 * upper_avx512_word, N, table+3);
+					gwsincos12345by8 (temp + 4 * upper_avx512_word, N, table+4);
+					gwsincos12345by8 (temp + 5 * upper_avx512_word, N, table+5);
+					gwsincos12345by8 (temp + 6 * upper_avx512_word, N, table+6);
+					gwsincos12345by8 (temp + 7 * upper_avx512_word, N, table+7);
+					table += 80;
+
+/* The zr10_csc_twenty_real building blocks require extra sin/cos values.  The twenty_real doubles N */
+/* because the real part of the FFT is one level behind the complex part of the FFT. */
+
+					if (!gwdata->ALL_COMPLEX_FFT) {
+						gwsincos13579by8 (temp, N*2, table);
+						gwsincos13579by8 (temp + upper_avx512_word, N*2, table+1);
+						gwsincos13579by8 (temp + 2 * upper_avx512_word, N*2, table+2);
+						gwsincos13579by8 (temp + 3 * upper_avx512_word, N*2, table+3);
+						gwsincos13579by8 (temp + 4 * upper_avx512_word, N*2, table+4);
+						gwsincos13579by8 (temp + 5 * upper_avx512_word, N*2, table+5);
+						gwsincos13579by8 (temp + 6 * upper_avx512_word, N*2, table+6);
+						gwsincos13579by8 (temp + 7 * upper_avx512_word, N*2, table+7);
+						table += 80;
+					}
+				}
+			}
+			pass1_size /= 10;
+		}
+
+/* For the zr5_five_complex_djbfft building block levels, output the sin/cos values. */
+
+		while (pass1_size % 5 == 0) {
+			N = N * 5;
+
+/* Output the sin/cos data for the complex sections, (the zr5_five_complex_djbfft building block). */
+
+			for (j = 0; j < N / 5; j += pass1_increment) {
+				for (i = 0; i < gwdata->PASS1_CACHE_LINES; i++) {
+					temp = (group + j + i);
+					gwsincos12by8 (temp, N, table);
+					gwsincos12by8 (temp + upper_avx512_word, N, table+1);
+					gwsincos12by8 (temp + 2 * upper_avx512_word, N, table+2);
+					gwsincos12by8 (temp + 3 * upper_avx512_word, N, table+3);
+					gwsincos12by8 (temp + 4 * upper_avx512_word, N, table+4);
+					gwsincos12by8 (temp + 5 * upper_avx512_word, N, table+5);
+					gwsincos12by8 (temp + 6 * upper_avx512_word, N, table+6);
+					gwsincos12by8 (temp + 7 * upper_avx512_word, N, table+7);
+					table += 32;
+
+/* The zr5_csc_ten_real building blocks require extra sin/cos values.  The ten_real doubles N */
+/* because the real part of the FFT is one level behind the complex part of the FFT. */
+
+					if (!gwdata->ALL_COMPLEX_FFT) {
+						gwsincos13by8 (temp, N*2, table);
+						gwsincos13by8 (temp + upper_avx512_word, N*2, table+1);
+						gwsincos13by8 (temp + 2 * upper_avx512_word, N*2, table+2);
+						gwsincos13by8 (temp + 3 * upper_avx512_word, N*2, table+3);
+						gwsincos13by8 (temp + 4 * upper_avx512_word, N*2, table+4);
+						gwsincos13by8 (temp + 5 * upper_avx512_word, N*2, table+5);
+						gwsincos13by8 (temp + 6 * upper_avx512_word, N*2, table+6);
+						gwsincos13by8 (temp + 7 * upper_avx512_word, N*2, table+7);
+						table += 32;
+					}
+				}
+			}
+			pass1_size /= 5;
+		}
+
+/* For the zr6_six_complex_djbfft building block levels, output the sin/cos values. */
+
+		while (pass1_size % 6 == 0) {
+			N = N * 6;
+
+/* Output the sin/cos data for the complex sections, (the zr6_six_complex_djbfft building block). */
+
+			for (j = 0; j < N / 6; j += pass1_increment) {
+				for (i = 0; i < gwdata->PASS1_CACHE_LINES; i++) {
+					temp = (group + j + i);
+					gwsincos123by8 (temp, N, table);
+					gwsincos123by8 (temp + upper_avx512_word, N, table+1);
+					gwsincos123by8 (temp + 2 * upper_avx512_word, N, table+2);
+					gwsincos123by8 (temp + 3 * upper_avx512_word, N, table+3);
+					gwsincos123by8 (temp + 4 * upper_avx512_word, N, table+4);
+					gwsincos123by8 (temp + 5 * upper_avx512_word, N, table+5);
+					gwsincos123by8 (temp + 6 * upper_avx512_word, N, table+6);
+					gwsincos123by8 (temp + 7 * upper_avx512_word, N, table+7);
+					table += 48;
+
+/* The zr6_csc_twelve_real building blocks require extra sin/cos values.  The twelve_real doubles N */
+/* because the real part of the FFT is one level behind the complex part of the FFT. */
+
+					if (!gwdata->ALL_COMPLEX_FFT) {
+						gwsincos135by8 (temp, N*2, table);
+						gwsincos135by8 (temp + upper_avx512_word, N*2, table+1);
+						gwsincos135by8 (temp + 2 * upper_avx512_word, N*2, table+2);
+						gwsincos135by8 (temp + 3 * upper_avx512_word, N*2, table+3);
+						gwsincos135by8 (temp + 4 * upper_avx512_word, N*2, table+4);
+						gwsincos135by8 (temp + 5 * upper_avx512_word, N*2, table+5);
+						gwsincos135by8 (temp + 6 * upper_avx512_word, N*2, table+6);
+						gwsincos135by8 (temp + 7 * upper_avx512_word, N*2, table+7);
+						table += 48;
+					}
+				}
+			}
+			pass1_size /= 6;
+		}
+
+/* For the zr7_seven_complex_djbfft building block levels, output the sin/cos values. */
+
+		while (pass1_size % 7 == 0) {
+			N = N * 7;
+
+/* Output the sin/cos data for the complex sections, (the zr7_seven_complex_djbfft building block). */
+/* Use the special7 version which multiplies sine values by .434^(2/3) which saves 2 clocks in 14 reals building block. */
+
+			for (j = 0; j < N / 7; j += pass1_increment) {
+				for (i = 0; i < gwdata->PASS1_CACHE_LINES; i++) {
+					temp = (group + j + i);
+					gwsincos123by8_special7 (temp, N, table);
+					gwsincos123by8_special7 (temp + upper_avx512_word, N, table+1);
+					gwsincos123by8_special7 (temp + 2 * upper_avx512_word, N, table+2);
+					gwsincos123by8_special7 (temp + 3 * upper_avx512_word, N, table+3);
+					gwsincos123by8_special7 (temp + 4 * upper_avx512_word, N, table+4);
+					gwsincos123by8_special7 (temp + 5 * upper_avx512_word, N, table+5);
+					gwsincos123by8_special7 (temp + 6 * upper_avx512_word, N, table+6);
+					gwsincos123by8_special7 (temp + 7 * upper_avx512_word, N, table+7);
+					table += 48;
+
+/* The zr7_csc_fourteen_real building blocks require extra sin/cos values.  The fourteen_real doubles N */
+/* because the real part of the FFT is one level behind the complex part of the FFT. */
+
+					if (!gwdata->ALL_COMPLEX_FFT) {
+						gwsincos135by8_special7 (temp, N*2, table);
+						gwsincos135by8_special7 (temp + upper_avx512_word, N*2, table+1);
+						gwsincos135by8_special7 (temp + 2 * upper_avx512_word, N*2, table+2);
+						gwsincos135by8_special7 (temp + 3 * upper_avx512_word, N*2, table+3);
+						gwsincos135by8_special7 (temp + 4 * upper_avx512_word, N*2, table+4);
+						gwsincos135by8_special7 (temp + 5 * upper_avx512_word, N*2, table+5);
+						gwsincos135by8_special7 (temp + 6 * upper_avx512_word, N*2, table+6);
+						gwsincos135by8_special7 (temp + 7 * upper_avx512_word, N*2, table+7);
+						table += 48;
+					}
+				}
+			}
+			pass1_size /= 7;
+		}
+
+/* For the zr16_sixteen_complex_djbfft building block levels, output the sin/cos values. */
+
+		while (pass1_size == 16) {
+			N = N * 16;
+
+/* Output the sin/cos data for the complex sections, (the zr16_sixteen_complex_djbfft building block). */
+
+			for (j = 0; j < N / 16; j += pass1_increment) {
+				for (i = 0; i < gwdata->PASS1_CACHE_LINES; i++) {
+					temp = (group + j + i);
+					gwsincos12345678by8 (temp, N, table);
+					gwsincos12345678by8 (temp + upper_avx512_word, N, table+1);
+					gwsincos12345678by8 (temp + 2 * upper_avx512_word, N, table+2);
+					gwsincos12345678by8 (temp + 3 * upper_avx512_word, N, table+3);
+					gwsincos12345678by8 (temp + 4 * upper_avx512_word, N, table+4);
+					gwsincos12345678by8 (temp + 5 * upper_avx512_word, N, table+5);
+					gwsincos12345678by8 (temp + 6 * upper_avx512_word, N, table+6);
+					gwsincos12345678by8 (temp + 7 * upper_avx512_word, N, table+7);
+					table += 128;
+
+/* The zr16_csc_thirtytwo_real building blocks require extra sin/cos values.  The thirtytwo_real doubles N */
+/* because the real part of the FFT is one level behind the complex part of the FFT. */
+
+					if (!gwdata->ALL_COMPLEX_FFT) {
+						gwsincos13579BDFby8 (temp, N*2, table);
+						gwsincos13579BDFby8 (temp + upper_avx512_word, N*2, table+1);
+						gwsincos13579BDFby8 (temp + 2 * upper_avx512_word, N*2, table+2);
+						gwsincos13579BDFby8 (temp + 3 * upper_avx512_word, N*2, table+3);
+						gwsincos13579BDFby8 (temp + 4 * upper_avx512_word, N*2, table+4);
+						gwsincos13579BDFby8 (temp + 5 * upper_avx512_word, N*2, table+5);
+						gwsincos13579BDFby8 (temp + 6 * upper_avx512_word, N*2, table+6);
+						gwsincos13579BDFby8 (temp + 7 * upper_avx512_word, N*2, table+7);
+						table += 128;
+					}
+				}
+			}
+			pass1_size /= 16;
+		}
+
+/* For the zr8_eight_complex_djbfft building block levels, output the sin/cos values. */
+
+		while (pass1_size % 8 == 0) {
+			N = N * 8;
+
+/* Output the sin/cos data for the complex sections, (the zr8_eight_complex_djbfft building block). */
+
+			for (j = 0; j < N / 8; j += pass1_increment) {
+				for (i = 0; i < gwdata->PASS1_CACHE_LINES; i++) {
+					temp = (group + j + i);
+					gwsincos1234by8 (temp, N, table);
+					gwsincos1234by8 (temp + upper_avx512_word, N, table+1);
+					gwsincos1234by8 (temp + 2 * upper_avx512_word, N, table+2);
+					gwsincos1234by8 (temp + 3 * upper_avx512_word, N, table+3);
+					gwsincos1234by8 (temp + 4 * upper_avx512_word, N, table+4);
+					gwsincos1234by8 (temp + 5 * upper_avx512_word, N, table+5);
+					gwsincos1234by8 (temp + 6 * upper_avx512_word, N, table+6);
+					gwsincos1234by8 (temp + 7 * upper_avx512_word, N, table+7);
+#ifdef TRY_SQRT2_TO_REDUCE_ROUNDOFF
+{
+	gwsincos1234by8_sqrthalf (temp, N, table);
+	gwsincos1234by8_sqrthalf (temp + upper_avx512_word, N, table+1);
+	gwsincos1234by8_sqrthalf (temp + 2 * upper_avx512_word, N, table+2);
+	gwsincos1234by8_sqrthalf (temp + 3 * upper_avx512_word, N, table+3);
+	gwsincos1234by8_sqrthalf (temp + 4 * upper_avx512_word, N, table+4);
+	gwsincos1234by8_sqrthalf (temp + 5 * upper_avx512_word, N, table+5);
+	gwsincos1234by8_sqrthalf (temp + 6 * upper_avx512_word, N, table+6);
+	gwsincos1234by8_sqrthalf (temp + 7 * upper_avx512_word, N, table+7);
+}
+#endif
+					table += 64;
+
+/* The zr8_csc_sixteen_real building blocks require extra sin/cos values.  The sixteen_real doubles N */
+/* because the real part of the FFT is one level behind the complex part of the FFT. */
+
+					if (!gwdata->ALL_COMPLEX_FFT) {
+						gwsincos1357by8 (temp, N*2, table);
+						gwsincos1357by8 (temp + upper_avx512_word, N*2, table+1);
+						gwsincos1357by8 (temp + 2 * upper_avx512_word, N*2, table+2);
+						gwsincos1357by8 (temp + 3 * upper_avx512_word, N*2, table+3);
+						gwsincos1357by8 (temp + 4 * upper_avx512_word, N*2, table+4);
+						gwsincos1357by8 (temp + 5 * upper_avx512_word, N*2, table+5);
+						gwsincos1357by8 (temp + 6 * upper_avx512_word, N*2, table+6);
+						gwsincos1357by8 (temp + 7 * upper_avx512_word, N*2, table+7);
+						table += 64;
+					}
+				}
+			}
+			pass1_size /= 8;
+		}
+
+/* Reserve space for the group multiplier fudge flags. There are pass1_size fudge flags, which takes pass1_size / 8 bytes. */
+/* The fudge flags will be compressed at an 8:1 ratio, thus pass1_size / 64 bytes are needed. */
+/* For zero-padded FFTs, the fudge flags could be half the size, but we have not implemented that. */
+
+		table = (double *) ((char *) table + gwdata->PASS1_SIZE * gwdata->PASS1_CACHE_LINES / 64);
+
+/* Reserve space for the big/little flags. There are pass1_size big/lit flags, which takes pass1_size / 8 bytes. */
+/* The big/lit flags will be compressed at an 8:1 ratio, thus pass1_size / 64 bytes are needed. */
+/* Rational FFTs have no big/lit table, zero-padded FFTs have a half-size big/lit table. */
+
+		if (group == 0) gwdata->biglit_data_offset = (unsigned long) ((char *) table - (char *) gwdata->pass1_var_data);
+		if (gwdata->RATIONAL_FFT);
+		else if (gwdata->ZERO_PADDED_FFT) table = (double *) ((char *) table + gwdata->PASS1_SIZE * gwdata->PASS1_CACHE_LINES / 64 / 2);
+		else table = (double *) ((char *) table + gwdata->PASS1_SIZE * gwdata->PASS1_CACHE_LINES / 64);
+
+/* Round pass 1 group's memory usage to a multiple of the cache line size */
+/* Calculate the size of each pass 1 group's sin/cos/premult data for pass1_get_next_block */
+
+		table = round_to_cache_line(table);
+		if (group == 0) gwdata->pass1_var_data_size = (unsigned long) ((char *) table - (char *) gwdata->pass1_var_data);
+	}
+
+/* Return address of the end of the table */
+
+	return (table);
+}
+
+/* This routine builds the fixed sin/cos table used in pass 1 of the radix-8 delayed DJB FFT. */
+
+double *zr4dwpn_build_fixed_pass1_table (
+	gwhandle *gwdata,	/* Handle initialized by gwsetup */
+	double	*table)		/* Pointer to the table to fill in */
+{
+	unsigned long upper_avx512_word, pass1_increment, pass1_size, i, j, N, delay_count;
+
+/* Initialize some needed constants */
+
+	upper_avx512_word = gwdata->PASS2_SIZE;
+	pass1_increment = 8 * gwdata->PASS2_SIZE;
+	pass1_size = gwdata->PASS1_SIZE;
+	delay_count = zr4dwpn_delay_count (gwdata);
+
+/* Real FFTs output one shared set of sin/cos values for the first 16-reals or 24-reals FFT */
+
+	if (! gwdata->ALL_COMPLEX_FFT) {
+		N = gwdata->FFTLEN;
+		if (delay_count == 8) {
+			for (j = 0; j < N / 16; j += pass1_increment) {
+				for (i = 1; i <= 7; i++) {	/* Create 7 twiddle factors */
+					gwsincos1by8 (i * j, N, table);
+					gwsincos1by8 (i * (j + upper_avx512_word), N, table+1);
+					gwsincos1by8 (i * (j + 2 * upper_avx512_word), N, table+2);
+					gwsincos1by8 (i * (j + 3 * upper_avx512_word), N, table+3);
+					gwsincos1by8 (i * (j + 4 * upper_avx512_word), N, table+4);
+					gwsincos1by8 (i * (j + 5 * upper_avx512_word), N, table+5);
+					gwsincos1by8 (i * (j + 6 * upper_avx512_word), N, table+6);
+					gwsincos1by8 (i * (j + 7 * upper_avx512_word), N, table+7);
+					table += 16;
+				}
+			}
+			N = N / 16;
+		}
+		if (delay_count == 12) {
+			for (j = 0; j < N / 24; j += pass1_increment) {
+				for (i = 1; i <= 11; i++) {	/* Create 11 twiddle factors */
+					gwsincos1by8 (i * j, N, table);
+					gwsincos1by8 (i * (j + upper_avx512_word), N, table+1);
+					gwsincos1by8 (i * (j + 2 * upper_avx512_word), N, table+2);
+					gwsincos1by8 (i * (j + 3 * upper_avx512_word), N, table+3);
+					gwsincos1by8 (i * (j + 4 * upper_avx512_word), N, table+4);
+					gwsincos1by8 (i * (j + 5 * upper_avx512_word), N, table+5);
+					gwsincos1by8 (i * (j + 6 * upper_avx512_word), N, table+6);
+					gwsincos1by8 (i * (j + 7 * upper_avx512_word), N, table+7);
+					table += 16;
+				}
+			}
+			N = N / 24;
+		}
+	}
+
+/* For all-complex FFTs, build the fixed roots-of-minus-one table and the DJB FFT sin/cos table. */
+/* Output these values in the same order they will be used in the first levels of pass 1. */
+
+	else {
+		N = gwdata->FFTLEN / 2;
+
+// BUG - delay count of 5 is not working yet
+		if (delay_count == 5) {
+			for (j = 0; j < N / 5; j += pass1_increment) {
+				/* Compute the roots-of-minus-one premultiplier.  The root-of-minus-one */
+				/* premultiplier is for 2N, and a root-of-minus-one-of-2N is the same as */
+				/* a root unity for 4N. */
+				gwsincos1plus01234by8 (j, N / 5, N * 4, table);
+				gwsincos1plus01234by8 (j + upper_avx512_word, N / 5, N * 4, table + 1);
+				gwsincos1plus01234by8 (j + 2 * upper_avx512_word, N / 5, N * 4, table + 2);
+				gwsincos1plus01234by8 (j + 3 * upper_avx512_word, N / 5, N * 4, table + 3);
+				gwsincos1plus01234by8 (j + 4 * upper_avx512_word, N / 5, N * 4, table + 4);
+				gwsincos1plus01234by8 (j + 5 * upper_avx512_word, N / 5, N * 4, table + 5);
+				gwsincos1plus01234by8 (j + 6 * upper_avx512_word, N / 5, N * 4, table + 6);
+				gwsincos1plus01234by8 (j + 7 * upper_avx512_word, N / 5, N * 4, table + 7);
+				table += 80;
+				/* Output the fixed sin/cos DJB FFT entry */
+				gwsincos12by8 (j, N, table);
+				gwsincos12by8 (j + upper_avx512_word, N, table+1);
+				gwsincos12by8 (j + 2 * upper_avx512_word, N, table+2);
+				gwsincos12by8 (j + 3 * upper_avx512_word, N, table+3);
+				gwsincos12by8 (j + 4 * upper_avx512_word, N, table+4);
+				gwsincos12by8 (j + 5 * upper_avx512_word, N, table+5);
+				gwsincos12by8 (j + 6 * upper_avx512_word, N, table+6);
+				gwsincos12by8 (j + 7 * upper_avx512_word, N, table+7);
+				table += 32;
+			}
+			N = N / 5;
+		}
+
+		if (delay_count == 8) {
+			for (j = 0; j < N / 8; j += pass1_increment) {
+				/* Compute the roots-of-minus-one premultiplier.  The root-of-minus-one premultiplier is */
+				/* for 2N, and a root-of-minus-one-of-2N is the same as a root unity for 4N.  NOTE: We only */
+				/* output the cos/sin values, the sine value will be applied to the group multipliers later on. */
+				gwcos1plus01234567by8 (j, N / 8, N * 4, table);
+				gwcos1plus01234567by8 (j + upper_avx512_word, N / 8, N * 4, table + 1);
+				gwcos1plus01234567by8 (j + 2 * upper_avx512_word, N / 8, N * 4, table + 2);
+				gwcos1plus01234567by8 (j + 3 * upper_avx512_word, N / 8, N * 4, table + 3);
+				gwcos1plus01234567by8 (j + 4 * upper_avx512_word, N / 8, N * 4, table + 4);
+				gwcos1plus01234567by8 (j + 5 * upper_avx512_word, N / 8, N * 4, table + 5);
+				gwcos1plus01234567by8 (j + 6 * upper_avx512_word, N / 8, N * 4, table + 6);
+				gwcos1plus01234567by8 (j + 7 * upper_avx512_word, N / 8, N * 4, table + 7);
+				table += 64;
+				/* Output the fixed sin/cos DJB FFT entry */
+				gwsincos1234by8 (j, N, table);
+				gwsincos1234by8 (j + upper_avx512_word, N, table+1);
+				gwsincos1234by8 (j + 2 * upper_avx512_word, N, table+2);
+				gwsincos1234by8 (j + 3 * upper_avx512_word, N, table+3);
+				gwsincos1234by8 (j + 4 * upper_avx512_word, N, table+4);
+				gwsincos1234by8 (j + 5 * upper_avx512_word, N, table+5);
+				gwsincos1234by8 (j + 6 * upper_avx512_word, N, table+6);
+				gwsincos1234by8 (j + 7 * upper_avx512_word, N, table+7);
+#ifdef TRY_SQRT2_TO_REDUCE_ROUNDOFF
+{
+	gwsincos1234by8_sqrthalf (j, N, table);
+	gwsincos1234by8_sqrthalf (j + upper_avx512_word, N, table+1);
+	gwsincos1234by8_sqrthalf (j + 2 * upper_avx512_word, N, table+2);
+	gwsincos1234by8_sqrthalf (j + 3 * upper_avx512_word, N, table+3);
+	gwsincos1234by8_sqrthalf (j + 4 * upper_avx512_word, N, table+4);
+	gwsincos1234by8_sqrthalf (j + 5 * upper_avx512_word, N, table+5);
+	gwsincos1234by8_sqrthalf (j + 6 * upper_avx512_word, N, table+6);
+	gwsincos1234by8_sqrthalf (j + 7 * upper_avx512_word, N, table+7);
+}
+#endif
+				table += 64;
+			}
+			N = N / 8;
+		}
+
+		if (delay_count == 12) {
+			for (j = 0; j < N / 12; j += pass1_increment) {
+				/* Compute the roots-of-minus-one premultiplier.  The root-of-minus-one premultiplier is */
+				/* for 2N, and a root-of-minus-one-of-2N is the same as a root unity for 4N.  NOTE: We only */
+				/* output the cos/sin values, the sine value will be applied to the group multipliers later on. */
+				gwcos1plus0123456789ABby8 (j, N / 12, N * 4, table);
+				gwcos1plus0123456789ABby8 (j + upper_avx512_word, N / 12, N * 4, table + 1);
+				gwcos1plus0123456789ABby8 (j + 2 * upper_avx512_word, N / 12, N * 4, table + 2);
+				gwcos1plus0123456789ABby8 (j + 3 * upper_avx512_word, N / 12, N * 4, table + 3);
+				gwcos1plus0123456789ABby8 (j + 4 * upper_avx512_word, N / 12, N * 4, table + 4);
+				gwcos1plus0123456789ABby8 (j + 5 * upper_avx512_word, N / 12, N * 4, table + 5);
+				gwcos1plus0123456789ABby8 (j + 6 * upper_avx512_word, N / 12, N * 4, table + 6);
+				gwcos1plus0123456789ABby8 (j + 7 * upper_avx512_word, N / 12, N * 4, table + 7);
+				table += 96;
+				/* Output the fixed sin/cos DJB FFT entry */
+				gwsincos123456by8 (j, N, table);
+				gwsincos123456by8 (j + upper_avx512_word, N, table+1);
+				gwsincos123456by8 (j + 2 * upper_avx512_word, N, table+2);
+				gwsincos123456by8 (j + 3 * upper_avx512_word, N, table+3);
+				gwsincos123456by8 (j + 4 * upper_avx512_word, N, table+4);
+				gwsincos123456by8 (j + 5 * upper_avx512_word, N, table+5);
+				gwsincos123456by8 (j + 6 * upper_avx512_word, N, table+6);
+				gwsincos123456by8 (j + 7 * upper_avx512_word, N, table+7);
+				table += 96;
+			}
+			N = N / 12;
+		}
+	}
+
+/* Return address of the end of the table */
+
+	return (table);
+}
+
+/* Build the sin/cos table used in all-complex pass 2 blocks in a traditional radix-8 FFT. */
+
+double *zr4_build_pass2_complex_table (
+	gwhandle *gwdata,	/* Handle initialized by gwsetup */
+	double	*table)		/* Pointer to the table to fill in */
+{
+	unsigned long i, N;
+
+	N = gwdata->PASS2_SIZE;
+
+/* If the pass 2 size is divisible by 5, then the initial levels do */
+/* radix-5 steps which requires two sin/cos values.  The first levels */
+/* in pass 2 have an upper_avx512_word of one. */
+
+	if (gwdata->PASS2_SIZE != 640 && gwdata->PASS2_SIZE != 4480 && gwdata->PASS2_SIZE != 6400 &&
+	    gwdata->PASS2_SIZE != 7680 && gwdata->PASS2_SIZE != 10240) {
+		while (N % 5 == 0) {
+			for (i = 0; i < N / 5; i += 8) {
+				gwsincos12by8 (i, N, table);
+				gwsincos12by8 (i+1, N, table+1);
+				gwsincos12by8 (i+2, N, table+2);
+				gwsincos12by8 (i+3, N, table+3);
+				gwsincos12by8 (i+4, N, table+4);
+				gwsincos12by8 (i+5, N, table+5);
+				gwsincos12by8 (i+6, N, table+6);
+				gwsincos12by8 (i+7, N, table+7);
+				table += 32;
+			}
+			N = N / 5;
+			if (N == 10*64) break;  // For 5 * 10 * 64 pass 2 size
+		}
+	}
+
+/* If the pass 2 size is divisible by 7, then the initial levels do radix-7 steps which requires three sin/cos values. */
+/* The first levels in pass 2 have an upper_avx512_word of one.  Use the special7 version which multiplies sine values */
+/* by .434^(2/3) to save 2 clocks in 14 reals building block. */
+
+	while (N % 7 == 0) {
+		for (i = 0; i < N / 7; i += 8) {
+			gwsincos123by8_special7 (i, N, table);
+			gwsincos123by8_special7 (i+1, N, table+1);
+			gwsincos123by8_special7 (i+2, N, table+2);
+			gwsincos123by8_special7 (i+3, N, table+3);
+			gwsincos123by8_special7 (i+4, N, table+4);
+			gwsincos123by8_special7 (i+5, N, table+5);
+			gwsincos123by8_special7 (i+6, N, table+6);
+			gwsincos123by8_special7 (i+7, N, table+7);
+			table += 48;
+		}
+		N = N / 7;
+	}
+
+/* If the pass 2 size is divisible by 10, then the initial levels do */
+/* radix-10 steps which requires 5 sin/cos values.  The first levels */
+/* in pass 2 have an upper_avx512_word of one. */
+
+	while (N % 10 == 0) {
+		for (i = 0; i < N / 10; i += 8) {
+			gwsincos12345by8 (i, N, table);
+			gwsincos12345by8 (i+1, N, table+1);
+			gwsincos12345by8 (i+2, N, table+2);
+			gwsincos12345by8 (i+3, N, table+3);
+			gwsincos12345by8 (i+4, N, table+4);
+			gwsincos12345by8 (i+5, N, table+5);
+			gwsincos12345by8 (i+6, N, table+6);
+			gwsincos12345by8 (i+7, N, table+7);
+			table += 80;
+		}
+		N = N / 10;
+	}
+
+/* If the pass 2 size is divisible by 12, then the initial levels do */
+/* radix-12 steps which requires six sin/cos values.  The first levels */
+/* in pass 2 have an upper_avx512_word of one. */
+
+	while (N == 12*64 || N == 12*6*64 || N == 12*8*64 || N == 12*12*64 || N == 12*16*64) {
+		for (i = 0; i < N / 12; i += 8) {
+			gwsincos123456by8 (i, N, table);
+			gwsincos123456by8 (i+1, N, table+1);
+			gwsincos123456by8 (i+2, N, table+2);
+			gwsincos123456by8 (i+3, N, table+3);
+			gwsincos123456by8 (i+4, N, table+4);
+			gwsincos123456by8 (i+5, N, table+5);
+			gwsincos123456by8 (i+6, N, table+6);
+			gwsincos123456by8 (i+7, N, table+7);
+			table += 96;
+		}
+		N = N / 12;
+	}
+
+/* If the pass 2 size is divisible by 6, then the initial levels do */
+/* radix-6 steps which requires three sin/cos values.  The first levels */
+/* in pass 2 have an upper_avx512_word of one. */
+
+	while (N % 6 == 0) {
+		for (i = 0; i < N / 6; i += 8) {
+			gwsincos123by8 (i, N, table);
+			gwsincos123by8 (i+1, N, table+1);
+			gwsincos123by8 (i+2, N, table+2);
+			gwsincos123by8 (i+3, N, table+3);
+			gwsincos123by8 (i+4, N, table+4);
+			gwsincos123by8 (i+5, N, table+5);
+			gwsincos123by8 (i+6, N, table+6);
+			gwsincos123by8 (i+7, N, table+7);
+			table += 48;
+		}
+		N = N / 6;
+	}
+
+/* For any radix-16 blocks, output eight sin/cos values */
+
+	while (N == 16*64 || N == 16*8*64 || N == 16*16*64) {
+		for (i = 0; i < N / 16; i += 8) {
+			gwsincos12345678by8 (i, N, table);
+			gwsincos12345678by8 (i+1, N, table+1);
+			gwsincos12345678by8 (i+2, N, table+2);
+			gwsincos12345678by8 (i+3, N, table+3);
+			gwsincos12345678by8 (i+4, N, table+4);
+			gwsincos12345678by8 (i+5, N, table+5);
+			gwsincos12345678by8 (i+6, N, table+6);
+			gwsincos12345678by8 (i+7, N, table+7);
+			table += 128;
+		}
+		N = N / 16;
+	}
+
+/* For the remaining radix-8 blocks, output four sin/cos values */
+
+	while (N > 8) {
+		for (i = 0; i < N / 8; i += 8) {
+			gwsincos1234by8 (i, N, table);
+			gwsincos1234by8 (i+1, N, table+1);
+			gwsincos1234by8 (i+2, N, table+2);
+			gwsincos1234by8 (i+3, N, table+3);
+			gwsincos1234by8 (i+4, N, table+4);
+			gwsincos1234by8 (i+5, N, table+5);
+			gwsincos1234by8 (i+6, N, table+6);
+			gwsincos1234by8 (i+7, N, table+7);
+#ifdef TRY_SQRT2_TO_REDUCE_ROUNDOFF
+if (N > 64) {
+	gwsincos1234by8_sqrthalf (i, N, table);
+	gwsincos1234by8_sqrthalf (i+1, N, table+1);
+	gwsincos1234by8_sqrthalf (i+2, N, table+2);
+	gwsincos1234by8_sqrthalf (i+3, N, table+3);
+	gwsincos1234by8_sqrthalf (i+4, N, table+4);
+	gwsincos1234by8_sqrthalf (i+5, N, table+5);
+	gwsincos1234by8_sqrthalf (i+6, N, table+6);
+	gwsincos1234by8_sqrthalf (i+7, N, table+7);
+}
+#endif
+			table += 64;
+		}
+		N = N / 8;
+	}
+
+/* Return address of the end of the table */
+
+	return (table);
+}
+
+/* Build the sin/cos table used in pass 2 of real FFTs */
+
+double *zr4_build_pass2_real_table (
+	gwhandle *gwdata,	/* Handle initialized by gwsetup */
+	double	*table)		/* Pointer to the table to fill in */
+{
+	unsigned long avx512_increment, j, N;
+
+/* All complex FFTs, don't need these tables */
+
+	if (gwdata->ALL_COMPLEX_FFT) return (table);
+
+/* Init */
+
+	avx512_increment = 1;
+	N = gwdata->PASS2_SIZE;
+
+/* Output sin/cos values for 10-real macros */
+
+	if (gwdata->PASS2_SIZE != 640 && gwdata->PASS2_SIZE != 4480 && gwdata->PASS2_SIZE != 6400 &&
+	    gwdata->PASS2_SIZE != 7680 && gwdata->PASS2_SIZE != 10240) {
+		while (N % 5 == 0) {
+			for (j = 0; j < N / 5; j += 8) {
+				gwsincos13by8 (j, N*2, table);
+				gwsincos13by8 (j + avx512_increment, N*2, table+1);
+				gwsincos13by8 (j + 2*avx512_increment, N*2, table+2);
+				gwsincos13by8 (j + 3*avx512_increment, N*2, table+3);
+				gwsincos13by8 (j + 4*avx512_increment, N*2, table+4);
+				gwsincos13by8 (j + 5*avx512_increment, N*2, table+5);
+				gwsincos13by8 (j + 6*avx512_increment, N*2, table+6);
+				gwsincos13by8 (j + 7*avx512_increment, N*2, table+7);
+				table += 32;
+			}
+			N = N / 5;
+			if (N == 10*64) break;
+		}
+	}
+
+/* Output sin/cos values for 14-real macros.  Use the special7 version which multiplies sine values */
+/* by .434^(2/3) to save 2 clocks in 14 reals building block. */
+
+	while (N % 7 == 0) {
+		for (j = 0; j < N / 7; j += 8) {
+			gwsincos135by8_special7 (j, N*2, table);
+			gwsincos135by8_special7 (j + avx512_increment, N*2, table+1);
+			gwsincos135by8_special7 (j + 2*avx512_increment, N*2, table+2);
+			gwsincos135by8_special7 (j + 3*avx512_increment, N*2, table+3);
+			gwsincos135by8_special7 (j + 4*avx512_increment, N*2, table+4);
+			gwsincos135by8_special7 (j + 5*avx512_increment, N*2, table+5);
+			gwsincos135by8_special7 (j + 6*avx512_increment, N*2, table+6);
+			gwsincos135by8_special7 (j + 7*avx512_increment, N*2, table+7);
+			table += 48;
+		}
+		N = N / 7;
+	}
+
+/* Output sin/cos values for 20-real macros */
+
+	while (N % 10 == 0) {
+		for (j = 0; j < N / 10; j += 8) {
+			gwsincos13579by8 (j, N*2, table);
+			gwsincos13579by8 (j + avx512_increment, N*2, table+1);
+			gwsincos13579by8 (j + 2*avx512_increment, N*2, table+2);
+			gwsincos13579by8 (j + 3*avx512_increment, N*2, table+3);
+			gwsincos13579by8 (j + 4*avx512_increment, N*2, table+4);
+			gwsincos13579by8 (j + 5*avx512_increment, N*2, table+5);
+			gwsincos13579by8 (j + 6*avx512_increment, N*2, table+6);
+			gwsincos13579by8 (j + 7*avx512_increment, N*2, table+7);
+			table += 80;
+		}
+		N = N / 10;
+	}
+
+/* Output sin/cos values for 24-real macros */
+
+	while (N == 12*64 || N == 12*6*64 || N == 12*8*64 || N == 12*12*64 || N == 12*16*64) {
+		for (j = 0; j < N / 12; j += 8) {
+			gwsincos13579Bby8 (j, N*2, table);
+			gwsincos13579Bby8 (j + avx512_increment, N*2, table+1);
+			gwsincos13579Bby8 (j + 2*avx512_increment, N*2, table+2);
+			gwsincos13579Bby8 (j + 3*avx512_increment, N*2, table+3);
+			gwsincos13579Bby8 (j + 4*avx512_increment, N*2, table+4);
+			gwsincos13579Bby8 (j + 5*avx512_increment, N*2, table+5);
+			gwsincos13579Bby8 (j + 6*avx512_increment, N*2, table+6);
+			gwsincos13579Bby8 (j + 7*avx512_increment, N*2, table+7);
+			table += 96;
+		}
+		N = N / 12;
+	}
+
+/* Output sin/cos values for 12-real macros */
+
+	while (N % 6 == 0) {
+		for (j = 0; j < N / 6; j += 8) {
+			gwsincos135by8 (j, N*2, table);
+			gwsincos135by8 (j + avx512_increment, N*2, table+1);
+			gwsincos135by8 (j + 2*avx512_increment, N*2, table+2);
+			gwsincos135by8 (j + 3*avx512_increment, N*2, table+3);
+			gwsincos135by8 (j + 4*avx512_increment, N*2, table+4);
+			gwsincos135by8 (j + 5*avx512_increment, N*2, table+5);
+			gwsincos135by8 (j + 6*avx512_increment, N*2, table+6);
+			gwsincos135by8 (j + 7*avx512_increment, N*2, table+7);
+			table += 48;
+		}
+		N = N / 6;
+	}
+
+/* Output sin/cos values for remaining 32-real macros */
+
+	while (N == 16*64 || N == 16*8*64 || N == 16*16*64) {
+		for (j = 0; j < N / 16; j += 8) {
+			gwsincos13579BDFby8 (j, N*2, table);
+			gwsincos13579BDFby8 (j + avx512_increment, N*2, table+1);
+			gwsincos13579BDFby8 (j + 2*avx512_increment, N*2, table+2);
+			gwsincos13579BDFby8 (j + 3*avx512_increment, N*2, table+3);
+			gwsincos13579BDFby8 (j + 4*avx512_increment, N*2, table+4);
+			gwsincos13579BDFby8 (j + 5*avx512_increment, N*2, table+5);
+			gwsincos13579BDFby8 (j + 6*avx512_increment, N*2, table+6);
+			gwsincos13579BDFby8 (j + 7*avx512_increment, N*2, table+7);
+			table += 128;
+		}
+		N = N / 16;
+	}
+
+/* Output sin/cos values for remaining 16-real macros */
+
+	while (N > 8) {
+		for (j = 0; j < N / 8; j += 8) {
+			gwsincos1357by8 (j, N*2, table);
+			gwsincos1357by8 (j + avx512_increment, N*2, table+1);
+			gwsincos1357by8 (j + 2*avx512_increment, N*2, table+2);
+			gwsincos1357by8 (j + 3*avx512_increment, N*2, table+3);
+			gwsincos1357by8 (j + 4*avx512_increment, N*2, table+4);
+			gwsincos1357by8 (j + 5*avx512_increment, N*2, table+5);
+			gwsincos1357by8 (j + 6*avx512_increment, N*2, table+6);
+			gwsincos1357by8 (j + 7*avx512_increment, N*2, table+7);
+			table += 64;
+		}
+		N = N / 8;
+	}
+
+/* Return address of the end of the table */
+
+	return (table);
+}
+
+/* Build the big/little flags table for an AVX-512 r4dwpn (radix-8 with partial normalization) FFT. */
+
+double *zr4dwpn_build_biglit_table (
+	gwhandle *gwdata,	/* Handle initialized by gwsetup */
+	double	*table)		/* Pointer to the table to fill in */
+{
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
+	unsigned char *p, *temp_biglit_table;
+	unsigned long upper_avx512_word, group, h, i, j, k, num_combos, temp_biglit_table_size, varblock_biglit_data_size;
+	uint64_t combos[129];		// There are 129 possible 8-byte combinations
+	int	next_combo[129];
+	uint64_t *output_ptr;		// Ptr for outputting the compressed biglit table
+const	int	START_OF_CHAIN = 0x8000;
+const	int	END_OF_CHAIN = 0x4000;
+
+/* Init table of first 8 big/lit values */
+
+	memset (asm_data->u.zmm.ZMM_FIRST_BIGLIT_VALUES, 0, sizeof (asm_data->u.zmm.ZMM_FIRST_BIGLIT_VALUES));
+
+/* Rational FFTs don't have any big/lit flags */
+
+	if (gwdata->RATIONAL_FFT) return (table);
+
+/* Initialize.  There are remarkable similarities between the one-pass and two-pass table builds. */
+
+	if (gwdata->PASS1_SIZE == 0) {
+		upper_avx512_word = 8;
+		// Calculate number of big/lit bytes written to each block of variable data
+		varblock_biglit_data_size = gwdata->FFTLEN / 64;
+	} else {
+		upper_avx512_word = gwdata->PASS2_SIZE;
+		// Calculate number of big/lit bytes written to each block of variable data
+		varblock_biglit_data_size = gwdata->PASS1_SIZE * gwdata->PASS1_CACHE_LINES / 64;
+	}
+	if (gwdata->ZERO_PADDED_FFT) varblock_biglit_data_size = varblock_biglit_data_size / 2;
+
+/* Loop to build table in exactly the same order that it will be used by the assembly code. */
+
+	temp_biglit_table_size = gwdata->FFTLEN / 8;
+	if (gwdata->ZERO_PADDED_FFT) temp_biglit_table_size = temp_biglit_table_size / 2;
+	p = temp_biglit_table = (unsigned char *) malloc (temp_biglit_table_size);
+	for (group = 0; group < upper_avx512_word; group += gwdata->PASS1_CACHE_LINES) {
+	    for (h = 0; h < gwdata->FFTLEN / 2; h += 4 * 8 * upper_avx512_word) {
+		for (i = 0; i < gwdata->PASS1_CACHE_LINES; i++) {
+		    for (j = 0; j < 4 * 8 * upper_avx512_word; j += 8 * upper_avx512_word) {
+			for (k = 0; k < gwdata->FFTLEN; k += gwdata->FFTLEN / 2) {
+				unsigned long word;
+
+/* Zero-padded FFTs only need a half-sized big/lit table */
+
+				if (k && gwdata->ZERO_PADDED_FFT) continue;
+
+/* Now set the big/little flag corresponding to words in an AVX-512 cacheline */
+
+				word = group + h + i + j + k;
+				*p = is_big_word (gwdata, word);
+				if (is_big_word (gwdata, word + upper_avx512_word)) *p += 2;
+				if (is_big_word (gwdata, word + 2 * upper_avx512_word)) *p += 4;
+				if (is_big_word (gwdata, word + 3 * upper_avx512_word)) *p += 8;
+				if (is_big_word (gwdata, word + 4 * upper_avx512_word)) *p += 16;
+				if (is_big_word (gwdata, word + 5 * upper_avx512_word)) *p += 32;
+				if (is_big_word (gwdata, word + 6 * upper_avx512_word)) *p += 64;
+				if (is_big_word (gwdata, word + 7 * upper_avx512_word)) *p += 128;
+
+/* Create separate table for first 8 biglit values for carry propagation code */
+
+				if (word < sizeof (asm_data->u.zmm.ZMM_FIRST_BIGLIT_VALUES) * 8 && (*p & 1))
+					bitset (asm_data->u.zmm.ZMM_FIRST_BIGLIT_VALUES, word);
+
+/* Move to next big/lit byte */
+
+				p++;
+			}
+		    }
+		}
+	    }
+	}
+
+/* Now compress the table.  Big/lit flags form a very regular pattern.  For example, if there are 18.3 b's per */
+/* FFT word then you get either a big word followed by two little words or a big word followed by three little words. */
+/* Here we determine which patterns of big/lit are possible in a znorm macro which processes 4 AVX-512 words. */
+
+/* Generate all possible valid combinations of big/lit flags */
+
+	p = temp_biglit_table;
+	num_combos = 0;
+	for (i = 0; i < temp_biglit_table_size; i += 8) {
+		uint64_t combo = * (uint64_t *) (p+i);
+		/* Ignore this combo if it is a duplicate.  Otherwise, add it to our combos collection. */
+		for (j = 0; ; j++) {
+			if (j == num_combos) {
+				combos[num_combos++] = combo;
+				break;
+			}
+			if (combo == combos[j]) break;
+		}
+		/* Remember combo number for building biglit table later */
+		p[i] = (unsigned char) j;
+	}
+
+/* Concatentate combos to save space. Look for 2 chains where the end of one chain has 4 bytes in common */
+/* with the start of the other chain. */
+
+	/* Init the next-in-chain array */
+	for (i = 0; i < num_combos; i++) next_combo[i] = START_OF_CHAIN + END_OF_CHAIN;
+	/* Examine all chain starts */
+	for (i = 0; i < num_combos; i++) {
+		int	chain_end;
+		/* Skip if not the start of a chain */
+		if (! (next_combo[i] & START_OF_CHAIN)) continue;
+		/* Find end of chain */
+		for (chain_end = i; ! (next_combo[chain_end] & END_OF_CHAIN); chain_end = next_combo[chain_end] & 0xFF);
+		/* Now look at all chain ends */
+		for (j = 0; j < num_combos; j++) {
+			/* Skip if not a chain end */
+			if (! (next_combo[j] & END_OF_CHAIN)) continue;
+			/* Can't chain to ourselves! */
+			if (j == chain_end) continue;
+			/* See if chain end has common elements with the chain start */
+			/* Due to little-endianness we want the MSW of the chain end to match the LSW of start */
+			/* j(end)	LSW, MSW */
+			/* i(strt)	     LSW  MSW */
+			if ((combos[j] >> 32) == (combos[i] & 0xFFFFFFFF)) {
+				next_combo[j] = (next_combo[j] & START_OF_CHAIN) + i;
+				next_combo[i] &= ~START_OF_CHAIN;
+				break;
+			}
+		}
+	}
+
+/* Output the compressed biglit table.  We believe this will always fit in 768 bytes. */
+
+	asm_data->compressed_biglits = table;
+	table = (double *) (((char *) table) + 768);
+	output_ptr = (uint64_t *) asm_data->compressed_biglits;
+	for (i = 0; i < num_combos; i++) {
+		/* Skip if not the start of a chain */
+		if (! (next_combo[i] & START_OF_CHAIN)) continue;
+		/* Follow the chain */
+		for (j = i; ; j = next_combo[j] & 0xFFF) {
+			/* Output the combo */
+			*output_ptr = combos[j];
+			/* Remember this combo's "offset" into the compressed biglit table */
+			/* We'll use this to build the biglit table later */
+			combos[j] = ((char *) output_ptr - (char *) asm_data->compressed_biglits) / sizeof (uint32_t);
+			/* Advance the output ptr */
+			output_ptr++;
+			/* Break when chain ends */
+			if (next_combo[j] & END_OF_CHAIN) break;
+			/* Back up the output ptr by half the distance */
+			output_ptr = (uint64_t *) (((char *) output_ptr) - sizeof (uint32_t));
+		}
+	}
+	ASSERTG ((char *) output_ptr <= (char *) table);
+
+/* Output the indexes into the compressed biglit table */
+
+	// Calculate address of biglit data in the first variable block's data.
+	p = (unsigned char *) gwdata->pass1_var_data + gwdata->biglit_data_offset;
+	// Init index into temp_biglit_table
+	i = 0;
+	// For each pass 1 block, output the proper number of bytes to the variable sin/cos data.
+	for (group = 0; group < upper_avx512_word; group += gwdata->PASS1_CACHE_LINES) {
+		for (k = 0; k < varblock_biglit_data_size; k++) {
+			/* Get the combo number we saved earlier */
+			j = temp_biglit_table[i];  i += 8;
+			/* Convert the combo number into an index into the compressed biglit table.  Output it. */
+			*p++ = (unsigned char) combos[j];
+		}
+		p += gwdata->pass1_var_data_size - varblock_biglit_data_size;
+	}
+
+/* Free the temporary table */
+
+	free (temp_biglit_table);
+
+/* Return pointer to end of our table */
+
+	return (table);
+}
+
+
+/* Build the normalization table (FFT weights) used by radix-8 with partial normalization FFTs. */
+/* We actually build the table twice.  The first time we allocate space and compute the group */
+/* multipliers in the same order that the zr8/12_first_fft macros need them.  The second time */
+/* we build the table in the same order that the normalize code needs the inverse group multipliers. */
+/* The inverse group multipliers are not applied by the zr8/12_last_unfft macros because the normalize */
+/* macros can apply the multipliers for free using FMA instructions. */
+
+double *zr4dwpn_build_norm_table (
+	gwhandle *gwdata,	/* Handle initialized by gwsetup */
+	double	*table)		/* Pointer to the area to allocate from and fill in.  This pointer is NULL for second invocation. */
+{
+	unsigned long delay_count, i, j, k, avx512_word, upper_avx512_word, grp;
+	double	*weights, *inverse_weights;
+
+/* Initialize.  There are remarkable similarities between the one-pass and two-pass table builds. */
+
+	if (gwdata->PASS1_SIZE == 0) {
+		delay_count = 1;
+		upper_avx512_word = 8;
+	} else {
+		delay_count = zr4dwpn_delay_count (gwdata);
+		upper_avx512_word = gwdata->PASS2_SIZE;
+	}
+
+/* Allocate space for or reestablish pointers to previously allocated group multipliers */
+
+	if (table != NULL) {	/* First build of the group multipliers, allocate space */
+		weights = table;
+		table = table + 2 * gwdata->FFTLEN / upper_avx512_word;
+	} else {		/* Rebuilding the all-complex group multipliers to apply roots-of-minus-one sine */
+		struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
+		weights = (double *) asm_data->norm_grp_mults;
+	}
+	inverse_weights = weights + gwdata->FFTLEN / upper_avx512_word;
+
+/* First build of the tables.  Build the group multipliers in the same order as used by the first and last FFT levels */
+/* where the group multipliers are applied.  NOTE:  The inverse group multipliers are no longer applied by the last FFT levels, */
+/* they can be applied for free via FMA instructions during normalization.  NOTE2:  In an all-complex FFT, we save a multiply by */
+/* precomputing the group multiplier times the sine value of the roots-of-minus-one premultiplier.  We do not apply the sine value */
+/* the first time the table is built so that we can properly build the XOR masks used in compressing the fudge factor flags. */
+/* NOTE3: The weight associated with abs(c) != 1 is also not applied so that we can properly build the XOR masks. */
+
+	if (table != NULL) {
+	    for (i = 0; i < gwdata->FFTLEN / 2 / delay_count; i += 8 * upper_avx512_word) {
+		for (j = 0; j < gwdata->FFTLEN / 2; j += gwdata->FFTLEN / 2 / delay_count) {
+		    for (k = 0; k < gwdata->FFTLEN; k += gwdata->FFTLEN / 2) {
+			for (avx512_word = 0; avx512_word < 8 * upper_avx512_word; avx512_word += upper_avx512_word) {
+
+/* For zero-padded FFTs the upper half of the FFT has the exact same multipliers as the lower half. */
+/* Thus we can cut the size of our group multiplier table in half. */
+
+//BUG				if (gwdata->ZERO_PADDED_FFT && grp >= gwdata->FFTLEN / 2) continue;
+
+/* Call quad-precision routine to compute group multipliers. */
+
+				grp = i + j + k + avx512_word;
+				*weights++ = gwfft_weight_no_c (gwdata->dd_data, grp);
+			}
+		    }
+		}
+	    }
+	}
+
+/* Second build of the tables.  The group multipliers must be rebuilt in the same order as used by the zr8/12_first_fft macros. */
+/* This needs to be done for one-pass FFTs, two-pass all-complex FFTs where we did not precompute the group multiplier times */
+/* the sine value of the roots-of-minus-one premultiplier, and the case where abs(c) != 1. */
+
+	else {
+	    if (gwdata->PASS1_SIZE == 0 || (gwdata->PASS1_SIZE && gwdata->ALL_COMPLEX_FFT) || labs (gwdata->c) != 1)
+	    for (i = 0; i < gwdata->FFTLEN / 2 / delay_count; i += 8 * upper_avx512_word) {
+		for (j = 0; j < gwdata->FFTLEN / 2; j += gwdata->FFTLEN / 2 / delay_count) {
+		    for (k = 0; k < gwdata->FFTLEN; k += gwdata->FFTLEN / 2) {
+			for (avx512_word = 0; avx512_word < 8 * upper_avx512_word; avx512_word += upper_avx512_word) {
+				double	ttp;
+				unsigned long sine_word;
+
+/* For zero-padded FFTs the upper half of the FFT has the exact same multipliers as the lower half. */
+/* Thus we can cut the size of our group multiplier table in half. */
+
+//BUG				if (gwdata->ZERO_PADDED_FFT && grp >= gwdata->FFTLEN / 2) continue;
+
+/* Call quad-precision routine to compute group multipliers.  For one-pass FFTs, we save a multiply in the unfft wrapper */
+/* by shifting the multiplication by 2/FFTLEN to the group multiplier.  For two-pass all-complex FFTs, we save a multiply */
+/* by precomputing the group multiplier times the sine value of the roots-of-minus-one premultiplier. */
+
+				grp = i + j + k + avx512_word;
+				if (gwdata->PASS1_SIZE == 0)
+					ttp = gwfft_weight_over_sqrt_fftlen (gwdata->dd_data, grp);
+				else if (gwdata->PASS1_SIZE && gwdata->ALL_COMPLEX_FFT) {
+					/* Compute the roots-of-minus-one premultiplier.  The root-of-minus-one */
+					/* premultiplier is for 2N, and a root-of-minus-one-of-2N is the same as */
+					/* a root unity for 4N (where N is the number of complex values = FFTLEN/2). */
+					sine_word = i + j + avx512_word;
+					gwfft_weights_times_sine (gwdata->dd_data, grp, sine_word, gwdata->FFTLEN * 2, &ttp, NULL);
+				} else
+					ttp = gwfft_weight (gwdata->dd_data, grp);
+				*weights++ = ttp;
+			}
+		    }
+		}
+	    }
+
+/* Second build of the tables.  The inverse group multipliers must be rebuilt in the same order as used the normalization code. */
+
+	    for (i = 0; i < gwdata->FFTLEN / 2; i += 8 * upper_avx512_word) {
+		for (k = 0; k < gwdata->FFTLEN; k += gwdata->FFTLEN / 2) {
+		    for (avx512_word = 0; avx512_word < 8 * upper_avx512_word; avx512_word += upper_avx512_word) {
+			double	ttmp;
+
+/* For zero-padded and rational FFTs the upper half of the FFT has the exact same multipliers as the lower half. */
+/* Thus we can cut the size of the inverse group multiplier table in half. */
+
+			if ((gwdata->ZERO_PADDED_FFT || gwdata->RATIONAL_FFT) && k) continue;
+
+/* Call quad-precision routine to compute group multipliers.  For two-pass all-complex FFTs, we save a multiply by */
+/* precomputing the group multiplier times the sine value of the roots-of-minus-one premultiplier. */
+
+			grp = i + k + avx512_word;
+			if (gwdata->PASS1_SIZE && gwdata->ALL_COMPLEX_FFT) {
+				/* Compute the roots-of-minus-one premultiplier.  The root-of-minus-one */
+				/* premultiplier is for 2N, and a root-of-minus-one-of-2N is the same as */
+				/* a root unity for 4N (where N is the number of complex values = FFTLEN/2). */
+				unsigned long sine_word = i + avx512_word;
+				gwfft_weights_times_sine (gwdata->dd_data, grp, sine_word, gwdata->FFTLEN * 2, NULL, &ttmp);
+			} else
+				ttmp = gwfft_weight_inverse (gwdata->dd_data, grp);
+			*inverse_weights++ = ttmp;
+		    }
+		}
+	    }
+	}
+
+/* Return pointer to end of allocated area */
+
+	return (table);
+}
+
+/* Build the fudge factor flags table for an AVX-512 r4dwpn (radix-8 with partial normalization) FFT. */
+
+double *zr4dwpn_build_fudge_table (
+	gwhandle *gwdata,	/* Handle initialized by gwsetup */
+	double	*table)		/* Pointer to the table to fill in */
+{
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
+	uint64_t *compressed_fudges, *xor_masks, mask, mask_bit;
+	unsigned long num_grp_mults, delay_count, upper_avx512_word, num_fudges, varblock_fudge_data_size;
+	unsigned long group, h, i, j, k, avx512_word;
+	unsigned char *p;
+
+/* Initialize.  There are remarkable similarities between the one-pass and two-pass table builds. */
+
+	if (gwdata->PASS1_SIZE == 0) {
+		delay_count = 1;
+		upper_avx512_word = 8;
+		// Calculate number of fudge bytes written to each variable data block
+		varblock_fudge_data_size = gwdata->FFTLEN / 8 * 7 / 8;
+	} else {
+		delay_count = zr4dwpn_delay_count (gwdata);
+		upper_avx512_word = gwdata->PASS2_SIZE;
+		num_grp_mults = gwdata->PASS1_SIZE;
+		// Calculate number of fudge bytes written to each variable data block
+		varblock_fudge_data_size = num_grp_mults * gwdata->PASS1_CACHE_LINES / 64;
+	}
+
+/* Let's describe what we are doing by way of an example.  Imagine the first 4 group multipliers (AVX-256 code) are as follows: */
+/*		0.0	0.3535	0.707	0.06 */
+
+/* There are 4 norm_grp_mults starting values of interest (where the gwfft_weight_exponent has "wrapped" from 0.9999 to 0.0: */
+/*		(0.0	0.3535	0.707	0.06)  + 0.0 */
+/*		(0.0	0.3535	0.707	0.06)  + 0.293 */
+/*		(0.0	0.3535	0.707	0.06)  + 0.6465 */
+/*		(0.0	0.3535	0.707	0.06)  + 0.94 */
+
+/* Fudge factor flags simply denote when the group's gwfft_weight_exponent plus the column's gwfft_weight_exponent exceeds 1.0. */
+/* There are 5 possible fudge factors for the group multipliers depending on the column weights: */
+/* MASKSET0: 0000, 0010, 0110, 0111, 1111	for (0.0  0.3535  0.707  0.06) + 0.0 */
+/* MASKSET1: 0000, 0100, 0101, 1101, 1111	for (0.0  0.3535  0.707  0.06) + 0.293 */
+/* MASKSET2: 0000, 0001, 1001, 1011, 1111	for (0.0  0.3535  0.707  0.06) + 0.6465 */
+/* MASKSET3: 0000, 1000, 1010, 1110, 1111	for (0.0  0.3535  0.707  0.06) + 0.94 */
+
+/* To see how we can generate all the mask values using just eight 4-bit masks and one XOR mask for each group: */
+/* MASKSET0: 0000, 0010, 0110, 0111, 1111  1101  1001  1000	(the eight 4-bit masks, XOR mask is 0000 */
+/* MASKSET1:       0000, 0100, 0101, 1101, 1111			(XOR mask is 0010 applied to MASKSET0 above) */
+/* MASKSET2:	         0000, 0001, 1001, 1011, 1111		(XOR mask is 0110 applied to MASKSET0 above) */
+/* MASKSET3:		       0000, 1000, 1010, 1110, 1111	(XOR mask is 0111 applied to MASKSET0 above) */
+/* Also note that the XOR masks appear in the eight 4-bit masks. */
+
+/* Extending the above to 8 different AVX-512 words, we get 64-bit masks.  We'11 have 128 64-bit masks (1KB). */
+/* Every 8 FFT words needs one 7-bit index into this array of masks, resulting in a 8:1 compression of the fudge */
+/* flags (64-bit mask reduced to one byte index). */
+
+/* Rather than having a separate table for the XOR masks, we note that there really aren't that many XOR masks to store. */
+/* For a pass 1 size of 1280, there are only 1280/64 = 20 XOR masks.  So we simply make the first 20 entries in our */
+/* 128 64-bit masks be the XOR masks in the order the assembly code will need them. */
+
+	// Fudge flag compression only takes place for two-pass FFTs
+	if (gwdata->PASS1_SIZE) {
+		double	*norm_grp_mults;
+
+		// Reserve space for 128 masks and up to 64 xor masks (xor masks could be dups)
+		ASSERTG (num_grp_mults <= 4096);  // Not sure what would happen if there are more than 64 XOR masks
+		asm_data->compressed_fudges = table;
+		table = (double *) ((char *) table + 192 * sizeof (uint64_t));
+
+/* Output the XOR masks by comparing all the norm_grp_mults to the first 64 norm_grp_mults. */
+
+		// Create the XOR masks
+		compressed_fudges = (uint64_t *) asm_data->compressed_fudges;
+		memset (compressed_fudges, 0, num_grp_mults / 8);	// One bit used per grp_mult
+		norm_grp_mults = (double *) asm_data->norm_grp_mults;
+		for (i = 0; i < num_grp_mults; i++) if (norm_grp_mults[i] < norm_grp_mults[i&63]) bitset (compressed_fudges, i);
+		num_fudges = num_grp_mults / 64;
+	}
+
+/* Calculate the group multiplier fudge flags. The fudge flag is set if the col mult * the grp mult */
+/* is b times the correct fft_weight, meaning a mul by 1/b is required to generate the correct multiplier. */
+/* Since we can't do equality compares on floats, this test is a little bit cryptic. */
+
+/* Loop through all the pass 1 blocks in the same order the assembly code will process the groups. */
+/* For each pass 1 block, output the proper number of bytes to the variable sin/cos data. */
+
+	// Calculate address of fudge data in the first variable block data.
+	// This is the first block's big/lit data minus the fudge flags size.
+	p = (unsigned char *) gwdata->pass1_var_data + gwdata->biglit_data_offset - varblock_fudge_data_size;
+
+	mask = 0;
+	mask_bit = 1;
+	for (group = 0; group < upper_avx512_word; group += gwdata->PASS1_CACHE_LINES) {
+	    for (h = 0, xor_masks = compressed_fudges;
+		 h < gwdata->FFTLEN / 2 / delay_count;
+		 h += 8 * upper_avx512_word, xor_masks += delay_count / 4) {
+		for (i = 0; i < gwdata->PASS1_CACHE_LINES; i++, xor_masks -= delay_count / 4) {
+		    unsigned long col;
+		    double col_weight_exponent;
+		    col = group + i;
+		    col_weight_exponent = gwfft_weight_exponent (gwdata->dd_data, col);
+		    // Generate delay_count/4 64-bit masks each with a different XOR mask.  This corresponds
+		    // to one execution of zr8/zr12 first/last fft macro.
+		    for (j = 0; j < gwdata->FFTLEN / 2; j += gwdata->FFTLEN / 2 / delay_count) {
+			for (k = 0; k < gwdata->FFTLEN; k += gwdata->FFTLEN / 2) {
+			    for (avx512_word = 0; avx512_word < 8 * upper_avx512_word; avx512_word += upper_avx512_word) { // Build one byte
+				unsigned long grp;
+				double	grp_weight_exponent;
+				grp = h + j + k + avx512_word;
+				grp_weight_exponent = gwfft_weight_exponent (gwdata->dd_data, grp);
+				if (gwfft_weight_exponent (gwdata->dd_data, grp + col) + 0.5 < grp_weight_exponent + col_weight_exponent)
+					mask |= mask_bit;
+				mask_bit <<= 1;
+			    }
+			    // One-pass FFTs do not compress the fudge flags
+			    if (gwdata->PASS1_SIZE == 0) {
+				// The first col multiplier is always 1.0 and the one-pass wrapper takes advantage of this.
+				// Do not generate fudge flags when col = 0.  Otherwise, output the uncompressed fudge flags.
+				if (col != 0) *p++ = (unsigned char) mask;
+			    }
+			    // Two-pass FFTs compress the fudge flags using the XOR mask and index into the compressed fudges array
+			    else {
+				int	index;
+				if (mask_bit) continue;	// Still building the 64-bit mask
+				// Apply the XOR mask
+				mask ^= *xor_masks++;
+				// Convert the mask to an index into the compressed fudges array
+				for (index = 0; ; index++) {
+					if (index == num_fudges) {
+						compressed_fudges[num_fudges++] = mask;
+						ASSERTG (num_fudges < 192);//BUG
+						break;
+					}
+					if (compressed_fudges[index] == mask) break;
+				}
+				// Output the index into the compressed fudges array
+				*p++ = (unsigned char) index;
+			    }
+			    // Init for building next mask
+			    mask = 0;
+			    mask_bit = 1;
+			}
+		    }
+		}
+	    }
+	    // Calculate address of next pass 1 block's fudge flags
+	    p += gwdata->pass1_var_data_size - varblock_fudge_data_size;
+	}
+
+/* Rebuild the group multipliers table.  For all-complex FFTs, when first built we did not apply the roots-of-minus-one sine */
+/* values so that we could build the xor table.  During the rebuild we will apply the sine value.  For real FFTs, we need to */
+/* build the inverse group multipliers in the same order that normalize uses them. */
+
+	(void) zr4dwpn_build_norm_table (gwdata, NULL);
+
+/* Return pointer to end of our table */
+
+	return (table);
+}
+
+
+/*************************************************************/
+/*                      AVX FFT tables                       */
+/*************************************************************/
+
 
 /* This routine builds the sin/cos table used in a one pass AVX traditional */
 /* DJB radix-4 FFT  - called by gwsetup.  If this is an all-complex FFT, */
@@ -419,7 +1917,7 @@ double *yr4dwpn_build_pass1_table (
 
 /* Initialize some needed constants */
 
-	pass1_size = gwdata->FFTLEN / gwdata->PASS2_SIZE; /* Real values in a pass1 section */
+	pass1_size = gwdata->PASS1_SIZE;
 	upper_avx_word = gwdata->PASS2_SIZE;
 	pass1_increment = gwdata->PASS2_SIZE * 4;
 
@@ -485,13 +1983,13 @@ double *yr4dwpn_build_pass1_table (
 
 #ifdef USE_REDUCED_SINCOS_FFTS
 	if (pow2_count & 1) gwdata->wpn_count = 8;
-	else if (gwdata->FFTLEN / gwdata->PASS2_SIZE == 2048) gwdata->wpn_count = 16;
+	else if (gwdata->PASS1_SIZE == 2048) gwdata->wpn_count = 16;
 	else gwdata->wpn_count = 4;
 #else
 	if (pow2_count & 1) gwdata->wpn_count = 8;
-	else if ((gwdata->FFTLEN / gwdata->PASS2_SIZE == 1536 && !gwdata->ALL_COMPLEX_FFT) ||
-		 gwdata->FFTLEN / gwdata->PASS2_SIZE == 1792 ||
-		 gwdata->FFTLEN / gwdata->PASS2_SIZE == 2048) gwdata->wpn_count = 16;
+	else if ((gwdata->PASS1_SIZE == 1536 && !gwdata->ALL_COMPLEX_FFT) ||
+		 gwdata->PASS1_SIZE == 1792 ||
+		 gwdata->PASS1_SIZE == 2048) gwdata->wpn_count = 16;
 	else gwdata->wpn_count = 4;
 #endif
 #ifdef USE_WPN4
@@ -516,14 +2014,14 @@ double *yr4dwpn_build_pass1_table (
 
 /* Set pointer to table of multipliers */
 
-	gwdata->adjusted_pass1_premults = table;
+	gwdata->pass1_var_data = table;
 
 /* Loop through all the pass 1 groups in the same order the assembly code will */
 /* process the groups. */
 
 	for (group = 0; group < upper_avx_word; group += gwdata->PASS1_CACHE_LINES) {
 
-		pass1_size = gwdata->FFTLEN / gwdata->PASS2_SIZE; /* Real values in a pass1 section */
+		pass1_size = gwdata->PASS1_SIZE;
 		pass1_size /= (delay_count * 2);	/* Complex values we're generating sin/cos data for */
 		N = gwdata->PASS2_SIZE;
 
@@ -556,10 +2054,10 @@ double *yr4dwpn_build_pass1_table (
 				for (i = 0; i < gwdata->PASS1_CACHE_LINES; i += 4) {
 					// Asm code swizzled the input so that upper_avx_word is 1
 					temp = group + i;
-					gwsincos15913by4 (temp, N*2, table);
-					gwsincos15913by4 (temp + 1, N*2, table+1);
-					gwsincos15913by4 (temp + 2, N*2, table+2);
-					gwsincos15913by4 (temp + 3, N*2, table+3);
+					gwsincos159Dby4 (temp, N*2, table);
+					gwsincos159Dby4 (temp + 1, N*2, table+1);
+					gwsincos159Dby4 (temp + 2, N*2, table+2);
+					gwsincos159Dby4 (temp + 3, N*2, table+3);
 					table += 32;
 				}
 			}
@@ -578,7 +2076,7 @@ double *yr4dwpn_build_pass1_table (
 						unsigned long final_group = group + i + avx_word;
 
 /* If this is an all-complex FFT, the roots of minus 1 (same as roots of FFTLEN*2) are */
-/* split to reduce memory requirements.  We apply the part of the all-complex premultiplier here. */
+/* split to reduce memory requirements.  We apply part of the all-complex premultiplier here. */
 
 						if (gwdata->ALL_COMPLEX_FFT) {
 							bigN = gwdata->FFTLEN * 2;
@@ -875,10 +2373,10 @@ double *yr4dwpn_build_pass1_table (
 				for (i = 0; i < gwdata->PASS1_CACHE_LINES; i += 4) {
 					// Asm code swizzled the input so that upper_avx_word is 1
 					temp = group + i;
-					gwsincos15913by4 (temp, N*2, table);
-					gwsincos15913by4 (temp + 1, N*2, table+1);
-					gwsincos15913by4 (temp + 2, N*2, table+2);
-					gwsincos15913by4 (temp + 3, N*2, table+3);
+					gwsincos159Dby4 (temp, N*2, table);
+					gwsincos159Dby4 (temp + 1, N*2, table+1);
+					gwsincos159Dby4 (temp + 2, N*2, table+2);
+					gwsincos159Dby4 (temp + 3, N*2, table+3);
 					table += 32;
 				}
 			}
@@ -1088,12 +2586,11 @@ double *yr4dwpn_build_pass1_table (
 
 				for (j = 0; j < N / 4; j += pass1_increment) {
 				    for (i = 0; i < gwdata->PASS1_CACHE_LINES; i++) {
-					double	not_used;
 					temp = (group + j + i);
-					gwfft_weights3 (gwdata->dd_data, temp, weights, &not_used, inv_weights);
-					gwfft_weights3 (gwdata->dd_data, temp + N/4, weights+1, &not_used, inv_weights+1);
-					gwfft_weights3 (gwdata->dd_data, temp + 2*N/4, weights+2, &not_used, inv_weights+2);
-					gwfft_weights3 (gwdata->dd_data, temp + 3*N/4, weights+3, &not_used, inv_weights+3);
+					gwfft_weights3 (gwdata->dd_data, temp, weights, NULL, inv_weights);
+					gwfft_weights3 (gwdata->dd_data, temp + N/4, weights+1, NULL, inv_weights+1);
+					gwfft_weights3 (gwdata->dd_data, temp + 2*N/4, weights+2, NULL, inv_weights+2);
+					gwfft_weights3 (gwdata->dd_data, temp + 3*N/4, weights+3, NULL, inv_weights+3);
 					weights += 4;
 					inv_weights += 4;
 				    }
@@ -1236,10 +2733,7 @@ double *yr4dwpn_build_pass1_table (
 
 /* Calculate the size of each group's sin/cos/premult data for pass1_get_next_block */
 
-		if (group == 0)
-			gwdata->pass1_premult_block_size = (unsigned long)
-				((char *) table - (char *) gwdata->adjusted_pass1_premults) /
-				gwdata->PASS1_CACHE_LINES;
+		if (group == 0) gwdata->pass1_var_data_size = (unsigned long) ((char *) table - (char *) gwdata->pass1_var_data);
 	}
 
 /* Return address of the end of the table */
@@ -1260,7 +2754,7 @@ double *yr4dwpn_build_fixed_pass1_table (
 
 	upper_avx_word = gwdata->PASS2_SIZE;
 	pass1_increment = 4 * gwdata->PASS2_SIZE;
-	pass1_size = gwdata->FFTLEN / gwdata->PASS2_SIZE; /* Real values in a pass1 section */
+	pass1_size = gwdata->PASS1_SIZE;
 
 /* Real FFTs output one shared set of sin/cos values for the first 16-reals, 20-reals, 24-reals, 28-reals, or 8-reals FFT. */
 
@@ -1359,7 +2853,7 @@ double *yr4dwpn_build_fixed_pass1_table (
 		for (j = 0; j < N / 4; j += pass1_increment) {
 			/* Compute the roots-of-minus-one premultiplier.  The root-of-minus-one */
 			/* premultiplier is for 2N, and a root-of-minus-one-of-2N is the same as */
-			/* a root unity for 4N. */					
+			/* a root unity for 4N. */
 			gwsincos1plus0123by4 (j, N / 4, N * 4, table);
 			gwsincos1plus0123by4 (j + upper_avx_word, N / 4, N * 4, table + 1);
 			gwsincos1plus0123by4 (j + 2 * upper_avx_word, N / 4, N * 4, table + 2);
@@ -1501,7 +2995,6 @@ double *yr4_build_pass2_real_table (
 	double	*table)		/* Pointer to the table to fill in */
 {
 	unsigned long avx_increment, j, N;
-	int	swizzled;
 
 /* All complex FFTs, don't need these tables */
 
@@ -1511,7 +3004,6 @@ double *yr4_build_pass2_real_table (
 
 	avx_increment = 1;
 	N = gwdata->PASS2_SIZE;
-	swizzled = FALSE;
 
 /* Output sin/cos values for an initial 6-real, 10-real, or 8-real macro. */
 
@@ -1893,7 +3385,7 @@ double *r4_build_pass1_table (
 
 	pass1_increment = gwdata->PASS2_SIZE;
 	upper_sse2_word = pass1_increment / 2;
-	pass1_size = gwdata->FFTLEN / gwdata->PASS2_SIZE; /* Real values in a pass1 section */
+	pass1_size = gwdata->PASS1_SIZE;
 
 /* Determine size of the first levels. */
 
@@ -1912,14 +3404,14 @@ double *r4_build_pass1_table (
 
 /* Set pointer to table of multipliers */
 
-	gwdata->adjusted_pass1_premults = table;
+	gwdata->pass1_var_data = table;
 
 /* Loop through all the pass 1 groups in the same order the assembly code will */
 /* process the groups. */
 
 	for (group = 0; group < upper_sse2_word; group += gwdata->PASS1_CACHE_LINES) {
 
-		pass1_size = gwdata->FFTLEN / gwdata->PASS2_SIZE; /* Real values in a pass1 section */
+		pass1_size = gwdata->PASS1_SIZE;
 		pass1_size /= first_levels_size; /* Complex values we're generating sin/cos data for */
 		N = gwdata->PASS2_SIZE;
 
@@ -2065,7 +3557,7 @@ double *r4_build_pass1_table (
 
 		if (! gwdata->ALL_COMPLEX_FFT) {
 			N = gwdata->FFTLEN;
-			pass1_size = gwdata->FFTLEN / gwdata->PASS2_SIZE; /* Real values in a pass1 section */
+			pass1_size = gwdata->PASS1_SIZE;
 			if (pass1_size % 20 == 0) {
 				for (j = 0; j < N / 20; j += pass1_increment) {
 					for (i = 0; i < gwdata->PASS1_CACHE_LINES; i++) {
@@ -2134,10 +3626,7 @@ double *r4_build_pass1_table (
 
 /* Calculate the size of each group's sin/cos/premult data for pass1_get_next_block */
 
-		if (group == 0)
-			gwdata->pass1_premult_block_size = (unsigned long)
-				((char *) table - (char *) gwdata->adjusted_pass1_premults) /
-				gwdata->PASS1_CACHE_LINES;
+		if (group == 0) gwdata->pass1_var_data_size = (unsigned long) ((char *) table - (char *) gwdata->pass1_var_data);
 	}
 
 /* Return address of the end of the table */
@@ -2231,7 +3720,6 @@ double *r4_build_pass2_real_table (
 	double	*table)		/* Pointer to the table to fill in */
 {
 	unsigned long i, N;
-	double	sincos[6];
 
 /* All complex FFTs, don't need these tables */
 
@@ -2242,9 +3730,7 @@ double *r4_build_pass2_real_table (
 	N = gwdata->PASS2_SIZE;
 	if (N % 3 == 0) {
 		for (i = 0; i < N / 3; i++) {
-			gwsincos (i, N * 2, (double *) &sincos);
-			table[0] = sincos[0];	/* temp for 2*N */
-			table[1] = sincos[1];
+			gwsincos1by1 (i, N * 2, table);
 			table += 2;
 		}
 		while (N % 3 == 0) N = N / 3;
@@ -2254,11 +3740,7 @@ double *r4_build_pass2_real_table (
 
 	if (N % 5 == 0) {
 		for (i = 0; i < N / 5; i++) {
-			gwsincos3 (i, N * 2, (double *) &sincos);
-			table[0] = sincos[0];	/* temp for 2*N */
-			table[1] = sincos[1];
-			table[2] = sincos[4];	/* 3 * temp for 2*N */
-			table[3] = sincos[5];
+			gwsincos13by1 (i, N * 2, table);
 			table += 4;
 		}
 		while (N % 5 == 0) N = N / 5;
@@ -2267,11 +3749,7 @@ double *r4_build_pass2_real_table (
 /* Real FFTs with eight_reals macros need w^n and w^5n for 2N. */
 
 	for (i = 0; i < N / 4; i++) {
-		gwsincos5 (i, N * 2, (double *) &sincos);
-		table[0] = sincos[0];	/* temp for 2*N */
-		table[1] = sincos[1];
-		table[2] = sincos[2];	/* 5 * temp for 2*N */
-		table[3] = sincos[3];
+		gwsincos15by1 (i, N * 2, table);
 		table += 4;
 	}
 
@@ -2302,7 +3780,7 @@ double *r4delay_build_fixed_premult_table (
 
 /* Here we compute the roots-of-minus-one premultiplier.  The root-of-minus-one */
 /* premultiplier was for 2N, and a root-of-minus-one-of-2N is the same as a root */
-/* unity for 4N. */					
+/* unity for 4N. */
 
 			gwsincos1plus0123by2 (j, N / 4, N * 4, table);
 			table[1] = table[0];	/* premult  */
@@ -2337,7 +3815,7 @@ double *r4delay_build_pass1_table (
 
 	pass1_increment = gwdata->PASS2_SIZE;
 	upper_sse2_word = pass1_increment / 2;
-	pass1_size = gwdata->FFTLEN / gwdata->PASS2_SIZE; /* Real values in a pass1 section */
+	pass1_size = gwdata->PASS1_SIZE;
 
 /* Determine number of delay groups.  In a standard radix-4 FFT, there is only one sin/cos */
 /* group in the last pass 1 level.  We reduce our memory usage by using just one fixed sin/cos */
@@ -2365,14 +3843,14 @@ double *r4delay_build_pass1_table (
 
 /* Set pointer to table of multipliers */
 
-	gwdata->adjusted_pass1_premults = table;
+	gwdata->pass1_var_data = table;
 
 /* Loop through all the pass 1 groups in the same order the assembly code will */
 /* process the groups. */
 
 	for (group = 0; group < upper_sse2_word; group += gwdata->PASS1_CACHE_LINES) {
 
-		pass1_size = gwdata->FFTLEN / gwdata->PASS2_SIZE; /* Real values in a pass1 section */
+		pass1_size = gwdata->PASS1_SIZE;
 		pass1_size /= (delay_count * 2);	/* Complex values we're generating sin/cos data for */
 		N = gwdata->PASS2_SIZE;
 
@@ -2669,10 +4147,7 @@ double *r4delay_build_pass1_table (
 
 /* Calculate the size of each group's sin/cos/premult data for pass1_get_next_block */
 
-		if (group == 0)
-			gwdata->pass1_premult_block_size = (unsigned long)
-				((char *) table - (char *) gwdata->adjusted_pass1_premults) /
-				gwdata->PASS1_CACHE_LINES;
+		if (group == 0) gwdata->pass1_var_data_size = (unsigned long) ((char *) table - (char *) gwdata->pass1_var_data);
 	}
 
 /* Return address of the end of the table */
@@ -2693,7 +4168,7 @@ double *r4delay_build_fixed_pass1_table (
 
 	pass1_increment = gwdata->PASS2_SIZE;
 	upper_sse2_word = pass1_increment / 2;
-	pass1_size = gwdata->FFTLEN / gwdata->PASS2_SIZE; /* Real values in a pass1 section */
+	pass1_size = gwdata->PASS1_SIZE;
 
 /* Real FFTs output one shared set of sin/cos values for the first 20-reals, 28-reals, or 8-reals FFT. */
 
@@ -2794,7 +4269,7 @@ double *r4dwpn_build_pass1_table (
 
 	pass1_increment = gwdata->PASS2_SIZE;
 	upper_sse2_word = pass1_increment / 2;
-	pass1_size = gwdata->FFTLEN / gwdata->PASS2_SIZE; /* Real values in a pass1 section */
+	pass1_size = gwdata->PASS1_SIZE;
 
 /* Determine number of delay groups.  In a standard radix-4 FFT, there is only one sin/cos */
 /* group in the last pass 1 level.  We reduce our memory usage by using just one fixed sin/cos */
@@ -2823,22 +4298,21 @@ double *r4dwpn_build_pass1_table (
 /* Set count of pass 1 blocks share one set of two-to-phi grp multipliers */
 
 	if (pow2_count & 1) gwdata->wpn_count = 8;
-	else if (gwdata->FFTLEN / gwdata->PASS2_SIZE == 1792 ||
-		 gwdata->FFTLEN / gwdata->PASS2_SIZE == 2048) gwdata->wpn_count = 16;
+	else if (gwdata->PASS1_SIZE == 1792 || gwdata->PASS1_SIZE == 2048) gwdata->wpn_count = 16;
 	else gwdata->wpn_count = 4;
 	asm_data->count2 = gwdata->wpn_count;
 	asm_data->count3 = asm_data->addcount1 / gwdata->wpn_count;
 
 /* Set pointer to table of multipliers */
 
-	gwdata->adjusted_pass1_premults = table;
+	gwdata->pass1_var_data = table;
 
 /* Loop through all the pass 1 groups in the same order the assembly code will */
 /* process the groups. */
 
 	for (group = 0; group < upper_sse2_word; group += gwdata->PASS1_CACHE_LINES) {
 
-		pass1_size = gwdata->FFTLEN / gwdata->PASS2_SIZE; /* Real values in a pass1 section */
+		pass1_size = gwdata->PASS1_SIZE;
 		pass1_size /= (delay_count * 2);	/* Complex values we're generating sin/cos data for */
 		N = gwdata->PASS2_SIZE;
 
@@ -3172,10 +4646,7 @@ double *r4dwpn_build_pass1_table (
 
 /* Calculate the size of each group's sin/cos/premult data for pass1_get_next_block */
 
-		if (group == 0)
-			gwdata->pass1_premult_block_size = (unsigned long)
-				((char *) table - (char *) gwdata->adjusted_pass1_premults) /
-				gwdata->PASS1_CACHE_LINES;
+		if (group == 0) gwdata->pass1_var_data_size = (unsigned long) ((char *) table - (char *) gwdata->pass1_var_data);
 	}
 
 /* Return address of the end of the table */
@@ -3780,7 +5251,7 @@ double *hg_build_sin_cos_table (
 
 /* Compute the 3 sin/cos values */
 
-		gwsincos3 (flipped_i, N, (double *) &sincos);
+		gwsincos123by1 (flipped_i, N, (double *) &sincos);
 
 /* Copy the sin/cos values in the appropriate way */
 
@@ -3983,7 +5454,7 @@ double *hg_build_plus1_table (
 /* Adjust for two-pass FFTs */
 
 	if (gwdata->PASS2_SIZE == 0) N = gwdata->FFTLEN;
-	else N = gwdata->FFTLEN / (gwdata->PASS2_SIZE / 2);
+	else N = gwdata->PASS1_SIZE * 2;
 
 /* Loop to build premultiplier table in the same order as the underlying */
 /* assembly macro needs them.  The pfa macro operates on 3 cache lines */
@@ -4352,7 +5823,7 @@ double *x87_build_sin_cos_table (
 
 /* Compute the 3 sin/cos values */
 
-		gwsincos3 (flipped_i, N, (double *) &sincos);
+		gwsincos123by1 (flipped_i, N, (double *) &sincos);
 
 /* Copy the sin/cos values to the table */
 
@@ -4493,7 +5964,7 @@ double *x87_build_plus1_table (
 /* Adjust for two-pass FFTs */
 
 	if (gwdata->PASS2_SIZE == 0) N = gwdata->FFTLEN;
-	else N = gwdata->FFTLEN / gwdata->PASS2_SIZE;
+	else N = gwdata->PASS1_SIZE;
 
 /* Loop to build premultiplier table in the same order as the underlying */
 /* assembly macro needs them. */

@@ -1,4 +1,4 @@
-; Copyright 2011-2012 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2018 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -611,8 +611,8 @@ ypass2_6_levels_real_done:
 	ENDM
 
 ; *************** radix4-pass2-6-levels-complex macro ******************
-; This macro takes 64 complex values and performs the final 8 levels of a standard
-; mostly radix-4 FFT, squares the results, and does the first 8 levels of the inverse FFT.
+; This macro takes 64 complex values and performs the final 6 levels of a standard
+; mostly radix-4 FFT, squares the results, and does the first 6 levels of the inverse FFT.
 
 yr4dwpn_pass2_6_levels_complex MACRO
 	LOCAL	b1b, b2b, b3a, b3b, b3c, b3d, c1b, c2b

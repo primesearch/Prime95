@@ -5,7 +5,7 @@
 | in the multi-precision arithmetic routines.  That is, all routines
 | that deal with the gwnum data type.
 | 
-|  Copyright 2002-2017 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2002-2019 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -43,12 +43,14 @@
 
 /* Handy macros to improve readability */
 
-#define log2(n)		(log((double)(n)) / log (2.0))
-#define logb(n)		(log((double)(n)) / log ((double)(b)))
+#define log2(n)				(log((double)(n)) / log (2.0))
+#define logb(n)				(log((double)(n)) / log ((double)(b)))
 #define divide_rounding_up(a,b)		((a + (b) - 1) / (b))
 #define divide_rounding_down(a,b)	((a) / (b))
 #define round_up_to_multiple_of(a,b)	(divide_rounding_up (a, b) * (b))
 #define round_down_to_multiple_of(a,b)	(divide_rounding_down (a, b) * (b))
+#define fltmod(a,b)			((double)(a) - floor ((double)(a) / (double)(b)) * (double)(b))
+#define round_to_cache_line(p)		(void *) (((intptr_t)(p) + 63) & ~63)
 
 /* MSVC6 has trouble with the pow function using integer arguments. */
 /* For example, "(unsigned long) pow (5.0, 7.0)" returns 78124 instead */
@@ -69,16 +71,20 @@ void (*OutputBothRoutine)(int, const char *) = NULL;
 /* Assembly helper routines */
 
 struct gwinfo1_data {
-	struct gwasm_jmptab *sse2_cyclic_fft_info; /* SSE2 mersenne mod FFT info */
-	struct gwasm_jmptab *sse2_negacyclic_fft_info; /* SSE2 2^N+1 mod FFT */
-	struct gwasm_jmptab *x86_cyclic_fft_info; /* x86 mersenne mod FFT */
-	struct gwasm_jmptab *x86_negacyclic_fft_info; /* x86 2^N+1 mod FFT */
-	struct gwasm_jmptab *avx_cyclic_fft_info; /* AVX mersenne mod FFT */
-	struct gwasm_jmptab *avx_negacyclic_fft_info; /* AVX 2^N+1 mod FFT */
+	const struct gwasm_jmptab *sse2_cyclic_fft_info; /* SSE2 mersenne mod FFT info */
+	const struct gwasm_jmptab *sse2_negacyclic_fft_info; /* SSE2 2^N+1 mod FFT */
+	const struct gwasm_jmptab *x86_cyclic_fft_info; /* x86 mersenne mod FFT */
+	const struct gwasm_jmptab *x86_negacyclic_fft_info; /* x86 2^N+1 mod FFT */
+	const struct gwasm_jmptab *avx_cyclic_fft_info; /* AVX mersenne mod FFT */
+	const struct gwasm_jmptab *avx_negacyclic_fft_info; /* AVX 2^N+1 mod FFT */
+	const struct gwasm_jmptab *avx512_cyclic_fft_info; /* AVX mersenne mod FFT */
+	const struct gwasm_jmptab *avx512_negacyclic_fft_info; /* AVX 2^N+1 mod FFT */
 	uint32_t version;			/* Gwnum lib version number */
 };
 
 void gwinfo1 (struct gwinfo1_data *);
+void prefetchL2 (void *addr, int count);
+void pause_for_count (int count);
 
 /* gwnum assembly routine pointers */
 
@@ -98,6 +104,21 @@ void gwinfo1 (struct gwinfo1_data *);
 #define norm_routines	10
 #define zerohigh_routines 14
 
+#define addr_gw_fft(h)		((h)->GWPROCPTRS[0])
+#define addr_gw_add(h)		((h)->GWPROCPTRS[1])
+#define addr_gw_addq(h)		((h)->GWPROCPTRS[2])
+#define addr_gw_addf(h)		((h)->GWPROCPTRS[2])
+#define addr_gw_sub(h)		((h)->GWPROCPTRS[3])
+#define addr_gw_subq(h)		((h)->GWPROCPTRS[4])
+#define addr_gw_subf(h)		((h)->GWPROCPTRS[4])
+#define addr_gw_addsub(h)	((h)->GWPROCPTRS[5])
+#define addr_gw_addsubq(h)	((h)->GWPROCPTRS[6])
+#define addr_gw_addsubf(h)	((h)->GWPROCPTRS[6])
+#define addr_gw_copyzero(h)	((h)->GWPROCPTRS[7])
+#define addr_gw_adds(h)		((h)->GWPROCPTRS[8])
+#define addr_gw_muls(h)		((h)->GWPROCPTRS[9])
+#define call_op(p,a)		(*p)(a)
+
 /* Macro to aid in build prctabs (a prctab is an array of pointers to assembly routines) */
 
 #define extern_decl(name)		extern void (*name)(void);
@@ -108,6 +129,7 @@ void gwinfo1 (struct gwinfo1_data *);
 #define aux_decl(name)			extern_decl(name##1)	extern_decl(name##2)
 #define aux_decl3(name)			extern_decl(name##1)	extern_decl(name##2)	extern_decl(name##3)
 #define aux_decl3y(name)		aux_decl3(name)	aux_decl3(name##r) aux_decl3(name##zp) aux_decl3(name##rzp) aux_decl3(name##n) aux_decl3(name##nr) aux_decl3(name##nzp) aux_decl3(name##nrzp)
+#define aux_decl3z(name)		aux_decl3(name)	aux_decl3(name##r) aux_decl3(name##zp) aux_decl3(name##rzp)
 
 #ifndef X86_64
 aux_decl(gwadd)		aux_decl(gwaddq)
@@ -162,21 +184,96 @@ void *avx_carries_prctab[] = {
 	&ygw_carries_wpn3, &ygw_carries_wpnr3, &ygw_carries_wpnzp3, &ygw_carries_wpnrzp3,
 	&ygw_carries_wpnn3, &ygw_carries_wpnnr3, &ygw_carries_wpnnzp3, &ygw_carries_wpnnrzp3};
 
+#ifdef X86_64
+aux_decl3z(gwzadd)	aux_decl3(gwzaddq)
+aux_decl3z(gwzsub)	aux_decl3(gwzsubq)
+aux_decl3z(gwzaddsub)	aux_decl3(gwzaddsubq)
+aux_decl3(gwzcopyzero)	aux_decl3y(gwzadds)	aux_decl3y(gwzmuls)
+
+void *avx512_aux_prctab[] = {
+	&gwzaddq3, &gwzsubq3, &gwzaddsubq3, &gwzcopyzero3,
+	&gwzadd3, &gwzsub3, &gwzaddsub3, &gwzadds3, &gwzmuls3,
+	&gwzaddr3, &gwzsubr3, &gwzaddsubr3, &gwzaddsr3, &gwzmulsr3,
+	&gwzaddzp3, &gwzsubzp3, &gwzaddsubzp3, &gwzadds3, &gwzmulszp3,
+	&gwzaddrzp3, &gwzsubrzp3, &gwzaddsubrzp3, &gwzaddsr3, &gwzmulsrzp3};
+
+aux_decl3z(zgw_carries_wpn)
+extern_decl(zgw_carries_op_wpnzp3)
+extern_decl(zgw_carries_op_wpnrzp3)
+void gwz3_apply_carries (void *);
+
+void *avx512_carries_prctab[] = {
+	&zgw_carries_wpn3, &zgw_carries_wpnr3, &zgw_carries_wpnzp3, &zgw_carries_wpnrzp3, &zgw_carries_op_wpnzp3, &zgw_carries_op_wpnrzp3};
+#else
+#define gwz3_apply_carries(a)
+#endif
+
 /* Now we put the normalization routines in an array so we can easily pick */
-/* the normalization routines to use.  There is one table for AVX, SSE2 and */
+/* the normalization routines to use.  There is one table for AVX-512, AVX, SSE2 and */
 /* x87.  The SSE2 table has these 820 combinations: */
 /*	r or i		(rational or irrational) */
 /*	1 or 2 or 2AMD or 3 or 3AMD (1 pass or 2 pass or 2 pass with partial normalization - with optional AMD prefetching) */
 /*	z or zp or blank (zero upper half of result or zero-padded FFT or normal FFT */
 /*	e or blank	(roundoff error checking or not) */
-/*	b or blank	(b > 2 or not) */
+/*	b or blank	(b > 2 or not, not used in AVX-512) */
 /*	s4 or blank	(SSE4 or not) */
 /*	k or blank	(k for XMM_K_HI is zero or not) */
-/*	c1 or cm1 or blank (c=1, c=-1, abs(c)!=1) */
+/*	c1 or cm1 or blank (c=1, c=-1, abs(c)!=1, not used in AVX-512) */
 /* We also define a macro that will pick the correct entry from the array. */
 
+/* First is the AVX-512 table */
+
+#ifdef X86_64
+#define avx512_explode(macro)			avx512_explode1(macro,zr)		avx512_explode1(macro,zi)
+#define avx512_explode1(macro,name)		avx512_explode2(macro,name##3,SKX)
+#define avx512_explode2(macro,name,suff)	avx512_zero_explode(macro,name##z,suff)	avx512_explode3(macro,name,suff,notzp)	avx512_explode3(macro,name##zp,suff,zp)
+#define avx512_zero_explode(macro,name,suff)	avx512_explode9##suff(macro,name)	avx512_explode9##suff(macro,name##e)
+#define avx512_explode3(macro,name,suff,zp)	avx512_explode4(macro,name,suff,zp)	avx512_explode4(macro,name##e,suff,zp)
+#define avx512_explode4(macro,name,suff,zp)	avx512_explode5(macro,name,suff,zp,notc) avx512_explode5(macro,name##c,suff,zp,c)
+#define avx512_explode5(macro,name,suff,zp,c)	avx512_explode6(macro,name,suff,zp,c)
+#define avx512_explode6(macro,name,suff,zp,c)	avx512_explode7##zp(macro,name,suff,c)
+#define avx512_explode7notzp(macro,name,suff,c)	avx512_explode9##suff(macro,name)
+#define avx512_explode7zp(macro,name,suff,c)	avx512_explode8##c(macro,name,suff)	avx512_explode8##c(macro,name##k,suff)
+#define avx512_explode8c(macro,name,suff)	avx512_explode9##suff(macro,name)
+#define avx512_explode8notc(macro,name,suff)	avx512_explode9##suff(macro,name)
+#define avx512_explode9SKX(macro,name)		macro(name##SKX)
+
+avx512_explode(extern_decl)
+void *avx512_prctab[] = { avx512_explode(array_entry) NULL };
+
+int avx512_prctab_index (gwhandle *gwdata, int z, int e, int c)
+{
+	int	index = 0;
+
+	if (! gwdata->RATIONAL_FFT) index += 14;		/* Irrational FFTs are after the rational FFTs */
+
+	if (z) {
+		if (e) index += 1;
+		return (index);
+	}
+	index += 2;
+	if (! gwdata->ZERO_PADDED_FFT) {
+		if (e) index += 2;
+		if (c) index += 1;
+	} else {
+		struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
+		index += 4;
+		if (e) index += 4;
+		if (!c) {
+			if (asm_data->u.zmm.ZMM_K_HI_OVER_SMALL_BASE == 0.0) index += 1;
+		} else {
+			index += 2;
+			if (asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_SMALL_BASE == 0.0) index += 1;
+		}
+	}
+	return (index);
+}
+#endif
+
+/* Now the AVX table */
+
 #define avx_explode(macro)			avx_explode1(macro,yr)			avx_explode1(macro,yi)
-#define avx_explode1(macro,name)		avx_explode2(macro,name##1,CORE)	avx_explode2(macro,name##1,FMA3)	avx_explode2(macro,name##3,CORE)	avx_explode2(macro,name##3,FMA3)	//avx_explode2(macro,name##3,BULL)
+#define avx_explode1(macro,name)		avx_explode2(macro,name##1,CORE)	avx_explode2(macro,name##1,FMA3)	avx_explode2(macro,name##3,CORE)	avx_explode2(macro,name##3,FMA3)
 #define avx_explode2(macro,name,suff)		avx_zero_explode(macro,name##z,suff)	avx_explode3(macro,name,suff,notzp)	avx_explode3(macro,name##zp,suff,zp)
 #define avx_zero_explode(macro,name,suff)	avx_explode9##suff(macro,name)		avx_explode9##suff(macro,name##e)
 #define avx_explode3(macro,name,suff,zp)	avx_explode4(macro,name,suff,zp)	avx_explode4(macro,name##e,suff,zp)
@@ -194,11 +291,6 @@ void *avx_carries_prctab[] = {
 #else
 #define avx_explode9FMA3(macro,name)		macro(name##CORE)			/* We don't support FMA FFTs on 32-bit builds */
 #endif
-#ifndef __APPLE__
-#define avx_explode9BULL(macro,name)		macro(name##BULL)
-#else
-#define avx_explode9BULL(macro,name)		macro(name##CORE)			/* Macs do not have AMD CPUs */
-#endif
 
 avx_explode(extern_decl)
 void *avx_prctab[] = { avx_explode(array_entry) NULL };
@@ -207,14 +299,10 @@ int avx_prctab_index (gwhandle *gwdata, int z, int e, int c)
 {
 	int	index = 0;
 
-	if (! gwdata->RATIONAL_FFT) index += 168;				/* irrational FFTs are after the 4 sets of rational FFTs */
-	if (gwdata->PASS2_SIZE == 0) {						/* One-pass FFTs */
-		if (gwdata->cpu_flags & CPU_FMA3) index += 42;			/* FMA3 FFTs are after the CORE FFTs */
-	} else {								/* Two-pass FFTs */
-		index += 84;							/* Two-pass FFTs are after the one-pass FFTs */
-		if (gwdata->cpu_flags & CPU_FMA3) index += 42;			/* FMA3 FFTs are after the original AVX FFTs */
-		//if (gwdata->cpu_flags & CPU_3DNOW_PREFETCH) index += 42;	/* Bulldozer FFTs are after the Intel FMA3 FFTs */
-	}
+	if (! gwdata->RATIONAL_FFT) index += 168;		/* Irrational FFTs are after the 4 sets of rational FFTs */
+	if (gwdata->PASS2_SIZE) index += 84;			/* Two-pass FFTs are after the one-pass FFTs */
+	if (gwdata->cpu_flags & CPU_FMA3) index += 42;		/* FMA3 FFTs are after the CORE FFTs */
+
 	if (z) {
 		if (e) index += 1;
 		return (index);
@@ -240,6 +328,8 @@ int avx_prctab_index (gwhandle *gwdata, int z, int e, int c)
 	}
 	return (index);
 }				    
+
+/* Now the SSE2 table */
 
 #define sse2_explode(macro)			sse2_explode1(macro,xr)			sse2_explode1(macro,xi)
 #define sse2_explode1(macro,name)		sse2_explode2(macro,name##1,BLEND)	sse2_explode2(macro,name##2,CORE)	sse2_explode2(macro,name##2,K8)		sse2_explode2(macro,name##3,CORE)	sse2_explode2(macro,name##3,K8)
@@ -341,9 +431,10 @@ void *x87_prctab[] = { x87_explode(array_entry) NULL };
 #endif
 #define is_valid_double(x)	(! isnan (x) && ! isinf (x))
 
-/* Special flag value set in the gwnum freeable field */
+/* More #defines */
 
-#define GWFREED_TEMPORARILY	0x80000000
+#define	GWINIT_WAS_CALLED_VALUE	0xAA12BB34	/* Special value checked by gwsetup to ensure gwinit was called */
+#define GWFREED_TEMPORARILY	0x80000000	/* Special flag value set in the gwnum freeable field */
 
 /* Forward declarations */
 
@@ -369,11 +460,14 @@ long nonbase2_gianttogw (
 void raw_gwsetaddin (gwhandle *gwdata, unsigned long word, double val);
 int multithread_init (gwhandle *gwdata);
 void multithread_term (gwhandle *gwdata);
+void do_multithread_op_work (gwhandle *gwdata, struct gwasm_data *asm_data);
 void pass1_aux_entry_point (void*);
 void pass2_aux_entry_point (void*);
+void create_auxiliary_hyperthread (struct gwasm_data *);
+void auxiliary_hyperthread (void *);
 
 /* Routine to split a r4dwpn FFT word into column and group multiplier indexes */
-/* We remove bit(s) associated with the upper SSE2/AVX words because those are */
+/* We remove bit(s) associated with the upper SSE2/AVX/AVX-512 words because those are */
 /* handled by the group multipliers. */
 
 unsigned long dwpn_col (
@@ -381,6 +475,8 @@ unsigned long dwpn_col (
 	unsigned long word)
 {
 	unsigned long high, low;
+
+	ASSERTG (! (gwdata->cpu_flags & CPU_AVX512F));	// Except for ADDIN_VALUE, AVX-512 FFT data is normalized by the time most C code sees it
 
 	if (gwdata->cpu_flags & CPU_AVX) {
 		low = word % gwdata->PASS2_SIZE;
@@ -503,19 +599,19 @@ int is_pathological_distribution (
 #define BIF_P4_1024		4	// Pentium 4, 1MB cache
 #define BIF_P4TP_512		5	// Pentium 4, 512K cache (did not support EMT64)
 #define BIF_P4TP_256		6	// Pentium 4, 256K cache (did not support EMT64)
+#define BIF_SKX			7	// Intel CPUs that support AVX-512 (Skylake-X)
 #define BIF_K8			8	// AMD K8 CPUs
 #define BIF_K10			9	// AMD K10 CPUs
-#define BIF_BULL		10	// AMD Bulldozer CPUs
 #define BIF_RYZEN		11	// AMD Ryzen CPUs
 
 /* Architecture values copied from mult.asm */
-#define ARCH_P4TP		1
+#define ARCH_P4TP		1	/* Ancient CPU - architecture value should be retired */
 #define ARCH_P4			2
 #define ARCH_CORE		3
 #define ARCH_FMA3		4
 #define ARCH_K8			5
 #define ARCH_K10		6
-#define ARCH_BULL		7
+#define ARCH_SKX		8
 #define ARCH_BLEND		0
 
 int calculate_bif (
@@ -563,22 +659,28 @@ int calculate_bif (
 			retval = BIF_CORE2;	/* Look for FFTs optimized for Core 2 */
 		break;
 	case CPU_ARCHITECTURE_CORE_I7:
-		if (! (gwdata->cpu_flags & CPU_FMA3))
-			retval = BIF_I7;	/* Look for FFTs optimized for Core i3/i5/i7 */
-		else
+		if (gwdata->cpu_flags & CPU_AVX512F)
+			retval = BIF_SKX;	/* Look for Intel-optimized AVX-512 FFT. */
+		else if (gwdata->cpu_flags & CPU_FMA3)
 			retval = BIF_FMA3;	/* Look for FFTs optimized for Haswell CPUs with FMA3 support */
+		else
+			retval = BIF_I7;	/* Look for FFTs optimized for Core i3/i5/i7 */
 		break;
-	case CPU_ARCHITECTURE_PHI:		/* Intel's Xeon Phi CPUs */		// BUG - write AVX-512 code!!!
-		if (! (gwdata->cpu_flags & CPU_FMA3))
-			retval = BIF_I7;	/* Look for FFTs optimized for Core i3/i5/i7 */
-		else
+	case CPU_ARCHITECTURE_PHI:		/* Intel's Xeon Phi CPUs */
+		if (gwdata->cpu_flags & CPU_AVX512F)
+			retval = BIF_SKX;	/* Look for Intel-optimized AVX-512 FFT. */
+		else if (gwdata->cpu_flags & CPU_FMA3)
 			retval = BIF_FMA3;	/* Look for FFTs optimized for Haswell CPUs with FMA3 support */
+		else
+			retval = BIF_I7;	/* Look for FFTs optimized for Core i3/i5/i7 */
 		break;
 	case CPU_ARCHITECTURE_INTEL_OTHER:	/* This is probably one of Intel's next generation CPUs */
-		if (! (gwdata->cpu_flags & CPU_FMA3))
-			retval = BIF_I7;	/* Look for FFTs optimized for Core i3/i5/i7 */
-		else
+		if (gwdata->cpu_flags & CPU_AVX512F)
+			retval = BIF_SKX;	/* We don't know which AVX-512 FFT is fastest.  Try this one. */
+		else if (gwdata->cpu_flags & CPU_FMA3)
 			retval = BIF_FMA3;	/* Look for FFTs optimized for Haswell CPUs with FMA3 support */
+		else
+			retval = BIF_I7;	/* Look for FFTs optimized for Core i3/i5/i7 */
 		break;
 	case CPU_ARCHITECTURE_AMD_K8:
 		retval = BIF_K8;		/* Look for FFTs optimized for K8 */
@@ -587,7 +689,6 @@ int calculate_bif (
 		retval = BIF_K10;		/* Look for FFTs optimized for K10 */
 		break;
 	case CPU_ARCHITECTURE_AMD_BULLDOZER:	/* Bulldozer CPUs are horrible at AVX.  Go back to K10 optimized. */
-//		retval = BIF_BULL;		/* Look for FFTs optimized for Bulldozer */
 		retval = BIF_K10;		/* Look for FFTs optimized for K10 */
 		break;
 	case CPU_ARCHITECTURE_AMD_ZEN:		/* Look for FFTs optimized for Ryzen */
@@ -603,12 +704,14 @@ int calculate_bif (
 			retval = BIF_FMA3;	/* Look for FFTs optimized for Intel FMA3 CPUs */
 		break;
 	case CPU_ARCHITECTURE_OTHER:		/* Probably a VIA processor */
-		if (! (gwdata->cpu_flags & CPU_AVX))
-			retval = BIF_CORE2;	/* We don't know which FFT is fastest.  For no particularly good reason, use Core 2 FFTs */
-		else if (! (gwdata->cpu_flags & CPU_FMA3))
+		if (gwdata->cpu_flags & CPU_AVX512F)
+			retval = BIF_SKX;	/* We don't know which AVX-512 FFT is fastest.  Try this one. */
+		else if (gwdata->cpu_flags & CPU_FMA3)
+			retval = BIF_FMA3;	/* Look for FFTs optimized for Haswell CPUs with FMA3 support */
+		else if (gwdata->cpu_flags & CPU_AVX)
 			retval = BIF_I7;	/* Look for FFTs optimized for Core i7 (AVX without FMA3) */
 		else
-			retval = BIF_FMA3;	/* Look for FFTs optimized for Haswell CPUs with FMA3 support */
+			retval = BIF_CORE2;	/* We don't know which FFT is fastest.  For no particularly good reason, use Core 2 FFTs */
 		break;
 	case CPU_ARCHITECTURE_PRE_SSE2:		/* Cannot happen, gwinfo should have selected x87 FFTs */
 	default:				/* For no particularly good reason, look for FFTs optimized for Core 2 */
@@ -644,29 +747,29 @@ int calculate_bif (
 }
 
 /* Ugly little macros to bump jmptable pointer to next procedure entry or to next count */
-static __inline struct gwasm_jmptab *INC_JMPTAB (struct gwasm_jmptab *x)
+static __inline const struct gwasm_jmptab *INC_JMPTAB (const struct gwasm_jmptab *x)
 {
-	if (x->flags & 0x40000000) return ((struct gwasm_jmptab *) ((char *)(x) + sizeof(uint32_t) + 2*sizeof(void*) + sizeof(uint32_t)));
-	return ((struct gwasm_jmptab *) ((char *)(x) + sizeof(uint32_t) + sizeof(void*) + sizeof(uint32_t)));
+	if (x->flags & 0x40000000) return ((const struct gwasm_jmptab *) ((const char *)(x) + sizeof(uint32_t) + 2*sizeof(void*) + sizeof(uint32_t)));
+	return ((const struct gwasm_jmptab *) ((const char *)(x) + sizeof(uint32_t) + sizeof(void*) + sizeof(uint32_t)));
 }
-static __inline struct gwasm_jmptab *LAST_JMPTAB (struct gwasm_jmptab *x)
+static __inline const struct gwasm_jmptab *LAST_JMPTAB (const struct gwasm_jmptab *x)
 {
-	struct gwasm_jmptab *next;
+	const struct gwasm_jmptab *next;
 	for ( ; (next = INC_JMPTAB (x))->flags & 0x80000000; x = next);
 	return (x);
 }
-static __inline struct gwasm_jmptab *NEXT_SET_OF_JMPTABS (struct gwasm_jmptab *x)
+static __inline const struct gwasm_jmptab *NEXT_SET_OF_JMPTABS (const struct gwasm_jmptab *x)
 {
 	// Handle case where there are no FFT implementations
-	if (x->flags == 0) return ((struct gwasm_jmptab *) &x->proc_ptr);
+	if (x->flags == 0) return ((const struct gwasm_jmptab *) &x->proc_ptr);
 	// Get pointer to the last FFT implementation
 	x = LAST_JMPTAB (x);
 	// Adjust for jmptab containing two proc ptrs
-	if (x->flags & 0x40000000) x = (struct gwasm_jmptab *) ((char *)(x) + sizeof(void*));
+	if (x->flags & 0x40000000) x = (const struct gwasm_jmptab *) ((const char *)(x) + sizeof(void*));
 	// Skip non-zero counts
-	while (x->counts[0]) x = (struct gwasm_jmptab *) ((char *)(x) + sizeof(int32_t));
+	while (x->counts[0]) x = (const struct gwasm_jmptab *) ((const char *)(x) + sizeof(int32_t));
 	// Next set of jmptabs is after the zero count
-	return ((struct gwasm_jmptab *) &x->counts[1]);
+	return ((const struct gwasm_jmptab *) &x->counts[1]);
 }
 
 /* This routine checks to see if there is an FFT implementation for this FFT length and */
@@ -677,11 +780,28 @@ static __inline struct gwasm_jmptab *NEXT_SET_OF_JMPTABS (struct gwasm_jmptab *x
 int is_fft_implemented (
 	gwhandle *gwdata,		/* Gwnum global data */
 	int	all_complex,		/* TRUE if this jmptab entry if from the all-complex FFT table */
-	struct gwasm_jmptab *jmptab,	/* Jmptable entry from mult.asm to examine */
+	const struct gwasm_jmptab *jmptab, /* Jmptable entry from mult.asm to examine */
 	int	*best_impl_id)		/* Returned ID of the best FFT implementation as determined by the benchmark database */
 {
 	int	desired_bif;		/* The "best implementation for" value we will look for. */
 					/* See mult.asm for defined BIF_ values. */
+
+/* If there are no implementations, return false.  This can happen for SSE2 and earlier implementations where there are no best-impl-for */
+/* settings or only for an architecture (K8) we can't run.  Examples include SSE2 FFT lengths 2000K and 3456K in 32-bit mode. */
+
+	if (! (gwdata->cpu_flags & CPU_3DNOW_PREFETCH)) {
+		for ( ; jmptab->flags & 0x80000000; jmptab = INC_JMPTAB (jmptab)) {
+			int	arch = (jmptab->flags >> 17) & 0xF;
+			if (arch != ARCH_K8 && arch != ARCH_K10) break;
+		}
+	}
+	if (!(jmptab->flags & 0x80000000)) return (FALSE);
+
+/* Determine the "bif" value we will look for.  Often this is a straight-forward mapping from */
+/* the CPU_ARCHITECTURE.  However, for some CPU architectures, like Pentium M and Core Solo, we */
+/* don't have jmptable entries detailing the fastest FFT implementations for those architectures. */
+
+	desired_bif = calculate_bif (gwdata, jmptab->fftlen);
 
 /* Assume we will use the old school method (no benchmark database) where the */
 /* best FFT implementation is hardwired into the mult.asm jmptable. */
@@ -690,7 +810,7 @@ int is_fft_implemented (
 
 /* For small SSE2 FFTs as well as all x87 FFTs there is only one implementation -- use it. */
 
-	if (! (gwdata->cpu_flags & CPU_AVX)) {
+	if (! (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX))) {
 		if (gwdata->cpu_flags & CPU_SSE2) {
 			if (jmptab->fftlen < 7168) return (TRUE);
 		} else
@@ -706,10 +826,32 @@ int is_fft_implemented (
 /* if there is benchmark data available and that a larger FFT size will not be faster. */
 
 	if (gwdata->use_benchmarks) {
-		int	num_cores, num_workers, num_hyperthreads, i;
+		int	arch, num_cores, num_workers, num_hyperthreads, i;
 
-/* Calculate the number of cores, workers, and hyperthreads for looking up the right benchmark data */
-	
+/* Calculate the architecture, number of cores, workers, and hyperthreads for looking up the right benchmark data */
+
+		switch (desired_bif) {			/* Only get benchmark data for relevant CPU architecture */
+		case BIF_SKX:
+			arch = ARCH_SKX;
+			break;
+		case BIF_FMA3:
+		case BIF_RYZEN:
+			arch = ARCH_FMA3;
+			break;
+		case BIF_I7:
+		case BIF_CORE2:
+		case BIF_CORE2_512:
+			arch = ARCH_CORE;
+			break;
+		case BIF_K10:
+			arch = ARCH_K10;
+			break;
+		case BIF_K8:
+			arch = ARCH_K8;
+			break;
+		default:
+			arch = ARCH_P4;
+		}
 		if (gwdata->will_hyperthread) {
 			num_hyperthreads = gwdata->will_hyperthread;		/* User can tell us more than 2 hyperthreads will be used */
 			if (num_hyperthreads <= 1) num_hyperthreads = 2;	/* Minimum hyperthread count is two */
@@ -725,15 +867,15 @@ int is_fft_implemented (
 /* FFT length will not offer even more throughput. */
 
 		for (i = 0; i <= 1; i++) {
-			struct gwasm_jmptab *next_jmptab;
+			const struct gwasm_jmptab *next_jmptab;
 			int	error_check, no_r4dwpn, impl, next_impl;
 			double	throughput, next_throughput;
 
 			if (gwdata->will_error_check == 0) error_check = i;	/* Look for no-error-checking benchmarks first */
 			if (gwdata->will_error_check == 1) error_check = !i;	/* Look for error-checking benchmarks first */
 			if (gwdata->will_error_check == 2) error_check = i;	/* Need a more sophisticated approach in this case */
-			no_r4dwpn = (gwdata->sum_inputs_checking && ! gwdata->ALL_COMPLEX_FFT && ! (gwdata->cpu_flags & CPU_AVX));
-			gwbench_get_max_throughput (jmptab->fftlen, num_cores, num_workers, num_hyperthreads,
+			no_r4dwpn = (gwdata->sum_inputs_checking && ! gwdata->ALL_COMPLEX_FFT && ! (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX)));
+			gwbench_get_max_throughput (jmptab->fftlen, arch, num_cores, num_workers, num_hyperthreads,
 						    all_complex, error_check, no_r4dwpn, &impl, &throughput);
 			if (throughput <= 0.0) continue;
 
@@ -743,7 +885,7 @@ int is_fft_implemented (
 					*best_impl_id = impl;
 					return (TRUE);
 				}
-				gwbench_get_max_throughput (next_jmptab->fftlen, num_cores, num_workers, num_hyperthreads,
+				gwbench_get_max_throughput (next_jmptab->fftlen, arch, num_cores, num_workers, num_hyperthreads,
 							    all_complex, error_check, no_r4dwpn, &next_impl, &next_throughput);
 				if (next_throughput <= 0.0) break;		/* We don't have enough bench data to know if slightly larger FFT length will be faster */
 				if (next_throughput > throughput) return (FALSE); /* Larger FFT length is faster */
@@ -751,14 +893,7 @@ int is_fft_implemented (
 		}
 	}
 
-/* Determine the "bif" value we will look for.  Often this is a straight-forward mapping from */
-/* the CPU_ARCHITECTURE.  However, for some CPU architectures, like Pentium M and Core Solo, we */
-/* don't have jmptable entries detailing the fastest FFT implementations for those architectures. */
-
-	desired_bif = calculate_bif (gwdata, jmptab->fftlen);
-
-/* Loop through the FFT implementations to see if we find an implementation */
-/* that matches our desired "bif" value. */
+/* Loop through the FFT implementations to see if we find an implementation that matches our desired "bif" value. */
 
 	while (jmptab->flags & 0x80000000) {
 		if (((jmptab->flags >> 13) & 0xF) == desired_bif) return (TRUE);
@@ -774,17 +909,17 @@ int is_fft_implemented (
 /* However, some FFTs have both a one-pass and two-pass implementation.  In such cases, */
 /* we must make sure that jmptab points to the implementation that we will actually use. */
 
-struct gwasm_jmptab *choose_one_pass_or_two_pass_impl (
+const struct gwasm_jmptab *choose_one_pass_or_two_pass_impl (
 	gwhandle *gwdata,	/* Gwnum global data */
-	struct gwasm_jmptab *jmptab)
+	const struct gwasm_jmptab *jmptab)
 {
-	struct gwasm_jmptab *orig_jmptab;	
+	const struct gwasm_jmptab *orig_jmptab;	
 	int	desired_bif;		/* The "best implementation for" value we will look for. */
 					/* See mult.asm for defined BIF_ values. */
 
 /* For small SSE2 FFTs as well as all x87 FFTs, there is one implementation and it is always available */
 
-	if (! (gwdata->cpu_flags & CPU_AVX)) {
+	if (! (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX))) {
 		if (gwdata->cpu_flags & CPU_SSE2) {
 			if (jmptab->fftlen < 7168) return (jmptab);
 		} else
@@ -821,6 +956,24 @@ struct gwasm_jmptab *choose_one_pass_or_two_pass_impl (
 	return (orig_jmptab);
 }
 
+/* FMA3 FFTs compared to AVX FFTs have on average 7% less round off error.  This lets us have a higher max exponent. */
+/* Increase max_exp by (1-SQRT(.93)) * FFTlen.  We'll be a little more conservative for smaller FFT lengths. */
+
+unsigned long adjusted_max_exponent (
+	const gwhandle *gwdata,			/* Gwnum global data */
+	const struct gwasm_jmptab *jmptab)	/* Jmptable entry */
+{
+	unsigned long max_exp;
+
+	max_exp = jmptab->max_exp;
+	if (max_exp == 0) return (0);
+	if (!(gwdata->cpu_flags & CPU_AVX512F) && gwdata->cpu_flags & CPU_FMA3) {
+		if (jmptab->fftlen >= 8192) max_exp += (int) (0.035635 * (double) jmptab->fftlen);
+		else if (jmptab->fftlen >= 2048) max_exp += (int) (0.017656 * (double) jmptab->fftlen);
+	}
+	return (max_exp);
+}
+
 /* This routine used to be in assembly language.  It scans the assembly */
 /* code arrays looking for the best FFT size to implement our k*b^n+c FFT. */
 /* Returns 0 for IBDWT FFTs, 1 for zero padded FFTs, or a gwsetup error */
@@ -834,7 +987,7 @@ int gwinfo (			/* Return zero-padded fft flag or error code */
 	signed long c)		/* C in K*B^N+C. Must be rel. prime to K. */
 {
 	struct gwinfo1_data asm_info;
-	struct gwasm_jmptab *jmptab, *zpad_jmptab, *generic_jmptab, *impl_jmptab;
+	const struct gwasm_jmptab *jmptab, *zpad_jmptab, *generic_jmptab, *impl_jmptab;
 	int	best_impl_id, zpad_best_impl_id;
 	double	log2k, logbk, log2b, log2c, log2maxmulbyconst;
 	double	max_bits_per_input_word, max_bits_per_output_word;
@@ -865,7 +1018,7 @@ int gwinfo (			/* Return zero-padded fft flag or error code */
 	log2k = log2 (k);
 	logbk = logb (k);
 	log2b = log2 (b);
-	log2c = log2 (abs (c));
+	log2c = log2 (labs (c));
 	log2maxmulbyconst = log2 (gwdata->maxmulbyconst);
 
 /* First, see what FFT length we would get if we emulate the k*b^n+c modulo */
@@ -875,27 +1028,33 @@ int gwinfo (			/* Return zero-padded fft flag or error code */
 
 again:	zpad_jmptab = NULL;
 	generic_jmptab = NULL;
-	if (! gwdata->force_general_mod && (k > 1.0 || (n > 0 && n < 500) || abs (c) > 1) && gwdata->qa_pick_nth_fft < 1000) {
+	if (! gwdata->force_general_mod && (k > 1.0 || (n > 0 && n < 500) || labs (c) > 1) && gwdata->qa_pick_nth_fft < 1000) {
 
 /* Use the proper 2^N-1 jmptable */
 
-		if (gwdata->cpu_flags & CPU_AVX)
+		if (gwdata->cpu_flags & CPU_AVX512F)
+			zpad_jmptab = asm_info.avx512_cyclic_fft_info;
+		else if (gwdata->cpu_flags & CPU_AVX)
 			zpad_jmptab = asm_info.avx_cyclic_fft_info;
 		else if (gwdata->cpu_flags & CPU_SSE2)
 			zpad_jmptab = asm_info.sse2_cyclic_fft_info;
 		else
 			zpad_jmptab = asm_info.x86_cyclic_fft_info;
 
+/* If no jmptable was found (should only happen if caller has disabled all but the x87 CPU_FLAGS in 64-bit mode */
+
+		if (zpad_jmptab == NULL) return (GWERROR_TOO_LARGE);
+
 /* Find the table entry for the FFT that can do a mod 2^2n FFT, handling */
 /* k and c in the normalization routines.  We will compare this to the */
 /* non-zero-padded FFT length later.  The zeroes in the upper half of FFT */
 /* input data let us get about another 0.3 bits per input word. */
 
-		while ((max_exp = zpad_jmptab->max_exp) != 0) {
+		while ((max_exp = adjusted_max_exponent (gwdata, zpad_jmptab)) != 0) {
 
 /* Do a quick check on the suitability of this FFT */
 
-			if ((double) n * log2b / (double) zpad_jmptab->fftlen > 26.0 - 0.25 * log2 (zpad_jmptab->fftlen)) goto next1;
+			if ((double) (n + n) * log2b / (double) zpad_jmptab->fftlen > 27.0 - 0.25 * log2 (zpad_jmptab->fftlen)) goto next1;
 			if (zpad_jmptab->fftlen < gwdata->minimum_fftlen) goto next1;
 
 /* Don't bother looking at this FFT length if the generic reduction would be faster */
@@ -1004,14 +1163,18 @@ next1:			zpad_jmptab = NEXT_SET_OF_JMPTABS (zpad_jmptab);
 /* Use the proper 2^N+1 or 2^N-1 jmptable */
 
 	if (c < 0) {
-		if (gwdata->cpu_flags & CPU_AVX)
+		if (gwdata->cpu_flags & CPU_AVX512F)
+			jmptab = asm_info.avx512_cyclic_fft_info;
+		else if (gwdata->cpu_flags & CPU_AVX)
 			jmptab = asm_info.avx_cyclic_fft_info;
 		else if (gwdata->cpu_flags & CPU_SSE2)
 			jmptab = asm_info.sse2_cyclic_fft_info;
 		else
 			jmptab = asm_info.x86_cyclic_fft_info;
 	} else {
-		if (gwdata->cpu_flags & CPU_AVX)
+		if (gwdata->cpu_flags & CPU_AVX512F)
+			jmptab = asm_info.avx512_negacyclic_fft_info;
+		else if (gwdata->cpu_flags & CPU_AVX)
 			jmptab = asm_info.avx_negacyclic_fft_info;
 		else if (gwdata->cpu_flags & CPU_SSE2)
 			jmptab = asm_info.sse2_negacyclic_fft_info;
@@ -1019,10 +1182,14 @@ next1:			zpad_jmptab = NEXT_SET_OF_JMPTABS (zpad_jmptab);
 			jmptab = asm_info.x86_negacyclic_fft_info;
 	}
 
+/* If no jmptable was found (should only happen if caller has disabled all but the x87 CPU_FLAGS in 64-bit mode */
+
+	if (jmptab == NULL) return (GWERROR_TOO_LARGE);
+
 /* Find the table entry using either the specified fft length or */
 /* the smallest FFT length that can handle the k,b,n,c being tested. */
 
-	while ((max_exp = jmptab->max_exp) != 0) {
+	while ((max_exp = adjusted_max_exponent (gwdata, jmptab)) != 0) {
 
 /* Do a quick check on the suitability of this FFT */
 
@@ -1197,13 +1364,13 @@ next1:			zpad_jmptab = NEXT_SET_OF_JMPTABS (zpad_jmptab);
 /* upgraded to spread the carry over 6 FFT words.  Handle that here.  Note that */
 /* FFT lengths 80 and 112 were not upgraded. */
 
-			if (! (gwdata->cpu_flags & (CPU_AVX | CPU_SSE2)))
+			if (! (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX | CPU_SSE2)))
 				carries_spread_over = 4.0;
 			else if (jmptab->fftlen == 80 || jmptab->fftlen == 112)
 				carries_spread_over = 4.0;
-			else if ((impl_jmptab->flags & 0x1FF) == 0)	// One pass AVX/SSE2 FFTs
+			else if ((impl_jmptab->flags & 0x1FF) == 0)	// One pass AVX-512/AVX/SSE2 FFTs
 				carries_spread_over = 6.0;
-			else						// Two pass AVX/SSE2 FFTs
+			else						// Two pass AVX-512/AVX/SSE2 FFTs
 				carries_spread_over = 6.0;
 				
 /* Because carries are spread over 4 words, there is a minimum value for the bits */
@@ -1335,7 +1502,7 @@ next2:		jmptab = NEXT_SET_OF_JMPTABS (jmptab);
 /* If this is an Intel CPU, skip over these implementations. */
 
 		arch = (jmptab->flags >> 17) & 0xF;
-		if ((arch == ARCH_K8 || arch == ARCH_K10 || arch == ARCH_BULL) && ! (gwdata->cpu_flags & CPU_3DNOW_PREFETCH))
+		if ((arch == ARCH_K8 || arch == ARCH_K10) && ! (gwdata->cpu_flags & CPU_3DNOW_PREFETCH))
 			goto next3;
 
 /* If this CPU will crash running this FFT then skip this entry. */
@@ -1389,7 +1556,7 @@ next2:		jmptab = NEXT_SET_OF_JMPTABS (jmptab);
 
 /* If this is a small SSE2 FFT or an x87 FFT, then there is only one implementation */
 
-		if (! (gwdata->cpu_flags & CPU_AVX)) {
+		if (! (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX))) {
 			if (gwdata->cpu_flags & CPU_SSE2) {
 				if (gwdata->FFTLEN < 7168) break;
 			} else
@@ -1401,12 +1568,12 @@ next2:		jmptab = NEXT_SET_OF_JMPTABS (jmptab);
 /* makes the SUM(INPUTS) != SUM(OUTPUTS) error check impossible.  If the user prefers */
 /* SUM(INPUTS) != SUM(OUTPUTS) error checking, then skip r4dwpn FFT type (except all-complex */
 /* FFTs which never could support SUM(INPUTS) != SUM(OUTPUTS) error checking. */
-/* Ignore this preference for AVX FFTs as we do not support two-pass FFTs with this error check. */
+/* Ignore this preference for AVX-512/AVX FFTs as we do not support two-pass FFTs with this error check. */
 
 		fft_type = (jmptab->flags >> 21) & 0xF;
 		if (gwdata->sum_inputs_checking &&
 		    ! gwdata->ALL_COMPLEX_FFT &&
-		    ! (gwdata->cpu_flags & CPU_AVX) &&
+		    ! (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX)) &&
 		    fft_type == FFT_TYPE_RADIX_4_DWPN)
 			goto next3;
 
@@ -1474,31 +1641,51 @@ next3:		prev_proc_ptrs[4] = prev_proc_ptrs[3];
 	gwdata->IN_PLACE_FFT = (flags >> 26) & 0x00000001;
 	gwdata->FFT_TYPE = (flags >> 21) & 0x0000000F;
 	gwdata->ARCH = (flags >> 17) & 0x0000000F;
-	if (gwdata->cpu_flags & CPU_AVX) gwdata->PASS1_CACHE_LINES = ((flags >> 9) & 0x0000000F) * 4;
+	if (gwdata->cpu_flags & CPU_AVX512F) gwdata->PASS1_CACHE_LINES = ((flags >> 9) & 0x0000000F) * 8;
+	else if (gwdata->cpu_flags & CPU_AVX) gwdata->PASS1_CACHE_LINES = ((flags >> 9) & 0x0000000F) * 4;
 	else gwdata->PASS1_CACHE_LINES = ((flags >> 9) & 0x0000000F) * 2;
-	if ((flags & 0x0000001FF) == 511)
-		gwdata->PASS2_SIZE = 48;
-	else if ((flags & 0x0000001FF) == 510)
-		gwdata->PASS2_SIZE = 80;
-	else
-		gwdata->PASS2_SIZE = (flags & 0x0000001FF) << 6;
+	if ((flags & 0x0000001FF) == 511) gwdata->PASS2_SIZE = 48;
+	else if ((flags & 0x0000001FF) == 510) gwdata->PASS2_SIZE = 80;
+	else if ((flags & 0x0000001FF) == 509) gwdata->PASS2_SIZE = 32768;
+	else gwdata->PASS2_SIZE = (flags & 0x0000001FF) << 6;
+	if (gwdata->PASS2_SIZE) gwdata->PASS1_SIZE = gwdata->FFTLEN / gwdata->PASS2_SIZE; /* Real values in a pass1 section */
+	if (gwdata->PASS1_SIZE == 2) gwdata->PASS1_SIZE = 0;	/* Don't treat AVX-512 one-pass wrapper as a true pass 1 */
 
-/* Set more info so that addr_offset called from */
-/* gwmap_to_estimated_size can work without a call to gwsetup. */
+/* Set more info so that addr_offset called from gwmap_to_estimated_size can work without a call to gwsetup. */
 
-	gwdata->GW_ALIGNMENT = 4096;	/* Guess an alignment so gwsize can */
-					/* return a reasonable value for */
+	gwdata->GW_ALIGNMENT = 4096;	/* Guess an alignment so gwsize can return a reasonable value for */
 					/* large page support in gwsetup */
 
 /* Calculate the scratch area size -- needed by gwmemused without calling gwsetup */
 
-	if (gwdata->PASS2_SIZE && !gwdata->IN_PLACE_FFT) {
-		if (gwdata->cpu_flags & CPU_AVX) {		// AVX scratch area size
+	if (gwdata->PASS1_SIZE && !gwdata->IN_PLACE_FFT) {
+		if (gwdata->cpu_flags & CPU_AVX512F) {		// AVX-512 scratch area size
+			int	pass1_size, num_clmblks, clmblkdst, gaps;
+			// Mimic the clmblkdst calculations in zmult.mac.  
+			pass1_size = gwdata->PASS1_SIZE;
+			num_clmblks = pass1_size >> 4;
+			clmblkdst = gwdata->PASS1_CACHE_LINES * 128;
+			if (pass1_size == 192 || pass1_size == 640 || pass1_size == 768 || pass1_size == 896 || pass1_size == 960 ||
+			    pass1_size == 1152 || pass1_size == 1280 || pass1_size == 1344 || pass1_size == 1536 || pass1_size == 1920 ||
+			    pass1_size == 2304) { // Oddball pass 1 sizes
+				gwdata->SCRATCH_SIZE = num_clmblks * (clmblkdst + 64) - 64;
+			} else if (gwdata->PASS1_CACHE_LINES == 8) {	// clm=1
+				gaps = num_clmblks / 8 - 1;
+				gwdata->SCRATCH_SIZE = num_clmblks * clmblkdst + gaps * 128;
+			} else if (gwdata->PASS1_CACHE_LINES == 16) {	// clm=2
+				gaps = num_clmblks / 8 - 1;
+				gwdata->SCRATCH_SIZE = num_clmblks * clmblkdst + gaps * 192;
+			} else {					// clm=4 or more
+				gaps = num_clmblks / 8;
+				gwdata->SCRATCH_SIZE = num_clmblks * (clmblkdst + 64) + gaps * -64;
+			}
+		}
+		else if (gwdata->cpu_flags & CPU_AVX) {		// AVX scratch area size
 			int	pass1_size, pass1_chunks, gaps;
 			// For small clms, AVX pads 64 bytes every 8 chunks (where pass1_chunks is the number of
 			// cache lines that a pass 1 data set occupies).  For large clms, AVX pads 64 bytes every
 			// chunk, and -64 bytes every 8 chunks.
-			pass1_size = gwdata->FFTLEN / gwdata->PASS2_SIZE;
+			pass1_size = gwdata->PASS1_SIZE;
 			pass1_chunks = pass1_size >> 3;
 			if ((pass1_size == 384 && gwdata->ALL_COMPLEX_FFT) ||
 			    (pass1_size == 640 && gwdata->ALL_COMPLEX_FFT) ||
@@ -1507,7 +1694,7 @@ next3:		prev_proc_ptrs[4] = prev_proc_ptrs[3];
 			} else if (gwdata->PASS1_CACHE_LINES == 4) {	// clm=1
 				gaps = pass1_chunks / 8 - 1;
 				gwdata->SCRATCH_SIZE = pass1_chunks * gwdata->PASS1_CACHE_LINES * 64 + gaps * 64;
-			} else if (gwdata->PASS1_CACHE_LINES < 8) {	// clm=2
+			} else if (gwdata->PASS1_CACHE_LINES == 8) {	// clm=2
 				gaps = pass1_chunks / 8 - 1;
 				gwdata->SCRATCH_SIZE = pass1_chunks * gwdata->PASS1_CACHE_LINES * 64 + gaps * 192;
 			} else {					// clm=4 or more
@@ -1517,13 +1704,13 @@ next3:		prev_proc_ptrs[4] = prev_proc_ptrs[3];
 		} else if (gwdata->cpu_flags & CPU_SSE2) {	// SSE2 scratch area size
 			int	pass1_chunks, gaps;
 			// SSE2 pads 128 bytes every 8 chunks
-			pass1_chunks = (gwdata->FFTLEN / gwdata->PASS2_SIZE) >> 2;
+			pass1_chunks = gwdata->PASS1_SIZE >> 2;
 			gaps = pass1_chunks / 8 - 1;
 			gwdata->SCRATCH_SIZE = pass1_chunks * gwdata->PASS1_CACHE_LINES * 64 + gaps * 128;
 		} else {					// x87 scratch area size
 			int	pass1_chunks, gaps;
 			// x87 pads 64 bytes every 32 chunks
-			pass1_chunks = (gwdata->FFTLEN / gwdata->PASS2_SIZE) >> 1;
+			pass1_chunks = gwdata->PASS1_SIZE >> 1;
 			gaps = pass1_chunks / 32 - 1;
 			if (gaps < 3) gaps = 0;
 			gwdata->SCRATCH_SIZE = pass1_chunks * gwdata->PASS1_CACHE_LINES * 32 + gaps * 64;
@@ -1533,9 +1720,21 @@ next3:		prev_proc_ptrs[4] = prev_proc_ptrs[3];
 
 /* Calculate the gaps between data blocks.  This is used by addr_offset called from */
 /* gwmap_to_estimated_size without a call to gwsetup.  This must match the calculations */
-/* done in the set_FFT_constants macro in ymult.mac and xmult.mac */
+/* done in the set_FFT_constants macro in zmult.mac, ymult.mac, and xmult.mac */
 
-	if (gwdata->cpu_flags & CPU_AVX) {
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		gwdata->FOURKBGAPSIZE = 0;		/* BUG  No padding for now  */
+		gwdata->PASS2GAPSIZE = 64;		/* BUG  64 bytes padding for now, might want zero for small pass 2 sizes */
+		if (gwdata->PASS2_SIZE == 3072 || gwdata->PASS2_SIZE == 3584 || gwdata->PASS2_SIZE == 3840 || gwdata->PASS2_SIZE == 4096 ||
+		    gwdata->PASS2_SIZE == 5120 || gwdata->PASS2_SIZE == 5376 || gwdata->PASS2_SIZE == 6144 || gwdata->PASS2_SIZE >= 7168) {
+			gwdata->FOURKBGAPSIZE = 64;	/* Proven good choice for 7680*//* BUG  Try 128, others? */
+			gwdata->PASS2GAPSIZE = -64;	/* Proven good choice for 7680,clm=2*/
+							/* +64 was bad for 7680,clm=2 since 1951 cache lines mod 64 = 31  causing */
+							/* 4KB overlaps when clm=2 reads 4 cache lines whereas 1949 mod 61 = 29 did not? */
+							/* BUG  try 4kbgap = 128 to work better with hardware prefetcher's adjacent line try 64, others? */
+		}
+	}
+	else if (gwdata->cpu_flags & CPU_AVX) {
 		// Pass 2 sizes avoid the 4KB distance problem with 64, 128, or 192 pad bytes
 		if (gwdata->PASS2_SIZE == 48 || gwdata->PASS2_SIZE == 64 || gwdata->PASS2_SIZE == 80 || gwdata->PASS2_SIZE == 192 || gwdata->PASS2_SIZE == 320)
 			gwdata->FOURKBGAPSIZE = 0;
@@ -1570,7 +1769,6 @@ next3:		prev_proc_ptrs[4] = prev_proc_ptrs[3];
 			else
 				gwdata->FOURKBGAPSIZE = 0;		/* No padding */
 		}
-
 	} else {
 		if (gwdata->PASS2_SIZE * 2 * 2 * 8 / 8192 * 128 % 256 == 0)
 			gwdata->PASS2GAPSIZE = -128;
@@ -1582,14 +1780,28 @@ next3:		prev_proc_ptrs[4] = prev_proc_ptrs[3];
 
 	asm_data = (struct gwasm_data *) gwdata->asm_data;
 	if (asm_data != NULL) {
-		if (gwdata->cpu_flags & CPU_AVX) {
+		if (gwdata->cpu_flags & CPU_AVX512F) {
+			/* Copy the second pass routine ptr */
+			struct gwasm_alt_jmptab *altjmptab = (struct gwasm_alt_jmptab *) jmptab;
+			asm_data->u.zmm.ZMM_PASS2_ROUTINE = altjmptab->pass2_proc_ptr;
+
+			if (gwdata->PASS1_SIZE == 0) {
+				/* Count of sections for add, sub, addsub, zgw_carries_wpn in a one pass FFT */
+				asm_data->addcount1 = gwdata->FFTLEN / 128;
+			}
+			else {
+				/* Count of sections for add, sub, addsub, zgw_carries_wpn.  Value is pass 1 size over 16 doubles */
+				asm_data->addcount1 = gwdata->PASS1_SIZE / 16;
+			}
+		}
+		else if (gwdata->cpu_flags & CPU_AVX) {
 			if (gwdata->PASS2_SIZE == 0) {
 				if (gwdata->FOURKBGAPSIZE) {				/* Pad every 1KB, 2KB, or 4KB */
 					asm_data->count1 = gwdata->FOURKBGAPSIZE;	/* Cache lines before a padding occurs */
 					asm_data->normcount1 = gwdata->FFTLEN / 32 / gwdata->FOURKBGAPSIZE; /* Number of padding groups in each of the 4 sections */
 					asm_data->count2 = asm_data->count1 / 2;	/* Counter for add/sub quick functions */
 					asm_data->addcount1 = asm_data->normcount1 * 4;	/* Number of add/sub quick padding groups */
-				} else {					/* No padding */
+				} else {						/* No padding */
 					asm_data->count1 = gwdata->FFTLEN / 32;		/* Cache lines in a section */
 					asm_data->normcount1 = 0;			/* Number of padding groups in each of the 4 sections */
 					asm_data->count2 = gwdata->FFTLEN / 16;		/* Counter for add/sub quick functions (4 AVX words processed at a time) */
@@ -1609,7 +1821,7 @@ next3:		prev_proc_ptrs[4] = prev_proc_ptrs[3];
 			}
 		} else if (gwdata->cpu_flags & CPU_SSE2) {
 			if (gwdata->PASS2_SIZE == 0) {
-				struct gwasm_jmptab *last_jmptab;
+				const struct gwasm_jmptab *last_jmptab;
 				/* Copy 7 counts for one pass SSE2 FFTs.  The counts are after the last jmptab entry */
 				last_jmptab = LAST_JMPTAB (jmptab);
 				asm_data->addcount1 = last_jmptab->counts[0];
@@ -1622,7 +1834,7 @@ next3:		prev_proc_ptrs[4] = prev_proc_ptrs[3];
 			} else if (gwdata->FFT_TYPE == FFT_TYPE_HOME_GROWN) {
 				int	pfa, pfa_shift;
 				/* Count of pass 2 sections */
-				asm_data->addcount1 = gwdata->FFTLEN / gwdata->PASS2_SIZE / 4;
+				asm_data->addcount1 = gwdata->PASS1_SIZE / 4;
 				/* Count of all-complex pass 2 sections */
 				asm_data->count1 = asm_data->addcount1;
 				if (gwdata->ZERO_PADDED_FFT || c < 0) asm_data->count1--;
@@ -1642,7 +1854,7 @@ next3:		prev_proc_ptrs[4] = prev_proc_ptrs[3];
 					asm_data->count3 = asm_data->addcount1;
 			} else {
 				/* Count of pass 2 sections */
-				asm_data->addcount1 = gwdata->FFTLEN / gwdata->PASS2_SIZE / 4;
+				asm_data->addcount1 = gwdata->PASS1_SIZE / 4;
 				/* Count of all-complex pass 2 sections */
 				asm_data->count1 = asm_data->addcount1;
 				if (gwdata->ZERO_PADDED_FFT || c < 0) asm_data->count1--;
@@ -1659,7 +1871,7 @@ next3:		prev_proc_ptrs[4] = prev_proc_ptrs[3];
 				asm_data->count5 = jmptab->counts[4];
 			} else {
 				/* Count of pass 2 sections */
-				asm_data->addcount1 = gwdata->FFTLEN / gwdata->PASS2_SIZE / 2;
+				asm_data->addcount1 = gwdata->PASS1_SIZE / 2;
 				/* Count of all-complex pass 2 sections */
 				asm_data->count1 = asm_data->addcount1;
 				if (gwdata->ZERO_PADDED_FFT || c < 0) asm_data->count1--;
@@ -1699,6 +1911,10 @@ double *share_sincos_data (
 #ifdef SHARE_SINCOS_DATA
 	struct shareable_sincos_data *p;	/* Ptr to a shareable data block */
 
+/* No need to share zero-sized tables */
+
+	if (table_size == 0) return (table);
+
 /* Initialize the mutex if necessary, then grab the lock */
 
 	if (!shareable_lock_initialized) {
@@ -1707,8 +1923,7 @@ double *share_sincos_data (
 	}
 	gwmutex_lock (&shareable_lock);
 
-/* Look through the list of shareable blocks looking for a match */
-/* If we find a match, use it! */
+/* Look through the list of shareable blocks looking for a match.  If we find a match, use it! */
 
 	for (p = shareable_data; p != NULL; p = p->next) {
 		if (p->data_size == table_size && !memcmp (p->data, table, table_size)) {
@@ -1824,9 +2039,9 @@ void gwinit2 (
 	gwdata->use_irrational_general_mod = 0;
 	gwdata->use_large_pages = 0;
 	gwdata->use_benchmarks = 1;
+	gwdata->mem_needed = GWINIT_WAS_CALLED_VALUE;	/* Special code checked by gwsetup to ensure gwinit was called */
 
-/* Init structure that allows giants and gwnum code to share */
-/* allocated memory */
+/* Init structure that allows giants and gwnum code to share allocated memory */
 
 	init_ghandle (&gwdata->gdata);
 	gwdata->gdata.allocate = &gwgiantalloc;
@@ -1842,6 +2057,12 @@ void gwinit2 (
 	}
 	gwdata->cpu_flags = CPU_FLAGS;
 
+/* We have not and will not write AVX-512 FFTs for 32-bit OSes */
+
+#ifndef X86_64
+	gwdata->cpu_flags &= ~CPU_AVX512F;
+#endif
+
 /* FMA3 FFTs require both AVX and FMA3 instructions.  This will always be the case when CPUID */
 /* is queried.  However, prime95 has an option to turn off just the AVX bit with CpuSupportsAVX=0. */
 /* Handle, this oddball case by also turning off FMA3. */
@@ -1853,7 +2074,7 @@ void gwinit2 (
 /* informational routines return more accurate information?   Since the code below seems to work, leave it as is. */
 
 	if (CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_BULLDOZER)
-		gwdata->cpu_flags &= ~(CPU_AVX | CPU_FMA3);
+		gwdata->cpu_flags &= ~(CPU_AVX512F | CPU_AVX | CPU_FMA3);
 }
 
 /* Allocate memory and initialize assembly code for arithmetic */
@@ -1870,6 +2091,10 @@ int gwsetup (
 	double	orig_k;
 	unsigned long orig_n;
 
+/* Make sure gwinit was called */
+
+	if (gwdata->mem_needed != GWINIT_WAS_CALLED_VALUE) return (GWERROR_NO_INIT);
+
 /* Return delayed errors from gwinit2 */
 
 	if (gwdata->GWERROR) return (gwdata->GWERROR);
@@ -1879,7 +2104,9 @@ int gwsetup (
 	if (k < 1.0) return (GWERROR_K_TOO_SMALL);
 	if (k > 9007199254740991.0) return (GWERROR_K_TOO_LARGE);
 	if (gwdata->minimum_fftlen == 0) {
-		if (gwdata->cpu_flags & CPU_AVX) {
+		if (gwdata->cpu_flags & CPU_AVX512F) {
+			if (log2(b) * (double) n > MAX_PRIME_AVX512) return (GWERROR_TOO_LARGE);
+		} else if (gwdata->cpu_flags & CPU_AVX) {
 			if (log2(b) * (double) n > MAX_PRIME_AVX) return (GWERROR_TOO_LARGE);
 		} else if (gwdata->cpu_flags & CPU_SSE2) {
 			if (log2(b) * (double) n > MAX_PRIME_SSE2) return (GWERROR_TOO_LARGE);
@@ -1915,16 +2142,22 @@ int gwsetup (
 
 	if (c == 0)
 		gcd = 0;
-	else if (k == 1.0 || abs (c) == 1)
+	else if (k == 1.0 || labs (c) == 1)
 		gcd = 1;
 	else {
 		stackgiant(kg,2);
 		stackgiant(cg,2);
 		dbltog (k, kg);
-		itog (abs (c), cg);
+		itog (labs (c), cg);
 		gcdg (kg, cg);
 		gcd = cg->n[0];
 	}
+
+/* The smallest AVX-512F FFT is length 1K.  Limited testing has indicated that less than 5 bits per FFT word */
+/* can result in carry propagation errors.  For small k*b^n+c values switch do not use AVX-512 instructions. */
+
+	if (log2(b) * (double) n < 5.0 * 1024.0)
+		gwdata->cpu_flags &= ~CPU_AVX512F;
 
 /* Call the internal setup routine when we can.  Gcd (k, c) must be 1, */
 /* k * mulbyconst and c * mulbyconst cannot be too large.  Also, the FFT */
@@ -1935,9 +2168,9 @@ int gwsetup (
 
 	if (gcd == 1 &&
 	    k * gwdata->maxmulbyconst <= MAX_ZEROPAD_K &&
-	    abs (c) * gwdata->maxmulbyconst <= MAX_ZEROPAD_C &&
+	    labs (c) * gwdata->maxmulbyconst <= MAX_ZEROPAD_C &&
 	    log2(b) * (double) n >= 350.0 &&
-	    (b == 2 || (gwdata->cpu_flags & (CPU_AVX | CPU_SSE2))) &&
+	    (b == 2 || (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX | CPU_SSE2))) &&
 	    !gwdata->force_general_mod) {
 		error_code = internal_gwsetup (gwdata, k, b, n, c);
 		if (error_code == 0) setup_completed = TRUE;
@@ -2023,10 +2256,14 @@ int gwsetup_general_mod_giant (
 	signed long c;
 	unsigned long d;
 	unsigned long safety_bits;
-	struct gwasm_jmptab *info;
+	const struct gwasm_jmptab *info;
 	int	error_code;
 	unsigned long fftlen, max_exponent, desired_n;
 	giant	modified_modulus, tmp;
+
+/* Make sure gwinit was called */
+
+	if (gwdata->mem_needed != GWINIT_WAS_CALLED_VALUE) return (GWERROR_NO_INIT);
 
 /* Return delayed errors from gwinit2 */
 
@@ -2117,7 +2354,7 @@ int gwsetup_general_mod_giant (
 	if (error_code) return (error_code);
 	info = gwdata->jmptab;
 	fftlen = info->fftlen;
-	max_exponent = info->max_exp;
+	max_exponent = adjusted_max_exponent (gwdata, info);
 
 /* Our FFTs don't handle cases where there are few bits per word because */
 /* carries must be propagated over too many words.  Arbitrarily insist */
@@ -2192,11 +2429,9 @@ int gwsetup_general_mod_giant (
 	gianttogw (gwdata, g, gwdata->GW_MODULUS_FFT);
 	gwfft (gwdata, gwdata->GW_MODULUS_FFT, gwdata->GW_MODULUS_FFT);
 
-/* Calculate number of words to zero during the copy prior to calculating */
-/* the quotient. */
+/* Calculate number of words to zero during the copy prior to calculating the quotient. */
 
-	gwdata->GW_ZEROWORDSLOW = (unsigned long)
-			floor ((double) bits / gwdata->avg_num_b_per_word);
+	gwdata->GW_ZEROWORDSLOW = (unsigned long) floor ((double) bits / gwdata->avg_num_b_per_word);
 
 /* A quick emulate_mod refresher: */
 /* 1) The maximum size of a quotient is gwdata->n/2 bits due to the */
@@ -2278,9 +2513,13 @@ int gwsetup_without_mod (
 	gwhandle *gwdata,	/* Placeholder for gwnum global data */
 	unsigned long n)	/* Maximum number of bits in OUTPUT numbers. */
 {
-	struct gwasm_jmptab *info;
+	const struct gwasm_jmptab *info;
 	unsigned long fftlen, max_exponent, desired_n;
 	int	error_code;
+
+/* Make sure gwinit was called */
+
+	if (gwdata->mem_needed != GWINIT_WAS_CALLED_VALUE) return (GWERROR_NO_INIT);
 
 /* Return delayed errors from gwinit2 */
 
@@ -2297,7 +2536,7 @@ int gwsetup_without_mod (
 	info = gwdata->jmptab;
 	if (error_code) return (error_code);
 
-	max_exponent = info->max_exp;
+	max_exponent = adjusted_max_exponent (gwdata, info);
 	fftlen = info->fftlen;
 
 /* If possible, increase n to the next multiple of FFT length.  This is */
@@ -2444,14 +2683,14 @@ int internal_gwsetup (
 	unsigned long n,	/* N in K*B^N+C. Exponent to test. */
 	signed long c)		/* C in K*B^N+C. Must be rel. prime to K. */
 {
-	struct gwasm_jmptab *info;
+	const struct gwasm_jmptab *info;
 	void	*asm_data_alloc;
 	struct gwasm_data *asm_data;
 	int	error_code;
 	unsigned long mem_needed;
 	double	*tables;		/* Pointer tables we are building */
 	unsigned long pass1_size;
-	double	small_word, big_word, temp, asm_values[40];
+	double	small_word, big_word, temp, asm_values[50];
 
 /* Remember the arguments */
 
@@ -2502,6 +2741,7 @@ int internal_gwsetup (
 		if (tables != NULL) {
 			/* Save large pages pointer for later freeing */
 			gwdata->large_pages_ptr = tables;
+			tables = align_ptr (tables, 128);
 			/* Save pointer to the gwnum we also allocated, so */
 			/* that first gwalloc call can return it. */
 			gwdata->large_pages_gwnum = align_ptr ((char *) tables + mem_needed, 128);
@@ -2534,8 +2774,7 @@ int internal_gwsetup (
 		gwdone (gwdata);
 		return (GWERROR_MALLOC);
 	}
-	gwfft_weight_setup (gwdata->dd_data, gwdata->ZERO_PADDED_FFT,
-			    k, b, n, c, gwdata->FFTLEN);
+	gwfft_weight_setup (gwdata->dd_data, gwdata->ZERO_PADDED_FFT, k, b, n, c, gwdata->FFTLEN);
 
 /* Calculate the number of bits in k*b^n.  This will be helpful in */
 /* determining how much memory to allocate for giants. */
@@ -2547,26 +2786,26 @@ int internal_gwsetup (
 /* wraps around to the low FFT word) is 2*n for a zero pad FFT and logb(k) + n */
 /* otherwise. */	
 
-	gwdata->avg_num_b_per_word =
-		(gwdata->ZERO_PADDED_FFT ? n * 2.0 : (logb (k) + n)) / gwdata->FFTLEN;
+	gwdata->avg_num_b_per_word = (gwdata->ZERO_PADDED_FFT ? n * 2.0 : (logb (k) + n)) / gwdata->FFTLEN;
 
 /* Calculate the number of base b's stored in each small FFT word. */
 
 	gwdata->NUM_B_PER_SMALL_WORD = (unsigned long) gwdata->avg_num_b_per_word;
+	small_word = pow ((double) b, gwdata->NUM_B_PER_SMALL_WORD);
+	big_word = (double) b * small_word;
 
-/* Set a flag if this is a rational FFT.  That is, an FFT where all the */
-/* weighting factors are 1.0.  This happens when abs(c) is 1 and every */
-/* FFT word has the same number of b's.  The assembly code can make some */
-/* obvious optimizations when all the FFT weights are one. */
+/* Set a flag if this is a rational FFT.  That is, an FFT where all the weighting factors are 1.0. */
+/* This happens when zero-padded or abs(c) is 1, and every FFT word has the same number of b's. */
+/* The assembly code can make some obvious optimizations when all the FFT weights are one. */
 
 	gwdata->RATIONAL_FFT = asm_data->RATIONAL_FFT =
-		((double) gwdata->NUM_B_PER_SMALL_WORD == gwdata->avg_num_b_per_word) && (abs (c) == 1);
+		((double) gwdata->NUM_B_PER_SMALL_WORD == gwdata->avg_num_b_per_word) && (gwdata->ZERO_PADDED_FFT || labs (c) == 1);
 
 /* Remember the maximum number of bits per word that this FFT length */
 /* supports.  We this in gwnear_fft_limit.  Note that zero padded FFTs */
 /* can support an extra 0.3 bits per word because of the all the zeroes. */
 
-	gwdata->fft_max_bits_per_word = (double) info->max_exp / (double) gwdata->FFTLEN;
+	gwdata->fft_max_bits_per_word = (double) adjusted_max_exponent (gwdata, info) / (double) gwdata->FFTLEN;
 	if (gwdata->ZERO_PADDED_FFT) gwdata->fft_max_bits_per_word += 0.3;
 
 /* Compute extra bits - the number of adds we can tolerate without */
@@ -2574,20 +2813,155 @@ int internal_gwsetup (
 /* will be greater than virtual bits, but playing with the safety margin */
 /* or forcing use of a specific FFT length could change that. */
 
-	gwdata->EXTRA_BITS = (unsigned long)
-		pow (2.0, (gwdata->fft_max_bits_per_word - virtual_bits_per_word (gwdata)) / 2.0);
+	gwdata->EXTRA_BITS = (unsigned long) pow (2.0, (gwdata->fft_max_bits_per_word - virtual_bits_per_word (gwdata)) / 2.0);
 
-/* Determine the pass 1 size.  This affects how we build */
-/* many of the sin/cos tables. */
+/* Determine the pass 1 size.  This affects how we build many of the sin/cos tables. */
 
 	if (gwdata->PASS2_SIZE)
-		pass1_size = gwdata->FFTLEN / gwdata->PASS2_SIZE; /* Real values in a pass1 section */
+		pass1_size = gwdata->PASS1_SIZE;
 	else
 		pass1_size = gwdata->FFTLEN;
 
+/* Initialize tables for r4dwpn AVX-512 FFT code */
+
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		int	cnt;
+
+/* Compute the normalization constants.  The rounding constant, a value larger than 3*2^51, is chosen such that */
+/* it is a multiple of big_word and RNDVAL * big_word - RNDVAL fits in 53 bits. */
+/* Let's figure out how to compute RNDVAL, by imagining a CPU with 20 bit mantissas instead of 53-bits */
+/* First example is bigbase = 2^8, RNDVAL is 3*2^18: */
+/*	RNDVAL = 1100 0000 0000 0000 0000 */
+/*	RNDVAL * bigbase - RNDVAL = 1100 0000 0000 0000 0000 0000 0000 */
+/*					    - 1100 0000 0000 0000 0000, which easily fits in 20 bits. */
+/* Next example is a with 6-bit odd bigbase.  We choose RNDVAL such that it is a multiple of bigbase and a multiple of 2^6. */
+/*	RNDVAL = 1100 0000 xxxx xx00 0000 */
+/*	RNDVAL * bigbase - RNDVAL = yy yyyy yyyy yyyy yyyy yy00 0000 */
+/*					  - 1100 0000 xxxx xx00 0000, which fits in 20 bits. */
+/* Next example is a with 6-bit even bigbase.  We choose RNDVAL such that it is a multiple of bigbase and a multiple of 2^5. */
+/*	RNDVAL = 1100 0000 0xxx xxx0 0000 */
+/*	RNDVAL * bigbase - RNDVAL = yy yyyy yyyy yyyy yyyy yy00 0000 */
+/*					  - 1100 0000 0xxx xxx0 0000, */
+/* which does NOT fit in 20 bits, we must choose RNDVAL as a multiple of 2^6. */
+/* This leaves us with the following simple algorithm: */
+/*	cnt = count of bits in bigbase */
+/*	RNDVAL = 3*2^51 / 2^cnt */
+/*	RNDVAL += (bigbase - RNDVAL % bigbase) % bigbase */
+/*	RNDVAL *= 2^cnt */
+
+		asm_data->u.zmm.ZMM_LARGE_BASE = big_word;				/* Upper limit */
+		asm_data->u.zmm.ZMM_LARGE_BASE_INVERSE = 1.0 / big_word;		/* Upper limit inverse */
+		asm_data->u.zmm.ZMM_SMALL_BASE = small_word;				/* Lower limit */
+		asm_data->u.zmm.ZMM_SMALL_BASE_INVERSE = 1.0 / small_word;		/* Lower limit inverse */
+
+		cnt = (int) log2 (big_word) + 1;
+		asm_data->u.zmm.ZMM_RNDVAL = 3.0 * 131072.0 * 131072.0 * 131072.0;	/* Rounding value */
+		asm_data->u.zmm.ZMM_RNDVAL /= pow (2.0, cnt);
+		asm_data->u.zmm.ZMM_RNDVAL += fltmod (big_word - fltmod (asm_data->u.zmm.ZMM_RNDVAL, big_word), big_word);
+		asm_data->u.zmm.ZMM_RNDVAL *= pow (2.0, cnt);
+
+		asm_data->u.zmm.ZMM_RNDVAL_TIMES_LARGE_BASE = asm_data->u.zmm.ZMM_RNDVAL * big_word - asm_data->u.zmm.ZMM_RNDVAL;
+		asm_data->u.zmm.ZMM_RNDVAL_TIMES_SMALL_BASE = asm_data->u.zmm.ZMM_RNDVAL * small_word - asm_data->u.zmm.ZMM_RNDVAL;
+		asm_data->u.zmm.ZMM_RNDVAL_OVER_LARGE_BASE = asm_data->u.zmm.ZMM_RNDVAL / big_word - asm_data->u.zmm.ZMM_RNDVAL;
+		asm_data->u.zmm.ZMM_RNDVAL_OVER_SMALL_BASE = asm_data->u.zmm.ZMM_RNDVAL / small_word - asm_data->u.zmm.ZMM_RNDVAL;
+
+/* Build sin/cos and premultiplier tables used in pass 1 of two pass FFTs. */
+/* For best prefetching, make sure tables remain on 64-byte boundaries */
+
+		ASSERTG (((tables - gwdata->gwnum_memory) & 7) == 0);
+		gwdata->pass1_var_data = tables;
+		tables = zr4dwpn_build_pass1_table (gwdata, tables);
+		tables = round_to_cache_line (tables);
+		/* The wrapper for "one-pass" FFTs does not use a fixed sin/cos table, but it does access the variable data using sincos2 */
+		if (gwdata->PASS1_SIZE == 0) {
+			asm_data->sincos2 = gwdata->pass1_var_data;
+		} else {
+			ASSERTG (((tables - gwdata->gwnum_memory) & 7) == 0);
+			asm_data->sincos2 = tables;
+			tables = zr4dwpn_build_fixed_pass1_table (gwdata, tables);
+			asm_data->sincos2 = share_sincos_data (gwdata, FIXED_PASS1_SINCOS_DATA, asm_data->sincos2, (char *) tables - (char *) asm_data->sincos2);
+			tables = round_to_cache_line (tables);
+		}
+
+/* Build the sin/cos table used in complex pass 2 blocks */
+/* The pass 2 tables are the same as for a traditional radix-4 FFT */		
+
+		ASSERTG (((tables - gwdata->gwnum_memory) & 7) == 0);
+		asm_data->xsincos_complex = tables;
+		tables = zr4_build_pass2_complex_table (gwdata, tables);
+		asm_data->xsincos_complex = share_sincos_data (gwdata, PASS2_COMPLEX_SINCOS_DATA, asm_data->xsincos_complex, (char *) tables - (char *) asm_data->xsincos_complex);
+		tables = round_to_cache_line (tables);
+		ASSERTG (((tables - gwdata->gwnum_memory) & 7) == 0);
+		asm_data->sincos3 = tables;
+		tables = zr4_build_pass2_real_table (gwdata, tables);
+		asm_data->sincos3 = share_sincos_data (gwdata, PASS2_REAL_SINCOS_DATA, asm_data->sincos3, (char *) tables - (char *) asm_data->sincos3);
+		tables = round_to_cache_line (tables);
+
+/* Allocate a table for carries.  For better distribution of data in the caches, make this table contiguous with all */
+/* other data used in the first pass (scratch area, normalization tables, etc.)  Note that we put the tables that */
+/* are only partly loaded (column multipliers and big/lit table) after the tables that are loaded throughout the first pass. */
+
+		{
+			int	i, carry_table_size;
+			ASSERTG (((tables - gwdata->gwnum_memory) & 7) == 0);
+			asm_data->carries = tables;
+			if (gwdata->PASS1_SIZE == 0) carry_table_size = gwdata->FFTLEN / 8; // Every 8th one-pass FFT element needs a carry
+			else carry_table_size = gwdata->PASS1_SIZE;	// Pass 1 size - each needs a carry
+			for (i = 0; i < carry_table_size; i++) *tables++ = asm_data->u.zmm.ZMM_RNDVAL;
+		}
+
+/* Build the group muliplier normalization table.  Keep this table contiguous with other data used in pass 1. */
+
+		ASSERTG (((tables - gwdata->gwnum_memory) & 7) == 0);
+		asm_data->norm_grp_mults = tables;
+		tables = zr4dwpn_build_norm_table (gwdata, tables);
+		tables = round_to_cache_line (tables);
+
+/* Reserve room for the pass 1 scratch area. */
+
+		if (gwdata->SCRATCH_SIZE) {
+			ASSERTG (((tables - gwdata->gwnum_memory) & 7) == 0);
+			asm_data->scratch_area = tables;
+			tables = (double *) ((char *) tables + gwdata->SCRATCH_SIZE);
+			tables = round_to_cache_line (tables);
+		}
+
+/* Build the table of big vs. little flags.  Build the table of fudge factor flags */
+
+		ASSERTG (((tables - gwdata->gwnum_memory) & 7) == 0);
+		tables = zr4dwpn_build_biglit_table (gwdata, tables);
+		tables = round_to_cache_line (tables);
+		tables = zr4dwpn_build_fudge_table (gwdata, tables);
+		tables = round_to_cache_line (tables);
+
+#ifdef GDEBUG_MEM
+		{
+		char buf[80];
+		sprintf (buf, "FFTlen: %d, clm: %d\n", (int) gwdata->FFTLEN, (int) gwdata->PASS1_CACHE_LINES); OutputBoth (0, buf);
+		sprintf (buf, "FFTlen: %d, scratch area: %d\n", (int) gwdata->FFTLEN, (int) gwdata->SCRATCH_SIZE); OutputBoth (0, buf);
+		sprintf (buf, "FFTlen: %d, pass1 var s/c data: %d\n", (int) gwdata->FFTLEN, (int) ((intptr_t) asm_data->sincos2 - (intptr_t) gwdata->pass1_var_data)); OutputBoth (0, buf);
+		sprintf (buf, "FFTlen: %d, pass1 fixed s/c data: %d\n", (int) gwdata->FFTLEN, (int) ((intptr_t) asm_data->xsincos_complex - (intptr_t) asm_data->sincos2)); OutputBoth (0, buf);
+		sprintf (buf, "FFTlen: %d, pass2 complex s/c data: %d\n", (int) gwdata->FFTLEN, (int) ((intptr_t) asm_data->sincos3 - (intptr_t) asm_data->xsincos_complex)); OutputBoth (0, buf);
+		sprintf (buf, "FFTlen: %d, pass2 real s/c data: %d\n", (int) gwdata->FFTLEN, (int) ((intptr_t) asm_data->carries - (intptr_t) asm_data->sincos3)); OutputBoth (0, buf);
+		sprintf (buf, "FFTlen: %d, carries: %d\n", (int) gwdata->FFTLEN, (int) ((intptr_t) asm_data->norm_grp_mults - (intptr_t) asm_data->carries)); OutputBoth (0, buf);
+		sprintf (buf, "FFTlen: %d, norm grp mults: %d\n", (int) gwdata->FFTLEN, (int) ((intptr_t) asm_data->scratch_area - (intptr_t) asm_data->norm_grp_mults)); OutputBoth (0, buf);
+		}
+#endif
+
+/* Create offsets for carry propagation code to step through eight FFT data elements */
+
+		asm_data->u.zmm.ZMM_SRC_INCR = (intptr_t) addr_offset (gwdata, 1) - (intptr_t) addr_offset (gwdata, 0);
+		ASSERTG (asm_data->u.zmm.ZMM_SRC_INCR == (intptr_t) addr_offset (gwdata, 2) - (intptr_t) addr_offset (gwdata, 1));
+		ASSERTG (asm_data->u.zmm.ZMM_SRC_INCR == (intptr_t) addr_offset (gwdata, 3) - (intptr_t) addr_offset (gwdata, 2));
+		ASSERTG (asm_data->u.zmm.ZMM_SRC_INCR == (intptr_t) addr_offset (gwdata, 4) - (intptr_t) addr_offset (gwdata, 3));
+		ASSERTG (asm_data->u.zmm.ZMM_SRC_INCR == (intptr_t) addr_offset (gwdata, 5) - (intptr_t) addr_offset (gwdata, 4));
+		ASSERTG (asm_data->u.zmm.ZMM_SRC_INCR == (intptr_t) addr_offset (gwdata, 6) - (intptr_t) addr_offset (gwdata, 5));
+		ASSERTG (asm_data->u.zmm.ZMM_SRC_INCR == (intptr_t) addr_offset (gwdata, 7) - (intptr_t) addr_offset (gwdata, 6));
+	}
+
 /* Initialize tables for AVX FFT code */
 
-	if (gwdata->cpu_flags & CPU_AVX) {
+	else if (gwdata->cpu_flags & CPU_AVX) {
 
 /* Initialize tables for the one pass radix-4 FFT assembly code. */
 
@@ -2642,7 +3016,7 @@ int internal_gwsetup (
 				double	carryval;
 				ASSERTG (((tables - gwdata->gwnum_memory) & 7) == 0);
 				asm_data->carries = tables;
-				carry_table_size = gwdata->FFTLEN / gwdata->PASS2_SIZE;
+				carry_table_size = gwdata->PASS1_SIZE;
 				if (b == 2) carryval = 3.0 * 131072.0 * 131072.0 * 131072.0;
 				else carryval = 0.0;
 				for (i = 0; i < carry_table_size; i++)
@@ -2683,7 +3057,7 @@ int internal_gwsetup (
 		char buf[80];
 		sprintf (buf, "FFTlen: %d, clm: %d, count3: %d, count2: %d\n", (int) gwdata->FFTLEN, (int) gwdata->PASS1_CACHE_LINES, (int) asm_data->count3, (int) asm_data->count2); OutputBoth (0, buf);
 		sprintf (buf, "FFTlen: %d, scratch area: %d\n", (int) gwdata->FFTLEN, (int) gwdata->SCRATCH_SIZE); OutputBoth (0, buf);
-		sprintf (buf, "FFTlen: %d, pass1 var s/c data: %d\n", (int) gwdata->FFTLEN, (int) ((intptr_t) asm_data->sincos2 - (intptr_t) gwdata->adjusted_pass1_premults)); OutputBoth (0, buf);
+		sprintf (buf, "FFTlen: %d, pass1 var s/c data: %d\n", (int) gwdata->FFTLEN, (int) ((intptr_t) asm_data->sincos2 - (intptr_t) gwdata->pass1_var_data)); OutputBoth (0, buf);
 		sprintf (buf, "FFTlen: %d, pass1 fixed s/c data: %d\n", (int) gwdata->FFTLEN, (int) ((intptr_t) asm_data->xsincos_complex - (intptr_t) asm_data->sincos2)); OutputBoth (0, buf);
 		sprintf (buf, "FFTlen: %d, pass2 complex s/c data: %d\n", (int) gwdata->FFTLEN, (int) ((intptr_t) asm_data->sincos3 - (intptr_t) asm_data->xsincos_complex)); OutputBoth (0, buf);
 		sprintf (buf, "FFTlen: %d, pass2 real s/c data: %d\n", (int) gwdata->FFTLEN, (int) ((intptr_t) asm_data->carries - (intptr_t) asm_data->sincos3)); OutputBoth (0, buf);
@@ -2740,7 +3114,7 @@ int internal_gwsetup (
 				double	xmm_bigval;
 				ASSERTG (((tables - gwdata->gwnum_memory) & 15) == 0);
 				asm_data->carries = tables;
-				carry_table_size = gwdata->FFTLEN / (gwdata->PASS2_SIZE / 2);
+				carry_table_size = gwdata->PASS1_SIZE * 2;
 				xmm_bigval = 3.0 * 131072.0 * 131072.0 * 131072.0;
 				for (i = 0; i < carry_table_size; i++) *tables++ = xmm_bigval;
 				tables += (16 - (tables - gwdata->gwnum_memory)) & 15;
@@ -2816,7 +3190,7 @@ int internal_gwsetup (
 				double	xmm_bigval;
 				ASSERTG (((tables - gwdata->gwnum_memory) & 15) == 0);
 				asm_data->carries = tables;
-				carry_table_size = gwdata->FFTLEN / (gwdata->PASS2_SIZE / 2);
+				carry_table_size = gwdata->PASS1_SIZE * 2;
 				xmm_bigval = 3.0 * 131072.0 * 131072.0 * 131072.0;
 				for (i = 0; i < carry_table_size; i++) *tables++ = xmm_bigval;
 				tables += (16 - (tables - gwdata->gwnum_memory)) & 15;
@@ -2894,7 +3268,7 @@ int internal_gwsetup (
 				double	xmm_bigval;
 				ASSERTG (((tables - gwdata->gwnum_memory) & 15) == 0);
 				asm_data->carries = tables;
-				carry_table_size = gwdata->FFTLEN / (gwdata->PASS2_SIZE / 2);
+				carry_table_size = gwdata->PASS1_SIZE * 2;
 				xmm_bigval = 3.0 * 131072.0 * 131072.0 * 131072.0;
 				for (i = 0; i < carry_table_size; i++) *tables++ = xmm_bigval;
 				tables += (16 - (tables - gwdata->gwnum_memory)) & 15;
@@ -2954,17 +3328,17 @@ int internal_gwsetup (
 
 				if (!gwdata->ALL_COMPLEX_FFT) {
 					ASSERTG (((tables - gwdata->gwnum_memory) & 15) == 0);
-					asm_data->sincos6 = tables;
+					asm_data->u.xmm.sincos6 = tables;
 					tables = hg_build_sin_cos_table (tables, gwdata->PASS2_SIZE * 4, 1, 2);
-					asm_data->sincos7 = tables;
+					asm_data->u.xmm.sincos7 = tables;
 					tables = hg_build_sin_cos_table (tables, gwdata->PASS2_SIZE, 1, 1);
 					tables += (16 - (tables - gwdata->gwnum_memory)) & 15;
 				}
 
-				asm_data->sincos8 = asm_data->sincos7;
-				asm_data->sincos9 = asm_data->sincos7;
-				asm_data->sincos10 = asm_data->sincos7;
-				asm_data->u.xmm.sincos11 = asm_data->sincos7;
+				asm_data->u.xmm.sincos8 = asm_data->u.xmm.sincos7;
+				asm_data->u.xmm.sincos9 = asm_data->u.xmm.sincos7;
+				asm_data->u.xmm.sincos10 = asm_data->u.xmm.sincos7;
+				asm_data->u.xmm.sincos11 = asm_data->u.xmm.sincos7;
 			}
 
 /* Allocate a table for carries.  Init with XMM_BIGVAL.  For best */
@@ -2979,7 +3353,7 @@ int internal_gwsetup (
 				double	xmm_bigval;
 				ASSERTG (((tables - gwdata->gwnum_memory) & 15) == 0);
 				asm_data->carries = tables;
-				carry_table_size = gwdata->FFTLEN / (gwdata->PASS2_SIZE / 2);
+				carry_table_size = gwdata->PASS1_SIZE * 2;
 				xmm_bigval = 3.0 * 131072.0 * 131072.0 * 131072.0;
 				for (i = 0; i < carry_table_size; i++)
 					*tables++ = xmm_bigval;
@@ -3068,7 +3442,7 @@ int internal_gwsetup (
 		if (gwdata->PASS2_SIZE) {
 			int	i, carry_table_size;
 			asm_data->carries = tables;
-			carry_table_size = gwdata->FFTLEN / gwdata->PASS2_SIZE;
+			carry_table_size = gwdata->PASS1_SIZE;
 			for (i = 0; i < carry_table_size; i++) *tables++ = 0.0;
 		}
 
@@ -3108,8 +3482,7 @@ int internal_gwsetup (
 
 /* Build sin/cos and premultiplier tables used in pass 2 of two pass FFTs */
 /* Remember that pass2_size is the number of complex values in a pass 2 */
-/* section, but x87_build_sin_cos_table wants the number of reals in */
-/* a section. */
+/* section, but x87_build_sin_cos_table wants the number of reals in a section. */
 
 		if (gwdata->PASS2_SIZE) {
 			asm_data->u.x87.pass2_premults = tables;
@@ -3118,12 +3491,12 @@ int internal_gwsetup (
 			tables = x87_build_sin_cos_table (tables, gwdata->PASS2_SIZE*2, 0);
 
 			if (!gwdata->ALL_COMPLEX_FFT) {
-				asm_data->sincos6 = tables;
+				asm_data->u.x87.sincos6 = tables;
 				tables = x87_build_sin_cos_table (tables, gwdata->PASS2_SIZE*2, 1);
-				asm_data->sincos7 = asm_data->sincos6;
-				asm_data->sincos8 = asm_data->sincos6;
-				asm_data->sincos9 = asm_data->sincos6;
-				asm_data->sincos10 = asm_data->sincos6;
+				asm_data->u.x87.sincos7 = asm_data->u.x87.sincos6;
+				asm_data->u.x87.sincos8 = asm_data->u.x87.sincos6;
+				asm_data->u.x87.sincos9 = asm_data->u.x87.sincos6;
+				asm_data->u.x87.sincos10 = asm_data->u.x87.sincos6;
 			}
 		}
 
@@ -3156,21 +3529,30 @@ int internal_gwsetup (
 /* Finish verifying table size */
 
 #ifdef GDEBUG
-	if (!gwdata->ZERO_PADDED_FFT) {
+	if (!gwdata->ZERO_PADDED_FFT && !gwdata->RATIONAL_FFT) {
 		char buf[80];
-		intptr_t mem = (intptr_t) tables - (intptr_t) gwdata->gwnum_memory;
-		if (mem != mem_needed) {
-			sprintf (buf, "FFTlen: %d, mem needed should be: %d\n",
-				 (int) gwdata->FFTLEN, (int) (mem - gwdata->SCRATCH_SIZE));
-			OutputBoth (0, buf);
+		intptr_t mem_used = (intptr_t) tables - (intptr_t) gwdata->gwnum_memory;
+		if (mem_used != mem_needed) {
+			// AVX-512 FFTs (due to rounding compressed fudges/biglits within each variable block to a cache line boundary)
+			// may allocate a little too much memory when clm != 1.  Allow a small discrepancy without complaining.
+			if (gwdata->cpu_flags & CPU_AVX512F && gwdata->PASS1_CACHE_LINES > 8) {
+				if ((int) mem_used > (int) mem_needed || (int) mem_used < (int) (mem_needed * .98)) {
+					sprintf (buf, "FFTlen: %d, mem needed should be approximately: %d\n",
+						 (int) gwdata->FFTLEN, (int) (mem_used - gwdata->SCRATCH_SIZE));
+					OutputBoth (0, buf);
+				}
+			} else {
+				sprintf (buf, "FFTlen: %d, mem needed should be: %d\n",
+					 (int) gwdata->FFTLEN, (int) (mem_used - gwdata->SCRATCH_SIZE));
+				OutputBoth (0, buf);
+			}
 		}
 	}
 #endif
 
-/* Copy the count of cache lines grouped in pass 1.  This affects how */
-/* we build the normalization tables.  Note that cache line sizes are */
-/* different in the x87 (16 bytes) and AVX/SSE2 code (64 bytes).  In the assembly */
-/* code this is called clm or cache_line_multiplier. */
+/* Copy the count of cache lines grouped in pass 1.  This affects how we build the normalization tables. */
+/* Note that cache line sizes are different in the x87 (16 bytes) and AVX-512/AVX/SSE2 code (64 bytes). */
+/* In the assembly code this is called clm or cache_line_multiplier. */
 
 	asm_data->cache_line_multiplier = gwdata->PASS1_CACHE_LINES;
 
@@ -3179,12 +3561,9 @@ int internal_gwsetup (
 
 	asm_data->ttmp_ff_inv = 2.0 / (double) gwdata->FFTLEN;
 
-/* Now compute a number of constants the assembly code needs.  These will */
-/* be copied to properly aligned (SSE2 constants must be on 16-byte */
-/* boundaries, AVX constants must be on 32-byte boundaries) and grouped */
-/* (for better cache line locality) assembly global variables.  We compute */
-/* these constants in C code because it is easier and because early Pentiums */
-/* do not support SSE2 instructions and x86-64 does not support x87 instructions. */
+/* Now compute a number of constants the assembly code needs.  These will be copied to properly aligned (SSE2 constants */
+/* must be on 16-byte boundaries, AVX constants must be on 32-byte boundaries, AVX-512 are unaligned due to cheap vbroadcastsd) */
+/* and grouped (for better cache line locality) assembly global variables. */
 
 	gwasm_constants ((double *) &asm_values);
 
@@ -3192,10 +3571,74 @@ int internal_gwsetup (
 /* to so that constants could be close to other variables used at the */
 /* same time.  This might free up a cache line or two. */
 
-	small_word = pow ((double) b, gwdata->NUM_B_PER_SMALL_WORD);
-	big_word = (double) b * small_word;
+/* Init constants for AVX-512 FFT routines */
 
-	if (gwdata->cpu_flags & CPU_AVX) {
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		asm_data->u.zmm.ZMM_HALF = 0.5;
+		asm_data->u.zmm.ZMM_TWO = 2.0;
+		asm_data->u.zmm.ZMM_ONE = 1.0;
+		asm_data->u.zmm.ZMM_SQRTHALF = sqrt (0.5);
+		asm_data->u.zmm.ZMM_SQRT2 = sqrt (2.0);
+		asm_data->u.zmm.ZMM_ABSVAL[0] = 0xFFFFFFFF;
+		asm_data->u.zmm.ZMM_ABSVAL[1] = 0x7FFFFFFF;
+		asm_data->u.zmm.ZMM_B = (double) b;
+		asm_data->u.zmm.ZMM_ONE_OVER_B = 1.0 / asm_data->u.zmm.ZMM_B;
+
+/* Negate c and store as a double */
+
+		asm_data->u.zmm.ZMM_MINUS_C = (double) -c;
+
+/* Split k for zero-padded FFTs emulating modulo k*b^n+c.  Note we only need */
+/* to split k if k * big_word exceeds what a floating point register can hold. */
+/* 2^49 should give us enough room to handle a carry and still round properly. */	
+
+		if (k * big_word < 562949953421312.0) {
+			asm_data->u.zmm.ZMM_K_LO = k;
+			asm_data->u.zmm.ZMM_K_HI_OVER_SMALL_BASE = 0.0;
+			asm_data->u.zmm.ZMM_K_HI_OVER_LARGE_BASE = 0.0;
+		} else {
+			asm_data->u.zmm.ZMM_K_HI_OVER_LARGE_BASE = floor (k / big_word);
+			asm_data->u.zmm.ZMM_K_HI_OVER_SMALL_BASE = floor (k / big_word) * (double) b;
+			asm_data->u.zmm.ZMM_K_LO = k - asm_data->u.zmm.ZMM_K_HI_OVER_LARGE_BASE * big_word;
+		}
+		gwsetmulbyconst (gwdata, gwdata->maxmulbyconst);
+
+/* Copy computed assembly constants */
+
+		asm_data->u.zmm.ZMM_P951 = asm_values[0];
+		asm_data->u.zmm.ZMM_P588_P951 = asm_values[1];
+		asm_data->u.zmm.ZMM_P309 = asm_values[2];
+		asm_data->u.zmm.ZMM_P809 = -asm_values[6];
+		asm_data->u.zmm.ZMM_P866 = asm_values[8];
+		asm_data->u.zmm.ZMM_P623 = asm_values[14];
+		asm_data->u.zmm.ZMM_P223 = -asm_values[17];
+		asm_data->u.zmm.ZMM_P901 = -asm_values[18];
+		asm_data->u.zmm.ZMM_P383 = asm_values[21];
+		asm_data->u.zmm.ZMM_P383_1 = asm_values[21];
+		asm_data->u.zmm.ZMM_P975 = asm_values[11];
+		asm_data->u.zmm.ZMM_P434_P975 = asm_values[12];
+		asm_data->u.zmm.ZMM_P782_P975 = asm_values[42];
+		asm_data->u.zmm.ZMM_P901_P975 = asm_values[38];
+		asm_data->u.zmm.ZMM_P623_P975 = asm_values[39];
+		asm_data->u.zmm.ZMM_P223_P975 = asm_values[40];
+		asm_data->u.zmm.ZMM_P1_P975 = asm_values[41];
+		asm_data->u.zmm.ZMM_P259_P707 = asm_values[28];
+		asm_data->u.zmm.ZMM_P966_P707 = asm_values[29];
+		asm_data->u.zmm.ZMM_P924_P383 = asm_values[30];
+		asm_data->u.zmm.ZMM_P981_P195 = asm_values[31];
+		asm_data->u.zmm.ZMM_P195 = asm_values[33];
+		asm_data->u.zmm.ZMM_P831_P556 = asm_values[34];
+		asm_data->u.zmm.ZMM_P556_P195 = asm_values[37];
+
+/* Swizzling indices used in vpermt2pd */
+
+		asm_data->u.zmm.ZMM_PERMUTE1 = 0x0c040e0608000a02ULL;
+		asm_data->u.zmm.ZMM_PERMUTE2 = 0x0d050f0709010b03ULL;
+	}
+
+/* Init constants for AVX FFT routines */
+
+	else if (gwdata->cpu_flags & CPU_AVX) {
 		int	i;
 
 		asm_data->u.ymm.YMM_HALF[0] = asm_data->u.ymm.YMM_HALF[1] =
@@ -3336,7 +3779,7 @@ int internal_gwsetup (
 		asm_data->u.ymm.YMM_P966_P707[2] = asm_data->u.ymm.YMM_P966_P707[3] = asm_values[29];
 		asm_data->u.ymm.YMM_P924_P383[0] = asm_data->u.ymm.YMM_P924_P383[1] =
 		asm_data->u.ymm.YMM_P924_P383[2] = asm_data->u.ymm.YMM_P924_P383[3] = asm_values[30];
-}
+	}
 
 /* Init constants for SSE2 code */
 
@@ -3652,19 +4095,78 @@ int internal_gwsetup (
 		asm_data->u.x87.M691 = asm_values[19];
 	}
 
+/* More AVX-512 initialization code */
+
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+
+		/* One pass AVX-512 FFTs use the same 4KB padding scheme as two-pass FFTs */
+		if (gwdata->PASS1_SIZE == 0) {
+			asm_data->fourKBgapsize = gwdata->FOURKBGAPSIZE;
+			asm_data->normblkdst = 0;		/* Small pass 1's with PFA have no padding every 8 clmblkdsts */
+			asm_data->normblkdst4 = gwdata->FOURKBGAPSIZE;
+			asm_data->normblkdst8 = 0;
+			asm_data->pass1blkdst = 8*128;		/* Allows one-pass FFTs to use two-pass carry propagate code */
+			asm_data->pass2blkdst = 128;		/* Allows one-pass FFTs to use two-pass carry propagate code */
+			asm_data->normval4 = 1;			/* Allows one-pass FFTs to use two-pass add/sub/addsub code */
+			asm_data->normval2 = 1;			/* Allows one-pass FFTs to use two-pass add/sub/addsub code */
+			asm_data->normval1 = 1;			/* Allows one-pass FFTs to use two-pass add/sub/addsub quick code */
+			asm_data->pass2gapsize = 0;		/* Allows one-pass FFTs to use two-pass add/sub/addsub quick code */
+		}
+
+		/* Calculate padding constants for two-pass FFTs */
+		else {
+			int	pass1_size;
+
+			/* There are 64 pad bytes every 4KB and optional pad bytes between each pass 1 block. */
+			asm_data->fourKBgapsize = gwdata->FOURKBGAPSIZE;
+			asm_data->pass2gapsize = gwdata->PASS2GAPSIZE;
+			asm_data->pass2blkdst = gwdata->PASS2_SIZE * 16;
+			asm_data->pass2blkdst += (asm_data->pass2blkdst >> 12) * asm_data->fourKBgapsize + asm_data->pass2gapsize;
+			asm_data->pass1blkdst = asm_data->pass2blkdst * 8;
+
+			/* Calculate normblk distances used in normalizing two-pass FFTs */
+			pass1_size = gwdata->PASS1_SIZE;
+			if (pass1_size == 192 || pass1_size == 640 || pass1_size == 768 || pass1_size == 896 || pass1_size == 960 ||
+			    pass1_size == 1152 || pass1_size == 1280 || pass1_size == 1344 || pass1_size == 1536 || pass1_size == 1920 ||
+			    pass1_size == 2304) {
+				asm_data->normblkdst = 64;		/* Many pass 1's do not support padding every 8 clmblkdsts */
+				asm_data->normblkdst8 = 0;
+			} else if (gwdata->PASS1_CACHE_LINES == 8) {	/* If clm=1 */
+				asm_data->normblkdst = 0;		/* Pad for clmblkdst is 64 bytes */
+				asm_data->normblkdst8 = 128;		/* Pad for clmblkdst8 is 64 bytes */
+			} else if (gwdata->PASS1_CACHE_LINES == 16) {	/* If clm=2 */
+				asm_data->normblkdst = 0;		/* Pad for clmblkdst is 0 bytes */
+				asm_data->normblkdst8 = 192;		/* Pad for clmblkdst8 is 192 bytes */
+			} else {					/* If clm=4 or more */
+				asm_data->normblkdst = 64;		/* Pad for clmblkdst is 64 bytes */
+				asm_data->normblkdst8 = -64;		/* Pad for clmblkdst8 is -64 bytes */
+			}
+			asm_data->normblkdst4 = 0;
+
+			/* If we are padding every 4KB, then calculate number of 4KB pages in a pass 2 block */
+			/* and "FFT loword/hiword pairs in a 4KB page. */
+			/* Otherwise calculate "FFT loword/hiword pairs in a pass 2 block" */
+			if (gwdata->FOURKBGAPSIZE) {
+				asm_data->normval4 = (gwdata->PASS2_SIZE * 16) / 4096;
+				asm_data->normval1 = 4096 / 128;
+			} else {
+				asm_data->normval4 = 1;
+				asm_data->normval1 = gwdata->PASS2_SIZE * 16 / 128;
+			}
+			/* When adjusting big/lit ptr in add/sub/addsub/smallmul routines, we instead need to know */
+			/* "number of "clms in a 4KB page".  We also need to calculate the amount to bump the big/lit pointer. */
+			asm_data->normval2 = asm_data->normval1 / (asm_data->cache_line_multiplier / 8);
+			if (gwdata->ZERO_PADDED_FFT) asm_data->normval3 = gwdata->pass1_var_data_size -  asm_data->cache_line_multiplier / 2;
+			else asm_data->normval3 = gwdata->pass1_var_data_size - asm_data->cache_line_multiplier;
+		}
+	}
+
 /* More AVX initialization code */
 
-	if (gwdata->cpu_flags & CPU_AVX) {
+	else if (gwdata->cpu_flags & CPU_AVX) {
 
 		if (gwdata->PASS2_SIZE) {
 			int	pass1_size;
-
-			/* If we are padding 4KB pages, then calculate the number of 4KB pages in a pass 2 block. */
-			/* Data size = pass2_size complex numbers */
-			if (gwdata->FOURKBGAPSIZE)
-				asm_data->normval4 = (gwdata->PASS2_SIZE * 16) >> 12;
-			else
-				asm_data->normval4 = 1;
 
 			/* There are 64 pad bytes every 4KB and optional */
 			/* pad bytes between each pass 1 block. */
@@ -3675,7 +4177,7 @@ int internal_gwsetup (
 			asm_data->pass1blkdst = asm_data->pass2blkdst * 4;
 
 			/* Calculate normblk distances used in normalizing two-pass FFTs */
-			pass1_size = gwdata->FFTLEN / gwdata->PASS2_SIZE;
+			pass1_size = gwdata->PASS1_SIZE;
 			if ((pass1_size == 384 && gwdata->ALL_COMPLEX_FFT) ||
 			    (pass1_size == 640 && gwdata->ALL_COMPLEX_FFT) ||
 			    (pass1_size == 1536 && gwdata->ALL_COMPLEX_FFT)) {
@@ -3692,12 +4194,16 @@ int internal_gwsetup (
 				asm_data->normblkdst8 = -64;		/* Pad for clmblkdst8 is -64 bytes */
 			}
 
-			/* If we are padding every 4KB, then calculate "cache lines in a 4KB page" / clm. */
+			/* If we are padding 4KB pages, then calculate the number of 4KB pages in a pass 2 block */
+			/* and "cache lines in a 4KB page" / clm. */
 			/* Otherwise calculate "cache lines in a pass 2 block" / clm. */
-			if (gwdata->FOURKBGAPSIZE)
+			if (gwdata->FOURKBGAPSIZE) {
+				asm_data->normval4 = (gwdata->PASS2_SIZE * 16) >> 12;
 				asm_data->normval1 = (4096 / 64) / (asm_data->cache_line_multiplier / 4);
-			else
+			} else {
+				asm_data->normval4 = 1;
 				asm_data->normval1 = (gwdata->PASS2_SIZE * 16 / 64) / (asm_data->cache_line_multiplier / 4);
+			}
 
 			/* Big/lit flags ptr fudge factor in add/sub */
 			asm_data->normval2 = asm_data->cache_line_multiplier * 2 * (asm_data->addcount1 - 1);
@@ -3729,10 +4235,10 @@ int internal_gwsetup (
 		} else if ((gwdata->FFT_TYPE == FFT_TYPE_RADIX_4 ||
 			    gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DELAYED ||
 			    gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN) &&
-			   (gwdata->FFTLEN / gwdata->PASS2_SIZE == 80 ||
-			    gwdata->FFTLEN / gwdata->PASS2_SIZE == 96 ||
-			    gwdata->FFTLEN / gwdata->PASS2_SIZE == 112 ||
-			    gwdata->FFTLEN / gwdata->PASS2_SIZE == 224)) {
+			   (gwdata->PASS1_SIZE == 80 ||
+			    gwdata->PASS1_SIZE == 96 ||
+			    gwdata->PASS1_SIZE == 112 ||
+			    gwdata->PASS1_SIZE == 224)) {
 			/* Small pass 1's with PFA have no padding every 8 clmblkdsts */
 			asm_data->normblkdst = 0;
 			asm_data->normblkdst8 = 0;
@@ -3810,11 +4316,11 @@ int internal_gwsetup (
 /* any of the carry) as it is not a major performance penalty to do 4 or 6 word */
 /* carry propagations.  In fact, we might should do 4 or 6 words all the time. */
 
-	if (! (gwdata->cpu_flags & CPU_AVX)) {
+	if (! (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX))) {
 		if (gwdata->ZERO_PADDED_FFT ||
 		    3.0 * gwdata->NUM_B_PER_SMALL_WORD * log2 (b) >
 				2.0 * ((gwdata->NUM_B_PER_SMALL_WORD + 1) * log2 (b) - 1) +
-				0.6 * log2 (gwdata->FFTLEN) + log2 (k) + 1.7 * log2 (abs (c)))
+				0.6 * log2 (gwdata->FFTLEN) + log2 (k) + 1.7 * log2 (labs (c)))
 			asm_data->SPREAD_CARRY_OVER_EXTRA_WORDS = FALSE;
 		else
 			asm_data->SPREAD_CARRY_OVER_EXTRA_WORDS = TRUE;
@@ -3845,26 +4351,28 @@ int internal_gwsetup (
 
 		num_b_in_k = (unsigned long) ceil (logb (k));
 		asm_data->CARRY_ADJUST1 = pow ((double) b, num_b_in_k);
-		carry_adjust_1_mod_k = asm_data->CARRY_ADJUST1 - floor (asm_data->CARRY_ADJUST1 / k) * k;
+		carry_adjust_1_mod_k = fltmod (asm_data->CARRY_ADJUST1, k);
 		asm_data->CARRY_ADJUST1_HI = floor (carry_adjust_1_mod_k / 131072.0);
 		asm_data->CARRY_ADJUST1_LO = carry_adjust_1_mod_k - asm_data->CARRY_ADJUST1_HI * 131072.0;
 		asm_data->TWO_TO_17 = 131072.0;
 		asm_data->CARRY_ADJUST2 = pow ((double) b, num_b_in_top_word) / asm_data->CARRY_ADJUST1;
 		asm_data->CARRY_ADJUST4 = pow ((double) b, num_b_in_second_top_word);
 		asm_data->CARRY_ADJUST6 = pow ((double) b, num_b_in_third_top_word);
-		if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN) {
-			asm_data->CARRY_ADJUST3 = gwfft_partial_weight (gwdata->dd_data, gwdata->FFTLEN-1, dwpn_col (gwdata, gwdata->FFTLEN-1));
-			asm_data->CARRY_ADJUST5 = gwfft_partial_weight (gwdata->dd_data, gwdata->FFTLEN-2, dwpn_col (gwdata, gwdata->FFTLEN-2));
-			asm_data->CARRY_ADJUST7 = gwfft_partial_weight (gwdata->dd_data, gwdata->FFTLEN-3, dwpn_col (gwdata, gwdata->FFTLEN-3));
-		} else {
-			asm_data->CARRY_ADJUST3 = gwfft_weight (gwdata->dd_data, gwdata->FFTLEN-1);
-			asm_data->CARRY_ADJUST5 = gwfft_weight (gwdata->dd_data, gwdata->FFTLEN-2);
-			asm_data->CARRY_ADJUST7 = gwfft_weight (gwdata->dd_data, gwdata->FFTLEN-3);
+		if (! (gwdata->cpu_flags & CPU_AVX512F)) {
+			if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN) {
+				asm_data->CARRY_ADJUST3 = gwfft_partial_weight (gwdata->dd_data, gwdata->FFTLEN-1, dwpn_col (gwdata, gwdata->FFTLEN-1));
+				asm_data->CARRY_ADJUST5 = gwfft_partial_weight (gwdata->dd_data, gwdata->FFTLEN-2, dwpn_col (gwdata, gwdata->FFTLEN-2));
+				asm_data->CARRY_ADJUST7 = gwfft_partial_weight (gwdata->dd_data, gwdata->FFTLEN-3, dwpn_col (gwdata, gwdata->FFTLEN-3));
+			} else {
+				asm_data->CARRY_ADJUST3 = gwfft_weight (gwdata->dd_data, gwdata->FFTLEN-1);
+				asm_data->CARRY_ADJUST5 = gwfft_weight (gwdata->dd_data, gwdata->FFTLEN-2);
+				asm_data->CARRY_ADJUST7 = gwfft_weight (gwdata->dd_data, gwdata->FFTLEN-3);
+			}
 		}
 
-		// It's not worth our time to upgrade the old x87 code to match the AVX/SSE2 code.
+		// It's not worth our time to upgrade the old x87 code to match the AVX-512/AVX/SSE2 code.
 		// So, for x87 generate the same constants used prior to version 25.11
-		if (! (gwdata->cpu_flags & (CPU_AVX | CPU_SSE2))) {
+		if (! (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX | CPU_SSE2))) {
 			unsigned long kbits, kbits_lo;
 			kbits = (unsigned long) ceil (log2 (k));
 			kbits_lo = kbits / 2;
@@ -3915,7 +4423,7 @@ int internal_gwsetup (
 		unsigned long num_b_in_k, num_b_in_word_0, num_b_in_word_1;
 		unsigned long num_b_in_word_2, num_b_in_word_3, num_b_in_word_4, num_b_in_word_5;
 
-		if (gwdata->cpu_flags & CPU_SSE2 && ! (gwdata->cpu_flags & CPU_AVX)) {
+		if (gwdata->cpu_flags & CPU_SSE2 && ! (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX))) {
 			asm_data->u.xmm.ZPAD_WORD5_OFFSET = addr_offset (gwdata, 4);
 			if (asm_data->u.xmm.ZPAD_WORD5_OFFSET == 8) {  /* FFTLEN = 80 and 112 */
 				asm_data->u.xmm.ZPAD_WORD5_RBP_OFFSET = 8;
@@ -4015,16 +4523,23 @@ int internal_gwsetup (
 		}
 
 /* Pre-compute the adjustments to copying the 7 words around the halfway point */
-/* In a radix-4 delay with partial normalization, we need to apply an adjustment */
-/* so that the copied words are fully normalized. */
+/* In a radix-4 delay with full or partial normalization, we must apply an adjustment */
+/* so that the copied words are fully weighted. */
 
-		if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN) {
+		if (gwdata->cpu_flags & CPU_AVX512F) {
 			int	i;
 			for (i = 0; i < 7; i++) {
-				gwdata->ZPAD_COPY7_ADJUST[i] = gwfft_weight (gwdata->dd_data, dwpn_col (gwdata, gwdata->FFTLEN / 2 - 3 + i));
+				/* Weights for words we are copying before an FFT is performed */
+				gwdata->ZPAD_COPY7_ADJUST[i] = gwfft_weight (gwdata->dd_data, gwdata->FFTLEN / 2 - 3 + i);
+				/* Inverse weights for ZPAD0 - ZPAD6 applied after an inverse FFT is performed */
+				gwdata->ZPAD_0_6_ADJUST[i] = gwfft_weight_inverse (gwdata->dd_data, i);
 			}
-			/* Adjustments for ZPAD0 - ZPAD6 */
+		} else if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN) {
+			int	i;
 			for (i = 0; i < 7; i++) {
+				/* Partial weights for words we are copying before an FFT is performed */
+				gwdata->ZPAD_COPY7_ADJUST[i] = gwfft_weight (gwdata->dd_data, dwpn_col (gwdata, gwdata->FFTLEN / 2 - 3 + i));
+				/* Partial inverse weights for ZPAD0 - ZPAD6 applied after an inverse FFT is performed */
 				gwdata->ZPAD_0_6_ADJUST[i] = gwfft_weight_inverse (gwdata->dd_data, dwpn_col (gwdata, i));
 			}
 		} else {
@@ -4035,6 +4550,32 @@ int internal_gwsetup (
 
 /* Set the procedure pointers from the proc tables */
 
+#ifdef X86_64
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		int	index;
+		index = 0;
+		if (gwdata->ZERO_PADDED_FFT) index += 2;
+		if (gwdata->RATIONAL_FFT) index += 1;
+		asm_data->u.zmm.ZMM_CARRIES_ROUTINE = avx512_carries_prctab[index]; // Two-pass square/multiply carry propagation routine
+		asm_data->u.zmm.ZMM_OP_CARRIES_ROUTINE = avx512_carries_prctab[gwdata->ZERO_PADDED_FFT ? index + 2 : index]; // Two-pass add/sub/smallmul carry propagation routine
+		index = 4 + 5 * index;
+		gwdata->GWPROCPTRS[1] = avx512_aux_prctab[index];	// Add
+		gwdata->GWPROCPTRS[2] = avx512_aux_prctab[0];		// Add quick
+		gwdata->GWPROCPTRS[3] = avx512_aux_prctab[index+1];	// Subtract
+		gwdata->GWPROCPTRS[4] = avx512_aux_prctab[1];		// Sub quick
+		gwdata->GWPROCPTRS[5] = avx512_aux_prctab[index+2];	// AddSub
+		gwdata->GWPROCPTRS[6] = avx512_aux_prctab[2];		// AddSub quick
+		gwdata->GWPROCPTRS[7] = avx512_aux_prctab[3];		// Copyzero
+		gwdata->GWPROCPTRS[8] = avx512_aux_prctab[index+3];	// Add small
+		gwdata->GWPROCPTRS[9] = avx512_aux_prctab[index+4];	// Mul small
+		gwdata->GWPROCPTRS[norm_routines] = avx512_prctab[avx512_prctab_index (gwdata, 0, 0, 0)];  // No error, no mulbyconst
+		gwdata->GWPROCPTRS[norm_routines+1] = avx512_prctab[avx512_prctab_index (gwdata, 0, 1, 0)];  // Error, no mulbyconst
+		gwdata->GWPROCPTRS[norm_routines+2] = avx512_prctab[avx512_prctab_index (gwdata, 0, 0, 1)];  // No error, mulbyconst
+		gwdata->GWPROCPTRS[norm_routines+3] = avx512_prctab[avx512_prctab_index (gwdata, 0, 1, 1)];  // Error, mulbyconst
+		gwdata->GWPROCPTRS[zerohigh_routines] = avx512_prctab[avx512_prctab_index (gwdata, 1, 0, 0)];  // Zero, no error
+		gwdata->GWPROCPTRS[zerohigh_routines+1] = avx512_prctab[avx512_prctab_index (gwdata, 1, 1, 0)];  // Zero, error
+	} else
+#endif
 	if (gwdata->cpu_flags & CPU_AVX) {
 		int	index, aux_base;
 		index = 0;
@@ -4091,7 +4632,7 @@ int internal_gwsetup (
 /* Clear globals */
 
 	asm_data->MAXERR = 0.0;
-	asm_data->COPYZERO[0] = 0;
+	gwdata->saved_copyz_n = 0;
 	gwdata->GWERROR = 0;
 	gwdata->GW_RANDOM = NULL;
 
@@ -4107,7 +4648,7 @@ int internal_gwsetup (
 /* Subtract 1 from bits per double because one bit is the sign bit. */
 /* Add log2(b) for the FFT weight that range from 1 to b. */
 /* Add in a percentage of the log(FFTLEN) to account for carries. */
-/* We use a different threshold for AVX/SSE2 which uses 64-bit instead of */
+/* We use a different threshold for AVX-512/AVX/SSE2 which uses 64-bit instead of */
 /* 80-bit doubles during the FFT */
 
 	else {
@@ -4121,7 +4662,7 @@ int internal_gwsetup (
 		loglen *= 0.69;
 		total_bits = bits_per_double * 2.0 + loglen * 2.0;
 		gwdata->MAXDIFF = pow ((double) 2.0, total_bits -
-				((gwdata->cpu_flags & (CPU_AVX | CPU_SSE2)) ? 49.08 : 49.65));
+				((gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX | CPU_SSE2)) ? 49.08 : 49.65));
 	}
 
 /* Clear counters, init internal timers */
@@ -4147,7 +4688,16 @@ int internal_gwsetup (
 /* page will be prefetchable.  Page aligned data would only prefetch */
 /* 28 of the 32 cache lines. */
 
-	if (gwdata->cpu_flags & CPU_AVX) {
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		if (gwdata->PASS2_SIZE == 0) {		/* One pass */
+			gwdata->GW_ALIGNMENT = 128;	/* Not tested yet */
+			gwdata->GW_ALIGNMENT_MOD = 0;
+		} else {				/* Two passes */
+			gwdata->GW_ALIGNMENT = 1024;	/* Clmblkdst (up to 8) */
+			gwdata->GW_ALIGNMENT_MOD = 0;	/* Not tested yet */
+		}
+	}
+	else if (gwdata->cpu_flags & CPU_AVX) {
 		if (gwdata->PASS2_SIZE == 0) {		/* One pass */
 			gwdata->GW_ALIGNMENT = 64;	/* Sandy Bridge cache line alignment */
 			gwdata->GW_ALIGNMENT_MOD = 0;
@@ -4188,12 +4738,11 @@ int internal_gwsetup (
 
 
 /* Utility routines to deal with the 7 words near the half-way point */
-/* in a zero-padded AVX/SSE2 FFT.  This used to be all done in assembly code, */
+/* in a zero-padded AVX-512/AVX/SSE2 FFT.  This used to be all done in assembly code, */
 /* but I moved it to C code when the multithread code was written. */
 
-/* When doing zero-padded FFTs, the 7 words around the halfway point must */
-/* be copied for later processing.  This macro does that before a typical */
-/* forward FFT. */
+/* When doing zero-padded FFTs, the 7 words around the halfway point must be copied (after applying weights) */
+/* for later processing.  This macro does that before a typical forward FFT. */
 
 void xcopy_7_words (
 	struct gwasm_data *asm_data)
@@ -4204,7 +4753,18 @@ void xcopy_7_words (
 	gwdata = asm_data->gwdata;
 	destarg = (double *) asm_data->DESTARG;
 	srcarg = (double *) ((char *) destarg + asm_data->DIST_TO_FFTSRCARG);
-	if (gwdata->cpu_flags & CPU_AVX) {
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		char	*srcp;
+		srcp = (char *) srcarg + 64;
+		destarg[-8] = * (double *) srcp * gwdata->ZPAD_COPY7_ADJUST[3];	/* Copy 1st word above halfway point */
+		srcp += asm_data->u.zmm.ZMM_SRC_INCR;
+		destarg[-7] = * (double *) srcp * gwdata->ZPAD_COPY7_ADJUST[4]; /* Copy 2nd word */
+		srcp += asm_data->u.zmm.ZMM_SRC_INCR;
+		destarg[-6] = * (double *) srcp * gwdata->ZPAD_COPY7_ADJUST[5]; /* Copy 3rd word */
+		srcp += asm_data->u.zmm.ZMM_SRC_INCR;
+		destarg[-5] = * (double *) srcp * gwdata->ZPAD_COPY7_ADJUST[6]; /* Copy 4th word */
+	}
+	else if (gwdata->cpu_flags & CPU_AVX) {
 		char	*srcp;
 		srcp = (char *) srcarg + 32;
 		destarg[-5] = * (double *) srcp * gwdata->ZPAD_COPY7_ADJUST[3];	/* Copy 1st word above halfway point */
@@ -4241,7 +4801,18 @@ void xcopy_4_words (
 
 	gwdata = asm_data->gwdata;
 	srcarg = (double *) asm_data->DESTARG;
-	if (gwdata->cpu_flags & CPU_AVX) {
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		char	*srcp;
+		srcp = (char *) srcarg + 64;
+		srcarg[-8] = * (double *) srcp * gwdata->ZPAD_COPY7_ADJUST[3];	/* Copy 1st word above halfway point */
+		srcp += asm_data->u.zmm.ZMM_SRC_INCR;
+		srcarg[-7] = * (double *) srcp * gwdata->ZPAD_COPY7_ADJUST[4]; /* Copy 2nd word */
+		srcp += asm_data->u.zmm.ZMM_SRC_INCR;
+		srcarg[-6] = * (double *) srcp * gwdata->ZPAD_COPY7_ADJUST[5]; /* Copy 3rd word */
+		srcp += asm_data->u.zmm.ZMM_SRC_INCR;
+		srcarg[-5] = * (double *) srcp * gwdata->ZPAD_COPY7_ADJUST[6]; /* Copy 4th word */
+	}
+	else if (gwdata->cpu_flags & CPU_AVX) {
 		char	*srcp;
 		srcp = (char *) srcarg + 32;
 		srcarg[-5] = * (double *) srcp * gwdata->ZPAD_COPY7_ADJUST[3];	/* Copy 1st word above halfway point */
@@ -4327,11 +4898,17 @@ void xcopy_3_words_after_gwcarries (
 			((char *) srcarg + asm_data->HIGH_WORD3_OFFSET) * gwdata->ZPAD_COPY7_ADJUST[0];
 }
 
+/* Possible states for the (mis-named) gwdata->pass1_state variable */
+/* 0 = pass 1 forward fft */
+/* 1 = pass 1 inverse fft */
+#define	PASS1_STATE_PASS2		999		/* Auxiliary thread is doing pass 2 work */
+#define	PASS1_STATE_MULTITHREAD_OP	4000		/* Auxiliary thread is doing add/sub/addsub/smallmul work */
+
 /* Inline routines for the processing blocks in multi-thread code below */
 
 /* Calculate pass 1 block address.  Note that SSE2 block addresses are */
 /* computed based on 128 pad bytes after every 128 cache lines.  That is: */
-/* DESTARG + (block * 64) + (block >> 7 * 128).  AVX addresses are based */
+/* DESTARG + (block * 64) + (block >> 7 * 128).  AVX-512/AVX addresses are based */
 /* on 64 to 192 pad bytes after every 64 cache lines. */
 
 static __inline void *pass1_data_addr (
@@ -4339,7 +4916,10 @@ static __inline void *pass1_data_addr (
 	struct gwasm_data *asm_data,
 	unsigned long block)
 {
-	if (gwdata->cpu_flags & CPU_AVX) {
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		block >>= 3;
+		return ((char *) asm_data->DESTARG + (block << 7) + ((block >> 5) * gwdata->FOURKBGAPSIZE));
+	} else if (gwdata->cpu_flags & CPU_AVX) {
 		block >>= 2;
 		return ((char *) asm_data->DESTARG + (block << 6) + ((block >> 6) * gwdata->FOURKBGAPSIZE));
 	} else
@@ -4356,7 +4936,7 @@ static __inline void *pass1_premult_addr (
 	if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4 ||
 	    gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DELAYED ||
 	    gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN)
-		return ((char *) gwdata->adjusted_pass1_premults + block * gwdata->pass1_premult_block_size);
+		return ((char *) gwdata->pass1_var_data + block / gwdata->PASS1_CACHE_LINES * gwdata->pass1_var_data_size);
 	return (NULL);
 }
 
@@ -4366,7 +4946,29 @@ static __inline void pass1_state1_norm_addrs (
 	gwhandle *gwdata,
 	struct gwasm_data *asm_data)
 {
-	if (gwdata->cpu_flags & CPU_AVX) {
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		// AVX-512 puts biglit flags in the variable sin/cos data
+	} else if (gwdata->cpu_flags & CPU_AVX) {
+		asm_data->norm_ptr1 = (char *) asm_data->norm_biglit_array + (asm_data->addcount1 * asm_data->this_block * 2);
+	} else {
+		if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN)
+			asm_data->norm_ptr1 = (char *) asm_data->norm_biglit_array + (asm_data->addcount1 * asm_data->this_block * 2);
+		else {
+			asm_data->norm_ptr1 = (char *) asm_data->norm_biglit_array + (asm_data->addcount1 * asm_data->this_block * 4);
+			asm_data->norm_ptr2 = (char *) asm_data->norm_col_mults + (asm_data->this_block * 32);
+		}
+	}
+}
+
+static __inline void pass1_state1_carry_addrs (
+	gwhandle *gwdata,
+	struct gwasm_data *asm_data)
+{
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		// Calculate address of biglit data in this pass 1 block's variable data.
+		asm_data->norm_ptr1 = (char *) gwdata->pass1_var_data +
+				      gwdata->pass1_var_data_size * asm_data->this_block / gwdata->PASS1_CACHE_LINES + gwdata->biglit_data_offset;
+	} else if (gwdata->cpu_flags & CPU_AVX) {
 		asm_data->norm_ptr1 = (char *) asm_data->norm_biglit_array + (asm_data->addcount1 * asm_data->this_block * 2);
 	} else {
 		if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN)
@@ -4419,9 +5021,16 @@ static __inline void pass1_state0_assign_next_block (
 {
 	if (gwdata->next_block < gwdata->num_pass1_blocks) {
 		asm_data->next_block = gwdata->next_block;
-		asm_data->data_prefetch = pass1_data_addr (gwdata, asm_data, asm_data->next_block);
-		asm_data->premult_prefetch = pass1_premult_addr (gwdata, asm_data->next_block);
 		gwdata->next_block += asm_data->cache_line_multiplier;
+		/* Init prefetching for the next block */
+		if (gwdata->hyperthread_prefetching) {
+			asm_data->data_prefetch = asm_data->data_addr;
+			asm_data->premult_prefetch = asm_data->premult_addr;
+			gwevent_signal (&asm_data->hyperthread_work_to_do);
+		} else {
+			asm_data->data_prefetch = pass1_data_addr (gwdata, asm_data, asm_data->next_block);
+			asm_data->premult_prefetch = pass1_premult_addr (gwdata, asm_data->next_block);
+		}
 	} else {
 		asm_data->next_block = asm_data->this_block;
 		asm_data->data_prefetch = asm_data->data_addr;
@@ -4447,9 +5056,11 @@ int pass1_state1_assign_first_block (
 
 		/* Calculate minimum split size.  It must be at least num_postfft_blocks. */
 		/* It must also be a multiple of 8 if AVX zero-padded (because of using YMM_SRC_INCR[0-7] in */
-		/* ynorm012 macros and all SSE2 FFTs because of using BIGLIT_INCR4 in xnorm012 macros. */
+		/* ynorm012 macros) or if SSE2 because of using BIGLIT_INCR4 in xnorm012 macros. */
+		/* AVX-512 will already be a multiple of 8. */
 		min_split_size = gwdata->num_postfft_blocks;
-		if ((gwdata->cpu_flags & CPU_AVX && gwdata->ZERO_PADDED_FFT) || (! (gwdata->cpu_flags & CPU_AVX)))
+		if (((gwdata->cpu_flags & CPU_AVX) && gwdata->ZERO_PADDED_FFT) ||
+		    !(gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX)))
 			min_split_size = round_up_to_multiple_of (min_split_size, 8);
 
 		/* Find largest unfinished section for splitting */
@@ -4494,7 +5105,9 @@ int pass1_state1_assign_first_block (
 
 			new_size = largest_unfinished_size / 2;
 			new_size = round_down_to_multiple_of (new_size, asm_data->cache_line_multiplier);
-			if ((gwdata->cpu_flags & CPU_AVX && gwdata->ZERO_PADDED_FFT) || (! (gwdata->cpu_flags & CPU_AVX)))
+			if (((gwdata->cpu_flags & CPU_AVX512F) && gwdata->ZERO_PADDED_FFT) ||
+			    (!(gwdata->cpu_flags & CPU_AVX512F) && (gwdata->cpu_flags & CPU_AVX) && gwdata->ZERO_PADDED_FFT) ||
+			    (!(gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX))))
 				new_size = round_up_to_multiple_of (new_size, 8);
 			if (new_size < gwdata->num_postfft_blocks) new_size = gwdata->num_postfft_blocks;
 
@@ -4549,10 +5162,10 @@ int pass1_state1_assign_first_block (
 	/* of XMM_BIGVAL.  This saves us a couple of clocks per FFT data element in xnorm_2d_zpad. */
 	/* Ideally, we'd eliminate this code by fixing the add/sub and carry propagation code to also */
 	/* expect zero in the upper half of each carry cache line  (like we did in the AVX code). */
-	if (gwdata->ZERO_PADDED_FFT && ! (gwdata->cpu_flags & CPU_AVX)) {
+	if (gwdata->ZERO_PADDED_FFT && ! (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX))) {
 		int	i, carry_table_size;
 		double	*table;
-		carry_table_size = (gwdata->FFTLEN / gwdata->PASS2_SIZE) << 1;
+		carry_table_size = (gwdata->PASS1_SIZE) << 1;
 		table = (double *) asm_data->carries;
 		for (i = 0; i < carry_table_size; i += 8, table += 8) {
 			table[4] = 0.0;
@@ -4584,8 +5197,16 @@ void pass1_state1_assign_next_block (
 		asm_data->next_block = asm_data->this_block;
 	else if (asm_data->next_block == gwdata->num_pass1_blocks)
 		asm_data->next_block = 0;
-	asm_data->data_prefetch = pass1_data_addr (gwdata, asm_data, asm_data->next_block);
-	asm_data->premult_prefetch = pass1_premult_addr (gwdata, asm_data->next_block);
+
+	/* Init prefetching for the next block */
+	if (gwdata->hyperthread_prefetching) {
+		asm_data->data_prefetch = asm_data->data_addr;
+		asm_data->premult_prefetch = asm_data->premult_addr;
+		gwevent_signal (&asm_data->hyperthread_work_to_do);
+	} else {
+		asm_data->data_prefetch = pass1_data_addr (gwdata, asm_data, asm_data->next_block);
+		asm_data->premult_prefetch = pass1_premult_addr (gwdata, asm_data->next_block);
+	}
 }
 
 /* Assign a thread's first pass 2 block.  These are assigned in */
@@ -4600,8 +5221,7 @@ static __inline void pass2_assign_first_block (
 	asm_data->premult_addr = pass2_premult_addr (gwdata, asm_data->this_block);
 }
 
-/* Assign next available block in pass 2.  These are assigned in */
-/* sequential order. */
+/* Assign next available block in pass 2.  These are assigned in sequential order. */
 
 static __inline void pass2_assign_next_block (
 	gwhandle *gwdata,
@@ -4609,8 +5229,15 @@ static __inline void pass2_assign_next_block (
 {
 	if (gwdata->next_block < gwdata->num_pass2_blocks) {
 		asm_data->next_block = gwdata->next_block++;
-		asm_data->data_prefetch = pass2_data_addr (gwdata, asm_data, asm_data->next_block);
-		asm_data->premult_prefetch = pass2_premult_addr (gwdata, asm_data->next_block);
+		/* Init prefetching for the next block */
+		if (gwdata->hyperthread_prefetching) {
+			asm_data->data_prefetch = asm_data->data_addr;
+			asm_data->premult_prefetch = asm_data->premult_addr;
+			gwevent_signal (&asm_data->hyperthread_work_to_do);
+		} else {
+			asm_data->data_prefetch = pass2_data_addr (gwdata, asm_data, asm_data->next_block);
+			asm_data->premult_prefetch = pass2_premult_addr (gwdata, asm_data->next_block);
+		}
 	} else {
 		asm_data->next_block = asm_data->this_block;
 		asm_data->data_prefetch = asm_data->data_addr;
@@ -4659,10 +5286,17 @@ void auxiliary_thread (void *arg)
 /* Init each auxiliary thread's carries area */
 	
 	asm_data->carries = info->carries;
-	if (gwdata->cpu_flags & CPU_AVX) {
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		int	i, carry_table_size;
+		double	*table;
+		carry_table_size = gwdata->PASS1_SIZE;
+		table = asm_data->carries;
+		for (i = 0; i < carry_table_size; i++) *table++ = asm_data->u.zmm.ZMM_RNDVAL;
+	}
+	else if (gwdata->cpu_flags & CPU_AVX) {
 		int	i, carry_table_size;
 		double	carryval, *table;
-		carry_table_size = gwdata->FFTLEN / gwdata->PASS2_SIZE;
+		carry_table_size = gwdata->PASS1_SIZE;
 		if (gwdata->b == 2) carryval = 3.0 * 131072.0 * 131072.0 * 131072.0;
 		else carryval = 0.0;
 		table = asm_data->carries;
@@ -4672,7 +5306,7 @@ void auxiliary_thread (void *arg)
 	} else {
 		int	i, carry_table_size;
 		double	xmm_bigval, *table;
-		carry_table_size = gwdata->FFTLEN / (gwdata->PASS2_SIZE / 2);
+		carry_table_size = gwdata->PASS1_SIZE * 2;
 		xmm_bigval = 3.0 * 131072.0 * 131072.0 * 131072.0;
 		table = asm_data->carries;
 		for (i = 0; i < carry_table_size; i++) *table++ = xmm_bigval;
@@ -4684,19 +5318,51 @@ void auxiliary_thread (void *arg)
 	if (gwdata->thread_callback != NULL)
 		(*gwdata->thread_callback) (info->thread_num, 0, gwdata->thread_callback_data);
 
-/* Loop waiting for work to do.  The main thread will signal the */
-/* thread_work_to_do event whenever there is work for the auxiliary */
-/* thread to do. */
+/* Each auxiliary compute thread optionally creates its own hyperthread for prefetching */
+
+	create_auxiliary_hyperthread (asm_data);
+
+/* This describes the various valid states for synchronizing the main and auxiliary threads.  We use four variables/mutexes. */
+/* work_to_do	all_threads_done    catch_stragglers	num_active_threads */
+/* FALSE	FALSE			FALSE		0			inital state */
+/* TRUE		FALSE			FALSE		0			start aux workers */
+/* TRUE		FALSE			FALSE		> 0			one or more aux workers active */
+/* FALSE	FALSE			FALSE		> 0			some aux workers active, some finished */
+/* FALSE	TRUE			TRUE		0			aux workers finished (but some could still wake up) */
+
+/* Loop waiting for work to do.  The main thread signals the thread_work_to_do event whenever there is work */
+/* for the auxiliary thread(s) to do. */
 
 	for ( ; ; ) {
 		gwevent_wait (&gwdata->thread_work_to_do, 0);
-		gwmutex_lock (&gwdata->thread_lock);
 
 /* If threads are to exit, break out of this work loop */
 
-		if (gwdata->threads_must_exit) {
+		if (gwdata->threads_must_exit) break;
+
+/* WARNING: We can get here with no work to do (and with the main thread moved on thinking all auxiliary threads are done). */
+/* For example, consider an 8-thread example.  The main thread signals the 7 auxiliary threads to start.  Six of the threads */
+/* can wake up, complete the work, and signal gwdata->all_threads_done when gwdata->num_active_threads returns to zero. */
+/* The main thread catches the signal and continues on.  The seventh auxiliary thread can now get scheduled by the OS */
+/* and end up here.  The catch_straggler_threads flag handles was created to handle this situation. */
+
+		gwmutex_lock (&gwdata->thread_lock);
+		if (gwdata->catch_straggler_threads) {
 			gwmutex_unlock (&gwdata->thread_lock);
-			break;
+			continue;
+		}
+
+/* Increment the number of active threads so that we can tell when all auxiliary routines have finished. */
+
+		gwdata->num_active_threads++;
+
+/* If we are to do add/sub/addsub/smallmul work, copy a little bit of state and go do the work */
+
+		if (gwdata->pass1_state == PASS1_STATE_MULTITHREAD_OP) {
+			asm_data->DBLARG = main_thread_asm_data->DBLARG;
+			gwmutex_unlock (&gwdata->thread_lock);
+			do_multithread_op_work (gwdata, asm_data);
+			goto aux_out_of_work_unlocked;
 		}
 
 /* Copy the main thread's asm_data's DESTARG for proper next_block */
@@ -4711,23 +5377,17 @@ void auxiliary_thread (void *arg)
 
 		asm_data->this_block = 0;
 		if (gwdata->pass1_state == 0) {
-			if (gwdata->next_block >= gwdata->num_pass1_blocks) goto aux_done;
+			if (gwdata->next_block >= gwdata->num_pass1_blocks) goto aux_out_of_work_locked;
 			pass1_state0_assign_first_block (gwdata, asm_data);
 			pass1_state0_assign_next_block (gwdata, asm_data);
 		} else if (gwdata->pass1_state == 1) {
-			if (! pass1_state1_assign_first_block (gwdata, asm_data)) goto aux_done;
+			if (! pass1_state1_assign_first_block (gwdata, asm_data)) goto aux_out_of_work_locked;
 			pass1_state1_assign_next_block (gwdata, asm_data);
 		} else {
-			if (gwdata->next_block >= gwdata->num_pass2_blocks) goto aux_done;
+			if (gwdata->next_block >= gwdata->num_pass2_blocks) goto aux_out_of_work_locked;
 			pass2_assign_first_block (gwdata, asm_data);
 			pass2_assign_next_block (gwdata, asm_data);
 		}
-
-/* Increment the number of active threads so that we can tell */
-/* when all auxiliary routines have finished. */
-
-		gwdata->num_active_threads++;
-		gwevent_reset (&gwdata->all_threads_done);
 
 /* Copy some data from the main thread's asm_data to this thread.  We only */
 /* need to copy data that can change for each multiply call */
@@ -4738,10 +5398,19 @@ void auxiliary_thread (void *arg)
 		asm_data->thread_work_routine = main_thread_asm_data->thread_work_routine;
 		if (gwdata->pass1_state == 1) {
 			asm_data->NORMRTN = main_thread_asm_data->NORMRTN;
+			asm_data->zero_fft = main_thread_asm_data->zero_fft;
+			asm_data->const_fft = main_thread_asm_data->const_fft;
+			asm_data->add_sub_smallmul_op = main_thread_asm_data->add_sub_smallmul_op;
 			asm_data->ADDIN_ROW = main_thread_asm_data->ADDIN_ROW;
 			asm_data->ADDIN_OFFSET = main_thread_asm_data->ADDIN_OFFSET;
 			asm_data->ADDIN_VALUE = main_thread_asm_data->ADDIN_VALUE;
-			if (gwdata->cpu_flags & CPU_AVX) {
+			if (gwdata->cpu_flags & CPU_AVX512F) {
+				asm_data->u.zmm.ZMM_MULCONST = main_thread_asm_data->u.zmm.ZMM_MULCONST;
+				asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_LARGE_BASE = main_thread_asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_LARGE_BASE;
+				asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_SMALL_BASE = main_thread_asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_SMALL_BASE;
+				asm_data->u.zmm.ZMM_K_TIMES_MULCONST_LO = main_thread_asm_data->u.zmm.ZMM_K_TIMES_MULCONST_LO;
+				asm_data->u.zmm.ZMM_MINUS_C_TIMES_MULCONST = main_thread_asm_data->u.zmm.ZMM_MINUS_C_TIMES_MULCONST;
+			} else if (gwdata->cpu_flags & CPU_AVX) {
 				memcpy (asm_data->u.ymm.YMM_MULCONST, main_thread_asm_data->u.ymm.YMM_MULCONST, 4 * sizeof (double));
 				memcpy (asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI, main_thread_asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI, 4 * sizeof (double));
 				memcpy (asm_data->u.ymm.YMM_K_TIMES_MULCONST_LO, main_thread_asm_data->u.ymm.YMM_K_TIMES_MULCONST_LO, 4 * sizeof (double));
@@ -4753,7 +5422,9 @@ void auxiliary_thread (void *arg)
 				memcpy (asm_data->u.xmm.XMM_MINUS_C_TIMES_MULCONST, main_thread_asm_data->u.xmm.XMM_MINUS_C_TIMES_MULCONST, 2 * sizeof (double));
 			}
 			// Copy maxerr and sumout
-			if (gwdata->cpu_flags & CPU_AVX) {
+			if (gwdata->cpu_flags & CPU_AVX512F) {
+				asm_data->MAXERR = main_thread_asm_data->MAXERR;
+			} else if (gwdata->cpu_flags & CPU_AVX) {
 				memcpy (asm_data->u.ymm.YMM_MAXERR, &main_thread_asm_data->u.ymm.YMM_MAXERR, 4 * sizeof (double));
 			} else {
 				asm_data->u.xmm.XMM_SUMOUT[0] = 0.0;
@@ -4765,23 +5436,26 @@ void auxiliary_thread (void *arg)
 /* Now call the assembly code to do some work! */
 
 		gwmutex_unlock (&gwdata->thread_lock);
-		if (gwdata->pass1_state < 999)
+		if (gwdata->pass1_state < PASS1_STATE_PASS2)
 			pass1_aux_entry_point (asm_data);
 		else
 			pass2_aux_entry_point (asm_data);
+
+/* The auxiliary thread has run out of work.  Decrement the count of number of active auxiliary threads. */
+/* Signal all threads done when last auxiliary thread is done. */
+
+aux_out_of_work_unlocked:
 		gwmutex_lock (&gwdata->thread_lock);
-
-/* The auxiliary threads have run out of work.  Decrement the count of */
-/* number of active auxiliary threads.  Signal all threads done when */
-/* last auxiliary thread is done. */
-
+aux_out_of_work_locked:
 		gwdata->num_active_threads--;
-		if (gwdata->num_active_threads == 0)
+		if (gwdata->num_active_threads == 0) {
+			gwdata->catch_straggler_threads = TRUE;
 			gwevent_signal (&gwdata->all_threads_done);
+		}
 
 /* Reset thread_work_to_do event before looping to wait for more work. */
 
-aux_done:	gwevent_reset (&gwdata->thread_work_to_do);
+		gwevent_reset (&gwdata->thread_work_to_do);
 		gwmutex_unlock (&gwdata->thread_lock);
 	}
 
@@ -4789,9 +5463,15 @@ aux_done:	gwevent_reset (&gwdata->thread_work_to_do);
 /* do any necessary cleanup. */
 
 	if (gwdata->thread_callback != NULL)
-		(*gwdata->thread_callback) (
-			info->thread_num, 1,
-			gwdata->thread_callback_data);
+		(*gwdata->thread_callback) (info->thread_num, 1, gwdata->thread_callback_data);
+
+/* Wait for the optional prefetching hyperthread to finish before we delete the shared asm_data structure */
+
+	if (asm_data->hyperthread_id) {
+		gwevent_signal (&asm_data->hyperthread_work_to_do);
+		gwthread_wait_for_exit (&asm_data->hyperthread_id);
+		gwevent_destroy (&asm_data->hyperthread_work_to_do);
+	}
 
 /* Free the allocated memory and exit the auxiliary thread */
 
@@ -4844,9 +5524,11 @@ void pass1_wake_up_threads (
 	if (gwdata->pass1_state == 1) {
 		int	i, num_blocks_allocated, num_blocks_remaining, num_threads_remaining;
 
-/* Initialize the pointers that the normalization / carry propagation code uses. */
+/* Initialize values that the normalization / carry propagation code uses. */
 
-		if (gwdata->cpu_flags & CPU_AVX) {
+		if (gwdata->cpu_flags & CPU_AVX512F) {
+		}
+		else if (gwdata->cpu_flags & CPU_AVX) {
 			asm_data->u.ymm.YMM_MAXERR[0] =
 			asm_data->u.ymm.YMM_MAXERR[1] =
 			asm_data->u.ymm.YMM_MAXERR[2] =
@@ -4868,11 +5550,14 @@ void pass1_wake_up_threads (
 			int	num_blocks;
 
 			/* Calculate number of blocks in this section.  It must be a multiple of cache_line_multiplier. */
-			/* It must also be a multiple of 8 if AVX zero-padded (because of using YMM_SRC_INCR[0-7] in */
-			/* ynorm012 macros and all SSE2 FFTs because of using BIGLIT_INCR4 in xnorm012 macros. */
+			/* It must also be a multiple of 8 if AVX-512 zero-padded (because of using ZMM_SRC_INCR[0-7] in */
+			/* znorm012 macros) or if AVX zero-padded (because of using YMM_SRC_INCR[0-7] in ynorm012 macros) */
+			/* or if SSE2 because of using BIGLIT_INCR4 in xnorm012 macros. */
 			num_blocks = divide_rounding_up (num_blocks_remaining, num_threads_remaining);
 			num_blocks = round_up_to_multiple_of (num_blocks, asm_data->cache_line_multiplier);
-			if ((gwdata->cpu_flags & CPU_AVX && gwdata->ZERO_PADDED_FFT) || (! (gwdata->cpu_flags & CPU_AVX)))
+			if (((gwdata->cpu_flags & CPU_AVX512F) && gwdata->ZERO_PADDED_FFT) ||
+			    (!(gwdata->cpu_flags & CPU_AVX512F) && (gwdata->cpu_flags & CPU_AVX) && gwdata->ZERO_PADDED_FFT) ||
+			    (!(gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX))))
 				num_blocks = round_up_to_multiple_of (num_blocks, 8);
 			if (num_blocks < (int) gwdata->num_postfft_blocks) num_blocks = gwdata->num_postfft_blocks;
 
@@ -4910,6 +5595,8 @@ void pass1_wake_up_threads (
 /* Signal the auxiliary threads to resume working */
 
 	if (gwdata->num_threads > 1) {
+		gwdata->catch_straggler_threads = FALSE;
+		gwevent_reset (&gwdata->all_threads_done);
 		gwevent_signal (&gwdata->thread_work_to_do);
 		gwmutex_unlock (&gwdata->thread_lock);
 	}
@@ -4942,7 +5629,10 @@ void pass1_pre_carries (
 				*fft_data -= main_thread_asm_data->ZPAD0_6[i] * asm_data->u.xmm.XMM_NORM012_FF[0];
 				asm_data->u.xmm.XMM_SUMOUT[0] += main_thread_asm_data->ZPAD0_6[i] * asm_data->u.xmm.XMM_NORM012_FF[0];
 			}
-			fft_data += 8;		// Next cache line
+			if (gwdata->cpu_flags & CPU_AVX512F)
+				fft_data += 16;		// Next low-word/high-word pair (two cache lines)
+			else
+				fft_data += 8;		// Next cache line
 		}
 	}
 }
@@ -5059,9 +5749,7 @@ int pass1_get_next_block (
 		gwdata->pass1_carry_sections[0].section_state = 2;
 		asm_data->this_block = 0;
 		asm_data->data_addr = pass1_data_addr (gwdata, asm_data, asm_data->this_block);
-		pass1_state1_norm_addrs (gwdata, asm_data);
-		asm_data->zero_fft = (asm_data->NORMRTN == gwdata->GWPROCPTRS[zerohigh_routines + (gwdata->NORMNUM & 1)]);
-		asm_data->const_fft = gwdata->NORMNUM & 2;
+		pass1_state1_carry_addrs (gwdata, asm_data);
 		return (PASS1_DO_GWCARRIES);
 	}
 
@@ -5096,7 +5784,8 @@ int pass1_get_next_block (
 
 /* We're finished, do final cleanup */
 
-	if (gwdata->cpu_flags & CPU_AVX) {
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+	} else if (gwdata->cpu_flags & CPU_AVX) {
 		if (asm_data->u.ymm.YMM_MAXERR[0] > asm_data->MAXERR) asm_data->MAXERR = asm_data->u.ymm.YMM_MAXERR[0];
 		if (asm_data->u.ymm.YMM_MAXERR[1] > asm_data->MAXERR) asm_data->MAXERR = asm_data->u.ymm.YMM_MAXERR[1];
 		if (asm_data->u.ymm.YMM_MAXERR[2] > asm_data->MAXERR) asm_data->MAXERR = asm_data->u.ymm.YMM_MAXERR[2];
@@ -5109,9 +5798,6 @@ int pass1_get_next_block (
 		/* Normalize SUMOUT value by multiplying by 1 / (fftlen/2). */
 		((double *) asm_data->DESTARG)[-3] *= asm_data->ttmp_ff_inv;
 	}
-
-	/* Set FFT-started flag */
-	((uint32_t *) asm_data->DESTARG)[-7] = gwdata->POSTFFT;
 
 	return (PASS1_COMPLETE);
 }
@@ -5225,9 +5911,7 @@ int pass1_get_next_block_mt (
 			memcpy (asm_data->ZPAD0_6, main_thread_asm_data->ZPAD0_6, 7 * sizeof (double));
 		}
 		asm_data->data_addr = pass1_data_addr (gwdata, asm_data, asm_data->this_block);
-		pass1_state1_norm_addrs (gwdata, asm_data);
-		asm_data->zero_fft = (asm_data->NORMRTN == gwdata->GWPROCPTRS[zerohigh_routines + (gwdata->NORMNUM & 1)]);
-		asm_data->const_fft = gwdata->NORMNUM & 2;
+		pass1_state1_carry_addrs (gwdata, asm_data);
 		gwmutex_unlock (&gwdata->thread_lock);
 		return (PASS1_DO_GWCARRIES);
 	}
@@ -5287,7 +5971,10 @@ int pass1_get_next_block_mt (
    
 /* We've finished this thread, merge this thread's maxerr and sumout with the main thread */
 
-	if (gwdata->cpu_flags & CPU_AVX) {
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		struct gwasm_data *main_thread_asm_data = (struct gwasm_data *) gwdata->asm_data;
+		if (asm_data->MAXERR > main_thread_asm_data->MAXERR) main_thread_asm_data->MAXERR = asm_data->MAXERR;
+	} else if (gwdata->cpu_flags & CPU_AVX) {
 		struct gwasm_data *main_thread_asm_data = (struct gwasm_data *) gwdata->asm_data;
 		if (asm_data->u.ymm.YMM_MAXERR[0] > main_thread_asm_data->MAXERR) main_thread_asm_data->MAXERR = asm_data->u.ymm.YMM_MAXERR[0];
 		if (asm_data->u.ymm.YMM_MAXERR[1] > main_thread_asm_data->MAXERR) main_thread_asm_data->MAXERR = asm_data->u.ymm.YMM_MAXERR[1];
@@ -5317,9 +6004,6 @@ int pass1_get_next_block_mt (
 
 /* We're finished, do final cleanup */
 
-	/* Set FFT-started flag */
-	((uint32_t *) asm_data->DESTARG)[-7] = gwdata->POSTFFT;
-
 	/* Normalize SUMOUT value by multiplying by 1 / (fftlen/2). */
 	((double *) asm_data->DESTARG)[-3] *= asm_data->ttmp_ff_inv;
 
@@ -5338,21 +6022,22 @@ void pass2_wake_up_threads (
 /* Why?  The other threads should be off right now, but we've seen in the debugger that it */
 /* is possible to get here with the lock held by an auxiliary thread that is finishing up. */
 
-	if (gwdata->num_threads > 1) {
+	if (gwdata->num_threads > 1 && gwdata->PASS1_SIZE) {
 		gwmutex_lock (&gwdata->thread_lock);
 	}
 
-/* Call assign_next_block twice to set up the main thread's this_block */
-/* and next_block values. */
+/* Call assign_block twice to set up the main thread's this_block and next_block values. */
 
-	gwdata->pass1_state = 999;
+	gwdata->pass1_state = PASS1_STATE_PASS2;
 	gwdata->next_block = 0;
 	pass2_assign_first_block (gwdata, asm_data);
 	pass2_assign_next_block (gwdata, asm_data);
 
 /* Signal the auxiliary threads to resume working */
 
-	if (gwdata->num_threads > 1) {
+	if (gwdata->num_threads > 1 && gwdata->PASS1_SIZE) {
+		gwdata->catch_straggler_threads = FALSE;
+		gwevent_reset (&gwdata->all_threads_done);
 		gwevent_signal (&gwdata->thread_work_to_do);
 		gwmutex_unlock (&gwdata->thread_lock);
 	}
@@ -5368,8 +6053,6 @@ int pass2_get_next_block (
 
 	if (asm_data->this_block == asm_data->next_block) {
 		asm_data->DIST_TO_FFTSRCARG = 0;
-		if (asm_data->ffttype == 1)
-			((uint32_t *) asm_data->DESTARG)[-7] = 3; // Set has-been-FFTed flag
 		return (TRUE);
 	}
 
@@ -5399,8 +6082,6 @@ int pass2_get_next_block_mt (
 		if (asm_data->thread_num) return (TRUE);
 		gwevent_wait (&gwdata->all_threads_done, 0);
 		asm_data->DIST_TO_FFTSRCARG = 0;
-		if (asm_data->ffttype == 1)
-			((uint32_t *) asm_data->DESTARG)[-7] = 3; // Set has-been-FFTed flag
 		return (TRUE);
 	}
 
@@ -5431,9 +6112,9 @@ int multithread_init (
 	struct gwasm_data *asm_data;
 	unsigned long i;
 
-/* Only two pass AVX/SSE2 FFTs support multi-threaded execution */
+/* Only two pass AVX-512/AVX/SSE2 FFTs support multi-threaded execution */
 
-	if (gwdata->PASS2_SIZE == 0 || !(gwdata->cpu_flags & (CPU_AVX | CPU_SSE2))) {
+	if (gwdata->PASS2_SIZE == 0 || !(gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX | CPU_SSE2))) {
 		gwdata->num_threads = 1;
 		return (0);
 	}
@@ -5450,13 +6131,24 @@ int multithread_init (
 
 /* Init other variables */
 
-	if (gwdata->cpu_flags & CPU_AVX) {
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		if (gwdata->PASS1_SIZE == 0) {
+			gwdata->num_pass1_blocks = 1;
+			gwdata->num_pass2_blocks = 1;
+			asm_data->last_pass1_block = 0;
+		} else {
+			gwdata->num_pass1_blocks = gwdata->PASS2_SIZE;
+			gwdata->num_pass2_blocks = gwdata->PASS1_SIZE >> 1;
+			asm_data->last_pass1_block = gwdata->num_pass1_blocks - asm_data->cache_line_multiplier;
+		}
+	}
+	else if (gwdata->cpu_flags & CPU_AVX) {
 		gwdata->num_pass1_blocks = gwdata->PASS2_SIZE;
-		gwdata->num_pass2_blocks = (gwdata->FFTLEN / gwdata->PASS2_SIZE) >> 1;
+		gwdata->num_pass2_blocks = gwdata->PASS1_SIZE >> 1;
 		asm_data->last_pass1_block = gwdata->num_pass1_blocks - asm_data->cache_line_multiplier;
 	} else {
 		gwdata->num_pass1_blocks = gwdata->PASS2_SIZE >> 1;
-		gwdata->num_pass2_blocks = (gwdata->FFTLEN / gwdata->PASS2_SIZE) >> 2;
+		gwdata->num_pass2_blocks = gwdata->PASS1_SIZE >> 2;
 		asm_data->last_pass1_block = gwdata->num_pass1_blocks - asm_data->cache_line_multiplier;
 	}
 
@@ -5468,12 +6160,16 @@ int multithread_init (
 		gwdata->num_threads = gwdata->num_pass1_blocks / 8;
 
 /* Determine how many data blocks are affected by carries out of pass 1 section.  Zero-padded FFTs require 8 words */
-/* to propagate carries into.  For AVX FFTs, ynorm012_wpn can spread the carry over a maximum of either 4 or 8 words. */
+/* to propagate carries into.  For AVX-512 FFTs, znorm012_wpn can spread the carry over a maximum of 8 words. */
+/* For AVX FFTs, ynorm012_wpn can spread the carry over a maximum of either 4 or 8 words. */
 /* For SSE2 FFTs, xnorm012_2d and xnorm012_2d_wpn spreads carries over either 2 or 6 words. */
 
 	if (gwdata->ZERO_PADDED_FFT)
 		gwdata->num_postfft_blocks = 8;
-	else if (gwdata->cpu_flags & CPU_AVX) {
+	else if (gwdata->cpu_flags & CPU_AVX512F) {
+		gwdata->num_postfft_blocks = (int) floor (53.0 / (gwdata->avg_num_b_per_word * log2 (gwdata->b)));
+		ASSERTG (gwdata->num_postfft_blocks <= 8);
+	} else if (gwdata->cpu_flags & CPU_AVX) {
 		gwdata->num_postfft_blocks = (int) floor (53.0 / (gwdata->avg_num_b_per_word * log2 (gwdata->b)));
 		ASSERTG (gwdata->num_postfft_blocks <= 8);
 		asm_data->SPREAD_CARRY_OVER_EXTRA_WORDS = (gwdata->num_postfft_blocks > 4);
@@ -5508,6 +6204,10 @@ int multithread_init (
 
 	gwdata->pass1_carry_sections = (struct pass1_carry_sections *) malloc (gwdata->num_threads * sizeof (struct pass1_carry_sections));
 	if (gwdata->pass1_carry_sections == NULL) return (GWERROR_MALLOC);
+
+/* Create the prefetching hyperthread for the main compute thread */
+
+	create_auxiliary_hyperthread (asm_data);
 
 /* If we aren't multithreading, use the simpler version of routines */
 
@@ -5570,11 +6270,14 @@ int multithread_init (
 			return (GWERROR_MALLOC);
 		}
 		/* Allocate the carries area */
-		if (gwdata->cpu_flags & CPU_AVX) {
-			int	carry_table_size = gwdata->FFTLEN / gwdata->PASS2_SIZE;
+		if (gwdata->cpu_flags & CPU_AVX512F) {
+			int	carry_table_size = gwdata->PASS1_SIZE;
+			info->carries = aligned_malloc (carry_table_size * sizeof (double), 128);
+		} else if (gwdata->cpu_flags & CPU_AVX) {
+			int	carry_table_size = gwdata->PASS1_SIZE;
 			info->carries = aligned_malloc (carry_table_size * sizeof (double), 128);
 		} else {
-			int	carry_table_size = gwdata->FFTLEN / (gwdata->PASS2_SIZE / 2);
+			int	carry_table_size = gwdata->PASS1_SIZE * 2;
 			info->carries = aligned_malloc (carry_table_size * sizeof (double), 128);
 		}
 		if (info->carries == NULL) {
@@ -5592,49 +6295,183 @@ int multithread_init (
 	return (0);
 }
 
+/* Routines for auxiliary hyperthreads that do prefetching */
+
+void create_auxiliary_hyperthread (			/* Create the prefetching hyperthread for one of the compute threads */
+	struct gwasm_data *asm_data)
+{
+#ifdef AUX_HYPER
+	gwhandle *gwdata;
+
+	gwdata = asm_data->gwdata;
+	if (gwdata->hyperthread_prefetching) {
+		gwevent_init (&asm_data->hyperthread_work_to_do);
+		gwthread_create_waitable (&asm_data->hyperthread_id, &auxiliary_hyperthread, asm_data);
+	}
+}
+
+void auxiliary_hyperthread (void *arg)
+{
+	struct gwasm_data *asm_data;
+	gwhandle *gwdata;
+	char	*prefetch_ptr;
+static int wakeups = 0;
+static int prefetches1 = 0;
+static int prefetches2 = 0;
+
+/* Get pointers to various structures.  The compute thread and corresponding prefetching hyperthread share the same asm_data. */
+
+	asm_data = (struct gwasm_data *) arg;
+	gwdata = asm_data->gwdata;
+
+/* Call optional user provided callback routine so that the caller can set */
+/* the thread's priority and affinity */
+
+//BUG - if thread_callback is null, disable hyperthread_prefetching?? or maybe just prefetch to the L3 cache -- might be useful on a Mac?
+	if (gwdata->thread_callback != NULL)
+		(*gwdata->thread_callback) (asm_data->thread_num, 10, gwdata->thread_callback_data);
+
+/* Loop waiting for work to do.  Each compute thread will signal there is prefething work to do. */
+
+	for ( ; ; ) {
+		gwevent_wait (&asm_data->hyperthread_work_to_do, 0);
+
+/* If threads are to exit, break out of this work loop */
+
+		if (gwdata->threads_must_exit) break;
+
+/* Reset hyperthread_work_to_do event so we can wait for more work when we loop */
+
+		gwevent_reset (&asm_data->hyperthread_work_to_do);
+wakeups++;
+
+//BUG -  do I need locks in case where compute thread completes before hyperthread even starts up?
+// do we need to detect early completion of the compute thread??  Or is the worst case scenario the
+// hyperthread prefetches the wrong data?
+
+
+/* If this is the last block in pass 1 or pass 2, then there is no need to do any prefetching. */
+/* Actually, this should not happen.  We don't signal in this case. */
+//BUG - in theory, the last pass 1 block could prefetch the first pass 2 block (and vice versa).  This would require
+// knowing each thread_number's first block...
+
+		if (asm_data->this_block == asm_data->next_block) continue;
+
+/* Determine which cache lines need to be prefetched.  Obviously, this depends on whether we are in pass 1 or 2. */
+
+//BUG - test different prefetching options:  1) to L2, L3, L2 with write intent,  2) prefetch current block
+// data (plus variable & fixed s/c data and group multipliers) before next block data for optimal LRU settings
+// (assumes prefetch of data already in cache is quick), 3) use NOPs or delays between prefetch instructions
+
+		if (gwdata->pass1_state < PASS1_STATE_PASS2) {			// In pass 1
+			int	pass1_size, i;
+			int	current_block;
+
+			// Remember the current block locally so we can detect the compute hyperthread outpacing this prefetch hyperthread
+			current_block = asm_data->this_block;
+
+			// Prefetch the FFT data
+			prefetch_ptr = pass1_data_addr (gwdata, asm_data, asm_data->next_block);
+			pass1_size = gwdata->PASS1_SIZE;
+			for (i = 0; i < pass1_size / 2; i++) {
+				// Check for change in compute thread's current block
+				if (gwdata->pass1_state >= PASS1_STATE_PASS2 || current_block != asm_data->this_block) break;
+				// Prefetch some cache lines
+				prefetchL2 (prefetch_ptr, asm_data->cache_line_multiplier / 4);
+prefetches1 += asm_data->cache_line_multiplier / 4;
+				prefetch_ptr += asm_data->pass2blkdst;
+			}
+
+			// Check for change in compute thread's current block
+			if (gwdata->pass1_state >= PASS1_STATE_PASS2 || current_block != asm_data->this_block) continue;
+
+			// Prefetch the sin/cos data
+			prefetch_ptr = pass1_premult_addr (gwdata, asm_data->next_block);
+// BUG - break this into smaller chunks?
+			prefetchL2 (prefetch_ptr, gwdata->pass1_var_data_size / 64);
+prefetches1 += gwdata->pass1_var_data_size / 64;
+		}
+
+		// Pass 2 prefetching
+		else {
+			int	current_block;
+
+			// Remember the current block locally so we can detect the compute hyperthread outpacing this prefetch hyperthread
+			current_block = asm_data->this_block;
+
+			// Check for change in compute thread's current block
+			if (gwdata->pass1_state < PASS1_STATE_PASS2 || current_block != asm_data->this_block) continue;
+
+			// Prefetch the FFT data
+// BUG - break this into smaller chunks?
+			prefetch_ptr = pass2_data_addr (gwdata, asm_data, asm_data->next_block);
+			prefetchL2 (prefetch_ptr, (int) (asm_data->pass2blkdst / 64));
+			//BUG - skip over the FOURKBGAPS
+prefetches2 += (int) asm_data->pass2blkdst / 64;
+		}
+	}
+
+/* Call optional user provided callback routine so that the caller can do any necessary cleanup. */
+
+	if (gwdata->thread_callback != NULL)
+		(*gwdata->thread_callback) (asm_data->thread_num, 11, gwdata->thread_callback_data);
+#endif
+}
+
+
 /* Perform cleanup required by multi-threaded operation */
 
 void multithread_term (
 	gwhandle *gwdata)
 {
-	unsigned long i;
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
+	int	i;
 
-/* Free up memory */
+/* If we are multithreading AND multithreading was initialized properly, then wait for compute threads to exit */
+/* before we free memory. */
+
+	if (gwdata->num_threads > 1 && gwdata->thread_lock != NULL) {
+
+/* Set variable that tells all auxiliary threads and hyperthreads to terminate. */
+/* Fire up auxiliary compute threads so they can exit. */
+
+		gwmutex_lock (&gwdata->thread_lock);
+		gwdata->threads_must_exit = TRUE;
+		gwevent_signal (&gwdata->thread_work_to_do);
+		gwmutex_unlock (&gwdata->thread_lock);
+
+/* Wait for all compute threads to exit.  We must do this so */
+/* that this thread can safely delete the gwdata structure */
+
+		for (i = 0; i < (int) gwdata->num_threads - 1; i++)
+			if (gwdata->thread_ids[i]) gwthread_wait_for_exit (&gwdata->thread_ids[i]);
+
+/* Free up multithreading memory */
+
+		free (gwdata->thread_ids);
+		gwdata->thread_ids = NULL;
+
+/* Free up the multithread resources */
+
+		gwmutex_destroy (&gwdata->thread_lock);
+		gwevent_destroy (&gwdata->thread_work_to_do);
+		gwevent_destroy (&gwdata->all_threads_done);
+		gwevent_destroy (&gwdata->can_carry_into);
+		gwdata->thread_lock = NULL;
+	}
+
+/* Wait for the optional prefetching hyperthread to finish */
+
+	if (asm_data != NULL && asm_data->hyperthread_id) {
+		gwevent_signal (&asm_data->hyperthread_work_to_do);
+		gwthread_wait_for_exit (&asm_data->hyperthread_id);
+		gwevent_destroy (&asm_data->hyperthread_work_to_do);
+	}
+
+/* Free up memory allocated by multithread_init */
 
 	free (gwdata->pass1_carry_sections);
 	gwdata->pass1_carry_sections = NULL;
-
-/* Return if we aren't multithreading or multithreading was not initialized */
-
-	if (gwdata->num_threads <= 1) return;
-	if (gwdata->thread_lock == NULL) return;
-
-/* Set termination variable and fire up auxiliary threads */
-
-	gwmutex_lock (&gwdata->thread_lock);
-	gwdata->threads_must_exit = TRUE;
-	gwmutex_unlock (&gwdata->thread_lock);
-	gwevent_signal (&gwdata->thread_work_to_do);
-
-/* Wait for all the threads to exit.  We must do this so */
-/* that this thread can safely delete the gwdata structure */
-
-	for (i = 0; i < gwdata->num_threads - 1; i++)
-		if (gwdata->thread_ids[i])
-			gwthread_wait_for_exit (&gwdata->thread_ids[i]);
-
-/* Free up memory */
-
-	free (gwdata->thread_ids);
-	gwdata->thread_ids = NULL;
-
-/* Now free up the multi-thread resources */
-
-	gwmutex_destroy (&gwdata->thread_lock);
-	gwevent_destroy (&gwdata->thread_work_to_do);
-	gwevent_destroy (&gwdata->all_threads_done);
-	gwevent_destroy (&gwdata->can_carry_into);
-	gwdata->thread_lock = NULL;
 }
 
 /* Cleanup any memory allocated for multi-precision math */
@@ -5650,9 +6487,9 @@ void gwdone (
 	if (gwdata->asm_data != NULL) {
 		struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 		unshare_sincos_data (asm_data->sincos1);			// SSE2
-		unshare_sincos_data (asm_data->sincos2);			// SSE2 & AVX
-		unshare_sincos_data (asm_data->xsincos_complex);		// SSE2 & AVX
-		unshare_sincos_data (asm_data->sincos3);			// SSE2 & AVX
+		unshare_sincos_data (asm_data->sincos2);			// SSE2 & AVX & AVX512
+		unshare_sincos_data (asm_data->xsincos_complex);		// SSE2 & AVX & AVX512
+		unshare_sincos_data (asm_data->sincos3);			// SSE2 & AVX & AVX512
 		aligned_free ((char *) gwdata->asm_data - NEW_STACK_SIZE);
 		gwdata->asm_data = NULL;
 	}
@@ -5676,9 +6513,10 @@ void gwdone (
 	if (gwdata->large_pages_ptr != NULL) {
 		large_pages_free (gwdata->large_pages_ptr);
 		gwdata->large_pages_ptr = NULL;
-	} else
+	} else {
 		aligned_free (gwdata->gwnum_memory);
-	gwdata->gwnum_memory = NULL;
+		gwdata->gwnum_memory = NULL;
+	}
 }
 
 /* Routine to allocate aligned memory for our big numbers */
@@ -5718,7 +6556,7 @@ gwnum gwalloc (
 		if (gwdata->gwnum_alloc == NULL) return (NULL);
 	}
 
-/* Use addr function on the last FFT value to compute the size. */
+/* Compute the amount of memory to allocate. */
 /* Allocate 96 extra bytes for header information and align the data */
 /* appropriately.  When allocating memory out of the big buffer for */
 /* the torture test, then only allocate data on 128 byte boundaries */
@@ -5898,28 +6736,6 @@ void gwfreeall (
 	}
 }
 
-/* Copy one gwnum to another gwnum */
-
-void gwcopy (			/* Copy a gwnum */
-	gwhandle *gwdata,	/* Handle initialized by gwsetup */
-	gwnum	s,		/* Source */
-	gwnum	d)		/* Dest */
-{
-	uint32_t free_offset;
-
-/* Load the one piece of information that should not be copied over */
-
-	free_offset = ((uint32_t *) d)[-8];
-
-/* Copy the data and 96-byte header */
-
-	memmove ((char *) d - GW_HEADER_SIZE, (char *) s - GW_HEADER_SIZE, ((uint32_t *) s)[-2] + GW_HEADER_SIZE);
-
-/* Restore the one piece of information that should not be copied over */
-
-	((uint32_t *) d)[-8] = free_offset;
-}
-
 /* To optimize use of the L1 cache we scramble the FFT data. */
 /* Consult the assembly language code for better descriptions of this */
 /* shuffling process.  This C code must accurately reflect the shuffling */
@@ -5934,11 +6750,62 @@ unsigned long addr_offset (
 
 	fftlen = gwdata->FFTLEN;
 
+/* Memory layouts for AVX-512 machines */
+
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+
+/* Small FFTs use one pass, not very convoluted.  This example shows low-word/high-word pairs for a length 1280 FFT */
+/*	0	8	16	24	32	40	48	56	640	+8	...	*/
+/*	1	...										*/
+/*	...											*/
+/*	7											*/
+/*	64											*/
+/*	...											*/
+
+		if (gwdata->PASS1_SIZE == 0) {
+			unsigned long top_bit, over64;
+			top_bit = i / (fftlen >> 1); i -= top_bit * (fftlen >> 1); // 640 in example above
+			over64 = i / 64; i -= over64 * 64;
+			addr = (over64 << 7) + ((i & 7) << 4) + (top_bit << 3) + (i >> 3);
+			addr = addr * sizeof (double);
+			/* Now optionally add 64 pad bytes every 4KB */
+			if (gwdata->FOURKBGAPSIZE) addr = addr + (addr / (gwdata->FOURKBGAPSIZE << 6)) * 64;
+		}
+
+/* Larger FFTs use two passes.  This example shows low-word/high-word pairs for a length 128K FFT (pass2_size = 1K complex or 2K reals) */
+/*	0	+1K	+1K	+1K	+1K	+1K	+1K	+1K	64K	+1K	...	*/
+/*	8	...										*/
+/*	...											*/
+/*	1016	...										*/
+/*	1	...										*/
+/*	...											*/
+/*	1017	...										*/
+/*	...											*/
+/*	7	...										*/
+/*	...											*/
+/*	1023	...										*/
+/*	8K	...										*/
+/*	...											*/
+
+		else {
+			unsigned long top_bit, grp, row;
+			top_bit = i / (fftlen >> 1); i -= top_bit * (fftlen >> 1); // 64K in example above
+			i1 = i % gwdata->PASS2_SIZE;	// Element within pass 2, 0-1K in example above
+			i = i / gwdata->PASS2_SIZE;	// Pass 1 block number, which 1K block in example above
+			grp = (i >> 3) * 8 + (i1 & 7);	// Which 8K block plus which 1-7 block in example above
+			row = grp * (gwdata->PASS2_SIZE >> 3) + (i1 >> 3); // Row number, where row is 128-bytes
+			addr = (row << 4) + (top_bit << 3) + (i & 7);
+			addr = addr * sizeof (double);
+			/* Now optionally add bytes for every 4KB page and every pass 2 block */
+			addr = addr + (addr >> 12) * gwdata->FOURKBGAPSIZE + grp * gwdata->PASS2GAPSIZE;
+		}
+	}
+
 /* Memory layouts for AVX machines */
 
-	if (gwdata->cpu_flags & CPU_AVX) {
+	else if (gwdata->cpu_flags & CPU_AVX) {
 
-/* Small FFTs use one pass, not very convoluted.  This the example for	*/
+/* Small FFTs use one pass, not very convoluted.  This example is for	*/
 /* a length 2048 FFT:							*/
 /*	0	64	128	192	1024	+64	+64	+64	*/
 /*	1	...							*/
@@ -5957,7 +6824,7 @@ unsigned long addr_offset (
 				addr = addr + (addr / (gwdata->FOURKBGAPSIZE << 6)) * 64;
 		}
 
-/* Larger FFTs use two passes.  This the example for a length 64K FFT (pass2_size = 1K): */
+/* Larger FFTs use two passes.  This example for a length 64K FFT (pass2_size = 1K): */
 /*	0	+1K	+1K	+1K	32K	+1K	+1K	+1K	*/
 /*	4	...							*/
 /*	...								*/
@@ -5993,7 +6860,7 @@ unsigned long addr_offset (
 	else if (gwdata->cpu_flags & CPU_SSE2) {
 		unsigned long sets, pfa, temp;
 
-/* Small FFTs use one pass, not very convoluted.  This the example for	*/
+/* Small FFTs use one pass, not very convoluted.  This example is for	*/
 /* a length 2048 FFT:							*/
 /*	0	512	1	513	1024	1536	1025	1537	*/
 /*	2	...							*/
@@ -6036,7 +6903,7 @@ unsigned long addr_offset (
 			addr = addr * sizeof (double);
 		}
 
-/* Larger FFTs use two passes.  This the example for a length 64K FFT (pass2_size = 2K): */
+/* Larger FFTs use two passes.  This example is for a length 64K FFT (pass2_size = 2K): */
 /*	0	1K	16K	17K	32K	33K	48K	49K	*/
 /*	1	...							*/
 /*	...								*/
@@ -6183,14 +7050,17 @@ int get_fft_value (
 {
 	double	val;
 
+	if (((uint32_t *) g)[-7] == 3) return (GWERROR_FFT); /* Test the FFTed flag */
+	if (((uint32_t *) g)[-7] == 1) return (GWERROR_PARTIAL_FFT); /* Test the FFT-started flag */
+
 /* Get the FFT data and validate it */
 
 	val = * addr (gwdata, g, i);
 	if (! is_valid_double (val)) return (GWERROR_BAD_FFT_DATA);
 
-/* Rational FFTs are not weighted */
+/* Rational and AVX-512 FFTs are not weighted */
 
-	if (!gwdata->RATIONAL_FFT) {
+	if (!gwdata->RATIONAL_FFT && !(gwdata->cpu_flags & CPU_AVX512F)) {
 
 /* Handle r4dwpn FFTs which are only partially normalized */
 
@@ -6222,9 +7092,9 @@ void set_fft_value (
 	long	val)
 {
 
-/* Handle the rational FFT case quickly */
+/* Handle the rational and AVX-512 FFT case quickly (not weighted) */
 
-	if (gwdata->RATIONAL_FFT || val == 0) {
+	if (gwdata->RATIONAL_FFT || (gwdata->cpu_flags & CPU_AVX512F) || val == 0) {
 		* addr (gwdata, g, i) = val;
 		return;
 	}
@@ -6338,9 +7208,11 @@ void gwfft_description (
 	char	*arch, *ffttype;
 
 	arch = "";
-	if (gwdata->cpu_flags & CPU_AVX) {
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		// No output means Intel Skylake-X or Blend optimized
+	}
+	else if (gwdata->cpu_flags & CPU_AVX) {
 		// No output means Intel Core2 or FMA3 or Blend optimized
-		if (gwdata->ARCH == ARCH_BULL) arch = "Bulldozer ";
 	}
 	else if (gwdata->cpu_flags & CPU_SSE2) {
 		// No output means Intel Core2 or Blend optimized
@@ -6351,7 +7223,7 @@ void gwfft_description (
 
 	ffttype = "";
 	if (gwdata->PASS2_SIZE) {
-		if (gwdata->cpu_flags & CPU_AVX) {
+		if (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX)) {
 			// No output means r4dwpn (type-3) FFT
 		}
 		else if (gwdata->cpu_flags & CPU_SSE2) {
@@ -6367,6 +7239,7 @@ void gwfft_description (
 		 gwdata->ZERO_PADDED_FFT ? "zero-padded " :
 		 gwdata->GENERAL_MOD ? "generic reduction " : "",
 		 (gwdata->ARCH == ARCH_FMA3) ? "FMA3 " :
+		 (gwdata->cpu_flags & CPU_AVX512F) ? "AVX-512 " :
 		 (gwdata->cpu_flags & CPU_AVX) ? "AVX " :
 		 (gwdata->cpu_flags & CPU_SSE2) ? "" : "x87 ",
 		 arch, ffttype,
@@ -6375,15 +7248,15 @@ void gwfft_description (
 		 gwdata->FFTLEN >= 1048576 && (gwdata->FFTLEN & 0xFFFFF) == 0 ? "M" :
 		 gwdata->FFTLEN >= 1024 && (gwdata->FFTLEN & 0x3FF) == 0 ? "K" : "");
 
-	if (gwdata->PASS2_SIZE) {
-		int	p1size, clm;
+	if (gwdata->PASS1_SIZE) {
+		int	clm;
 		char	p1buf[20], p2buf[20];
 
-		p1size = gwdata->FFTLEN / gwdata->PASS2_SIZE;
-		if (gwdata->cpu_flags & CPU_AVX) clm = gwdata->PASS1_CACHE_LINES / 4;
+		if (gwdata->cpu_flags & CPU_AVX512F) clm = gwdata->PASS1_CACHE_LINES / 8;
+		else if (gwdata->cpu_flags & CPU_AVX) clm = gwdata->PASS1_CACHE_LINES / 4;
 		else clm = gwdata->PASS1_CACHE_LINES / 2;
-		if (p1size % 1024) sprintf (p1buf, "%d", p1size);
-		else sprintf (p1buf, "%dK", p1size / 1024);
+		if (gwdata->PASS1_SIZE % 1024) sprintf (p1buf, "%d", (int) gwdata->PASS1_SIZE);
+		else sprintf (p1buf, "%dK", (int) (gwdata->PASS1_SIZE / 1024));
 		if (gwdata->PASS2_SIZE % 1024) sprintf (p2buf, "%d", (int) gwdata->PASS2_SIZE);
 		else sprintf (p2buf, "%dK", (int) (gwdata->PASS2_SIZE / 1024));
 		sprintf (buf + strlen (buf), ", Pass1=%s, Pass2=%s, clm=%d", p1buf, p2buf, clm);
@@ -6408,8 +7281,7 @@ void gw_as_string (
 	if (n == 0)
 		sprintf (buf, "%.0f", k + c);
 	else if (k != 1.0)
-		sprintf (buf, "%.0f*%lu^%lu%c%lu", k, b, n,
-			 c < 0 ? '-' : '+', (unsigned long) abs (c));
+		sprintf (buf, "%.0f*%lu^%lu%c%lu", k, b, n, c < 0 ? '-' : '+', (unsigned long) labs (c));
 	else if (b == 2 && c == -1)
 		sprintf (buf, "M%lu", n);
 	else {
@@ -6418,8 +7290,7 @@ void gw_as_string (
 		if (b == 2 && temp_n == 1 && c == 1)
 			sprintf (buf, "F%lu", cnt);
 		else
-			sprintf (buf, "%lu^%lu%c%lu", b, n,
-				 c < 0 ? '-' : '+', (unsigned long) abs (c));
+			sprintf (buf, "%lu^%lu%c%lu", b, n, c < 0 ? '-' : '+', (unsigned long) labs (c));
 	}
 }
 
@@ -6504,7 +7375,7 @@ double virtual_bits_per_word (
 		weighted_bits_per_output_word =
 			2.0 * ((b_per_input_word + 1.0) * log2b - 1.0) +
 			0.6 * log2 (gwdata->FFTLEN) +
-			log2 (gwdata->k) + 1.7 * log2 (abs (gwdata->c));
+			log2 (gwdata->k) + 1.7 * log2 (labs (gwdata->c));
 		if (gwdata->k == 1.0 && gwdata->n % gwdata->FFTLEN == 0)
 			weighted_bits_per_output_word -= ((log2b <= 4.0) ? log2b : 1.4 * log2b);
 		else if (num_big_words == 1 && gwdata->k > 1.0)
@@ -6530,11 +7401,22 @@ unsigned long gwmap_to_fftlen (
 	unsigned long n,	/* N in K*B^N+C. Exponent to test. */
 	signed long c)		/* C in K*B^N+C. Must be rel. prime to K. */
 {
+	return (gwmap_with_cpu_flags_to_fftlen (0, k, b, n, c));
+}
+
+unsigned long gwmap_with_cpu_flags_to_fftlen (
+	int	cpu_flags,
+	double	k,		/* K in K*B^N+C. Must be a positive integer. */
+	unsigned long b,	/* B in K*B^N+C. */
+	unsigned long n,	/* N in K*B^N+C. Exponent to test. */
+	signed long c)		/* C in K*B^N+C. Must be rel. prime to K. */
+{
 	gwhandle gwdata;	/* Temporary gwnum handle */
 
 /* Get pointer to fft info and return the FFT length */
 
 	gwinit (&gwdata);
+	if (cpu_flags) gwdata.cpu_flags = cpu_flags;
 	gwclear_use_benchmarks (&gwdata);
 	if (gwinfo (&gwdata, k, b, n, c)) return (0);
 	return (gwdata.jmptab->fftlen);
@@ -6546,15 +7428,23 @@ unsigned long gwmap_to_fftlen (
 unsigned long gwmap_fftlen_to_max_exponent (
 	unsigned long fftlen)
 {
+	return (gwmap_with_cpu_flags_fftlen_to_max_exponent (0, fftlen));
+}
+
+unsigned long gwmap_with_cpu_flags_fftlen_to_max_exponent (
+	int	cpu_flags,
+	unsigned long fftlen)
+{
 	gwhandle gwdata;	/* Temporary gwnum handle */
 
 /* Get pointer to fft info and return the maximum exponent for the FFT length */
 
 	gwinit (&gwdata);
+	if (cpu_flags) gwdata.cpu_flags = cpu_flags;
 	gwclear_use_benchmarks (&gwdata);
 	gwset_minimum_fftlen (&gwdata, fftlen);
 	if (gwinfo (&gwdata, 1.0, 2, 0, -1)) return (0);
-	return (gwdata.jmptab->max_exp);
+	return (adjusted_max_exponent (&gwdata, gwdata.jmptab));
 }
 
 /* Given an fft length, determine how much memory is used for normalization */
@@ -6649,7 +7539,10 @@ double gwmap_to_timing (
 /* and old celerons were slow because they did not support prefetch. */
 /* AMD64s and Pentium Ms are slower than P4s. */
 
-	if (gwdata.cpu_flags & CPU_AVX) {
+	if (gwdata.cpu_flags & CPU_AVX512F) {
+		timing = 0.10 * timing + 0.90 * timing * 4100.0 / CPU_SPEED;	/* Calibrated for Skylake */	//BUG - not timed yet
+		if (CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_OTHER) timing *= REL_ZEN_SPEED;  /* Complete guess for future AMD CPUs */
+	} else if (gwdata.cpu_flags & CPU_AVX) {
 		timing = 0.10 * timing + 0.90 * timing * 4100.0 / CPU_SPEED;	/* Calibrated for Sandy Bridge */
 		if (CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_OTHER) timing *= REL_ZEN_SPEED;  /* Complete guess for future AMD CPUs */
 		else if (CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_ZEN) timing *= REL_ZEN_SPEED;
@@ -6700,18 +7593,83 @@ double gwmap_to_timing (
 
 void calc8ptrs (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
-	unsigned long n,
+	unsigned long n,	/* Number of words to zero */
 	uint32_t *ptrs)
 {
 	unsigned long i, j, k;
 
-/* This is a grossly inefficient way to do this.  However, it should */
-/* be called rarely. */
+/* AVX-512F processes one double cache line at a time.  The one-pass and two-pass mameory layouts are different. */
+
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		int	block_size, upper_avx512_word;
+
+/* First the one-pass case.  The copyzero array contains masks and counts */
+/* for when to load new masks.  Here is an example for a 2K FFT (layout below) */
+/*	0	+8	+8	+8	+8	+8	+8	+8	1K	+8	...	*/
+/*	1	...										*/
+/*	...											*/
+/*	7	...										*/
+/*	64	...										*/
+/*	...											*/
+/* The assembly code processes 1 block at a time.  Block 0 processes 0 to 63 and 1K to 1K+63. */
+/* Block 1 processes 64 to 127 and 1K+64 to 1K+127, etc.  If n = 64 + 18, then the masks in block 0 are */
+/* 00000000, 11111111, count = inf (zero low words, copy high words).  The masks in block 1 are */
+/* 11111000, 11111111, count = 2, 11111100, 11111111, count = inf.  The masks in blocks 2+ are */
+/* 11111111, 11111111, count = inf (copy low and high words). */
+
+/* The two-pass case is a little more complex. Here is an example for a 128K FFT (layout below) */
+/*	0	+1K	+1K	+1K	+1K	+1K	+1K	+1K	64K	+1K	...	*/
+/*	8	...										*/
+/*	...											*/
+/*	1016	...										*/
+/*	1	...										*/
+/*	...											*/
+/*	1017	...										*/
+/*	...											*/
+/*	7	...										*/
+/*	...											*/
+/*	1023	...										*/
+/*	8K	...										*/
+/* The assembly code processes 1 block at a time.  Block 0 processes 0 to 8K-1 and 64K to 72K-1. */
+/* Block 1 processes 8K to 16K-1 and 72K to 80K-1, etc.  If n = 9K + 20, then the masks in block 0 are */
+/* 00000000, 11111111, count = inf (zero low words, copy high words).  The masks in block 1 are */
+/* 11111100, 11111111, count = 20, 11111110, 11111111, count = inf.  The masks in blocks 2+ are */
+/* 11111111, 11111111, count = inf (copy low and high words). */
+
+		if (gwdata->PASS1_SIZE == 0) {
+			upper_avx512_word = 8;
+			block_size = 64;
+		} else {
+			upper_avx512_word = gwdata->PASS2_SIZE;
+			block_size = upper_avx512_word * 8;
+		}
+
+		// Create masks assuming n is below the half way point, we correct for this later if not true
+		// Masks and count for the "processing block before n" case.
+		ptrs[0] = 0xFF00;
+		ptrs[1] = 0xFFFFFFFF;
+		// Masks and count for the "processing block containing n" case.
+		i = n % block_size;				// Offset within block (0 to 63 or 8K-1 in examples above)
+		j = i / upper_avx512_word;			// Column number (which multiple of 8 or 1K in examples above)
+		ptrs[2] = 0xFFFF << (j+1);			// Zero j+1 columns mask
+		ptrs[3] = i - j * upper_avx512_word;		// Count
+		ptrs[4] = 0xFFFF << j;				// Zero j columns mask
+		ptrs[5] = 0xFFFFFFFF;				// Count
+		// Masks and count for the "processing block after n" case.
+		ptrs[6] = 0xFFFF;
+		ptrs[7] = 0xFFFFFFFF;
+		/* If n > half way point, change masks to always zero low words */
+		if (n >= gwdata->FFTLEN/2) ptrs[0] <<= 8, ptrs[2] <<= 8, ptrs[4] <<= 8, ptrs[6] <<= 8;
+		/* Assembly code does not like first count of zero, compensate */
+		if (ptrs[3] == 0) ptrs[2] = ptrs[4], ptrs[3] = ptrs[5];
+	}
+
+/* This is a grossly inefficient way to do this.  However, it should be called rarely. */
 
 /* AVX offsets do not always increase, use a new method.  Remember the */
 /* offset of the first word in each column that doesn't need zeroing. */
 
-	if (gwdata->cpu_flags & CPU_AVX) {
+	else if (gwdata->cpu_flags & CPU_AVX) {
 		for (i = 0; i < 8; i++) ptrs[i] = 0xFFFFFFFF;	/* Start by clearing the eight ptrs. */
 		for (i = n; i < gwdata->FFTLEN; i++) {
 			j = addr_offset (gwdata, i);
@@ -6741,9 +7699,10 @@ void gwcopyzero (
 	gwnum	d,
 	unsigned long n)
 {
-	struct gwasm_data *asm_data;
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 
-	ASSERTG (((uint32_t *) s)[-7] == 0);	// Number not partially FFTed?
+	ASSERTG (((uint32_t *) s)[-7] != 3);	// Number not FFTed
+	ASSERTG (((uint32_t *) s)[-7] != 1);	// Number not partially FFTed
 
 /* Handle case where no words are zeroed.  Some of the assembly routines */
 /* do not like a word count of zero. */
@@ -6753,21 +7712,47 @@ void gwcopyzero (
 		return;
 	}
 
+/* Calculate pointers for ASM routines to do there zero-copy */
+
+	if (n != gwdata->saved_copyz_n) {
+		if (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX | CPU_SSE2))
+			calc8ptrs (gwdata, n, asm_data->COPYZERO);
+		gwdata->saved_copyz_n = n;
+	}
+
+/* Do an AVX-512 FFT copyzero one block at a time */
+/* This is in preparation for multi-thread support */
+
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		//BUG - multithread this?? support AVX too?? change asm to process more than 16 doubles at a time?
+		int	i, num_blks, blk_containing_n;
+
+		if (gwdata->PASS1_SIZE == 0)
+			blk_containing_n = (n % (gwdata->FFTLEN / 2)) / 64;
+		else
+			blk_containing_n = (n % (gwdata->FFTLEN / 2)) / (gwdata->PASS2_SIZE * 8);
+		num_blks = asm_data->addcount1;
+		for (i = 0; i < num_blks; i++) {
+			asm_data->SRCARG = (char *) s + i * asm_data->pass1blkdst + (i/4) * asm_data->normblkdst4;
+			asm_data->DESTARG = (char *) d + i * asm_data->pass1blkdst + (i/4) * asm_data->normblkdst4;
+			if (i < blk_containing_n) asm_data->SRC2ARG = (char *) asm_data->COPYZERO;		// This block is before n
+			else if (i == blk_containing_n) asm_data->SRC2ARG = (char *) asm_data->COPYZERO + 8;	// This block contains n
+			else asm_data->SRC2ARG = (char *) asm_data->COPYZERO + 24;				// This block is past n
+			gw_copyzero (gwdata, asm_data);
+		}
+	}
+
+/* Do the copyzero the old-fashioned way -- in one call */
 /* Call assembly language copy-and-zeroing routine */
 
-	asm_data = (struct gwasm_data *) gwdata->asm_data;
-	asm_data->SRCARG = s;
-	asm_data->DESTARG = d;
-	asm_data->NUMARG = n;
-	if ((gwdata->cpu_flags & (CPU_AVX | CPU_SSE2)) &&
-	    (asm_data->COPYZERO[0] == 0 || n != gwdata->saved_copyz_n)) {
-		gwdata->saved_copyz_n = n;
-		calc8ptrs (gwdata, n, (uint32_t *) asm_data->COPYZERO);
+	else {
+		asm_data->SRCARG = s;
+		asm_data->DESTARG = d;
+		asm_data->NUMARG = n;
+		gw_copyzero (gwdata, asm_data);
 	}
-	gw_copyzero (gwdata, asm_data);
 
-/* Copy the unnormalized add counter and clear the */
-/* has been partially FFTed flag. */
+/* Copy the unnormalized add counter and clear the has been completely/partially FFTed flag. */
 
 	((uint32_t *) d)[-1] = ((uint32_t *) s)[-1];
 	((uint32_t *) d)[-7] = 0;
@@ -6790,9 +7775,33 @@ void gwsetmulbyconst (
 	ktimesval = gwdata->k * (double) val;
 	big_word = pow ((double) gwdata->b, gwdata->NUM_B_PER_SMALL_WORD + 1);
 
+/* Adjust the AVX-512 assembly language constants affected by mulbyconst */
+
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+
+/* Save mulbyconst and -c * mulbyconst as a double */
+
+		asm_data->u.zmm.ZMM_MULCONST = (double) val;
+		asm_data->u.zmm.ZMM_MINUS_C_TIMES_MULCONST = (double) -gwdata->c * (double) val;
+
+/* Split k*mulconst for zero-padded FFTs emulating modulo k*b^n+c.  Note we only need */
+/* to split k*mulconst if k*mulconst * big_word exceeds what a floating point register can hold. */
+/* 2^49 should give us enough room to handle a carry and still round properly. */	
+
+		if (fabs (ktimesval) * big_word < 562949953421312.0) {
+			asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_LARGE_BASE = 0.0;
+			asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_SMALL_BASE = 0.0;
+			asm_data->u.zmm.ZMM_K_TIMES_MULCONST_LO = ktimesval;
+		} else {
+			asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_LARGE_BASE = floor (ktimesval / big_word);
+			asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_SMALL_BASE = asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_LARGE_BASE * (double) gwdata->b;
+			asm_data->u.zmm.ZMM_K_TIMES_MULCONST_LO = ktimesval - asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_LARGE_BASE * big_word;
+		}
+	}
+
 /* Adjust the AVX assembly language constants affected by mulbyconst */
 
-	if (gwdata->cpu_flags & CPU_AVX) {
+	else if (gwdata->cpu_flags & CPU_AVX) {
 
 /* Save mulbyconst and -c * mulbyconst as a double */
 
@@ -6874,9 +7883,10 @@ void gwstartnextfft (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	int	state)		/* New value for POSTFFT */
 {
-	if (!gwdata->GENERAL_MOD) {
+	/* Option is not supported for generic modular reduction and one-pass FFTs */
+	if (!gwdata->GENERAL_MOD && gwdata->PASS1_SIZE) {
 		gwdata->POSTFFT = state;
-		if (! (gwdata->cpu_flags & (CPU_AVX | CPU_SSE2))) {	// Copy state to asm_data for x87 FFTs
+		if (! (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX | CPU_SSE2))) {	// Copy state to asm_data for x87 FFTs
 			struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 			asm_data->u.x87.POSTFFT = state;
 		}
@@ -6911,7 +7921,7 @@ void gwsetaddin (
 {
 	unsigned long word, b_in_word;
 
-	ASSERTG (gwdata->k == 1.0 || abs (gwdata->c) == 1);
+	ASSERTG (gwdata->k == 1.0 || labs (gwdata->c) == 1);
 
 /* In a zero-padded FFT, the value is added into ZPAD0 */
 
@@ -6950,8 +7960,7 @@ void gwsetaddin (
 	raw_gwsetaddin (gwdata, word, value * pow ((double) gwdata->b, b_in_word));
 }
 
-/* Routine that tells the assembly code to add a small value to the */
-/* results of each multiply */
+/* Routine that tells the assembly code to add a small value to the results of each multiply */
 
 void raw_gwsetaddin (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
@@ -6961,9 +7970,35 @@ void raw_gwsetaddin (
 	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 	unsigned long row;
 
+/* Handle calculations for AVX-512 FFTs.  All two-pass FFTs use a scratch area. */
+
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+
+/* For one pass FFTs, use the offset to the FFT data value */
+
+		if (gwdata->PASS1_SIZE == 0) {
+			asm_data->ADDIN_ROW = 0;
+			asm_data->ADDIN_OFFSET = addr_offset (gwdata, word);
+		}
+
+/* For two-pass FFTs, compute the first FFT value in the pass 1 block (ADDIN_ROW) */
+/* and the offset when the target data is in the scratch area. */
+
+		else {
+			row = word % gwdata->PASS2_SIZE;
+			asm_data->ADDIN_ROW = row & ~(gwdata->PASS1_CACHE_LINES - 1);
+			asm_data->ADDIN_OFFSET = (row - asm_data->ADDIN_ROW) * 128;
+			if (word >= gwdata->FFTLEN / 2) asm_data->ADDIN_OFFSET += 64;
+			asm_data->ADDIN_OFFSET += ((word / gwdata->PASS2_SIZE) & 7) * 8;
+			row = (word % (gwdata->FFTLEN / 2)) / (8 * gwdata->PASS2_SIZE);
+			asm_data->ADDIN_OFFSET += row * (gwdata->PASS1_CACHE_LINES * 128 + (uint32_t) asm_data->normblkdst);
+			asm_data->ADDIN_OFFSET += (row >> 3) * (uint32_t) asm_data->normblkdst8;
+		}
+	}
+
 /* Handle calculations for AVX FFTs.  All two-pass FFTs use a scratch area. */
 
-	if (gwdata->cpu_flags & CPU_AVX) {
+	else if (gwdata->cpu_flags & CPU_AVX) {
 
 /* For two-pass FFTs, compute the first FFT value in the pass 1 block (ADDIN_ROW) */
 /* and the offset when the target data is in the scratch area. */
@@ -7080,19 +8115,47 @@ void raw_gwsetaddin (
 		}
 	}
 
+/* Handle AVX-512 FFTs.  They are normalized differently than FMA3 and earlier FFTs */
+
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+
+/* Rational FFTs are not normalized, don't need to apply a weight to the addin value. */
+/* Exceptions are two-pass all-complex FFTs which have a sine component as part of the inverse group multiplier. */
+
+		if (gwdata->RATIONAL_FFT && !(gwdata->PASS1_SIZE && gwdata->ALL_COMPLEX_FFT)) {
+			asm_data->ADDIN_VALUE = val;
+		}
+
+/* AVX-512 FFT's ADDIN_VALUE is partially normalized (since we moved the weighting from the last_unfft macro to the normalize */
+/* code to take advantage of an FMA opportunity.  Apply a partial weight to the addin value.  Also, if it's an all-complex */
+/* FFT then we need to adjust for the roots-of-minus-one sine optimization too. */
+
+		else {
+			unsigned long upper_avx512_word, grp;
+			double	ttmp;
+			// Mimic code from building inverse multipliers in zr4dwpn_build_norm_table
+			upper_avx512_word = (gwdata->PASS1_SIZE == 0) ? 8 : gwdata->PASS2_SIZE;
+			grp = word - word % upper_avx512_word;
+			if (gwdata->PASS1_SIZE && gwdata->ALL_COMPLEX_FFT) {
+				unsigned long sine_word;
+				sine_word = grp % (gwdata->FFTLEN / 2);
+				gwfft_weights_times_sine (gwdata->dd_data, grp, sine_word, gwdata->FFTLEN * 2, NULL, &ttmp);
+			} else
+				ttmp = gwfft_weight_inverse (gwdata->dd_data, grp);
+			asm_data->ADDIN_VALUE = val / ttmp;
+		}
+	}
+
 /* Handle r4dwpn FFTs which are only partially normalized */
 
-	if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN) {
-		asm_data->ADDIN_VALUE = val *
-			gwfft_partial_weight_sloppy (gwdata->dd_data, word, dwpn_col (gwdata, word));
+	else if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN) {
+		asm_data->ADDIN_VALUE = val * gwfft_partial_weight_sloppy (gwdata->dd_data, word, dwpn_col (gwdata, word));
 	}
 
 /* Set the addin value - multiply it by two-to-phi and FFTLEN/2/k. */
 
 	else
-		asm_data->ADDIN_VALUE = val *
-			gwfft_weight_sloppy (gwdata->dd_data, word) *
-			gwdata->FFTLEN * 0.5 / gwdata->k;
+		asm_data->ADDIN_VALUE = val * gwfft_weight_sloppy (gwdata->dd_data, word) * gwdata->FFTLEN * 0.5 / gwdata->k;
 }
 
 
@@ -7177,7 +8240,7 @@ void gianttogw (
 /* Small numbers can also be optimized for many moduli by zeroing all the */
 /* FFT data using memset and then setting only the affected FFT elements. */
 
-	else if (a->sign == 1 && (gwdata->k == 1.0 || abs (gwdata->c) == 1)) {
+	else if (a->sign == 1 && (gwdata->k == 1.0 || labs (gwdata->c) == 1)) {
 		uint32_t low_addin;
 		int	i;
 
@@ -7406,7 +8469,7 @@ void gianttogw (
 /* Clear various flags */
 
 	((uint32_t *) g)[-1] = 1; /* Set unnormalized add counter */
-	((uint32_t *) g)[-7] = 0; /* Clear has been partially FFTed flag */
+	((uint32_t *) g)[-7] = 0; /* Clear has been completely/partially FFTed flag */
 }
 
 /* Internal recursive routine to convert a giant to gwnum FFT format. */
@@ -7500,6 +8563,8 @@ long gwtobinary (
 	giant	tmp;
 	int	err_code;
 
+	if (((uint32_t *) n)[-7] == 3) return (GWERROR_FFT); /* Test the FFTed flag */
+	if (((uint32_t *) n)[-7] == 1) return (GWERROR_PARTIAL_FFT); /* Test the FFT-started flag */
 	tmp = popg (&gwdata->gdata, ((unsigned long) gwdata->bit_length >> 5) + 5);
 	err_code = gwtogiant (gwdata, n, tmp);
 	if (err_code < 0) return (err_code);
@@ -7523,6 +8588,8 @@ long gwtobinary64 (
 	giant	tmp;
 	int	err_code;
 
+	if (((uint32_t *) n)[-7] == 3) return (GWERROR_FFT); /* Test the FFTed flag */
+	if (((uint32_t *) n)[-7] == 1) return (GWERROR_PARTIAL_FFT); /* Test the FFT-started flag */
 	tmp = popg (&gwdata->gdata, ((unsigned long) gwdata->bit_length >> 5) + 5);
 	err_code = gwtogiant (gwdata, n, tmp);
 	if (err_code < 0) return (err_code);
@@ -7548,6 +8615,8 @@ long gwtobinarylongs (
 	giant	tmp;
 	int	err_code;
 
+	if (((uint32_t *) n)[-7] == 3) return (GWERROR_FFT); /* Test the FFTed flag */
+	if (((uint32_t *) n)[-7] == 1) return (GWERROR_PARTIAL_FFT); /* Test the FFT-started flag */
 	tmp = popg (&gwdata->gdata, ((unsigned long) gwdata->bit_length >> 5) + 5);
 	err_code = gwtogiant (gwdata, n, tmp);
 	if (err_code < 0) return (err_code);
@@ -7574,7 +8643,15 @@ int gwtogiant (
 	int	err_code;
 	unsigned long limit;
 
-	ASSERTG (((uint32_t *) gg)[-7] == 0);	// Number not partially FFTed?
+/* Set result to zero in case of error.  If caller does not check the returned error code */
+/* a result value of zero is less likely to cause problems/crashes. */
+
+	v->sign = 0;
+
+/* Sanity check the input number */
+
+	if (((uint32_t *) gg)[-7] == 3) return (GWERROR_FFT); /* Test the FFTed flag */
+	if (((uint32_t *) gg)[-7] == 1) return (GWERROR_PARTIAL_FFT); /* Test the FFT-started flag */
 
 /* If this is a general-purpose mod, then only convert the needed words */
 /* which will be less than half the FFT length.  If this is a zero padded */
@@ -8000,9 +9077,17 @@ void raw_gwfftmul (
 	asm_data->DIST_TO_FFTSRCARG = 0;
 	asm_data->DIST_TO_MULSRCARG = (intptr_t) s - (intptr_t) d;
 	asm_data->ffttype = 3;
+	asm_data->zero_fft = (asm_data->NORMRTN == gwdata->GWPROCPTRS[zerohigh_routines + (gwdata->NORMNUM & 1)]);
+	asm_data->const_fft = gwdata->NORMNUM & 2;
+	asm_data->add_sub_smallmul_op = 0;
+//if (rand() % 100 < 1) *s += 1.0;			// Generate random errors (for caller to test error recovery)
+//if (rand() % 1000 < 2) *s += 1.0E200 * 1.0E200;
 	gw_fft (gwdata, asm_data);
+//if (rand() % 100 < 1) *d += 1.0;			// Generate random errors (for caller to test error recovery)
+//if (rand() % 1000 < 2) *d += 1.0E200 * 1.0E200;
 	if (! is_valid_double (gwsumout (gwdata, d))) gwdata->GWERROR |= 1;
 	gwdata->fft_count += 2.0;
+	((uint32_t *) d)[-7] = gwdata->POSTFFT; // Set has-been-partially-FFTed flag
 
 /* Adjust if necessary the SUM(INPUTS) vs. SUM(OUTPUTS).  If norm_count */
 /* is more than one, then the sums will be larger than normal.  This */
@@ -8026,8 +9111,7 @@ void raw_gwfftmul (
 	((uint32_t *) d)[-1] = 1;
 }
 
-/* Common code to emulate the modulo with two multiplies in the */
-/* general purpose case */
+/* Common code to emulate the modulo with two multiplies in the general purpose case */
 
 void emulate_mod (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
@@ -8091,6 +9175,7 @@ void gwfft (			/* Forward FFT */
 	struct gwasm_data *asm_data;
 
 	ASSERTG (((uint32_t *) s)[-1] >= 1);
+	ASSERTG (((uint32_t *) s)[-7] != 3);	// Make sure input has not already been completely FFTed (we could turn this into a nop or copy)
 
 /* Copy the unnormalized add count */
 
@@ -8121,11 +9206,13 @@ void gwfft (			/* Forward FFT */
 	asm_data->ffttype = 1;
 	gw_fft (gwdata, asm_data);
 	gwdata->fft_count += 1.0;
+	((uint32_t *) d)[-7] = 3; // Set has-been-FFTed flag
 }
 
-void gwsquare (			/* Square a number */
+void gwsquare2 (		/* Square a number */
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
-	gwnum	s)		/* Source and destination */
+	gwnum	s,		/* Source */
+	gwnum	d)		/* Destination */
 {
 	struct gwasm_data *asm_data;
 	uint32_t norm_count;
@@ -8142,7 +9229,7 @@ void gwsquare (			/* Square a number */
 		int	n = gwdata->square_carefully_count;
 		if (n > 1) gwstartnextfft (gwdata, 0);
 		gwdata->square_carefully_count = 0;
-		gwsquare_carefully (gwdata, s);
+		gwsquare2_carefully (gwdata, s, d);
 		gwdata->square_carefully_count = n - 1;
 		return;
 	}
@@ -8155,38 +9242,45 @@ void gwsquare (			/* Square a number */
 
 	asm_data = (struct gwasm_data *) gwdata->asm_data;
 	asm_data->NORMRTN = gwdata->GWPROCPTRS[norm_routines + gwdata->NORMNUM];
-	asm_data->DESTARG = s;
-	asm_data->DIST_TO_FFTSRCARG = 0;
+	asm_data->DESTARG = d;
+	asm_data->DIST_TO_FFTSRCARG = (intptr_t) s - (intptr_t) d;
 	asm_data->DIST_TO_MULSRCARG = 0;
 	asm_data->ffttype = 2;
+	asm_data->zero_fft = 0;
+	asm_data->const_fft = gwdata->NORMNUM & 2;
+	asm_data->add_sub_smallmul_op = 0;
+//if (rand() % 100 < 1) *s += 1.0;			// Generate random errors (for caller to test error recovery)
+//if (rand() % 1000 < 2) *s += 1.0E200 * 1.0E200;
 	gw_fft (gwdata, asm_data);
-	if (! is_valid_double (gwsumout (gwdata, s))) gwdata->GWERROR |= 1;
+//if (rand() % 100 < 1) *d += 1.0;			// Generate random errors (for caller to test error recovery)
+//if (rand() % 1000 < 2) *d += 1.0E200 * 1.0E200;
+	if (! is_valid_double (gwsumout (gwdata, d))) gwdata->GWERROR |= 1;
 	gwdata->fft_count += 2.0;
+	((uint32_t *) d)[-7] = gwdata->POSTFFT; // Set has-been-partially-FFTed flag
 
 /* Adjust if necessary the SUM(INPUTS) vs. SUM(OUTPUTS).  If norm_count */
 /* is more than one, then the sums will be larger than normal.  This */
-/* could trigger a spurious MAXDIFF warning.  Shrink the two SUMS to */
-/* compensate. */
+/* could trigger a spurious MAXDIFF warning.  Shrink the two SUMS to compensate. */
 
 	if (norm_count != 1) {
 		double	adjustment;
 		adjustment = 1.0 / ((double) norm_count * (double) norm_count);
-		gwsuminp (gwdata, s) *= adjustment;
-		gwsumout (gwdata, s) *= adjustment;
+		gwsuminp (gwdata, d) *= adjustment;
+		gwsumout (gwdata, d) *= adjustment;
 	}
 
 /* Test SUM(INPUTS) vs. SUM(OUTPUTS) */
 
-	sumdiff = gwsuminp (gwdata, s) - gwsumout (gwdata, s);
+	sumdiff = gwsuminp (gwdata, d) - gwsumout (gwdata, d);
 	if (fabs (sumdiff) > gwdata->MAXDIFF) gwdata->GWERROR |= 2; 
 
 /* Reset the unnormalized add count */
 
-	((uint32_t *) s)[-1] = 1;
+	((uint32_t *) d)[-1] = 1;
 
 /* Emulate mod with 2 multiplies case */
 
-	if (gwdata->GENERAL_MOD) emulate_mod (gwdata, s);
+	if (gwdata->GENERAL_MOD) emulate_mod (gwdata, d);
 }
 
 void gwfftmul (			/* Multiply already FFTed source with dest */
@@ -8236,14 +9330,23 @@ void gwfftfftmul (		/* Multiply two already FFTed sources */
 	asm_data->DIST_TO_MULSRCARG = (intptr_t) s - (intptr_t) d;
 	asm_data->DIST_TO_FFTSRCARG = (intptr_t) s2 - (intptr_t) d;
 	asm_data->ffttype = 4;
+	asm_data->zero_fft = 0;
+	asm_data->const_fft = gwdata->NORMNUM & 2;
+	asm_data->add_sub_smallmul_op = 0;
+//if (rand() % 100 < 1) *s += 1.0;			// Generate random errors (for caller to test error recovery)
+//if (rand() % 1000 < 2) *s += 1.0E200 * 1.0E200;
+//if (rand() % 100 < 1) *s2 += 1.0;			// Generate random errors (for caller to test error recovery)
+//if (rand() % 1000 < 2) *s2 += 1.0E200 * 1.0E200;
 	gw_fft (gwdata, asm_data);
+//if (rand() % 100 < 1) *d += 1.0;			// Generate random errors (for caller to test error recovery)
+//if (rand() % 1000 < 2) *d += 1.0E200 * 1.0E200;
 	if (! is_valid_double (gwsumout (gwdata, d))) gwdata->GWERROR |= 1;
 	gwdata->fft_count += 1.0;
+	((uint32_t *) d)[-7] = gwdata->POSTFFT; // Set has-been-partially-FFTed flag
 
 /* Adjust if necessary the SUM(INPUTS) vs. SUM(OUTPUTS).  If norm_count */
 /* is more than one, then the sums will be larger than normal.  This */
-/* could trigger a spurious MAXDIFF warning.  Shrink the two SUMS to */
-/* compensate. */
+/* could trigger a spurious MAXDIFF warning.  Shrink the two SUMS to compensate. */
 
 	if (norm_count1 != 1 || norm_count2 != 1) {
 		double	adjustment;
@@ -8358,9 +9461,10 @@ void gwset_square_carefully_count (
 /* round-off error on non-random input data.  Caller must make sure the */
 /* input number has not been partially or fully FFTed. */
 
-void gwsquare_carefully (
+void gwsquare2_carefully (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
-	gwnum	s)		/* Source and destination */
+	gwnum	s,		/* Source */
+	gwnum	d)		/* Destination */
 {
 	struct gwasm_data *asm_data;
 	gwnum	tmp1;
@@ -8393,12 +9497,12 @@ void gwsquare_carefully (
 
 	tmp1 = gwalloc (gwdata);
 	gwstartnextfft (gwdata, 0);			/* Disable POSTFFT */
-	gwaddsub4 (gwdata, s, gwdata->GW_RANDOM, tmp1, s); /* Compute s+random and s-random */
-	gwmul (gwdata, tmp1, s);			/* Compute (s+random)(s-random) */
+	gwaddsub4 (gwdata, s, gwdata->GW_RANDOM, tmp1, d); /* Compute s+random and s-random */
+	gwmul (gwdata, tmp1, d);			/* Compute (s+random)(s-random) */
 	asm_data->ADDIN_VALUE = 0.0;			/* Clear the addin value */
 	gwfft (gwdata, gwdata->GW_RANDOM, tmp1);
 	gwfftfftmul (gwdata, tmp1, tmp1, tmp1);		/* Compute random^2 (we could compute this once and save it) */
-	gwadd3 (gwdata, s, tmp1, s);			/* Calc s^2 from 2 results */
+	gwadd3 (gwdata, d, tmp1, d);			/* Calc s^2 from 2 results */
 
 /* Restore state, free memory and return */
 
@@ -8471,6 +9575,327 @@ void gwmul_carefully (
 	gwfree (gwdata, tmp4);
 }
 
+/********************************************************************/
+/* Helper routines for the multithreaded add/sub/smallmul/etc. code */
+/********************************************************************/
+
+/* Return a pointer to the big/lit flags within the first pass 1 block's variable data */
+
+static __inline void *biglit_data_ptr (
+	gwhandle *gwdata,
+	int	i)
+{
+	char	*p;
+
+	// This code only works on AVX-512 FFTs.  Earlier FFT implementations did not store big/lit flags in the variable data
+	ASSERTG (gwdata->cpu_flags & CPU_AVX512F && gwdata->PASS2_SIZE);
+
+	// Calculate address of biglit data in the first pass 1 block's variable data.
+	p = (char *) gwdata->pass1_var_data + gwdata->biglit_data_offset;
+
+	// Point to the correct set of big/lit flags
+	if (gwdata->ZERO_PADDED_FFT) return (p + (i * gwdata->PASS1_CACHE_LINES * 2 / 8 / 2));
+	else return (p + (i * gwdata->PASS1_CACHE_LINES * 2 / 8));
+}
+
+/* Structure to share add/sub/addsub/smallmul data amongst all the compute threads */
+
+struct multithread_op_data {
+	gwnum	s1;			/* Source #1 */
+	gwnum	s2;			/* Source #2 */
+	gwnum	d1;			/* Destination #1 */
+	gwnum	d2;			/* Destination #2 (if operation is addsub) */
+	void	(*asm_proc)(void*);	/* Pointer to assembly routine that will perform the operation */
+	int	is_quick;		/* TRUE if this is a "quick" operation that does not require carry propagation */
+	int	num_blks;		/* Number of "blocks" to process */
+	void	*d1_carries;		/* Carries area for destination #1 calculations */
+	void	*d2_carries;		/* Carries area for destination #2 calculations */
+};
+
+/* Perform a multithreaded add/sub/addsub/smallmul operation */
+
+void multithread_op (
+	gwhandle *gwdata,		/* Handle initialized by gwsetup */
+	gwnum	s1,			/* Source #1 */
+	gwnum	s2,			/* Source #2 */
+	gwnum	d1,			/* Destination #1 */
+	gwnum	d2,			/* Destination #2 (if operation is addsub) */
+	void	(*asm_proc)(void*),	/* Pointer to assembly routine that will perform the operation */
+	int	is_quick)		/* TRUE if this is a "quick" operation that does not require carry propagation */
+{
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
+	struct multithread_op_data data;
+
+// Common data structure initialization for both AVX and AVX-512
+
+	data.s1 = s1;
+	data.s2 = s2;
+	data.d1 = d1;
+	data.d2 = d2;
+	data.asm_proc = asm_proc;
+	data.is_quick = is_quick;
+
+/* Handle gwcopy for all architectures */
+//BUG - is there a better alternative to memcpy esp. built with our MSVC 2005 environment?  Like using SSE/AVX/AVX-512 loads and stores.
+//BUG - is there any particular advantage to aligning moves on 128, 256, or 4096 byte boundary?
+
+	if (asm_proc == NULL) {
+		int	size, movesize;
+
+		size = ((uint32_t *) s1)[-2] + GW_HEADER_SIZE;
+		data.s1 = (gwnum) ((char *) data.s1 - GW_HEADER_SIZE);
+		data.d1 = (gwnum) ((char *) data.d1 - GW_HEADER_SIZE);
+
+		// Move any bytes before a 128-byte boundary
+		if ((intptr_t) data.s1 & 127) {
+			movesize = 128 - (int) ((intptr_t) data.s1 & 127);
+			memcpy (data.d1, data.s1, movesize);
+			size -= movesize;
+			data.s1 = (gwnum) ((char *) data.s1 + movesize);
+			data.d1 = (gwnum) ((char *) data.d1 + movesize);
+		}
+
+		// Calculate number of 4KB blocks
+		data.num_blks = size >> 12;
+
+		// Move any bytes after last 4KB block
+		if (size & 4095) {
+			memcpy ((char *) data.d1 + data.num_blks * 4096, (char *) data.s1 + data.num_blks * 4096, size & 4095);
+		}
+	}
+
+/* Initialize the structure to share necessary info amongst the AVX-512 compute threads */
+
+	else if (gwdata->cpu_flags & CPU_AVX512F) {
+		data.num_blks = asm_data->addcount1;
+		data.d1_carries = asm_data->carries;
+		// BUG/OPT - use scratch area rather than aligned_malloc?  one-pass FFTs are an issue.  We'd need to make
+		// sure scratch area is big enough and pre-allocate area for one-pass FFTs
+		if (d2 != NULL && !is_quick) data.d2_carries = aligned_malloc (data.num_blks * 16 * sizeof (double), 128);
+	}
+
+/* Initialize the structure to share necessary info amongst the AVX compute threads */
+
+	else {
+		data.num_blks = asm_data->addcount1;
+//		data.d1_carries = asm_data->carries;
+		// BUG/OPT - use scratch area rather than aligned_malloc?  one-pass FFTs are an issue.  We'd need to make
+		// sure scratch area is big enough and pre-allocate area for one-pass FFTs
+//		if (d2 != NULL && !is_quick) data.d2_carries = aligned_malloc (data.num_blks * 16 * sizeof (double), 128);
+	}
+
+/* Wake up the auxiliary threads */
+
+	gwdata->pass1_state = PASS1_STATE_MULTITHREAD_OP;
+	gwdata->multithread_op_data = &data;
+	gwdata->next_block = 0;
+	if (gwdata->num_threads > 1) {
+		gwmutex_lock (&gwdata->thread_lock);
+		gwdata->catch_straggler_threads = FALSE;
+		gwevent_reset (&gwdata->all_threads_done);
+		gwevent_signal (&gwdata->thread_work_to_do);
+		gwmutex_unlock (&gwdata->thread_lock);
+	}
+
+/* Call subroutine to work on blocks just like the auxiliary threads */
+
+	do_multithread_op_work (gwdata, asm_data);
+
+/* Wait for auxiliary threads to finish */
+
+	if (gwdata->num_threads > 1)
+		gwevent_wait (&gwdata->all_threads_done, 0);
+
+/* If no carry propagation is required then we're done */
+
+	if (is_quick) return;
+
+/* Do the AVX-512 carry propagation */
+
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+
+/* Set flags used in processing carries */
+
+		asm_data->zero_fft = 0;
+		asm_data->const_fft = 0;
+		asm_data->add_sub_smallmul_op = 1;
+
+/* Do the final carry propagations for the dest #1 */
+
+		asm_data->DESTARG = d1;		// Start of the FFT data
+		asm_data->data_addr = d1;	// FFT addr to apply carries
+		asm_data->norm_ptr1 = biglit_data_ptr (gwdata, 0);
+		asm_data->this_block = 0;
+		gwz3_apply_carries (asm_data);
+
+/* Do the final carry propagations for the dest #2 */
+
+		if (d2 != NULL) {
+			asm_data->carries = data.d2_carries;
+			asm_data->DESTARG = d2;		// Start of the FFT data
+			asm_data->data_addr = d2;	// FFT addr to apply carries
+			asm_data->norm_ptr1 = biglit_data_ptr (gwdata, 0);
+			asm_data->this_block = 0;
+			gwz3_apply_carries (asm_data);
+			asm_data->carries = data.d1_carries;
+			aligned_free (data.d2_carries);
+		}
+	}
+
+/* Do the AVX carry propagation */
+
+#ifdef AVX_ONLY_DOES_QUICK_RIGHT_NOW
+	else {
+
+/* Set flags used in processing carries */
+
+		asm_data->zero_fft = 0;
+		asm_data->const_fft = 0;
+		asm_data->add_sub_smallmul_op = 1;
+
+/* Do the final carry propagations for the dest #1 */
+
+		asm_data->DESTARG = d1;		// Start of the FFT data
+		asm_data->data_addr = d1;	// FFT addr to apply carries
+		asm_data->norm_ptr1 = biglit_data_ptr (gwdata, 0);
+		asm_data->this_block = 0;
+		gwy3_apply_carries (asm_data);
+
+/* Do the final carry propagations for the dest #2 */
+
+		if (d2 != NULL) {
+			asm_data->carries = data.d2_carries;
+			asm_data->DESTARG = d2;		// Start of the FFT data
+			asm_data->data_addr = d2;	// FFT addr to apply carries
+			asm_data->norm_ptr1 = biglit_data_ptr (gwdata, 0);
+			asm_data->this_block = 0;
+			gwy3_apply_carries (asm_data);
+			asm_data->carries = data.d1_carries;
+			aligned_free (data.d2_carries);
+		}
+	}
+#endif
+}
+
+/* Routine for the main thread and auxiliary threads to do add/sub/addsub/smallmul work */
+
+void do_multithread_op_work (
+	gwhandle *gwdata,		/* Handle initialized by gwsetup */
+	struct gwasm_data *asm_data)	/* This thread's asm_data */
+{
+	struct multithread_op_data *data = (struct multithread_op_data *) gwdata->multithread_op_data;
+
+/* Loop processing gwcopy blocks (4KB) */
+
+	if (data->asm_proc == NULL) {
+		for ( ; ; ) {
+			int	i;
+
+/* Get next block to process */
+
+			if (gwdata->num_threads > 1) gwmutex_lock (&gwdata->thread_lock);
+			i = gwdata->next_block;
+			gwdata->next_block++;
+			if (gwdata->num_threads > 1) gwmutex_unlock (&gwdata->thread_lock);
+
+/* Break out of loop when there are no more blocks to process */
+
+			if (i >= data->num_blks) break;
+
+/* Move a 4KB block */
+
+			memcpy ((char *) data->d1 + i * 4096, (char *) data->s1 + i * 4096, 4096);
+		}
+	}
+
+/* Loop processing AVX-512 blocks */
+
+	else if (gwdata->cpu_flags & CPU_AVX512F) {
+		for ( ; ; ) {
+			int	i;
+
+/* Get next block to process */
+
+			if (gwdata->num_threads > 1) gwmutex_lock (&gwdata->thread_lock);
+			i = gwdata->next_block;
+			gwdata->next_block += (data->is_quick ? 1 : 4);
+			if (gwdata->num_threads > 1) gwmutex_unlock (&gwdata->thread_lock);
+
+/* Break out of loop when there are no more blocks to process */
+
+			if (i >= data->num_blks) break;
+
+/* Process the block */
+
+			asm_data->SRCARG = (char *) data->s1 + i * asm_data->pass1blkdst + (i/4) * asm_data->normblkdst4;
+			asm_data->SRC2ARG = (char *) data->s2 + i * asm_data->pass1blkdst + (i/4) * asm_data->normblkdst4;
+			asm_data->DESTARG = (char *) data->d1 + i * asm_data->pass1blkdst + (i/4) * asm_data->normblkdst4;
+			asm_data->DEST2ARG = (char *) data->d2 + i * asm_data->pass1blkdst + (i/4) * asm_data->normblkdst4;
+			asm_data->data_addr = (char *) data->d1_carries + i * 128;	// Addr to store dest #1 carries
+			asm_data->premult_addr = (char *) data->d2_carries + i * 128;	// Addr to store dest #2 carries
+			asm_data->norm_ptr1 = biglit_data_ptr (gwdata, i);
+			call_op (data->asm_proc, asm_data);
+		}
+	}
+
+
+/* Loop processing AVX blocks */
+
+	else {
+		for ( ; ; ) {
+			int	i;
+
+/* Get next block to process */
+
+			if (gwdata->num_threads > 1) gwmutex_lock (&gwdata->thread_lock);
+			i = gwdata->next_block;
+			gwdata->next_block += (data->is_quick ? 1 : 2);
+			if (gwdata->num_threads > 1) gwmutex_unlock (&gwdata->thread_lock);
+
+/* Break out of loop when there are no more blocks to process */
+
+			if (i >= data->num_blks) break;
+
+/* Process the block */
+
+			asm_data->SRCARG = (char *) data->s1 + i * asm_data->pass1blkdst;
+			asm_data->SRC2ARG = (char *) data->s2 + i * asm_data->pass1blkdst;
+			asm_data->DESTARG = (char *) data->d1 + i * asm_data->pass1blkdst;
+			asm_data->DEST2ARG = (char *) data->d2 + i * asm_data->pass1blkdst;
+//			asm_data->data_addr = (char *) data->d1_carries + i * 128;	// Addr to store dest #1 carries
+//			asm_data->premult_addr = (char *) data->d2_carries + i * 128;	// Addr to store dest #2 carries
+//			asm_data->norm_ptr1 = biglit_data_ptr (gwdata, i);
+			call_op (data->asm_proc, asm_data);
+		}
+	}
+}
+
+/* Copy one gwnum to another gwnum */
+
+void gwcopy (			/* Copy a gwnum */
+	gwhandle *gwdata,	/* Handle initialized by gwsetup */
+	gwnum	s,		/* Source */
+	gwnum	d)		/* Dest */
+{
+	uint32_t free_offset;
+
+/* Load the one piece of information that should not be copied over */
+
+	free_offset = ((uint32_t *) d)[-8];
+
+/* Copy the data and 96-byte header */
+
+//if (rand() % 100 < 3) *s += 1.0;			// Generate random errors (for caller to test error recovery)
+	if (gwdata->num_threads > 1)
+		multithread_op (gwdata, s, NULL, d, NULL, NULL, TRUE);
+	else
+		memmove ((char *) d - GW_HEADER_SIZE, (char *) s - GW_HEADER_SIZE, ((uint32_t *) s)[-2] + GW_HEADER_SIZE);
+//if (rand() % 100 < 5) *d += 1.0;			// Generate random errors (for caller to test error recovery)
+
+/* Restore the one piece of information that should not be copied over */
+
+	((uint32_t *) d)[-8] = free_offset;
+}
 
 /*********************************************************/
 /* Wrapper routines for the add and sub assembly code    */
@@ -8482,13 +9907,13 @@ void gwadd3quick (		/* Add two numbers without normalizing */
 	gwnum	s2,		/* Source #2 */
 	gwnum	d)		/* Destination */
 {
-	struct gwasm_data *asm_data;
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 
 	ASSERTG (((uint32_t *) s1)[-1] >= 1);
 	ASSERTG (((uint32_t *) s2)[-1] >= 1);
 
-/* We could support partially FFTed inputs if we updated the 7 zero pad */
-/* values.  Until then, assert inputs are not partially FFTed. */
+/* We could support completely/partially FFTed inputs if we updated the 7 zero pad */
+/* values.  Until then, assert inputs are not completely/partially FFTed. */
 
 	ASSERTG (((uint32_t *) s1)[-7] == 0);
 	ASSERTG (((uint32_t *) s2)[-7] == 0);
@@ -8497,17 +9922,25 @@ void gwadd3quick (		/* Add two numbers without normalizing */
 
 	((uint32_t *) d)[-1] = ((uint32_t *) s1)[-1] + ((uint32_t *) s2)[-1];
 
-/* Copy the has-been-partially-FFTed flag */
+/* Copy the has-been-completely/partially-FFTed flag */
 
 	((uint32_t *) d)[-7] = ((uint32_t *) s1)[-7];
 
-/* Now do the add */
+/* Do an AVX-512 or two-pass AVX addquick */
 
-	asm_data = (struct gwasm_data *) gwdata->asm_data;
-	asm_data->SRCARG = s1;
-	asm_data->SRC2ARG = s2;
-	asm_data->DESTARG = d;
-	gw_addq (gwdata, asm_data);
+	if ((gwdata->cpu_flags & CPU_AVX512F) ||
+	    (gwdata->cpu_flags & CPU_AVX && gwdata->PASS2_SIZE)) {
+		multithread_op (gwdata, s1, s2, d, NULL, addr_gw_addq (gwdata), TRUE);
+	}
+
+/* Do the add the old way -- single-threaded in assembly code */
+
+	else {
+		asm_data->SRCARG = s1;
+		asm_data->SRC2ARG = s2;
+		asm_data->DESTARG = d;
+		gw_addq (gwdata, asm_data);
+	}
 }
 
 void gwsub3quick (		/* Compute s1 - s2 without normalizing */
@@ -8516,12 +9949,12 @@ void gwsub3quick (		/* Compute s1 - s2 without normalizing */
 	gwnum	s2,		/* Source #2 */
 	gwnum	d)		/* Destination */
 {
-	struct gwasm_data *asm_data;
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 
 	ASSERTG (((uint32_t *) s1)[-1] >= 1);
 	ASSERTG (((uint32_t *) s2)[-1] >= 1);
 
-/* We could support partially FFTed inputs if we updated the 7 zero pad */
+/* We could support completely/partially FFTed inputs if we updated the 7 zero pad */
 /* values.  Until then, assert inputs are not partially FFTed. */
 
 	ASSERTG (((uint32_t *) s1)[-7] == 0);
@@ -8531,17 +9964,25 @@ void gwsub3quick (		/* Compute s1 - s2 without normalizing */
 
 	((uint32_t *) d)[-1] = ((uint32_t *) s1)[-1] + ((uint32_t *) s2)[-1];
 
-/* Copy the has-been-partially-FFTed flag */
+/* Copy the has-been-completely/partially-FFTed flag */
 
 	((uint32_t *) d)[-7] = ((uint32_t *) s1)[-7];
 
-/* Now do the subtract */
+/* Do an AVX-512 or two-pass AVX subquick */
 
-	asm_data = (struct gwasm_data *) gwdata->asm_data;
-	asm_data->SRCARG = s2;
-	asm_data->SRC2ARG = s1;
-	asm_data->DESTARG = d;
-	gw_subq (gwdata, asm_data);
+	if ((gwdata->cpu_flags & CPU_AVX512F) ||
+	    (gwdata->cpu_flags & CPU_AVX && gwdata->PASS2_SIZE)) {
+		multithread_op (gwdata, s2, s1, d, NULL, addr_gw_subq (gwdata), TRUE);
+	}
+
+/* Do the subtract the old way -- single-threaded in assembly code */
+
+	else {
+		asm_data->SRCARG = s2;
+		asm_data->SRC2ARG = s1;
+		asm_data->DESTARG = d;
+		gw_subq (gwdata, asm_data);
+	}
 }
 
 void gwaddsub4quick (		/* Add & sub two numbers without normalizing */
@@ -8551,12 +9992,12 @@ void gwaddsub4quick (		/* Add & sub two numbers without normalizing */
 	gwnum	d1,		/* Destination #1 */
 	gwnum	d2)		/* Destination #2 */
 {
-	struct gwasm_data *asm_data;
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 
 	ASSERTG (((uint32_t *) s1)[-1] >= 1);
 	ASSERTG (((uint32_t *) s2)[-1] >= 1);
 
-/* We could support partially FFTed inputs if we updated the 7 zero pad */
+/* We could support completely/partially FFTed inputs if we updated the 7 zero pad */
 /* values.  Until then, assert inputs are not partially FFTed. */
 
 	ASSERTG (((uint32_t *) s1)[-7] == 0);
@@ -8567,19 +10008,27 @@ void gwaddsub4quick (		/* Add & sub two numbers without normalizing */
 	((uint32_t *) d1)[-1] =
 	((uint32_t *) d2)[-1] = ((uint32_t *) s1)[-1] + ((uint32_t *) s2)[-1];
 
-/* Copy the has-been-partially-FFTed flag */
+/* Copy the has-been-completely/partially-FFTed flag */
 
 	((uint32_t *) d1)[-7] =
 	((uint32_t *) d2)[-7] = ((uint32_t *) s1)[-7];
 
-/* Now do the add & subtract */
+/* Do an AVX-512 or two-pass AVX addsubquick */
 
-	asm_data = (struct gwasm_data *) gwdata->asm_data;
-	asm_data->SRCARG = s1;
-	asm_data->SRC2ARG = s2;
-	asm_data->DESTARG = d1;
-	asm_data->DEST2ARG = d2;
-	gw_addsubq (gwdata, asm_data);
+	if ((gwdata->cpu_flags & CPU_AVX512F) ||
+	    (gwdata->cpu_flags & CPU_AVX && gwdata->PASS2_SIZE)) {
+		multithread_op (gwdata, s1, s2, d1, d2, addr_gw_addsubq (gwdata), TRUE);
+	}
+
+/* Do the add & subtract the old way -- single-threaded in assembly code */
+
+	else {
+		asm_data->SRCARG = s1;
+		asm_data->SRC2ARG = s2;
+		asm_data->DESTARG = d1;
+		asm_data->DEST2ARG = d2;
+		gw_addsubq (gwdata, asm_data);
+	}
 }
 
 
@@ -8589,7 +10038,7 @@ void gwadd3 (			/* Add two numbers normalizing if needed */
 	gwnum	s2,		/* Source #2 */
 	gwnum	d)		/* Destination */
 {
-	struct gwasm_data *asm_data;
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 	uint32_t normcnt1, normcnt2;
 
 	ASSERTG (((uint32_t *) s1)[-1] >= 1);
@@ -8598,27 +10047,34 @@ void gwadd3 (			/* Add two numbers normalizing if needed */
 	ASSERTG (((uint32_t *) s2)[-7] == 0);
 
 /* Get counts of unnormalized adds and subtracts */
+/* If we can do an addquick, do that - it should be faster */
 
 	normcnt1 = ((uint32_t *) s1)[-1];
 	normcnt2 = ((uint32_t *) s2)[-1];
+	if (normcnt1 + normcnt2 <= gwdata->EXTRA_BITS) {
+		gwadd3quick (gwdata, s1, s2, d);
+		return;
+	}
 
-/* Set the has-been-partially-FFTed flag */
+/* Do an AVX-512 add */
+
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		multithread_op (gwdata, s1, s2, d, NULL, addr_gw_add (gwdata), FALSE);
+	}
+
+/* Do the add the old way -- single-threaded in assembly code */
+
+	else {
+		asm_data->SRCARG = s1;
+		asm_data->SRC2ARG = s2;
+		asm_data->DESTARG = d;
+		gw_add (gwdata, asm_data);
+	}
+
+/* Clear the has-been-completely/partially-FFTed flag, reset the unnormalized adds and subtracts count */
 
 	((uint32_t *) d)[-7] = 0;
-
-/* Now do the add */
-
-	asm_data = (struct gwasm_data *) gwdata->asm_data;
-	asm_data->SRCARG = s1;
-	asm_data->SRC2ARG = s2;
-	asm_data->DESTARG = d;
-	if (normcnt1 + normcnt2 <= gwdata->EXTRA_BITS) {
-		gw_addq (gwdata, asm_data);
-		((uint32_t *) d)[-1] = normcnt1 + normcnt2;
-	} else {
-		gw_add (gwdata, asm_data);
-		((uint32_t *) d)[-1] = 1;
-	}
+	((uint32_t *) d)[-1] = 1;
 }
 
 void gwsub3 (			/* Compute s1 - s2 normalizing if needed */
@@ -8627,7 +10083,7 @@ void gwsub3 (			/* Compute s1 - s2 normalizing if needed */
 	gwnum	s2,		/* Source #2 */
 	gwnum	d)		/* Destination */
 {
-	struct gwasm_data *asm_data;
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 	uint32_t normcnt1, normcnt2;
 
 	ASSERTG (((uint32_t *) s1)[-1] >= 1);
@@ -8636,27 +10092,34 @@ void gwsub3 (			/* Compute s1 - s2 normalizing if needed */
 	ASSERTG (((uint32_t *) s2)[-7] == 0);
 
 /* Get counts of unnormalized adds and subtracts */
+/* If we can do a subquick, do that - it should be faster */
 
 	normcnt1 = ((uint32_t *) s1)[-1];
 	normcnt2 = ((uint32_t *) s2)[-1];
+	if (normcnt1 + normcnt2 <= gwdata->EXTRA_BITS) {
+		gwsub3quick (gwdata, s1, s2, d);
+		return;
+	}
 
-/* Set the has-been-partially-FFTed flag */
+/* Do an AVX-512 subtract */
+
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		multithread_op (gwdata, s2, s1, d, NULL, addr_gw_sub (gwdata), FALSE);
+	}
+
+/* Do the add the old way -- single-threaded in assembly code */
+
+	else {
+		asm_data->SRCARG = s2;
+		asm_data->SRC2ARG = s1;
+		asm_data->DESTARG = d;
+		gw_sub (gwdata, asm_data);
+	}
+
+/* Clear the has-been-completely/partially-FFTed flag, reset the unnormalized adds and subtracts count */
 
 	((uint32_t *) d)[-7] = 0;
-
-/* Now do the subtract */
-
-	asm_data = (struct gwasm_data *) gwdata->asm_data;
-	asm_data->SRCARG = s2;
-	asm_data->SRC2ARG = s1;
-	asm_data->DESTARG = d;
-	if (normcnt1 + normcnt2 <= gwdata->EXTRA_BITS) {
-		gw_subq (gwdata, asm_data);
-		((uint32_t *) d)[-1] = normcnt1 + normcnt2;
-	} else {
-		gw_sub (gwdata, asm_data);
-		((uint32_t *) d)[-1] = 1;
-	}
+	((uint32_t *) d)[-1] = 1;
 }
 
 void gwaddsub4 (		/* Add & sub two nums normalizing if needed */
@@ -8666,7 +10129,7 @@ void gwaddsub4 (		/* Add & sub two nums normalizing if needed */
 	gwnum	d1,		/* Destination #1 */
 	gwnum	d2)		/* Destination #2 */
 {
-	struct gwasm_data *asm_data;
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 	uint32_t normcnt1, normcnt2;
 
 	ASSERTG (((uint32_t *) s1)[-1] >= 1);
@@ -8675,30 +10138,37 @@ void gwaddsub4 (		/* Add & sub two nums normalizing if needed */
 	ASSERTG (((uint32_t *) s2)[-7] == 0);
 
 /* Get counts of unnormalized adds and subtracts */
+/* If we can do an addsubquick, do that - it should be faster */
 
 	normcnt1 = ((uint32_t *) s1)[-1];
 	normcnt2 = ((uint32_t *) s2)[-1];
-
-/* Set the has-been-partially-FFTed flag */
-
-	((uint32_t *) d1)[-7] = ((uint32_t *) d2)[-7] = 0;
-
-/* Now do the add & subtract */
-
-	asm_data = (struct gwasm_data *) gwdata->asm_data;
-	asm_data->SRCARG = s1;
-	asm_data->SRC2ARG = s2;
-	asm_data->DESTARG = d1;
-	asm_data->DEST2ARG = d2;
 	if (normcnt1 + normcnt2 <= gwdata->EXTRA_BITS) {
-		gw_addsubq (gwdata, asm_data);
-		((uint32_t *) d1)[-1] =
-		((uint32_t *) d2)[-1] = normcnt1 + normcnt2;
-	} else {
-		gw_addsub (gwdata, asm_data);
-		((uint32_t *) d1)[-1] =
-		((uint32_t *) d2)[-1] = 1;
+		gwaddsub4quick (gwdata, s1, s2, d1, d2);
+		return;
 	}
+
+/* Do an AVX-512 add/sub */
+
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		multithread_op (gwdata, s1, s2, d1, d2, addr_gw_addsub (gwdata), FALSE);
+	}
+
+/* Do the add & subtract the old way -- single-threaded in assembly code */
+
+	else {
+		asm_data->SRCARG = s1;
+		asm_data->SRC2ARG = s2;
+		asm_data->DESTARG = d1;
+		asm_data->DEST2ARG = d2;
+		gw_addsub (gwdata, asm_data);
+	}
+
+/* Clear the has-been-completely/partially-FFTed flag, reset the unnormalized adds and subtracts count */
+
+	((uint32_t *) d1)[-7] = 0;
+	((uint32_t *) d2)[-7] = 0;
+	((uint32_t *) d1)[-1] = 1;
+	((uint32_t *) d2)[-1] = 1;
 }
 
 
@@ -8708,7 +10178,7 @@ void gwfftadd3 (		/* Add two FFTed numbers */
 	gwnum	s2,		/* Source #2 */
 	gwnum	d)		/* Destination */
 {
-	struct gwasm_data *asm_data;
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 
 	ASSERTG (((uint32_t *) s1)[-1] >= 1);
 	ASSERTG (((uint32_t *) s2)[-1] >= 1);
@@ -8718,12 +10188,11 @@ void gwfftadd3 (		/* Add two FFTed numbers */
 
 	((uint32_t *) d)[-1] = ((uint32_t *) s1)[-1] + ((uint32_t *) s2)[-1];
 
-/* Copy the has-been-partially-FFTed flag */
+/* Copy the has-been-completely/partially-FFTed flag */
 
 	((uint32_t *) d)[-7] = ((uint32_t *) s1)[-7];
 
-/* If this is a zero-padded FFT, then also add the 7 copied doubles in */
-/* the gwnum header */
+/* If this is a zero-padded FFT, then also add the 7 copied doubles in the gwnum header */
 
 	if (gwdata->ZERO_PADDED_FFT) {
 		d[-5] = s1[-5] + s2[-5];
@@ -8735,13 +10204,21 @@ void gwfftadd3 (		/* Add two FFTed numbers */
 		d[-11] = s1[-11] + s2[-11];
 	}
 
-/* Now do the add */
+/* Do an AVX-512 or two-pass AVX addquick */
 
-	asm_data = (struct gwasm_data *) gwdata->asm_data;
-	asm_data->SRCARG = s1;
-	asm_data->SRC2ARG = s2;
-	asm_data->DESTARG = d;
-	gw_addf (gwdata, asm_data);
+	if ((gwdata->cpu_flags & CPU_AVX512F) ||
+	    (gwdata->cpu_flags & CPU_AVX && gwdata->PASS2_SIZE)) {
+		multithread_op (gwdata, s1, s2, d, NULL, addr_gw_addf (gwdata), TRUE);
+	}
+
+/* Do the add the old way -- single-threaded in assembly code */
+
+	else {
+		asm_data->SRCARG = s1;
+		asm_data->SRC2ARG = s2;
+		asm_data->DESTARG = d;
+		gw_addf (gwdata, asm_data);
+	}
 }
 
 void gwfftsub3 (		/* Compute FFTed s1 - FFTed s2 */
@@ -8750,7 +10227,7 @@ void gwfftsub3 (		/* Compute FFTed s1 - FFTed s2 */
 	gwnum	s2,		/* Source #2 */
 	gwnum	d)		/* Destination */
 {
-	struct gwasm_data *asm_data;
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 
 	ASSERTG (((uint32_t *) s1)[-1] >= 1);
 	ASSERTG (((uint32_t *) s2)[-1] >= 1);
@@ -8760,12 +10237,11 @@ void gwfftsub3 (		/* Compute FFTed s1 - FFTed s2 */
 
 	((uint32_t *) d)[-1] = ((uint32_t *) s1)[-1] + ((uint32_t *) s2)[-1];
 
-/* Copy the has-been-partially-FFTed flag */
+/* Copy the has-been-completely/partially-FFTed flag */
 
 	((uint32_t *) d)[-7] = ((uint32_t *) s1)[-7];
 
-/* If this is a zero-padded FFT, then also subtract the 7 copied doubles in */
-/* the gwnum header */
+/* If this is a zero-padded FFT, then also subtract the 7 copied doubles in the gwnum header */
 
 	if (gwdata->ZERO_PADDED_FFT) {
 		d[-5] = s1[-5] - s2[-5];
@@ -8777,13 +10253,21 @@ void gwfftsub3 (		/* Compute FFTed s1 - FFTed s2 */
 		d[-11] = s1[-11] - s2[-11];
 	}
 
-/* Now do the subtract */
+/* Do an AVX-512 or two-pass AVX subquick */
 
-	asm_data = (struct gwasm_data *) gwdata->asm_data;
-	asm_data->SRCARG = s2;
-	asm_data->SRC2ARG = s1;
-	asm_data->DESTARG = d;
-	gw_subf (gwdata, asm_data);
+	if ((gwdata->cpu_flags & CPU_AVX512F) ||
+	    (gwdata->cpu_flags & CPU_AVX && gwdata->PASS2_SIZE)) {
+		multithread_op (gwdata, s2, s1, d, NULL, addr_gw_subf (gwdata), TRUE);
+	}
+
+/* Do the subtract the old way -- single-threaded in assembly code */
+
+	else {
+		asm_data->SRCARG = s2;
+		asm_data->SRC2ARG = s1;
+		asm_data->DESTARG = d;
+		gw_subf (gwdata, asm_data);
+	}
 }
 
 void gwfftaddsub4 (		/* Add & sub two FFTed numbers */
@@ -8793,7 +10277,7 @@ void gwfftaddsub4 (		/* Add & sub two FFTed numbers */
 	gwnum	d1,		/* Destination #1 */
 	gwnum	d2)		/* Destination #2 */
 {
-	struct gwasm_data *asm_data;
+	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 
 	ASSERTG (((uint32_t *) s1)[-1] >= 1);
 	ASSERTG (((uint32_t *) s2)[-1] >= 1);
@@ -8804,7 +10288,7 @@ void gwfftaddsub4 (		/* Add & sub two FFTed numbers */
 	((uint32_t *) d1)[-1] =
 	((uint32_t *) d2)[-1] = ((uint32_t *) s1)[-1] + ((uint32_t *) s2)[-1];
 
-/* Copy the has-been-partially-FFTed flag */
+/* Copy the has-been-completely/partially-FFTed flag */
 
 	((uint32_t *) d1)[-7] =
 	((uint32_t *) d2)[-7] = ((uint32_t *) s1)[-7];
@@ -8824,14 +10308,22 @@ void gwfftaddsub4 (		/* Add & sub two FFTed numbers */
 		v1 = s1[-11]; v2 = s2[-11]; d1[-11] = v1+v2; d2[-11] = v1-v2;
 	}
 
-/* Now do the add & subtract */
+/* Do an AVX-512 or two-pass AVX addsubquick */
 
-	asm_data = (struct gwasm_data *) gwdata->asm_data;
-	asm_data->SRCARG = s1;
-	asm_data->SRC2ARG = s2;
-	asm_data->DESTARG = d1;
-	asm_data->DEST2ARG = d2;
-	gw_addsubf (gwdata, asm_data);
+	if ((gwdata->cpu_flags & CPU_AVX512F) ||
+	    (gwdata->cpu_flags & CPU_AVX && gwdata->PASS2_SIZE)) {
+		multithread_op (gwdata, s1, s2, d1, d2, addr_gw_addsubf (gwdata), TRUE);
+	}
+
+/* Do the add & subtract the old way -- single-threaded in assembly code */
+
+	else {
+		asm_data->SRCARG = s1;
+		asm_data->SRC2ARG = s2;
+		asm_data->DESTARG = d1;
+		asm_data->DEST2ARG = d2;
+		gw_addsubf (gwdata, asm_data);
+	}
 }
 
 /* Routine to add a small number to a gwnum.  Some day, */
@@ -8843,20 +10335,27 @@ void gwsmalladd (
 	double	addin,		/* Small value to add to g */
 	gwnum	g)		/* Gwnum to add a value into */
 {
+	int	cant_handle;
 
-/* Assert unnormalized add count valid, input not partially FFTed. */
+/* Assert unnormalized add count valid, input not completely/partially FFTed. */
 
 	ASSERTG (((uint32_t *) g)[-1] >= 1);
 	ASSERTG (((uint32_t *) g)[-7] == 0);
 
+/* AVX-512 one-pass implementation spreads carry over four words.  If there aren't many */
+/* bits-per-word (e.g. M388 in a 128 word FFT) then you can end up with a giant carry */
+/* into the last FFT word.  We may want to update this code for other FFT implementations. */
+
+	cant_handle = (addin > 32768.0 || addin < -32768.0) &&
+		      log2 (fabs (addin)) > 5.0 * log2 (gwdata->b) * gwdata->avg_num_b_per_word;
+
 /* A simple brute-force implementation.  We put k > 1 numbers through */
 /* here because multiplying the addin value by 1/k complicates matters. */
 /* If this routine is ever used much, we can try to optimize this. */
-/* We also make sure there is at least one b value per FFT work, so */
+/* We also make sure there is at least one b value per FFT word, so */
 /* that any carry can successfully spread over 3 FFT words. */
 
-	if (gwdata->GWPROCPTRS[8] == NULL || gwdata->k > 1.0 ||
-	    gwdata->NUM_B_PER_SMALL_WORD < 1) {
+	if (gwdata->GWPROCPTRS[8] == NULL || gwdata->k > 1.0 || gwdata->NUM_B_PER_SMALL_WORD < 1 || cant_handle) {
 		gwnum	tmp;
 		tmp = gwalloc (gwdata);
 		if (addin >= 0.0) {
@@ -8892,7 +10391,7 @@ void gwsmallmul (
 {
 	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 
-/* Assert unnormalized add count valid, input not partially FFTed. */
+/* Assert unnormalized add count valid, input not completely/partially FFTed. */
 
 	ASSERTG (((uint32_t *) g)[-1] >= 1);
 	ASSERTG (((uint32_t *) g)[-7] == 0);
@@ -8904,8 +10403,7 @@ void gwsmallmul (
 /* will use the caller's last gwsetnormroutine value which could incorrectly */
 /* multiply by a constant. */
 	
-	if (! (gwdata->cpu_flags & (CPU_AVX | CPU_SSE2)) &&
-	    (mult > 1024.0 || gwdata->ZERO_PADDED_FFT)) {
+	if (! (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX | CPU_SSE2)) && (mult > 1024.0 || gwdata->ZERO_PADDED_FFT)) {
 		gwnum	tmp;
 		tmp = gwalloc (gwdata);
 		if (mult == 1.0);
@@ -8950,7 +10448,14 @@ void gwsmallmul (
 		gwfree (gwdata, tmp);
 	}
 
-/* The assembler optimized version */
+/* Do an AVX-512 small mul */
+
+	else if (gwdata->cpu_flags & CPU_AVX512F) {
+		asm_data->DBLARG = mult;
+		multithread_op (gwdata, g, NULL, g, NULL, addr_gw_muls (gwdata), FALSE);
+	}
+
+/* Do the small mul the old way -- single-threaded in assembly code */
 
 	else {
 		asm_data->DESTARG = g;

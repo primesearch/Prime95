@@ -23,10 +23,10 @@
 #	LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -Wl,-Bstatic $(shell pkg-config --static --libs libhwloc) -Wl,-Bstatic $(shell pkg-config --static --libs libcurl) -lstdc++ -Wl,-Bdynamic -ldl
 
 CC = gcc
-CFLAGS = -I.. -I../gwnum -O2 -march=i486 -malign-double
+CFLAGS = -I.. -I../gwnum -Wno-unused-result -march=i486 -malign-double -O2
 
 CPP = g++
-CPPFLAGS = -I.. -I../gwnum -O2 -march=i486 -malign-double
+CPPFLAGS = -I.. -I../gwnum -Wno-unused-result -march=i486 -malign-double -O2
 
 LFLAGS = -Wl,-M -Wl,-L/usr/local/lib
 LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -Wl,-Bstatic -lhwloc -Wl,-Bstatic -lcurl -Wl,-Bdynamic -lrt -lstdc++ -ldl -lgmp

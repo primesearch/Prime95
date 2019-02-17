@@ -1,4 +1,4 @@
-/* Copyright 1995-2017 Mersenne Research, Inc. */
+/* Copyright 1995-2019 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -449,7 +449,7 @@ again:	if (max_num_workers () > 1)
 	askNum ("Priority", &m_priority, 1, 10);
 
 	if (USE_PRIMENET) {
-		outputLongLine ("\nUse the following values to select a work type:\n  0 - Whatever makes the most sense\n  100 - First time LL tests\n  102 - World record LL tests\n  101 - Double-check LL tests\n  150 - First time PRP tests\n  152 - World record PRP tests\n  151 - Double-check PRP tests\n  2 - Trial factoring\n  4 - P-1 factoring\n  154 - 100 million digit PRP tests\n  104 - 100 million digit LL tests (not recommended)\n  160 - First time PRP on Mersenne cofactors\n  161 - Double-check PRP on Mersenne cofactors\n  5 - ECM for first factors of Mersenne numbers\n  8 - ECM on Mersenne cofactors\n  6 - ECM on Fermat numbers\n  1 - Trial factoring to low limits\n");
+		outputLongLine ("\nUse the following values to select a work type:\n  0 - Whatever makes the most sense\n  100 - First time LL tests\n  102 - World record LL tests\n  101 - Double-check LL tests\n  150 - First time PRP tests\n  152 - World record PRP tests\n  151 - Double-check PRP tests\n  2 - Trial factoring\n  4 - P-1 factoring\n  153 - 100 million digit PRP tests\n  104 - 100 million digit LL tests (not recommended)\n  160 - First time PRP on Mersenne cofactors\n  161 - Double-check PRP on Mersenne cofactors\n  5 - ECM for first factors of Mersenne numbers\n  8 - ECM on Mersenne cofactors\n  6 - ECM on Fermat numbers\n  1 - Trial factoring to low limits\n");
 	}
 
 	if (USE_PRIMENET || NUM_CPUS > 1) {
@@ -984,11 +984,17 @@ void options_torture (void)
 	unsigned long m_thread, m_type, m_minfft, m_maxfft;
 	unsigned long m_memory, m_timefft;
 	unsigned long mem, blendmemory;
+	int	m_custom, m_weak, m_avx512, m_fma3, m_avx, m_sse2;
 
 	m_thread = NUM_CPUS * CPU_HYPERTHREADS;
 	mem = physical_memory ();
-	if (mem >= 2000) {
-		blendmemory = GetSuggestedMemory (1600);
+	// New in 29.5, default to all but 3GB of memory for the large FFT and blend test.
+	// On my Skylake-X linux machine mprime crashes if it uses all but 2.5GB (maybe due
+	// to large pages allocated by a running production mprime).
+	if (mem >= 5000) {
+		blendmemory = GetSuggestedMemory (mem - 3000);
+	} else if (mem >= 2000) {
+		blendmemory = GetSuggestedMemory (mem - 512);
 	} else if (mem >= 500) {
 		blendmemory = GetSuggestedMemory (mem - 256);
 	} else if (mem >= 200) {
@@ -996,51 +1002,76 @@ void options_torture (void)
 	} else {
 		blendmemory = 8;
 	}
-	m_timefft = 3;
 
+	// Get number of threads to run.  It will affect our FFT size calculations.
 	if (NUM_CPUS * CPU_HYPERTHREADS > 1)
-		askNum ("Number of torture test threads to run", &m_thread,
-			1, NUM_CPUS * CPU_HYPERTHREADS);
+		askNum ("Number of torture test threads to run", &m_thread, 1, NUM_CPUS * CPU_HYPERTHREADS);
 
-	outputLongLine ("Choose a type of torture test to run.\n  1 = Small FFTs (maximum heat and FPU stress, data fits in L2 cache, RAM not tested much).\n  2 = In-place large FFTs (maximum power consumption, some RAM tested).\n  3 = Blend (tests some of everything, lots of RAM tested).\n  11,12,13 = Allows you to fine tune the above three selections.\nBlend is the default.  NOTE: if you fail the blend test, but can pass the small FFT test then your problem is likely bad memory or a bad memory controller.\n");
-	m_type = 3;
-	askNum ("Type of torture test to run", &m_type, 1, 13);
-
-	if (m_type == 1 || m_type == 11) {
-		m_minfft = 8;
-		m_maxfft = 64;
-		m_memory = 0;
-	}
-	else if (m_type == 2 || m_type == 12) {
-		m_minfft = 128;
-		m_maxfft = 1024;
-		m_memory = 0;
+	// Ask which torture test to run
+	m_type = 4;
+	if (CPU_TOTAL_L4_CACHE_SIZE) {
+		outputLongLine ("Choose a type of torture test to run.\n  1 = Smallest FFTs (tests L1/L2 caches, high power/heat/CPU stress).\n  2 = Small FFTs (tests L1/L2/L3 caches, maximum power/heat/CPU stress).\n  3 = Medium FFTs (tests L1/L2/L3/L4 caches, high power/heat/CPU stress).\n  4 = Large FFTs (stresses memory controller and RAM).\n  5 = Blend (tests all of the above).\nBlend is the default.  NOTE: if you fail the blend test but pass the smaller FFT tests then your problem is likely bad memory or bad memory controller.\n");
+		askNum ("Type of torture test to run", &m_type, 1, 5);
+	} else if (CPU_TOTAL_L3_CACHE_SIZE) {
+		outputLongLine ("Choose a type of torture test to run.\n  1 = Smallest FFTs (tests L1/L2 caches, high power/heat/CPU stress).\n  2 = Small FFTs (tests L1/L2/L3 caches, maximum power/heat/CPU stress).\n  3 = Large FFTs (stresses memory controller and RAM).\n  4 = Blend (tests all of the above).\nBlend is the default.  NOTE: if you fail the blend test but pass the smaller FFT tests then your problem is likely bad memory or bad memory controller.\n");
+		askNum ("Type of torture test to run", &m_type, 1, 4);
+		if (m_type >= 3) m_type++;
 	} else {
-		m_minfft = 8;
-		m_maxfft = 4096;
-		m_memory = blendmemory;
+		outputLongLine ("Choose a type of torture test to run.\n  1 = Smallest FFTs (tests L1/L2 caches, maximum power/heat/CPU stress).\n  2 = Large FFTs (stresses memory controller and RAM).\n  3 = Blend (tests all of the above).\nBlend is the default.  NOTE: if you fail the blend test but pass the smaller FFT tests then your problem is likely bad memory or bad memory controller.\n");
+		askNum ("Type of torture test to run", &m_type, 1, 3);
+		if (m_type >= 2) m_type += 2;
 	}
 
-	if (m_type >= 11) {
-		askNum ("Min FFT size (in K)", &m_minfft, (CPU_FLAGS & CPU_AVX) ? 0 : 7,
-			CPU_FLAGS & CPU_FMA3 ? MAX_FFTLEN_FMA3 / 1024 :
-			CPU_FLAGS & CPU_SSE2 ? MAX_FFTLEN_SSE2 / 1024 :
-					       MAX_FFTLEN / 1024);
-		askNum ("Max FFT size (in K)", &m_maxfft, (CPU_FLAGS & CPU_AVX) ? 1 : 7,
-			CPU_FLAGS & CPU_FMA3 ? MAX_FFTLEN_FMA3 / 1024 :
-			CPU_FLAGS & CPU_SSE2 ? MAX_FFTLEN_SSE2 / 1024 :
-					       MAX_FFTLEN / 1024);
-		if (blendmemory > 8)
-			askNum ("Memory to use (in MB, 0 = in-place FFTs)", &m_memory, 0, mem);
+	// Calculate default FFT sizes
+	{
+		int	minfft, maxfft;
+		tortureTestDefaultSizes (m_type - 1, m_thread, &minfft, &maxfft);
+		m_minfft = minfft, m_maxfft = maxfft;
+	}
+	if (m_minfft < 4) m_minfft = 4;
+	if (m_maxfft < m_minfft) m_maxfft = m_minfft;
+	if (m_maxfft > 32768) m_maxfft = 32768;
+
+	// Assign other options
+	m_memory = (m_type <= 3 ? 0 : blendmemory);
+	m_timefft = (m_thread > NUM_CPUS ? 6 : 3);
+
+	// Let user customize
+	m_custom = FALSE;
+	askYN ("Customize settings", &m_custom);
+	if (m_custom) {
+		askNum ("Min FFT size (in K)", &m_minfft, 4,
+			CPU_FLAGS & CPU_AVX512F && !m_avx512 ? MAX_FFTLEN_AVX512 / 1024 :
+			CPU_FLAGS & CPU_FMA3 && !m_fma3 ? MAX_FFTLEN_FMA3 / 1024 :
+			CPU_FLAGS & CPU_SSE2 && !m_sse2 ? MAX_FFTLEN_SSE2 / 1024 :
+							  MAX_FFTLEN / 1024);
+		askNum ("Max FFT size (in K)", &m_maxfft, m_minfft,
+			CPU_FLAGS & CPU_AVX512F && !m_avx512 ? MAX_FFTLEN_AVX512 / 1024 :
+			CPU_FLAGS & CPU_FMA3 && !m_fma3 ? MAX_FFTLEN_FMA3 / 1024 :
+			CPU_FLAGS & CPU_SSE2 && !m_sse2 ? MAX_FFTLEN_SSE2 / 1024 :
+							  MAX_FFTLEN / 1024);
+		askNum ("Memory to use (in MB, 0 = in-place FFTs)", &m_memory, 0, mem);
 		askNum ("Time to run each FFT size (in minutes)", &m_timefft, 1, 60);
 	}
+
+	// Ask about running a less stressful torture test.  Stop on first negative answer.
+	// X86-64 cannot go any lower than SSE2.
+	m_weak = m_avx512 = m_fma3 = m_avx = m_sse2 = 0;
+	askYN ("Run a weaker torture test (not recommended)", &m_weak);
+	if (m_weak && CPU_FLAGS & CPU_AVX512F) askYN ("Disable AVX-512", &m_avx512), m_weak = m_avx512;
+	if (m_weak && CPU_FLAGS & CPU_FMA3) askYN ("Disable AVX2 (fused multiply add)", &m_fma3), m_weak = m_fma3;
+	if (m_weak && CPU_FLAGS & CPU_AVX) askYN ("Disable AVX", &m_avx), m_weak = m_avx;
+#ifndef X86_64
+	if (m_weak && CPU_FLAGS & CPU_SSE2) askYN ("Disable SSE2", &m_sse2), m_weak = m_sse2;
+#endif
 
 	if (askOkCancel ()) {
 		IniWriteInt (INI_FILE, "MinTortureFFT", m_minfft);
 		IniWriteInt (INI_FILE, "MaxTortureFFT", m_maxfft);
-		mem = m_memory / m_thread;
-		IniWriteInt (INI_FILE, "TortureMem", mem);
+		IniWriteInt (INI_FILE, "TortureMem", m_memory);
 		IniWriteInt (INI_FILE, "TortureTime", m_timefft);
+		m_weak = m_avx512 * CPU_AVX512F + m_fma3 * CPU_FMA3 + m_avx * CPU_AVX + m_sse2 * CPU_SSE2;
+		IniWriteInt (INI_FILE, "TortureWeak", m_weak);
 		LaunchTortureTest (m_thread, TRUE);
 	}
 }
@@ -1052,77 +1083,79 @@ void options_benchmark (void)
 	unsigned long m_bench_type, m_minFFT, m_maxFFT, m_bench_time;
 	char	m_cores[512], m_workers[512];
 	int	m_errchk, m_all_complex, m_limit_FFT_sizes, m_hyperthreading, m_all_FFT_impl;
-	int	i, vals[4], numvals;
 
 	m_bench_type = 0;
-	m_minFFT = IniGetInt (INI_FILE, "MinBenchFFT", 2048);
-	m_maxFFT = IniGetInt (INI_FILE, "MaxBenchFFT", 8192);
-	m_errchk = ERRCHK;				// IniGetInt (INI_FILE, "BenchErrorCheck", 0);
-	m_all_complex = 0;				// IniGetInt (INI_FILE, "BenchAllComplex", 0);
-	m_limit_FFT_sizes = 0;				// IniGetInt (INI_FILE, "OnlyBench5678", 1);
+	askNum ("Benchmark type (0 = Throughput, 1 = FFT timings, 2 = Trial factoring)", &m_bench_type, 0, 2);
+
+	if (m_bench_type != 2) {
+		printf ("\nFFTs to benchmark\n");
+		m_minFFT = IniGetInt (INI_FILE, "MinBenchFFT", 2048);
+		askNum ("Minimum FFT size (in K)", &m_minFFT, 1, 65536);
+		m_maxFFT = IniGetInt (INI_FILE, "MaxBenchFFT", 8192);
+		askNum ("Maximum FFT size (in K)", &m_maxFFT, m_minFFT, 65536);
+		m_errchk = ERRCHK;			// IniGetInt (INI_FILE, "BenchErrorCheck", 0);
+		askYN ("Benchmark with round-off checking enabled", &m_errchk);
+		m_all_complex = 0;			// IniGetInt (INI_FILE, "BenchAllComplex", 0);
+		askYN ("Benchmark all-complex FFTs (for LLR,PFGW,PRP users)", &m_all_complex);
+		m_limit_FFT_sizes = 0;			// IniGetInt (INI_FILE, "OnlyBench5678", 1);
+		if (m_minFFT != m_maxFFT) askYN ("Limit FFT sizes (mimic older benchmarking code)", &m_limit_FFT_sizes);
+	}
 
 	sprintf (m_cores, "%lu", NUM_CPUS);
 	m_hyperthreading = IniGetInt (INI_FILE, "BenchHyperthreads", 1);
-
-	// Init throughput dialog box entries
-	m_all_FFT_impl = IniGetInt (INI_FILE, "AllBench", 0);
-	m_bench_time = IniGetInt (INI_FILE, "BenchTime", 15);
-	// If testing all FFT implementations. then default to the current num_workers.
-	// Otherwise, assume user is trying to figure out how many workers to run and form a string
-	// with the most common best values for number of workers: 1, num_threading_nodes, num_cores, num_workers
-	numvals = 0;
-	sorted_add_unique (vals, &numvals, NUM_WORKER_THREADS);
-	if (!m_all_FFT_impl) {
-		sorted_add_unique (vals, &numvals, 1);
-		sorted_add_unique (vals, &numvals, NUM_THREADING_NODES);
-		sorted_add_unique (vals, &numvals, NUM_CPUS);
-	}
-	sprintf (m_workers, "%d", vals[0]);
-	for (i = 1; i < numvals; i++) sprintf (m_workers + strlen (m_workers), ",%d", vals[i]);
-
-	askNum ("Benchmark type (0 = Throughput, 1 = FFT timings, 2 = Trial factoring)", &m_bench_type, 0, 2);
-	if (m_bench_type != 2) {
-		printf ("\nFFTs to benchmark\n");
-		askNum ("Minimum FFT size (in K)", &m_minFFT, 1, 32768);
-		askNum ("Maximum FFT size (in K)", &m_maxFFT, m_minFFT, 32768);
-		askYN ("Benchmark with round-off checking enabled", &m_errchk);
-		askYN ("Benchmark all-complex FFTs (for LLR,PFGW,PRP users)", &m_all_complex);
-		if (m_minFFT != m_maxFFT)
-			askYN ("Limit FFT sizes (mimic older benchmarking code)", &m_limit_FFT_sizes);
-	}
-
 	if (NUM_CPUS > 1 || CPU_HYPERTHREADS > 1) {
 		printf ("\nCPU cores to benchmark\n");
-		if (NUM_CPUS > 1)
-			askStr ("Number of CPU cores (comma separated list of ranges)", m_cores, 511);
-		if (CPU_HYPERTHREADS > 1)
-			askYN ("Benchmark hyperthreading", &m_hyperthreading);
+		if (NUM_CPUS > 1) askStr ("Number of CPU cores (comma separated list of ranges)", m_cores, 511);
+		if (CPU_HYPERTHREADS > 1) askYN ("Benchmark hyperthreading", &m_hyperthreading);
 	}
 
 	if (m_bench_type == 0) {
+		int	i, max_cores, vals[4], numvals;
+
 		printf ("\nThroughput benchmark options\n");
-		if (NUM_CPUS > 1)
-			askStr ("Number of workers (comma separated list of ranges)", m_workers, 511);
+
+		m_all_FFT_impl = IniGetInt (INI_FILE, "AllBench", 0);
 		askYN ("Benchmark all FFT implementations to find best one for your machine", &m_all_FFT_impl);
+
+		// To come up with a rational default for number of workers, we need to know the maximum number of
+		// cores the benchmark will be running on.
+		max_cores = 1;
+		for (i = 2; i <= NUM_CPUS; i++) if (is_number_in_list (i, m_cores)) max_cores = i;
+		// If testing all FFT implementations. then default to the current num_workers.
+		numvals = 0;
+		if (NUM_WORKER_THREADS <= max_cores) sorted_add_unique (vals, &numvals, NUM_WORKER_THREADS);
+		else sorted_add_unique (vals, &numvals, max_cores);
+		// Otherwise, assume user is trying to figure out how many workers to run and form a string
+		// with the most common best values for number of workers: 1, num_threading_nodes, num_cores, num_workers
+		if (!m_all_FFT_impl) {
+			sorted_add_unique (vals, &numvals, 1);
+			if (NUM_THREADING_NODES <= max_cores) sorted_add_unique (vals, &numvals, NUM_THREADING_NODES);
+			sorted_add_unique (vals, &numvals, max_cores);
+		}
+		sprintf (m_workers, "%d", vals[0]);
+		for (i = 1; i < numvals; i++) sprintf (m_workers + strlen (m_workers), ",%d", vals[i]);
+
+		if (max_cores > 1) askStr ("Number of workers (comma separated list of ranges)", m_workers, 511);
+
+		m_bench_time = IniGetInt (INI_FILE, "BenchTime", 15);
 		askNum ("Time to run each benchmark (in seconds)", &m_bench_time, 5, 60);
 	}
 
-	if (m_bench_type != 0)
-		m_all_FFT_impl = 0;
-
 	if (askOkCancel ()) {
-		IniWriteInt (INI_FILE, "MinBenchFFT", m_minFFT);
-		IniWriteInt (INI_FILE, "MaxBenchFFT", m_maxFFT);
-		IniWriteInt (INI_FILE, "BenchErrorCheck", m_errchk);
-		IniWriteInt (INI_FILE, "BenchAllComplex", m_all_complex ? 2 : 0);
-		IniWriteInt (INI_FILE, "OnlyBench5678", m_limit_FFT_sizes);
-
+		if (m_bench_type != 2) {
+			IniWriteInt (INI_FILE, "MinBenchFFT", m_minFFT);
+			IniWriteInt (INI_FILE, "MaxBenchFFT", m_maxFFT);
+			IniWriteInt (INI_FILE, "BenchErrorCheck", m_errchk);
+			IniWriteInt (INI_FILE, "BenchAllComplex", m_all_complex ? 2 : 0);
+			IniWriteInt (INI_FILE, "OnlyBench5678", m_limit_FFT_sizes);
+		}
 		IniWriteString (INI_FILE, "BenchCores", m_cores);
 		IniWriteInt (INI_FILE, "BenchHyperthreads", m_hyperthreading);
-
-		IniWriteString (INI_FILE, "BenchWorkers", m_workers);
-		IniWriteInt (INI_FILE, "AllBench", m_all_FFT_impl);
-		IniWriteInt (INI_FILE, "BenchTime", m_bench_time);
+		if (m_bench_type == 0) {
+			IniWriteString (INI_FILE, "BenchWorkers", m_workers);
+			IniWriteInt (INI_FILE, "AllBench", m_all_FFT_impl);
+			IniWriteInt (INI_FILE, "BenchTime", m_bench_time);
+		}
 		LaunchBench (m_bench_type);
 	}
 }
@@ -1137,7 +1170,7 @@ void help_about (void)
 	printf ("GIMPS: Mersenne Prime Search\n");
 	printf ("Web site: http://mersenne.org\n");
 	printf ("%s\n", app_string);
-	printf ("Copyright 1996-2018 Mersenne Research, Inc.\n");
+	printf ("Copyright 1996-2019 Mersenne Research, Inc.\n");
 	printf ("Author: George Woltman\n");
 	printf ("Email:  woltman@alum.mit.edu\n");
 	askOK ();

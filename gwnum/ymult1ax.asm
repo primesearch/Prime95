@@ -1,4 +1,4 @@
-; Copyright 2011-2016 Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2017 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -1244,22 +1244,22 @@ PROCFL	gwycopyzero1
 	sub	ecx, ecx		; Offset to compare to COPYZERO
 
 	mov	al, -1			; Create 4 masks for copying values
-	mov	BYTE PTR YMM_TMP4+7, al	; Create the copy all four values mask
-	mov	BYTE PTR YMM_TMP4+15, al
-	mov	BYTE PTR YMM_TMP4+23, al
-	mov	BYTE PTR YMM_TMP4+31, al
-	mov	BYTE PTR YMM_TMP3+7, cl	; Create the copy three values mask
-	mov	BYTE PTR YMM_TMP3+15, al
-	mov	BYTE PTR YMM_TMP3+23, al
-	mov	BYTE PTR YMM_TMP3+31, al
-	mov	BYTE PTR YMM_TMP2+7, cl	; Create the copy two values mask
-	mov	BYTE PTR YMM_TMP2+15, cl
-	mov	BYTE PTR YMM_TMP2+23, al
-	mov	BYTE PTR YMM_TMP2+31, al
-	mov	BYTE PTR YMM_TMP1+7, cl	; Create the copy one value mask
-	mov	BYTE PTR YMM_TMP1+15, cl
-	mov	BYTE PTR YMM_TMP1+23, cl
-	mov	BYTE PTR YMM_TMP1+31, al
+	mov	BYTE PTR YMM_TMP4[7], al ; Create the copy all four values mask
+	mov	BYTE PTR YMM_TMP4[15], al
+	mov	BYTE PTR YMM_TMP4[23], al
+	mov	BYTE PTR YMM_TMP4[31], al
+	mov	BYTE PTR YMM_TMP3[7], cl ; Create the copy three values mask
+	mov	BYTE PTR YMM_TMP3[15], al
+	mov	BYTE PTR YMM_TMP3[23], al
+	mov	BYTE PTR YMM_TMP3[31], al
+	mov	BYTE PTR YMM_TMP2[7], cl ; Create the copy two values mask
+	mov	BYTE PTR YMM_TMP2[15], cl
+	mov	BYTE PTR YMM_TMP2[23], al
+	mov	BYTE PTR YMM_TMP2[31], al
+	mov	BYTE PTR YMM_TMP1[7], cl ; Create the copy one value mask
+	mov	BYTE PTR YMM_TMP1[15], cl
+	mov	BYTE PTR YMM_TMP1[23], cl
+	mov	BYTE PTR YMM_TMP1[31], al
 	vxorpd	ymm1, ymm1, ymm1	; Start with the copy zero values mask
 
 	mov	eax, addcount1		; Load loop counter
@@ -1888,7 +1888,6 @@ nb2dn:	mov	rsi, DESTARG		; Address of squared number
 	jmp	cmnend			; All done, go cleanup
 
 nb2rdn:	mov	rsi, DESTARG		; Address of squared number
-	ynorm_top_carry_1d noexec, noexec ; Adjust top carry when k > 1
 	ynorm_1d_cleanup noexec, noexec, noexec ; Add in carries
 	jmp	cmnend			; All done, go cleanup
 
@@ -1898,23 +1897,22 @@ b2dn:	mov	rsi, DESTARG		; Address of squared number
 	jmp	cmnend			; All done, go cleanup
 
 b2rdn:	mov	rsi, DESTARG		; Address of squared number
-	ynorm_top_carry_1d noexec, exec	; Adjust top carry when k > 1
 	ynorm_1d_cleanup noexec, exec, noexec ; Add in carries
 
 ; Normalize SUMOUT value by multiplying by 1 / (fftlen/2).
 
 cmnend:	mov	rsi, DESTARG		; Address of squared number
 	ystore	YMM_TMP1, ymm7		; Add together the four partial sumouts
-	vaddsd	xmm7, xmm7, Q YMM_TMP1+8
-	vaddsd	xmm7, xmm7, Q YMM_TMP1+16
-	vaddsd	xmm7, xmm7, Q YMM_TMP1+24
+	vaddsd	xmm7, xmm7, Q YMM_TMP1[8]
+	vaddsd	xmm7, xmm7, Q YMM_TMP1[16]
+	vaddsd	xmm7, xmm7, Q YMM_TMP1[24]
 	vmulsd	xmm7, xmm7, ttmp_ff_inv
 	vmovsd	Q [rsi-24], xmm7	; Save sum of FFT outputs
 	vmovsd	xmm6, MAXERR		; Compute new maximum error
-	vmaxsd	xmm6, xmm6, Q YMM_MAXERR
-	vmaxsd	xmm6, xmm6, Q YMM_MAXERR+8
-	vmaxsd	xmm6, xmm6, Q YMM_MAXERR+16
-	vmaxsd	xmm6, xmm6, Q YMM_MAXERR+24
+	vmaxsd	xmm6, xmm6, Q YMM_MAXERR[0]
+	vmaxsd	xmm6, xmm6, Q YMM_MAXERR[8]
+	vmaxsd	xmm6, xmm6, Q YMM_MAXERR[16]
+	vmaxsd	xmm6, xmm6, Q YMM_MAXERR[24]
 	vmovsd	MAXERR, xmm6
 
 ; Return

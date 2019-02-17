@@ -7,7 +7,7 @@
 //
 
 #import "WindowController.h"
-#include "Prime95.h"
+#include "prime95.h"
 
 gwmutex	VIEW_MUTEX;		/* Lock for accessing Views Array */
 int	VIEW_MUTEX_INITIALIZED = 0;

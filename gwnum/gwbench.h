@@ -10,7 +10,7 @@
 | on the end user machine looking for an FFT implementation that is faster than the
 | default selection.
 |
-| Copyright 2017 Mersenne Research, Inc.  All rights reserved.
+| Copyright 2017-2018 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWBENCH_H
@@ -69,7 +69,7 @@ void gwbench_read_data (void);
 int gwbench_implementation_id (gwhandle *, int);
 int internal_implementation_id (int, int, int, int, int, int, int, int, int);
 int internal_implementation_ids_match (int, int, int, int, int, int, int, int);
-void gwbench_get_max_throughput (int, int, int, int, int, int, int, int *, double *);
+void gwbench_get_max_throughput (int, int, int, int, int, int, int, int, int *, double *);
 
 #ifdef __cplusplus
 }

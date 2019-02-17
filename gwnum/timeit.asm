@@ -1,4 +1,4 @@
-; Copyright 1995-2016 Mersenne Research, Inc.  All rights reserved
+; Copyright 1995-2018 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -32,10 +32,11 @@ ENDIF
 SSE2_CASES	EQU	216
 AVX_CASES	EQU	300
 IFDEF X86_64
-AVX512_CASES	EQU	12
+AVX512_CASES	EQU	140
 ELSE
 AVX512_CASES	EQU	0
 ENDIF
+IACA_TEST_CASE	EQU	999
 
 loopent	MACRO	y,z		; Create a entry in the loop entry table
 	DP	&y&z
@@ -285,9 +286,221 @@ loop1:  vmovapd  zmm0, [rsi]		;; Read cache lines
         add     rsi, 4*64		;; Next cache lines
         sub     ecx, 1
         jnz     loop1
-        sub     rsi, cnt*4*64
+        sub     rsi, cnt*4*64		;; Restore source pointer
 	dec	edx
 	jnz	loop2
+	ENDM
+
+clocks50 MACRO
+	REPEAT 50
+	vpandq zmm0, zmm0, zmm1
+	ENDM
+	ENDM
+
+sequential_readwrite8 MACRO mem, c		;; Bytes to read/write
+	LOCAL loop1, loop2, loop3
+        cnt = mem/(4*64)                ;; 4 cache lines per iteration -- equivalent to clm=2
+	cnt1 = 1280 / 2			;; Assumes pass 1 size of 1280, which equals 640 cache line pairs
+        cnt2 = cnt / cnt1		;; This is number of pass 1 blocks
+	dist = 7680*16 + 29*64		;; Assumes pass 2 does 7680 * 16 bytes + 29*64 pad bytes
+	mov	edx, c
+loop3:	mov     ecx, cnt1
+loop2:	mov     ebx, cnt2
+loop1:  vmovapd  zmm0, [rsi]		;; Read cache lines
+        vmovapd  zmm2, [rsi+64]
+        vmovapd  zmm4, [rsi+128]
+        vmovapd  zmm6, [rsi+192]
+prefetcht0 [rsi+4*64+0]
+prefetcht0 [rsi+4*64+64]
+;	clocks50
+prefetcht0 [rsi+4*64+128]
+prefetcht0 [rsi+4*64+192]
+	clocks50
+	vmovapd  [rsi], zmm0		;; Write cache lines
+        vmovapd  [rsi+64], zmm2
+        vmovapd  [rsi+128], zmm4
+        vmovapd  [rsi+192], zmm6
+;	vmovntpd  [rsi], zmm0		;; Write cache lines
+;        vmovntpd  [rsi+64], zmm2
+;        vmovntpd  [rsi+128], zmm4
+;        vmovntpd  [rsi+192], zmm6
+        add     rsi, 4*64		;; Next cache lines
+        sub     ebx, 1
+        jnz     loop1
+        sub     ecx, 1
+        jnz     loop2
+        sub     rsi, cnt2*cnt1*4*64	;; Restore source pointer
+	dec	edx
+	jnz	loop3
+	ENDM
+
+scatter_readwrite8 MACRO mem, c		;; Bytes to read/write
+	LOCAL loop1, loop2, loop3
+        cnt = mem/(4*64)                ;; 4 cache lines per iteration -- equivalent to clm=2
+	cnt1 = 1280 / 2			;; Assumes pass 1 size of 1280, which equals 640 cache line pairs
+        cnt2 = cnt / cnt1		;; This is number of pass 1 blocks
+	dist = 7680*16 + 29*64		;; Assumes pass 2 does 7680 * 16 bytes + 29*64 pad bytes
+	mov	edx, c
+loop3:	mov     ecx, cnt2
+loop2:	mov     ebx, cnt1
+loop1:  vmovapd  zmm0, [rsi]		;; Read cache lines
+        vmovapd  zmm2, [rsi+64]
+        vmovapd  zmm4, [rsi+128]
+        vmovapd  zmm6, [rsi+192]
+prefetcht0 [rsi+dist+0]
+prefetcht0 [rsi+dist+64]
+;	clocks50
+prefetcht0 [rsi+dist+128]
+prefetcht0 [rsi+dist+192]
+	clocks50
+	vmovapd  [rsi], zmm0		;; Write cache lines
+        vmovapd  [rsi+64], zmm2
+        vmovapd  [rsi+128], zmm4
+        vmovapd  [rsi+192], zmm6
+;	vmovntpd  [rsi], zmm0		;; Write cache lines
+;        vmovntpd  [rsi+64], zmm2
+;        vmovntpd  [rsi+128], zmm4
+;        vmovntpd  [rsi+192], zmm6
+        add     rsi, dist		;; Next cache lines
+        sub     ebx, 1
+        jnz     loop1
+        add     rsi, -cnt1*dist+4*64	;; Next cache lines
+        sub     ecx, 1
+        jnz     loop2
+        sub     rsi, cnt2*4*64		;; Restore source pointer
+	dec	edx
+	jnz	loop3
+	ENDM
+
+;;newer version simulating half as many large strides
+scatter_readwrite8 MACRO mem, c		;; Bytes to read/write
+	LOCAL loop1, loop2, loop3
+        cnt = mem/(8*64)                ;; 4 cache lines per iteration -- equivalent to clm=4
+	cnt1 = 1280 / 2			;; Assumes pass 1 size of 1280, which equals 640 cache line pairs
+        cnt2 = cnt / cnt1		;; This is number of pass 1 blocks
+	dist = 7680*16 + 29*64		;; Assumes pass 2 does 7680 * 16 bytes + 29*64 pad bytes
+	mov	edx, c
+loop3:	mov     ecx, cnt2
+loop2:	mov     ebx, cnt1
+loop1:  vmovapd  zmm0, [rsi]		;; Read cache lines
+        vmovapd  zmm2, [rsi+64]
+        vmovapd  zmm4, [rsi+128]
+        vmovapd  zmm6, [rsi+192]
+prefetcht0 [rsi+dist+0]
+prefetcht0 [rsi+dist+64]
+prefetcht0 [rsi+dist+128]
+prefetcht0 [rsi+dist+192]
+	clocks50
+	vmovapd  [rsi], zmm0		;; Write cache lines
+        vmovapd  [rsi+64], zmm2
+        vmovapd  [rsi+128], zmm4
+        vmovapd  [rsi+192], zmm6
+
+	vmovapd  zmm0, [rsi+256]		;; Read cache lines
+        vmovapd  zmm2, [rsi+256+64]
+        vmovapd  zmm4, [rsi+256+128]
+        vmovapd  zmm6, [rsi+256+192]
+prefetcht0 [rsi+dist+256+0]
+prefetcht0 [rsi+dist+256+64]
+prefetcht0 [rsi+dist+256+128]
+prefetcht0 [rsi+dist+256+192]
+	clocks50
+	vmovapd  [rsi+256], zmm0		;; Write cache lines
+        vmovapd  [rsi+256+64], zmm2
+        vmovapd  [rsi+256+128], zmm4
+        vmovapd  [rsi+256+192], zmm6
+
+        add     rsi, dist		;; Next cache lines
+        sub     ebx, 1
+        jnz     loop1
+        add     rsi, -cnt1*dist+8*64	;; Next cache lines
+        sub     ecx, 1
+        jnz     loop2
+        sub     rsi, cnt2*8*64		;; Restore source pointer
+	dec	edx
+	jnz	loop3
+	ENDM
+
+sequential_read_scatter_write8 MACRO mem, c ;; Bytes to read/write
+	LOCAL loop1, loop2, loop3
+        cnt = mem/(4*64)                ;; 4 cache lines per iteration -- equivalent to clm=2
+	cnt1 = 1280 / 2			;; Assumes pass 1 size of 1280, which equals 640 cache line pairs
+        cnt2 = cnt / cnt1		;; This is number of pass 1 blocks
+	dist = 7680*16 + 29*64		;; Assumes pass 2 does 7680 * 16 bytes + 29*64 pad bytes
+	lea	rdi, [rsi+96*1024*1024]	;; write to separate mem address 96MB away
+	mov	edx, c
+loop3:	mov     ecx, cnt2
+loop2:	mov     ebx, cnt1
+loop1:  vmovapd  zmm0, [rsi]		;; Read cache lines
+        vmovapd  zmm2, [rsi+64]
+        vmovapd  zmm4, [rsi+128]
+        vmovapd  zmm6, [rsi+192]
+prefetcht0 [rsi+4*64+0]
+prefetcht0 [rsi+4*64+64]
+;	clocks50
+prefetcht0 [rsi+4*64+128]
+prefetcht0 [rsi+4*64+192]
+	clocks50
+;	vmovapd  [rdi], zmm0		;; Write cache lines
+;        vmovapd  [rdi+64], zmm2
+;        vmovapd  [rdi+128], zmm4
+;        vmovapd  [rdi+192], zmm6
+	vmovntpd  [rdi], zmm0		;; Write cache lines
+        vmovntpd  [rdi+64], zmm2
+        vmovntpd  [rdi+128], zmm4
+        vmovntpd  [rdi+192], zmm6
+        add     rsi, 4*64		;; Next cache lines
+        add     rdi, dist		;; Next cache lines
+        sub     ebx, 1
+        jnz     loop1
+        add     rdi, -cnt1*dist+4*64	;; Next cache lines
+        sub     ecx, 1
+        jnz     loop2
+        sub     rsi, cnt1*cnt2*4*64	;; Restore source pointer
+        sub     rdi, cnt2*4*64		;; Restore dest pointer
+	dec	edx
+	jnz	loop3
+	ENDM
+
+scatter_read_sequential_write8 MACRO mem, c ;; Bytes to read/write
+	LOCAL loop1, loop2, loop3
+        cnt = mem/(4*64)                ;; 4 cache lines per iteration -- equivalent to clm=2
+	cnt1 = 1280 / 2			;; Assumes pass 1 size of 1280, which equals 640 cache line pairs
+        cnt2 = cnt / cnt1		;; This is number of pass 1 blocks
+	dist = 7680*16 + 29*64		;; Assumes pass 2 does 7680 * 16 bytes + 29*64 pad bytes
+	lea	rdi, [rsi+96*1024*1024]	;; write to separate mem address 96MB away
+	mov	edx, c
+loop3:	mov     ecx, cnt2
+loop2:	mov     ebx, cnt1
+loop1:  vmovapd  zmm0, [rsi]		;; Read cache lines
+        vmovapd  zmm2, [rsi+64]
+        vmovapd  zmm4, [rsi+128]
+        vmovapd  zmm6, [rsi+192]
+prefetcht0 [rsi+dist+0]
+prefetcht0 [rsi+dist+64]
+;	clocks50
+prefetcht0 [rsi+dist+128]
+prefetcht0 [rsi+dist+192]
+	clocks50
+;	vmovapd  [rdi], zmm0		;; Write cache lines
+;        vmovapd  [rdi+64], zmm2
+;        vmovapd  [rdi+128], zmm4
+;        vmovapd  [rdi+192], zmm6
+	vmovntpd  [rdi], zmm0		;; Write cache lines
+        vmovntpd  [rdi+64], zmm2
+        vmovntpd  [rdi+128], zmm4
+        vmovntpd  [rdi+192], zmm6
+        add     rsi, dist		;; Next cache lines
+        add     rdi, 4*64		;; Next cache lines
+        sub     ebx, 1
+        jnz     loop1
+        add     rsi, -cnt1*dist+4*64	;; Next cache lines
+        sub     ecx, 1
+        jnz     loop2
+        sub     rsi, cnt2*4*64		;; Restore source pointer
+        sub     rdi, cnt1*cnt2*4*64	;; Restore dest pointer
+	dec	edx
+	jnz	loop3
 	ENDM
 
 x4cl_empty MACRO srcreg,srcinc,d1,d2,screg,scoff
@@ -678,6 +891,153 @@ av0b:	&ops
 	jmp	exit
 	ENDM
 ENDIF
+
+avx512mac MACRO	memused, memarea, rdi_incr, ops:vararg
+	LOCAL	avx512label
+	avx512label CATSTR <av512case>,%avx512_case_num
+	avx512_case_num = avx512_case_num + 1
+	avx512mac1 avx512label, memused, memarea, rdi_incr, ops
+	ENDM
+avx512mac1 MACRO lab, memused, memarea, rdi_incr, ops:vararg
+	LOCAL	av00, av0a, av0b
+	inner_iters = memarea / (memused)
+	outer_iters = 10000 / inner_iters
+	odd_iters = 10000 - inner_iters * outer_iters
+	IF odd_iters EQ 0
+	odd_iters = inner_iters
+	ELSE
+	outer_iters = outer_iters + 1
+	ENDIF
+lab:	mov	rbx, 0			;; Offset for some avx macros (s.b. non-zero for with_mult macros)
+	mov	rbp, 524288+256		;; Offset for mulf avx macros
+	mov	r12, norm_grp_mults
+	mov	r13, r12
+	mov	r8, 128			;; d1reg for "rsc" macros
+	mov	r9, 384			;; d3reg for "rsc" macros
+	mov	eax, outer_iters
+	mov	ecx, odd_iters
+	mov	SRCARG, rdi		;; Save work buf addr
+av0a:	mov	rdi, SRCARG		;; Reload work buf addr (sincos data)
+	lea	rsi, [rdi+262144+4096+64] ;; Source & dest ptr
+	lea	rdx, [rsi+524288+8192+256] ;; Destination for "rsc" macros
+	lea	r10, [rdx+512]		;; src4reg/dst4reg for "rsc" macros
+	lea	r15, [rdx+262144+256+64] ;; s/c data for first macros
+IF avx512_case_num-1 EQ IACA_TEST_CASE
+IACA_START
+ENDIF
+av0b:	&ops
+	bump	rdi, rdi_incr		;; Next sine/cosine pointer
+	dec	ecx
+	jnz	av0b
+IF avx512_case_num-1 EQ IACA_TEST_CASE
+IACA_END
+ENDIF
+	mov	ecx, inner_iters
+	dec	eax
+	jnz	av0a
+	jmp	exit
+	ENDM
+
+avx512znormmac MACRO	memused, memarea, rdi_incr, ops:vararg
+	LOCAL	avx512label
+	avx512label CATSTR <av512case>,%avx512_case_num
+	avx512_case_num = avx512_case_num + 1
+	avx512znormmac1 avx512label, memused, memarea, rdi_incr, ops
+	ENDM
+avx512znormmac1 MACRO lab, memused, memarea, rdi_incr, ops:vararg
+	LOCAL	av00, av0a, av0b
+	inner_iters = memarea / (memused)
+	outer_iters = 10000 / inner_iters
+	odd_iters = 10000 - inner_iters * outer_iters
+	IF odd_iters EQ 0
+	odd_iters = inner_iters
+	ELSE
+	outer_iters = outer_iters + 1
+	ENDIF
+lab:	mov	rbx, 0			;; Offset for some avx macros (s.b. non-zero for with_mult macros)
+	mov	rbp, 524288+256		;; Offset for mulf avx macros
+	mov	r12, norm_grp_mults
+	mov	r13, r12
+	mov	eax, outer_iters
+	mov	ecx, odd_iters
+	mov	SRCARG, rdi		;; Save work buf addr
+av0a:	mov	rdi, SRCARG		;; Reload work buf addr (sincos data)
+	lea	rsi, [rdi+262144+4096+64] ;; Source & dest ptr
+	mov	r14, 262144+4096+64
+	lea	r13, [rsi+r14*2]
+	lea	r8, [rdi+4096]
+	lea	r10, [r8+4096+64]
+	sub	rdx, rdx
+IF avx512_case_num-1 EQ IACA_TEST_CASE
+IACA_START
+ENDIF
+av0b:	&ops
+	bump	rsi, 128
+	bump	r13, 128
+	bump	rdi, 1
+	dec	ecx
+	jnz	av0b
+IF avx512_case_num-1 EQ IACA_TEST_CASE
+IACA_END
+ENDIF
+	mov	ecx, inner_iters
+	dec	eax
+	jnz	av0a
+	jmp	exit
+	ENDM
+
+do2 MACRO ops:vararg
+	&ops
+	&ops
+	ENDM
+do5 MACRO ops:vararg
+	do2 &ops
+	do2 &ops
+	&ops
+	ENDM
+do10 MACRO ops:vararg
+	do2 do5 &ops
+	ENDM
+
+fiveclocks MACRO
+	vaddpd	ymm0, ymm0, ymm0
+	vaddpd	ymm1, ymm1, ymm1
+	vaddpd	ymm2, ymm2, ymm2
+	vaddpd	ymm3, ymm3, ymm3
+	vaddpd	ymm4, ymm4, ymm4
+	vaddpd	ymm5, ymm5, ymm5
+	vaddpd	ymm6, ymm6, ymm6
+	vaddpd	ymm7, ymm7, ymm7
+	vaddpd	ymm8, ymm8, ymm8
+	vaddpd	ymm9, ymm9, ymm9
+	ENDM
+tenclocks MACRO
+	fiveclocks
+	fiveclocks
+	ENDM
+hundredclocks MACRO
+	do10 tenclocks
+	ENDM
+
+fiveclocks512 MACRO
+	vaddpd	zmm0, zmm0, zmm0
+	vaddpd	zmm1, zmm1, zmm1
+	vaddpd	zmm2, zmm2, zmm2
+	vaddpd	zmm3, zmm3, zmm3
+	vaddpd	zmm4, zmm4, zmm4
+	vaddpd	zmm5, zmm5, zmm5
+	vaddpd	zmm6, zmm6, zmm6
+	vaddpd	zmm7, zmm7, zmm7
+	vaddpd	zmm8, zmm8, zmm8
+	vaddpd	zmm9, zmm9, zmm9
+	ENDM
+tenclocks512 MACRO
+	fiveclocks512
+	fiveclocks512
+	ENDM
+hundredclocks512 MACRO
+	do10 tenclocks512
+	ENDM
 
 _TEXT	SEGMENT
 
@@ -1535,13 +1895,214 @@ avcase11:	readwrite4 32768*1024, 2 ; Read/write 32MB
 ; Time ~10000 iterations of the AVX-512 macros in L1 and L2 caches
 
 IFDEF X86_64
-;INCLUDE zarch.mac
-;INCLUDE zbasics.mac
-;INCLUDE zmult.mac
-;INCLUDE zr4.mac
-;INCLUDE znormal.mac
+ARCH EQU SKX
+INCLUDE zarch.mac
+INCLUDE zbasics.mac
+INCLUDE zmult.mac
+INCLUDE zonepass.mac
+INCLUDE zr4.mac
+INCLUDE znormal.mac
+INCLUDE znormal_zpad.mac
 
-; This code reads/writes 64MB (1M cache lines) in contiguous blocks.  Timings are done
+FMApenalty_test1 MACRO		;; Test if latency is really 4 clocks, ideal macro timing is 4 clocks
+	zfmaddpd	zmm0, zmm0, zmm0, zmm0
+	zfmaddpd	zmm1, zmm1, zmm1, zmm1
+	zfmaddpd	zmm2, zmm2, zmm2, zmm2
+	zfmaddpd	zmm3, zmm3, zmm3, zmm3
+	zfmaddpd	zmm4, zmm4, zmm4, zmm4
+	zfmaddpd	zmm5, zmm5, zmm5, zmm5
+	zfmaddpd	zmm6, zmm6, zmm6, zmm6
+	zfmaddpd	zmm7, zmm7, zmm7, zmm7
+	ENDM
+FMApenalty_test2 MACRO		;; Test if *average* latency is really 5 clocks, ideal macro timing is 5 clocks
+	zfmaddpd	zmm0, zmm0, zmm0, zmm0
+	zfmaddpd	zmm1, zmm1, zmm1, zmm1
+	zfmaddpd	zmm2, zmm2, zmm2, zmm2
+	zfmaddpd	zmm3, zmm3, zmm3, zmm3
+	zfmaddpd	zmm4, zmm4, zmm4, zmm4
+	zfmaddpd	zmm5, zmm5, zmm5, zmm5
+	zfmaddpd	zmm6, zmm6, zmm6, zmm6
+	zfmaddpd	zmm7, zmm7, zmm7, zmm7
+	zfmaddpd	zmm8, zmm8, zmm8, zmm8
+	zfmaddpd	zmm9, zmm9, zmm9, zmm9
+	ENDM
+FMApenalty_test3 MACRO		;; Test if *average* latency is 6 clocks, ideal macro timing is 6 clocks
+	zfmaddpd	zmm0, zmm0, zmm0, zmm0
+	zfmaddpd	zmm1, zmm1, zmm1, zmm1
+	zfmaddpd	zmm2, zmm2, zmm2, zmm2
+	zfmaddpd	zmm3, zmm3, zmm3, zmm3
+	zfmaddpd	zmm4, zmm4, zmm4, zmm4
+	zfmaddpd	zmm5, zmm5, zmm5, zmm5
+	zfmaddpd	zmm6, zmm6, zmm6, zmm6
+	zfmaddpd	zmm7, zmm7, zmm7, zmm7
+	zfmaddpd	zmm8, zmm8, zmm8, zmm8
+	zfmaddpd	zmm9, zmm9, zmm9, zmm9
+	zfmaddpd	zmm10, zmm10, zmm10, zmm10
+	zfmaddpd	zmm11, zmm11, zmm11, zmm11
+	ENDM
+FMApenalty_test4 MACRO		;; Test if there is a penalty switching between FMA and add/sub/mul, ideal macro timing is 6 clocks
+	zfmaddpd	zmm0, zmm0, zmm0, zmm0
+	zfmaddpd	zmm1, zmm1, zmm1, zmm1
+	zfmaddpd	zmm2, zmm2, zmm2, zmm2
+	zfmaddpd	zmm3, zmm3, zmm3, zmm3
+	zfmaddpd	zmm12, zmm12, zmm12, zmm12
+	zfmaddpd	zmm13, zmm13, zmm13, zmm13
+	vaddpd		zmm4, zmm4, zmm4
+	vaddpd		zmm5, zmm5, zmm5
+	vaddpd		zmm6, zmm6, zmm6
+	vaddpd		zmm7, zmm7, zmm7
+	vaddpd		zmm16, zmm16, zmm16
+	vaddpd		zmm17, zmm17, zmm17
+	ENDM
+FMApenalty_test5 MACRO		;; Test if there is a penalty using FMA vs. add/sub/mul, ideal macro timing is 6 clocks
+	vaddpd		zmm0, zmm0, zmm0
+	vaddpd		zmm1, zmm1, zmm1
+	vaddpd		zmm2, zmm2, zmm2
+	vaddpd		zmm3, zmm3, zmm3
+	vaddpd		zmm12, zmm12, zmm12
+	vaddpd		zmm13, zmm13, zmm13
+	vaddpd		zmm4, zmm4, zmm4
+	vaddpd		zmm5, zmm5, zmm5
+	vaddpd		zmm6, zmm6, zmm6
+	vaddpd		zmm7, zmm7, zmm7
+	vaddpd		zmm16, zmm16, zmm16
+	vaddpd		zmm17, zmm17, zmm17
+	ENDM
+
+do_nothing MACRO srcreg,srcinc,d1,d2,d4,screg,scinc,maxrpt,L1pt,L1pd
+	vmovapd	zmm1, [srcreg+d1]	;; R2
+	vmovapd	zmm2, [srcreg+d4+d1]	;; R6
+	vmovapd	zmm3, [srcreg+d2+d1+64]	;; I4
+	vmovapd	zmm4, [srcreg+d4+d2+d1+64] ;; I8
+	vmovapd	zmm5, [srcreg+d2+d1]	;; R4
+	vmovapd	zmm6, [srcreg+d4+d2+d1]	;; R8
+	vmovapd	zmm7, [srcreg+d1+64]	;; I2
+	vmovapd	zmm8, [srcreg+d4+d1+64]	;; I6
+	vmovapd	zmm9, [srcreg]		;; R1
+	vmovapd	zmm10, [srcreg+d4]	;; R5
+	vmovapd	zmm11, [srcreg+d2]	;; R3
+	vmovapd	zmm12, [srcreg+d4+d2]	;; R7
+	vmovapd	zmm13, [srcreg+64]	;; I1
+	vmovapd	zmm14, [srcreg+d4+64]	;; I5
+	vmovapd	zmm15, [srcreg+d2+64]	;; I3
+	vmovapd	zmm16, [srcreg+d4+d2+64]	;; I7
+	zstore	[srcreg], zmm1			;; Store R1
+	zstore	[srcreg+d1], zmm2		;; Store R2
+	zstore	[srcreg+d2], zmm3		;; Store R3
+	zstore	[srcreg+d2+d1], zmm4		;; Store R4
+	zstore	[srcreg+d4], zmm5		;; Store R5
+	zstore	[srcreg+d4+d1], zmm6		;; Store R6
+	zstore	[srcreg+d4+d2], zmm7		;; Store R7
+	zstore	[srcreg+d4+d2+d1], zmm8		;; Store R8
+	zstore	[srcreg+64], zmm9		;; Store I1
+	zstore	[srcreg+d1+64], zmm10		;; Store I2
+	zstore	[srcreg+d2+64], zmm11		;; Store I3
+	zstore	[srcreg+d2+d1+64], zmm12	;; Store I4
+	zstore	[srcreg+d4+64], zmm13		;; Store I5
+	zstore	[srcreg+d4+d1+64], zmm14	;; Store I6
+	zstore	[srcreg+d4+d2+64], zmm15	;; Store I7
+	zstore	[srcreg+d4+d2+d1+64], zmm16	;; Store I8
+	bump	srcreg, srcinc
+	ENDM
+
+do_nothing_plus_sincos MACRO srcreg,srcinc,d1,d2,d4,screg,scinc,maxrpt,L1pt,L1pd
+	vmovapd	zmm1, [srcreg+d1]	;; R2
+	vmovapd	zmm2, [srcreg+d4+d1]	;; R6
+	vmovapd	zmm3, [srcreg+d2+d1+64]	;; I4
+	vmovapd	zmm4, [srcreg+d4+d2+d1+64] ;; I8
+	vmovapd	zmm5, [srcreg+d2+d1]	;; R4
+	vmovapd	zmm6, [srcreg+d4+d2+d1]	;; R8
+	vmovapd	zmm7, [srcreg+d1+64]	;; I2
+	vmovapd	zmm8, [srcreg+d4+d1+64]	;; I6
+	vmovapd	zmm9, [srcreg]		;; R1
+	vmovapd	zmm10, [srcreg+d4]	;; R5
+	vmovapd	zmm11, [srcreg+d2]	;; R3
+	vmovapd	zmm12, [srcreg+d4+d2]	;; R7
+	vmovapd	zmm13, [srcreg+64]	;; I1
+	vmovapd	zmm14, [srcreg+d4+64]	;; I5
+	vmovapd	zmm15, [srcreg+d2+64]	;; I3
+	vmovapd	zmm16, [srcreg+d4+d2+64]	;; I7
+ vmovapd zmm17, [screg+1*128]		;; sine for R3/I3 and R4/I4
+ vmovapd zmm17, [screg+3*128+64]	;; cosine/sine for R2/I2
+ vmovapd zmm17, [screg+2*128+64]	;; cosine/sine for R7/I7 and R6/I6
+ vmovapd zmm17, [screg+0*128+64]	;; cosine/sine for R5/I5 and R8/I8
+ vmovapd zmm17, [screg+1*128+64]	;; cosine/sine for R3/I3 and R4/I4
+ vmovapd zmm17, [screg+3*128]		;; sine for R2/I2
+ vmovapd zmm17, [screg+2*128]		;; sine for R7/I7 and R6/I6
+ vmovapd zmm17, [screg+0*128]		;; sine for R5/I5 and R8/I8
+	bump	screg, scinc
+	zstore	[srcreg], zmm1			;; Store R1
+	zstore	[srcreg+d1], zmm2		;; Store R2
+	zstore	[srcreg+d2], zmm3		;; Store R3
+	zstore	[srcreg+d2+d1], zmm4		;; Store R4
+	zstore	[srcreg+d4], zmm5		;; Store R5
+	zstore	[srcreg+d4+d1], zmm6		;; Store R6
+	zstore	[srcreg+d4+d2], zmm7		;; Store R7
+	zstore	[srcreg+d4+d2+d1], zmm8		;; Store R8
+	zstore	[srcreg+64], zmm9		;; Store I1
+	zstore	[srcreg+d1+64], zmm10		;; Store I2
+	zstore	[srcreg+d2+64], zmm11		;; Store I3
+	zstore	[srcreg+d2+d1+64], zmm12	;; Store I4
+	zstore	[srcreg+d4+64], zmm13		;; Store I5
+	zstore	[srcreg+d4+d1+64], zmm14	;; Store I6
+	zstore	[srcreg+d4+d2+64], zmm15	;; Store I7
+	zstore	[srcreg+d4+d2+d1+64], zmm16	;; Store I8
+	bump	srcreg, srcinc
+	ENDM
+
+do_nothing_plus_L1prefetch MACRO srcreg,srcinc,d1,d2,d4,screg,scinc,maxrpt,L1pt,L1pd
+	L1prefetchw srcreg+L1pd, L1pt
+	L1prefetchw srcreg+64+L1pd, L1pt
+	L1prefetchw srcreg+d1+L1pd, L1pt
+	L1prefetchw srcreg+d1+64+L1pd, L1pt
+	L1prefetchw srcreg+d2+L1pd, L1pt
+	L1prefetchw srcreg+d2+64+L1pd, L1pt
+	L1prefetchw srcreg+d2+d1+L1pd, L1pt
+	L1prefetchw srcreg+d2+d1+64+L1pd, L1pt
+	L1prefetchw srcreg+d4+L1pd, L1pt
+	L1prefetchw srcreg+d4+64+L1pd, L1pt
+	L1prefetchw srcreg+d4+d1+L1pd, L1pt
+	L1prefetchw srcreg+d4+d1+64+L1pd, L1pt
+	L1prefetchw srcreg+d4+d2+L1pd, L1pt
+	L1prefetchw srcreg+d4+d2+64+L1pd, L1pt
+	L1prefetchw srcreg+d4+d2+d1+L1pd, L1pt
+	L1prefetchw srcreg+d4+d2+d1+64+L1pd, L1pt
+	vmovapd	zmm1, [srcreg+d1]	;; R2
+	vmovapd	zmm2, [srcreg+d4+d1]	;; R6
+	vmovapd	zmm3, [srcreg+d2+d1+64]	;; I4
+	vmovapd	zmm4, [srcreg+d4+d2+d1+64] ;; I8
+	vmovapd	zmm5, [srcreg+d2+d1]	;; R4
+	vmovapd	zmm6, [srcreg+d4+d2+d1]	;; R8
+	vmovapd	zmm7, [srcreg+d1+64]	;; I2
+	vmovapd	zmm8, [srcreg+d4+d1+64]	;; I6
+	vmovapd	zmm9, [srcreg]		;; R1
+	vmovapd	zmm10, [srcreg+d4]	;; R5
+	vmovapd	zmm11, [srcreg+d2]	;; R3
+	vmovapd	zmm12, [srcreg+d4+d2]	;; R7
+	vmovapd	zmm13, [srcreg+64]	;; I1
+	vmovapd	zmm14, [srcreg+d4+64]	;; I5
+	vmovapd	zmm15, [srcreg+d2+64]	;; I3
+	vmovapd	zmm16, [srcreg+d4+d2+64]	;; I7
+	zstore	[srcreg], zmm1			;; Store R1
+	zstore	[srcreg+d1], zmm2		;; Store R2
+	zstore	[srcreg+d2], zmm3		;; Store R3
+	zstore	[srcreg+d2+d1], zmm4		;; Store R4
+	zstore	[srcreg+d4], zmm5		;; Store R5
+	zstore	[srcreg+d4+d1], zmm6		;; Store R6
+	zstore	[srcreg+d4+d2], zmm7		;; Store R7
+	zstore	[srcreg+d4+d2+d1], zmm8		;; Store R8
+	zstore	[srcreg+64], zmm9		;; Store I1
+	zstore	[srcreg+d1+64], zmm10		;; Store I2
+	zstore	[srcreg+d2+64], zmm11		;; Store I3
+	zstore	[srcreg+d2+d1+64], zmm12	;; Store I4
+	zstore	[srcreg+d4+64], zmm13		;; Store I5
+	zstore	[srcreg+d4+d1+64], zmm14	;; Store I6
+	zstore	[srcreg+d4+d2+64], zmm15	;; Store I7
+	zstore	[srcreg+d4+d2+d1+64], zmm16	;; Store I8
+	bump	srcreg, srcinc
+	ENDM
+
+; this code reads/writes 64MB (1M cache lines) in contiguous blocks.  Timings are done
 ; on 4 memory sizes.  4KB will operate on the L1 cache only, 128KB will operate on the
 ; L2 cache only, 2MB will operate on the L3 cache and 32MB will operate on main memory.
 
@@ -1572,25 +2133,204 @@ av512case10:	readwrite8 2048*1024, 32 ; Read/write 2MB
 av512case11:	readwrite8 32768*1024, 2 ; Read/write 32MB
 		jmp	exit
 
-IFDEF QQQQ
+		;; Simulate various ways to implement a 9600K FFT, pass 1 = 1280, pass 2 = 7680.
+		;; Our AVX512 implementation is much, much slower in pass 1 with it's scatter reads
+		;; and scatter writes vs. pass 2 with its sequential reads and sequential writes.
+
+		;; Optimal, but not possible - sequential read and write.
+av512case12:	sequential_readwrite8 1280*7680*8, 5 ; Read/write 78MB
+		jmp	exit
+		;; Scatter read and scatter write -- simulates pass 1 with clm = 2
+av512case13:	scatter_readwrite8 1280*7680*8, 5 ; Read/write 78MB
+		jmp	exit
+		;; Sequential read and scatter write -- simulates rewritten pass 1 & 2
+av512case14:	sequential_read_scatter_write8 1280*7680*8, 5 ; Read/write 78MB
+		jmp	exit
+		;; For completeness, scatter read and sequential write
+av512case15:	scatter_read_sequential_write8 1280*7680*8, 5 ; Read/write 78MB
+		jmp	exit
+
+
 	zloop_init 32			;; Dummy call to zloop_init
 
-	avx512_case_num = 12
+	avx512_case_num = 16
 
-;;12
-	avx512mac 256*1, 8192, 0, zr4_4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 1
-	avx512mac 256*2, 8192, 0, zr4_4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 2
-	avx512mac 256*1, 100000, 0, zr4_4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 1
-	avx512mac 256*2, 100000, 0, zr4_4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 2
-	avx512mac 256*1, 8192, 0, zr4_s4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 1
-	avx512mac 256*1, 100000, 0, zr4_s4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 1
-	avx512macbx 256*1, 8192, 0, zr4_fs4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 1
-	avx512macbx 256*1, 100000, 0, zr4_fs4cl_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, ZMM_SCD3, 1
-	avx512mac 256, 8192, 0, zr4_b4cl_csc_wpn_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, 0, rdi, ZMM_SCND4, 1
-	avx512mac 256, 100000, 0, zr4_b4cl_csc_wpn_eight_reals_fft rsi, 4*64, 64, 2*64, rdi, 0, rdi, ZMM_SCND4, 1
-	avx512mac 256*1, 8192, 0, zr4_sg4cl_2sc_eight_reals_fft4 rsi, 4*64, 64, 2*64, rdx, 4*64, 64, 2*64, rdi, ZMM_SCD4, rdi, ZMM_SCD2, 1
-	avx512mac 256*1, 100000, 0, zr4_sg4cl_2sc_eight_reals_fft4 rsi, 4*64, 64, 2*64, rdx, 4*64, 64, 2*64, rdi, ZMM_SCD4, rdi, ZMM_SCD2, 1
-ENDIF
+;;16
+	avx512mac 1, 10000, 0, tenclocks		; Macro that should take exactly 10 clocks (for calibration purposes)
+	avx512mac 1, 10000, 0, hundredclocks		; Macro that should take exactly 100 clocks (for calibration purposes)
+	avx512mac 1, 10000, 0, hundredclocks512		; compare 100 clocks of zmm vs ymm
+	avx512mac 1, 10000, 0, do5 do5 FMApenalty_test1
+	avx512mac 1, 10000, 0, do2 do10 FMApenalty_test2
+	avx512mac 1, 10000, 0, do2 do10 FMApenalty_test3
+	avx512mac 1, 10000, 0, do2 do10 FMApenalty_test4
+	avx512mac 1, 10000, 0, do2 do10 FMApenalty_test5
+
+;;24							; Macros that do nothing but load and store -- tests best case scenario
+	avx512mac 10240, 16384, 0, do10 do_nothing rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1	;; Fastest possible L1 cache macro
+	avx512mac 10240, 262144, 0, do10 do_nothing rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1	;; Fastest possible L2 cache macro
+	avx512mac 10240, 4194304, 0, do10 do_nothing rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1	;; Fastest possible L3 cache macro
+	avx512mac 10240, 32768*1024, 0, do10 do_nothing rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1	;; Fastest possible memory macro
+	avx512mac 10240, 16384, 0, do10 do_nothing_plus_sincos rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1
+	avx512mac 10240, 262144, 0, do10 do_nothing_plus_sincos rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1
+	avx512mac 10240, 262144, 0, do10 do_nothing_plus_L1prefetch rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1, L1PREFETCH_ALL, 1*8*128
+	avx512mac 10240, 262144, 0, do10 do_nothing_plus_L1prefetch rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1, L1PREFETCH_ALL, 2*8*128
+	avx512mac 10240, 262144, 0, do10 do_nothing_plus_L1prefetch rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1, L1PREFETCH_ALL, 3*8*128
+	avx512mac 10240, 262144, 0, do10 do_nothing_plus_L1prefetch rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1, L1PREFETCH_ALL, 4*8*128
+
+;;34
+	avx512mac 1024, 16384, 0, zr8_eight_complex_djbfft rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1
+	avx512mac 1024, 262144, 0, zr8_eight_complex_djbfft rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1
+	avx512mac 1024, 262144, 0, zr8_eight_complex_djbfft rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1, L1PREFETCH_ALL, 1*8*128
+	avx512mac 1024, 262144, 0, zr8_eight_complex_djbfft rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1, L1PREFETCH_ALL, 2*8*128
+	avx512mac 1024, 16384, 0, zr8_eight_complex_djbunfft rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1
+	avx512mac 1024, 262144, 0, zr8_eight_complex_djbunfft rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD4, 1
+
+;;40
+	avx512mac 640, 16384, 0, zr5_five_complex_djbfft rsi, 5*128, 128, rdi, ZMM_SCD2, 1
+	avx512mac 640, 262144, 0, zr5_five_complex_djbfft rsi, 5*128, 128, rdi, ZMM_SCD2, 1
+	avx512mac 640, 16384, 0, zr5_five_complex_djbunfft rsi, 5*128, 128, rdi, ZMM_SCD2, 1
+	avx512mac 640, 262144, 0, zr5_five_complex_djbunfft rsi, 5*128, 128, rdi, ZMM_SCD2, 1
+	avx512mac 768, 16384, 0, zr6_six_complex_djbfft rsi, 6*128, 128, rdi, ZMM_SCD3, 1
+	avx512mac 768, 262144, 0, zr6_six_complex_djbfft rsi, 6*128, 128, rdi, ZMM_SCD3, 1
+	avx512mac 768, 16384, 0, zr6_six_complex_djbunfft rsi, 6*128, 128, rdi, ZMM_SCD3, 1
+	avx512mac 768, 262144, 0, zr6_six_complex_djbunfft rsi, 6*128, 128, rdi, ZMM_SCD3, 1
+	avx512mac 896, 16384, 0, zr7_seven_complex_djbfft rsi, 7*128, 128, rdi, ZMM_SCD3, 1
+	avx512mac 896, 262144, 0, zr7_seven_complex_djbfft rsi, 7*128, 128, rdi, ZMM_SCD3, 1
+	avx512mac 896, 16384, 0, zr7_seven_complex_djbunfft rsi, 7*128, 128, rdi, ZMM_SCD3, 1
+	avx512mac 896, 262144, 0, zr7_seven_complex_djbunfft rsi, 7*128, 128, rdi, ZMM_SCD3, 1
+	avx512mac 1536, 16384, 0, zr12_twelve_complex_djbfft rsi, 12*128, 128, 2*128, 4*128, rdi, ZMM_SCD6, 1
+	avx512mac 1536, 262144, 0, zr12_twelve_complex_djbfft rsi, 12*128, 128, 2*128, 4*128, rdi, ZMM_SCD6, 1
+	avx512mac 1536, 16384, 0, zr12_twelve_complex_djbunfft rsi, 12*128, 128, 2*128, 4*128, rdi, ZMM_SCD6, 1
+	avx512mac 1536, 262144, 0, zr12_twelve_complex_djbunfft rsi, 12*128, 128, 2*128, 4*128, rdi, ZMM_SCD6, 1
+	avx512mac 2048, 16384, 0, zr16_sixteen_complex_djbfft rsi, 16*128, 128, 2*128, 4*128, 8*128, rdi, ZMM_SCD8, 1
+	avx512mac 2048, 262144, 0, zr16_sixteen_complex_djbfft rsi, 16*128, 128, 2*128, 4*128, 8*128, rdi, ZMM_SCD8, 1
+	avx512mac 2048, 16384, 0, zr16_sixteen_complex_djbunfft rsi, 16*128, 128, 2*128, 4*128, 8*128, rdi, ZMM_SCD8, 1
+	avx512mac 2048, 262144, 0, zr16_sixteen_complex_djbunfft rsi, 16*128, 128, 2*128, 4*128, 8*128, rdi, ZMM_SCD8, 1
+
+;;60
+	avx512mac 640, 16384, 0, zr5_csc_ten_reals_fft rsi, 5*128, 128, rdi, ZMM_SCD5, 1
+	avx512mac 640, 262144, 0, zr5_csc_ten_reals_fft rsi, 5*128, 128, rdi, ZMM_SCD5, 1
+	avx512mac 640, 16384, 0, zr5_csc_ten_reals_unfft rsi, 5*128, 128, rdi, ZMM_SCD5, 1
+	avx512mac 640, 262144, 0, zr5_csc_ten_reals_unfft rsi, 5*128, 128, rdi, ZMM_SCD5, 1
+	avx512mac 768, 16384, 0, zr6_csc_twelve_reals_fft rsi, 6*128, 128, rdi, ZMM_SCD6, 1
+	avx512mac 768, 262144, 0, zr6_csc_twelve_reals_fft rsi, 6*128, 128, rdi, ZMM_SCD6, 1
+	avx512mac 768, 16384, 0, zr6_csc_twelve_reals_unfft rsi, 6*128, 128, rdi, ZMM_SCD6, 1
+	avx512mac 768, 262144, 0, zr6_csc_twelve_reals_unfft rsi, 6*128, 128, rdi, ZMM_SCD6, 1
+	avx512mac 896, 16384, 0, zr7_csc_fourteen_reals_fft rsi, 7*128, 128, rdi, ZMM_SCD7, 1
+	avx512mac 896, 262144, 0, zr7_csc_fourteen_reals_fft rsi, 7*128, 128, rdi, ZMM_SCD7, 1
+	avx512mac 896, 16384, 0, zr7_csc_fourteen_reals_unfft rsi, 7*128, 128, rdi, ZMM_SCD7, 1
+	avx512mac 896, 262144, 0, zr7_csc_fourteen_reals_unfft rsi, 7*128, 128, rdi, ZMM_SCD7, 1
+	avx512mac 1024, 16384, 0, zr8_csc_sixteen_reals_fft rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD8, 1
+	avx512mac 1024, 262144, 0, zr8_csc_sixteen_reals_fft rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD8, 1
+	avx512mac 1024, 16384, 0, zr8_csc_sixteen_reals_unfft rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD8, 1
+	avx512mac 1024, 262144, 0, zr8_csc_sixteen_reals_unfft rsi, 8*128, 128, 2*128, 4*128, rdi, ZMM_SCD8, 1
+	avx512mac 1536, 16384, 0, zr12_csc_twentyfour_reals_fft rsi, 12*128, 128, 2*128, 4*128, rdi, ZMM_SCD12, 1
+	avx512mac 1536, 262144, 0, zr12_csc_twentyfour_reals_fft rsi, 12*128, 128, 2*128, 4*128, rdi, ZMM_SCD12, 1
+	avx512mac 1536, 16384, 0, zr12_csc_twentyfour_reals_unfft rsi, 12*128, 128, 2*128, 4*128, rdi, ZMM_SCD12, 1
+	avx512mac 1536, 262144, 0, zr12_csc_twentyfour_reals_unfft rsi, 12*128, 128, 2*128, 4*128, rdi, ZMM_SCD12, 1
+	avx512mac 2048, 16384, 0, zr16_csc_thirtytwo_reals_fft rsi, 16*128, 128, 2*128, 4*128, 8*128, rdi, ZMM_SCD16, 1
+	avx512mac 2048, 262144, 0, zr16_csc_thirtytwo_reals_fft rsi, 16*128, 128, 2*128, 4*128, 8*128, rdi, ZMM_SCD16, 1
+	avx512mac 2048, 16384, 0, zr16_csc_thirtytwo_reals_unfft rsi, 16*128, 128, 2*128, 4*128, 8*128, rdi, ZMM_SCD16, 1
+	avx512mac 2048, 262144, 0, zr16_csc_thirtytwo_reals_unfft rsi, 16*128, 128, 2*128, 4*128, 8*128, rdi, ZMM_SCD16, 1
+
+;;84
+	zr64_sixtyfour_complex_fft_final_preload
+	avx512mac 1024, 16384, 0, zr64_sixtyfour_complex_fft_final rsi, 8*128, 1*128, 2*128, 4*128, rdi, 0, 1
+	avx512mac 1024, 262144, 0, zr64_sixtyfour_complex_fft_final rsi, 8*128, 1*128, 2*128, 4*128, rdi, 0, 1
+	zr64_sixtyfour_complex_with_square_preload
+	avx512mac 1024, 16384, 0, zr64_sixtyfour_complex_with_square rsi, 8*128, 1*128, 2*128, 4*128, rdi, 0, 1
+	avx512mac 1024, 262144, 0, zr64_sixtyfour_complex_with_square rsi, 8*128, 1*128, 2*128, 4*128, rdi, 0, 1
+	zr64_sixtyfour_complex_with_mult_preload
+	avx512mac 1024, 16384, 0, zr64_sixtyfour_complex_with_mult rsi, 8*128, 1*128, 2*128, 4*128, rdi, 0, 1
+	avx512mac 1024, 262144, 0, zr64_sixtyfour_complex_with_mult rsi, 8*128, 1*128, 2*128, 4*128, rdi, 0, 1
+	zr64f_sixtyfour_complex_with_mulf_preload
+	avx512mac 1024, 16384, 0, zr64f_sixtyfour_complex_with_mulf rsi, 8*128, 1*128, 2*128, 4*128, rdi, 0, 1
+	avx512mac 1024, 262144, 0, zr64f_sixtyfour_complex_with_mulf rsi, 8*128, 1*128, 2*128, 4*128, rdi, 0, 1
+
+;;92
+	zr8_csc_wpn_eight_complex_first_djbfft_preload
+	avx512mac 1024, 16384, 0, zr8_csc_wpn_eight_complex_first_djbfft rsi, 8*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+	avx512mac 1024, 262144, 0, zr8_csc_wpn_eight_complex_first_djbfft rsi, 8*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+	zr8_csc_wpn_eight_complex_last_djbunfft_preload
+	avx512mac 1024, 16384, 0, zr8_csc_wpn_eight_complex_last_djbunfft rsi, 8*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+	avx512mac 1024, 262144, 0, zr8_csc_wpn_eight_complex_last_djbunfft rsi, 8*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+
+;;96
+	zr8_wpn_sixteen_reals_first_fft_preload
+	avx512mac 1024, 16384, 0, zr8_wpn_sixteen_reals_first_fft rsi, 8*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+	avx512mac 1024, 262144, 0, zr8_wpn_sixteen_reals_first_fft rsi, 8*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+	zr8_wpn_sixteen_reals_last_unfft_preload
+	avx512mac 1024, 16384, 0, zr8_wpn_sixteen_reals_last_unfft rsi, 8*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+	avx512mac 1024, 262144, 0, zr8_wpn_sixteen_reals_last_unfft rsi, 8*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+
+;;100
+	zr12_csc_wpn_twelve_complex_first_djbfft_preload
+	avx512mac 1536, 16384, 0, zr12_csc_wpn_twelve_complex_first_djbfft rsi, 12*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+	avx512mac 1536, 262144, 0, zr12_csc_wpn_twelve_complex_first_djbfft rsi, 12*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+	zr12_csc_wpn_twelve_complex_last_djbunfft_preload
+	avx512mac 1536, 16384, 0, zr12_csc_wpn_twelve_complex_last_djbunfft rsi, 12*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+	avx512mac 1536, 262144, 0, zr12_csc_wpn_twelve_complex_last_djbunfft rsi, 12*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+
+;;104
+	zr12_wpn_twentyfour_reals_first_fft_preload
+	avx512mac 1536, 16384, 0, zr12_wpn_twentyfour_reals_first_fft rsi, 12*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+	avx512mac 1536, 262144, 0, zr12_wpn_twentyfour_reals_first_fft rsi, 12*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+	zr12_wpn_twentyfour_reals_last_unfft_preload
+	avx512mac 1536, 16384, 0, zr12_wpn_twentyfour_reals_last_unfft rsi, 12*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+	avx512mac 1536, 262144, 0, zr12_wpn_twentyfour_reals_last_unfft rsi, 12*128, 128, 2*128, 4*128, r15, 0, rdi, 16, rdx, 0, 1
+
+;;108
+	avx512mac 1024, 8192, 0, zr8_rsc_wpn_sgreg_eight_complex_fft8 rsi, 1024, 128, 256, 512, rdx, 1024, r8, r9, r10, rdi, ZMM_SCD8, 1
+	avx512mac 1024, 262144, 0, zr8_rsc_wpn_sgreg_eight_complex_fft8 rsi, 1024, 128, 256, 512, rdx, 1024, r8, r9, r10, rdi, ZMM_SCD8, 1
+	avx512mac 1024, 8192, 0, zr8_rsc_wpn_sgreg_eight_complex_unfft8 rdx, 1024, r8, r9, r10, rsi, 1024, 128, 256, 512, rdi, ZMM_SCD8, 1
+	avx512mac 1024, 262144, 0, zr8_rsc_wpn_sgreg_eight_complex_unfft8 rdx, 1024, r8, r9, r10, rsi, 1024, 128, 256, 512, rdi, ZMM_SCD8, 1
+	avx512mac 1024, 8192, 0, zr8_rsc_wpn_sgreg_2sc_sixteen_reals_fft8 rsi, 1024, 128, 256, 512, rdx, 1024, r8, r9, r10, rdi, 0, rdi, 0, rdi, ZMM_SCD8, 1
+	avx512mac 1024, 262144, 0, zr8_rsc_wpn_sgreg_2sc_sixteen_reals_fft8 rsi, 1024, 128, 256, 512, rdx, 1024, r8, r9, r10, rdi, 0, rdi, 0, rdi, ZMM_SCD8, 1
+	avx512mac 1024, 8192, 0, zr8_rsc_wpn_sgreg_2sc_sixteen_reals_unfft8 rdx, 1024, r8, r9, r10, rsi, 1024, 128, 256, 512, rdi, 0, rdi, 0, rdi, ZMM_SCD8, 1
+	avx512mac 1024, 262144, 0, zr8_rsc_wpn_sgreg_2sc_sixteen_reals_unfft8 rdx, 1024, r8, r9, r10, rsi, 1024, 128, 256, 512, rdi, 0, rdi, 0, rdi, ZMM_SCD8, 1
+
+;;116
+	zsf_onepass_real_fft_wrapper_preload
+	avx512mac 1024, 16384, 0, zsf_onepass_real_fft_wrapper rsi, 8*128, 128, 2*128, 4*128, r15, 0, rdi, 14, rdx, 0, 1
+	avx512mac 1024, 262144, 0, zsf_onepass_real_fft_wrapper rsi, 8*128, 128, 2*128, 4*128, r15, 0, rdi, 14, rdx, 0, 1
+	zs_onepass_real_unfft_wrapper_preload
+	avx512mac 1024, 16384, 0, zs_onepass_real_unfft_wrapper rsi, 8*128, 128, 2*128, 4*128, r15, 0, rdi, 14, 1
+	avx512mac 1024, 262144, 0, zs_onepass_real_unfft_wrapper rsi, 8*128, 128, 2*128, 4*128, r15, 0, rdi, 14, 1
+	zsf_onepass_complex_fft_wrapper_preload
+	avx512mac 1024, 16384, 0, zsf_onepass_complex_fft_wrapper rsi, 8*128, 128, 2*128, 4*128, r15, 0, rdi, 14, rdx, 0, 1
+	avx512mac 1024, 262144, 0, zsf_onepass_complex_fft_wrapper rsi, 8*128, 128, 2*128, 4*128, r15, 0, rdi, 14, rdx, 0, 1
+	zs_onepass_complex_unfft_wrapper_preload
+	avx512mac 1024, 16384, 0, zs_onepass_complex_unfft_wrapper rsi, 8*128, 128, 2*128, 4*128, r15, 0, r15, 0, rdi, 14, 1
+	avx512mac 1024, 262144, 0, zs_onepass_complex_unfft_wrapper rsi, 8*128, 128, 2*128, 4*128, r15, 0, r15, 0, rdi, 14, 1
+
+;;124
+	znorm_wpn_preload noexec, noexec, noexec, noexec	;; ttp, zero, echk, const
+	avx512znormmac 1536, 16384, 0, znorm_wpn noexec, noexec, noexec, noexec
+	avx512znormmac 1536, 262144, 0, znorm_wpn noexec, noexec, noexec, noexec
+	znorm_wpn_preload noexec, noexec, exec, noexec	;; ttp, zero, echk, const
+	avx512znormmac 1536, 16384, 0, znorm_wpn noexec, noexec, exec, noexec
+	avx512znormmac 1536, 262144, 0, znorm_wpn noexec, noexec, exec, noexec
+	znorm_wpn_preload noexec, noexec, noexec, exec	;; ttp, zero, echk, const
+	avx512znormmac 1536, 16384, 0, znorm_wpn noexec, noexec, noexec, exec
+	avx512znormmac 1536, 262144, 0, znorm_wpn noexec, noexec, noexec, exec
+	znorm_wpn_preload noexec, noexec, exec, exec	;; ttp, zero, echk, const
+	avx512znormmac 1536, 16384, 0, znorm_wpn noexec, noexec, exec, exec
+	avx512znormmac 1536, 262144, 0, znorm_wpn noexec, noexec, exec, exec
+
+;;132
+	znorm_wpn_preload exec, noexec, noexec, noexec	;; ttp, zero, echk, const
+	avx512znormmac 1536, 16384, 0, znorm_wpn exec, noexec, noexec, noexec
+	avx512znormmac 1536, 262144, 0, znorm_wpn exec, noexec, noexec, noexec
+	znorm_wpn_preload exec, noexec, exec, noexec	;; ttp, zero, echk, const
+	avx512znormmac 1536, 16384, 0, znorm_wpn exec, noexec, exec, noexec
+	avx512znormmac 1536, 262144, 0, znorm_wpn exec, noexec, exec, noexec
+	znorm_wpn_preload exec, noexec, noexec, exec	;; ttp, zero, echk, const
+	avx512znormmac 1536, 16384, 0, znorm_wpn exec, noexec, noexec, exec
+	avx512znormmac 1536, 262144, 0, znorm_wpn exec, noexec, noexec, exec
+	znorm_wpn_preload exec, noexec, exec, exec	;; ttp, zero, echk, const
+	avx512znormmac 1536, 16384, 0, znorm_wpn exec, noexec, exec, exec
+	avx512znormmac 1536, 262144, 0, znorm_wpn exec, noexec, exec, exec
+
 ENDIF
 
 ; Exit the timing code

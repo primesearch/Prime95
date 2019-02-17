@@ -25,7 +25,7 @@
 #import "TortureTestController.h"
 #import "UnreserveController.h"
 #import "WorkerWindowsController.h"
-#include "Prime95.h"
+#include "prime95.h"
 
 
 /* Required Mac OS X files */

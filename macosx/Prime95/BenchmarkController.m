@@ -3,7 +3,7 @@
 //  Prime95
 //
 //  Created by George Woltman on 1/25/17.
-//  Copyright 2017 Mersenne Research, Inc. All rights reserved.
+//  Copyright 2017-2019 Mersenne Research, Inc. All rights reserved.
 //
 
 #import "BenchmarkController.h"
@@ -140,16 +140,20 @@
 {
 	[[self window] makeFirstResponder:nil];			// End any active text field edits
 
-	IniWriteInt (INI_FILE, "MinBenchFFT", minFFT);
-	IniWriteInt (INI_FILE, "MaxBenchFFT", maxFFT);
-	IniWriteInt (INI_FILE, "BenchErrorCheck", errchk);
-	IniWriteInt (INI_FILE, "BenchAllComplex", allComplex ? 2 : 0);
-	IniWriteInt (INI_FILE, "OnlyBench5678", limitFFTSizes);
+	if (benchType != 2) {
+		IniWriteInt (INI_FILE, "MinBenchFFT", minFFT);
+		IniWriteInt (INI_FILE, "MaxBenchFFT", maxFFT);
+		IniWriteInt (INI_FILE, "BenchErrorCheck", errchk);
+		IniWriteInt (INI_FILE, "BenchAllComplex", allComplex ? 2 : 0);
+		IniWriteInt (INI_FILE, "OnlyBench5678", limitFFTSizes);
+	}
 	IniWriteString (INI_FILE, "BenchCores", [benchCores UTF8String]);
 	IniWriteInt (INI_FILE, "BenchHyperthreads", hyperthreading);
-	IniWriteString (INI_FILE, "BenchWorkers", [benchWorkers UTF8String]);
-	IniWriteInt (INI_FILE, "AllBench", allFFTImpl);
-	IniWriteInt (INI_FILE, "BenchTime", benchTime);
+	if (benchType == 0) {
+		IniWriteString (INI_FILE, "BenchWorkers", [benchWorkers UTF8String]);
+		IniWriteInt (INI_FILE, "AllBench", allFFTImpl);
+		IniWriteInt (INI_FILE, "BenchTime", benchTime);
+	}
 	LaunchBench (benchType);
 
 	[[self window] performClose:self];

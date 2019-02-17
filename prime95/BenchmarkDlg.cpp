@@ -43,11 +43,11 @@ void CBenchmarkDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_MINFFT_TEXT, c_minFFT_text);
 	DDX_Control(pDX, IDC_MINFFT, c_minFFT);
 	DDX_Text(pDX, IDC_MINFFT, m_minFFT);
-	DDV_MinMaxUInt(pDX, m_minFFT, 1, 32768);
+	DDV_MinMaxUInt(pDX, m_minFFT, 1, 65536);
 	DDX_Control(pDX, IDC_MAXFFT_TEXT, c_maxFFT_text);
 	DDX_Control(pDX, IDC_MAXFFT, c_maxFFT);
 	DDX_Text(pDX, IDC_MAXFFT, m_maxFFT);
-	DDV_MinMaxUInt(pDX, m_maxFFT, 1, 32768);
+	DDV_MinMaxUInt(pDX, m_maxFFT, 1, 65536);
 	DDX_Control(pDX, IDC_ERRCHK, c_errchk);
 	DDX_Check(pDX, IDC_ERRCHK, m_errchk);
 	DDX_Control(pDX, IDC_ALL_COMPLEX, c_all_complex);

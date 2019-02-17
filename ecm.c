@@ -10,7 +10,7 @@
  *	Other important ideas courtesy of Peter Montgomery.
  *
  *	c. 1997 Perfectly Scientific, Inc.
- *	c. 1998-2017 Mersenne Research, Inc.
+ *	c. 1998-2019 Mersenne Research, Inc.
  *	All Rights Reserved.
  *
  *************************************************************/
@@ -72,10 +72,12 @@ int isProbablePrime (
 		}
 		gwfree (gwdata, t2);
 		x = popg (&gwdata->gdata, ((int) gwdata->bit_length >> 5) + 10);
-		gwtogiant (gwdata, t1, x);
-		modgi (&gwdata->gdata, N, x);
-		iaddg (-i, x);
-		if (!isZero (x)) retval = FALSE;	/* Not a prime */
+		if (gwtogiant (gwdata, t1, x)) retval = FALSE;	/* Technically, prime status is unknown on an unexpected error */
+		else {
+			modgi (&gwdata->gdata, N, x);
+			iaddg (-i, x);
+			if (!isZero (x)) retval = FALSE;	/* Not a prime */
+		}
 		pushg (&gwdata->gdata, 1);
 	}
 	gwfree (gwdata, t1);
@@ -232,6 +234,7 @@ oom:	return (OutOfMemory (ecmdata->thread_num));
 /* Like ell_add except that x1, z1, xdiff, and zdiff have been FFTed */
 /* NOTE: x2 and z2 represent the FFTs of (x2+z2) and (x2-z2) respectively. */
 
+#ifdef ELL_ADD_SPECIAL_USED
 int ell_add_special (
 	ecmhandle *ecmdata,
 	gwnum 	x1,
@@ -264,6 +267,49 @@ int ell_add_special (
 	gwfftmul (&ecmdata->gwdata, xdiff, t1);
 	gwcopy (&ecmdata->gwdata, t2, x3);
 	gwcopy (&ecmdata->gwdata, t1, z3);
+	gwfree (&ecmdata->gwdata, t1);
+	gwfree (&ecmdata->gwdata, t2);
+	return (0);
+
+/* Out of memory exit path */
+
+oom:	return (OutOfMemory (ecmdata->thread_num));
+}
+#endif
+
+/* Like ell_add except that x1, z1, xdiff, and zdiff have been FFTed */
+/* NOTE: x2 and z2 represent the FFTs of (x2+z2) and (x2-z2) respectively. */
+/* ALSO: Like ell_add_special except x3 is returned in zdiff and z3 is returned in xdiff */
+/* caller must then gwswap xdiff and zdiff.  This save two gwcopies. */
+
+int ell_add_special2 (
+	ecmhandle *ecmdata,
+	gwnum 	x1,
+	gwnum 	z1,
+	gwnum 	x2,
+	gwnum 	z2,
+	gwnum	xdiff,
+	gwnum	zdiff)
+{				/* 10 FFTs */
+	gwnum	t1, t2;
+	t1 = gwalloc (&ecmdata->gwdata);
+	if (t1 == NULL) goto oom;
+	t2 = gwalloc (&ecmdata->gwdata);
+	if (t2 == NULL) goto oom;
+	gwfftaddsub4 (&ecmdata->gwdata, x1, z1, t1, t2);/* Calc (x1 + z1) and (z1 - z1) */
+	gwfftfftmul (&ecmdata->gwdata, z2, t1, t1);	/* t1 = (x1 + z1)(x2 - z2) */
+	gwfftfftmul (&ecmdata->gwdata, x2, t2, t2);	/* t2 = (x1 - z1)(x2 + z2) */
+	gwaddsub (&ecmdata->gwdata, t2, t1);		/* Calc t2 + t1 and t2 - t1 */
+	gwstartnextfft (&ecmdata->gwdata, TRUE);	/* x3 = (t2 + t1)^2 * zdiff */
+	gwsquare (&ecmdata->gwdata, t2);
+	gwfft (&ecmdata->gwdata, t2, t2);
+	gwstartnextfft (&ecmdata->gwdata, FALSE);
+	gwfftfftmul (&ecmdata->gwdata, t2, zdiff, zdiff); /* Return x3 in zdiff */
+	gwstartnextfft (&ecmdata->gwdata, TRUE);	/* z3 = (t2 - t1)^2 * xdiff */
+	gwsquare (&ecmdata->gwdata, t1);
+	gwfft (&ecmdata->gwdata, t1, t1);
+	gwstartnextfft (&ecmdata->gwdata, FALSE);
+	gwfftfftmul (&ecmdata->gwdata, t1, xdiff, xdiff); /* Return z3 in xdiff */
 	gwfree (&ecmdata->gwdata, t1);
 	gwfree (&ecmdata->gwdata, t2);
 	return (0);
@@ -915,7 +961,7 @@ int setN (
         }
 
 	if (IniGetInt (INI_FILE, "PhiExtensions", 0) &&
-	    w->k == 1.0 && abs(w->c) == 1 && (w->n%3) == 0) {		/*=== this input means Phi(3,-b^(n/3)) ===*/
+	    w->k == 1.0 && labs(w->c) == 1 && (w->n%3) == 0) {		/*=== this input means Phi(3,-b^(n/3)) ===*/
 		giant	tmp = allocgiant ((bits >> 5) + 5);
 		if (tmp == NULL) return (OutOfMemory (thread_num));
 		ultog (w->b, tmp);
@@ -1020,13 +1066,20 @@ int gcd (
 	giant	v;
 	mpz_t	a, b;
 
+/* Assume a factor will not be found */
+
+	*factor = NULL;
+
 /* Convert input number to binary */
 
 	v = popg (&gwdata->gdata, ((int) gwdata->bit_length >> 5) + 10);
 	if (v == NULL) goto oom;
-	gwtogiant (gwdata, gg, v);
+	if (gwtogiant (gwdata, gg, v)) {	// On unexpected error, return no factor found
+		pushg (&gwdata->gdata, 1);
+		return (0);
+	}
 
-/* Do the GCD and let the gcdg code use gwnum gg's memory. */
+/* Do the GCD */
 
 	mpz_init (a);
 	mpz_init (b);
@@ -1041,8 +1094,7 @@ int gcd (
 		*factor = allocgiant ((int) mpz_sizeinbase (a, 32));
 		if (*factor == NULL) goto oom;
 		mpztog (a, *factor);
-	} else
-		*factor = NULL;
+	}
 
 /* Cleanup and return */
 
@@ -1067,15 +1119,21 @@ int ecm_modinv (
 	giant	*factor)		/* Factor found, if any */
 {
 	giant	v;
-	int	stop_reason;
 
 /* Convert input number to binary */
 
 	v = popg (&ecmdata->gwdata.gdata, ((int) ecmdata->gwdata.bit_length >> 5) + 10);
 	if (v == NULL) goto oom;
-	gwtogiant (&ecmdata->gwdata, b, v);
+	if (gwtogiant (&ecmdata->gwdata, b, v)) {
+		// On unexpected, should-never-happen error, return out-of-memory for lack of a better error message
+		goto oom;
+	}
 
-/* Let the invg code use gwnum b's memory. */
+#ifdef MODINV_USING_GIANTS
+
+	int	stop_reason;
+
+/* Let the invg code use gwnum b's memory.  This code is slower, but at least it is interruptible. */
 /* Compute 1/v mod N */
 
 	gwfree_temporarily (&ecmdata->gwdata, b);
@@ -1103,6 +1161,49 @@ int ecm_modinv (
 		*factor = NULL;
 		gianttogw (&ecmdata->gwdata, v, b);
 	}
+
+/* Use the faster GMP library to do an extended GCD which gives us 1/v mod N */
+
+#else
+	mpz_t	__v, __N, __gcd, __inv;
+
+/* Do the extended GCD */
+
+	mpz_init (__v);
+	mpz_init (__N);
+	mpz_init (__gcd);
+	mpz_init (__inv);
+	gtompz (v, __v);
+	gtompz (N, __N);
+	mpz_gcdext (__gcd, __inv, NULL, __v, __N);
+	mpz_clear (__v);
+
+/* If a factor was found (gcd != 1 && gcd != N), save it in FAC */
+
+	if (mpz_cmp_ui (__gcd, 1) && mpz_cmp (__gcd, __N)) {
+		*factor = allocgiant ((int) mpz_sizeinbase (__gcd, 32));
+		if (*factor == NULL) goto oom;
+		mpztog (__gcd, *factor);
+	}
+
+/* Otherwise, convert the inverse to FFT-ready form */
+
+	else {
+		*factor = NULL;
+		if (mpz_sgn (__inv) < 0) mpz_add (__inv, __inv, __N);
+		mpztog (__inv, v);
+		gianttogw (&ecmdata->gwdata, v, b);
+	}
+
+/* Cleanup and return */
+
+	mpz_clear (__gcd);
+	mpz_clear (__inv);
+	mpz_clear (__N);
+#endif
+
+/* Clean up */
+
 	pushg (&ecmdata->gwdata.gdata, 1);
 
 /* Increment count and return */
@@ -1114,6 +1215,7 @@ int ecm_modinv (
 
 oom:	return (OutOfMemory (ecmdata->thread_num));
 }
+
 
 /* Computes the modular inverse of an array of numbers */
 /* Uses extra multiplications to make only one real modinv call */
@@ -1600,10 +1702,10 @@ int mQ_next (
 /* by Q^2D to get the next Q^m value */
 
 	if (!ecmdata->TWO_FFT_STAGE2) {
-		stop_reason = ell_add_special (ecmdata, ecmdata->Qmx, ecmdata->Qmz,
-					       ecmdata->Q2Dxplus1, ecmdata->Q2Dxminus1,
-					       ecmdata->Qprevmx, ecmdata->Qprevmz,
-					       ecmdata->Qprevmx, ecmdata->Qprevmz);
+		stop_reason = ell_add_special2 (ecmdata, ecmdata->Qmx, ecmdata->Qmz,
+					        ecmdata->Q2Dxplus1, ecmdata->Q2Dxminus1,
+						ecmdata->Qprevmx, ecmdata->Qprevmz);
+		gwswap (ecmdata->Qprevmx, ecmdata->Qprevmz);
 		if (stop_reason) return (stop_reason);
 		gwswap (ecmdata->Qmx, ecmdata->Qprevmx);
 		gwswap (ecmdata->Qmz, ecmdata->Qprevmz);
@@ -1620,10 +1722,10 @@ int mQ_next (
 
 	if (ecmdata->mQx_count == 0) {
 		for ( ; ecmdata->mQx_count < ecmdata->E; ecmdata->mQx_count++) {
-			stop_reason = ell_add_special (ecmdata, ecmdata->Qmx, ecmdata->Qmz,
-						       ecmdata->Q2Dxplus1, ecmdata->Q2Dxminus1,
-						       ecmdata->Qprevmx, ecmdata->Qprevmz,
-						       ecmdata->Qprevmx, ecmdata->Qprevmz);
+			stop_reason = ell_add_special2 (ecmdata, ecmdata->Qmx, ecmdata->Qmz,
+						        ecmdata->Q2Dxplus1, ecmdata->Q2Dxminus1,
+						        ecmdata->Qprevmx, ecmdata->Qprevmz);
+			gwswap (ecmdata->Qprevmx, ecmdata->Qprevmz);
 			if (stop_reason) return (stop_reason);
 			gwswap (ecmdata->Qmx, ecmdata->Qprevmx);
 			gwswap (ecmdata->Qmz, ecmdata->Qprevmz);
@@ -2077,7 +2179,7 @@ int ecm (
 	unsigned long i, j, curve, min_memory;
 	readSaveFileState read_save_file_state;	/* Manage savefile names during reading */
 	writeSaveFileState write_save_file_state; /* Manage savefile names during writing */
-	char	filename[32], buf[255], fft_desc[100];
+	char	filename[32], buf[255], JSONbuf[4000], fft_desc[200];
 	int	res, stop_reason, stage, first_iter_msg;
 	gwnum	x, z, t1, t2, gg;
 	gwnum	Q2x, Q2z, Qiminus2x, Qiminus2z, Qdiffx, Qdiffz;
@@ -2225,10 +2327,10 @@ void *workbuf;
 int j, min_test, max_test, test, cnt, NUM_X87_TESTS, NUM_SSE2_TESTS, NUM_AVX_TESTS, NUM_AVX512_TESTS;
 #define timeit(a,n,w) (((void**)a)[0]=w,((uint32_t*)a)[2]=n,gwtimeit(a))
 
-gwinit (&gwdata);
+gwinit (&gwdata); gwdata.cpu_flags &= ~CPU_AVX512F;
 gwsetup (&gwdata, 1.0, 2, 10000000, -1);
-workbuf = (void *) aligned_malloc (40000000, 4096);
-memset (workbuf, 0, 40000000);
+workbuf = (void *) aligned_malloc (400000000, 4096);
+memset (workbuf, 0, 400000000);
 RDTSC_TIMING = 2;
 min_test = IniGetInt (INI_FILE, "MinTest", 0);
 max_test = IniGetInt (INI_FILE, "MaxTest", min_test);
@@ -2243,6 +2345,11 @@ for (j = 0; j < NUM_X87_TESTS + NUM_SSE2_TESTS + NUM_AVX_TESTS + NUM_AVX512_TEST
 		j < NUM_X87_TESTS + NUM_SSE2_TESTS ? 1000 + j - NUM_X87_TESTS :
 		j < NUM_X87_TESTS + NUM_SSE2_TESTS + NUM_AVX_TESTS ? 2000 + j - NUM_X87_TESTS - NUM_SSE2_TESTS :
 			3000 + j - NUM_X87_TESTS - NUM_SSE2_TESTS - NUM_AVX_TESTS);
+	if (test == 3000 && CPU_FLAGS & CPU_AVX512F) {
+		gwdone (&gwdata);
+		gwinit (&gwdata);
+		gwsetup (&gwdata, 1.0, 2, 10000000, -1);
+	}
 	if (min_test && (test < min_test || test > max_test)) continue;
 	if (! (CPU_FLAGS & CPU_SSE2) && test >= 1000) break;
 	if (! (CPU_FLAGS & CPU_AVX) && test >= 2000) break;
@@ -2311,6 +2418,7 @@ return 0;
 	gwinit (&ecmdata.gwdata);
 	gwset_sum_inputs_checking (&ecmdata.gwdata, SUM_INPUTS_ERRCHK);
 	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
+	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&ecmdata.gwdata);
 	if (HYPERTHREAD_LL) {
 		sp_info->normal_work_hyperthreads = IniGetInt (LOCALINI_FILE, "HyperthreadLLcount", CPU_HYPERTHREADS);
 		gwset_will_hyperthread (&ecmdata.gwdata, sp_info->normal_work_hyperthreads);
@@ -2684,7 +2792,7 @@ skip_stage_2:	start_timer (timers, 0);
 
 			gx = popg (&ecmdata.gwdata.gdata, ((int) ecmdata.gwdata.bit_length >> 5) + 10);
 			if (gx == NULL) goto oom;
-			gwtogiant (&ecmdata.gwdata, x, gx);
+			if (gwtogiant (&ecmdata.gwdata, x, gx)) goto oom;  // Unexpected error, return oom for lack of a better error message
 			modgi (&ecmdata.gwdata.gdata, N, gx);
 
 			msglen = N->sign * 8 + 5;
@@ -2819,8 +2927,8 @@ restart3:
 /* MEMPEAK: 8 + nQx-1 + 2 for ell_add temporaries */
 
 	for (i = 3; i < ecmdata.D; i = i + 2) {
-		ell_add_special (&ecmdata, Qiminus2x, Qiminus2z, Q2x, Q2z,
-				 Qdiffx, Qdiffz, Qdiffx, Qdiffz);
+		ell_add_special2 (&ecmdata, Qiminus2x, Qiminus2z, Q2x, Q2z, Qdiffx, Qdiffz);
+		gwswap (Qdiffx, Qdiffz);
 
 		if (gw_test_for_error (&ecmdata.gwdata)) goto error;
 
@@ -2853,12 +2961,12 @@ restart3:
 /* MEMUSED: 8 + nQx gwnums (AD4, 6 for computing nQx, nQx vals, modinv_val) */
 /* MEMPEAK: 8 + nQx + 2 for ell_add temporaries */
 
-	ell_add_special (&ecmdata, Qiminus2x, Qiminus2z, Q2x, Q2z,
-			 Qdiffx, Qdiffz, Qdiffx, Qdiffz);
+	ell_add_special2 (&ecmdata, Qiminus2x, Qiminus2z, Q2x, Q2z, Qdiffx, Qdiffz);
+	gwswap (Qdiffx, Qdiffz);
 	gwfftaddsub (&ecmdata.gwdata, Q2x, Q2z); /* Recompute fft of Q2x,Q2z */
 	ell_begin_fft (&ecmdata, Qdiffx, Qdiffz, Qdiffx, Qdiffz);
-	ell_add_special (&ecmdata, Qiminus2x, Qiminus2z, Qdiffx, Qdiffz,
-			 Q2x, Q2z, Q2x, Q2z);
+	ell_add_special2 (&ecmdata, Qiminus2x, Qiminus2z, Qdiffx, Qdiffz, Q2x, Q2z);
+	gwswap (Q2x, Q2z);
 	gwfft (&ecmdata.gwdata, Q2x, Q2x); gwfft (&ecmdata.gwdata, Q2z, Q2z);
 	stop_reason = add_to_normalize_pool (&ecmdata, Q2x, Q2z, 1);
 	if (stop_reason) goto exit;
@@ -3123,7 +3231,7 @@ more_curves:
 
 /* Output line to results file indicating the number of curves run */
 
-	sprintf (buf, "%s completed %u ECM %s, B1=%.0f, B2=%.0f, Wg%d: %08lX\n",
+	sprintf (buf, "%s completed %u ECM %s, B1=%.0f, B2=%.0f, Wh%d: %08lX\n",
 		 gwmodulo_as_string (&ecmdata.gwdata), w->curves_to_do,
 		 w->curves_to_do == 1 ? "curve" : "curves",
 		 (double) B, (double) C, PORT, SEC5 (w->n, B, C));
@@ -3131,8 +3239,25 @@ more_curves:
 	formatMsgForResultsFile (buf, w);
 	writeResults (buf);
 
-/* Send ECM completed message to the server.  Although don't do it for */
-/* puny B1 values. */
+/* Format a JSON version of the result.  An example follows: */
+/* {"status":"NF", "exponent":45581713, "worktype":"ECM", "b1":50000, "b2":5000000, */
+/* "curves":5, "fft-length":5120, "security-code":"39AB1238", */
+/* "program":{"name":"prime95", "version":"29.5", "build":"8"}, "timestamp":"2019-01-15 23:28:16", */
+/* "user":"gw_2", "cpu":"work_computer", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
+
+	strcpy (JSONbuf, "{\"status\":\"NF\"");
+	JSONaddExponent (JSONbuf, w);
+	strcat (JSONbuf, ", \"worktype\":\"ECM\"");
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%.0f, \"b2\":%.0f", (double) B, (double) C);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"curves\":%u", w->curves_to_do);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", ecmdata.gwdata.FFTLEN);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, B, C));
+	JSONaddProgramTimestamp (JSONbuf);
+	JSONaddUserComputerAID (JSONbuf, w);
+	strcat (JSONbuf, "}\n");
+	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
+
+/* Send ECM completed message to the server.  Although don't do it for puny B1 values. */
 
 	if (B >= 10000 || IniGetInt (INI_FILE, "SendAllFactorData", 0)) {
 		struct primenetAssignmentResult pkt;
@@ -3150,6 +3275,7 @@ more_curves:
 		pkt.curves = w->curves_to_do;
 		pkt.fftlen = gwfftlen (&ecmdata.gwdata);
 		pkt.done = TRUE;
+		strcpy (pkt.JSONmessage, JSONbuf);
 		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 	}
 
@@ -3174,11 +3300,9 @@ oom:	stop_reason = OutOfMemory (thread_num);
 
 /* Print a message, we found a factor! */
 
-bingo:	sprintf (buf, "ECM found a factor in curve #%ld, stage #%d\n",
-		 curve, stage);
+bingo:	sprintf (buf, "ECM found a factor in curve #%ld, stage #%d\n", curve, stage);
 	writeResults (buf);
-	sprintf (buf, "Sigma=%.0f, B1=%.0f, B2=%.0f.\n",
-		 sigma, (double) B, (double) C);
+	sprintf (buf, "Sigma=%.0f, B1=%.0f, B2=%.0f.\n", sigma, (double) B, (double) C);
 	writeResults (buf);
 
 /* Allocate memory for the string representation of the factor and for */
@@ -3194,8 +3318,7 @@ bingo:	sprintf (buf, "ECM found a factor in curve #%ld, stage #%d\n",
 /* Validate the factor we just found */
 
 	if (!testFactor (&ecmdata.gwdata, w, factor)) {
-		sprintf (msg, "ERROR: Bad factor for %s found: %s\n",
-			 gwmodulo_as_string (&ecmdata.gwdata), str);
+		sprintf (msg, "ERROR: Bad factor for %s found: %s\n", gwmodulo_as_string (&ecmdata.gwdata), str);
 		OutputBoth (thread_num, msg);
 		OutputStr (thread_num, "Restarting ECM curve from scratch.\n");
 		continueECM = TRUE;
@@ -3211,6 +3334,28 @@ bingo:	sprintf (buf, "ECM found a factor in curve #%ld, stage #%d\n",
 	formatMsgForResultsFile (msg, w);
 	writeResults (msg);
 
+/* Format a JSON version of the result.  An example follows: */
+/* {"status":"F", "exponent":45581713, "worktype":"ECM", "factors":["430639100587696027847"], */
+/* "b1":50000, "b2":5000000, "sigma":"123456789123456", "stage":2 */
+/* "curves":5, "fft-length":5120, "security-code":"39AB1238", */
+/* "program":{"name":"prime95", "version":"29.5", "build":"8"}, "timestamp":"2019-01-15 23:28:16", */
+/* "user":"gw_2", "cpu":"work_computer", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
+
+	strcpy (JSONbuf, "{\"status\":\"F\"");
+	JSONaddExponent (JSONbuf, w);
+	strcat (JSONbuf, ", \"worktype\":\"ECM\"");
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"factors\":[\"%s\"]", str);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%.0f, \"b2\":%.0f", (double) B, (double) C);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"sigma\":%.0f", sigma);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"stage\":%d", stage);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"curves\":%lu", curve);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", ecmdata.gwdata.FFTLEN);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, B, C));
+	JSONaddProgramTimestamp (JSONbuf);
+	JSONaddUserComputerAID (JSONbuf, w);
+	strcat (JSONbuf, "}\n");
+	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
+
 /* See if the cofactor is prime and set flag if we will be continuing ECM */
 
 	continueECM = IniGetInt (INI_FILE, "ContinueECM", 0);
@@ -3225,8 +3370,7 @@ bingo:	sprintf (buf, "ECM found a factor in curve #%ld, stage #%d\n",
 /* with small factors from users needlessly redoing factoring work, make */
 /* sure the factor is more than 50 bits or so. */
 
-	if (strlen (str) >= 15 ||
-	    IniGetInt (INI_FILE, "SendAllFactorData", 0)) {
+	if (strlen (str) >= 15 || IniGetInt (INI_FILE, "SendAllFactorData", 0)) {
 		struct primenetAssignmentResult pkt;
 		memset (&pkt, 0, sizeof (pkt));
 		strcpy (pkt.computer_guid, COMPUTER_GUID);
@@ -3244,6 +3388,7 @@ bingo:	sprintf (buf, "ECM found a factor in curve #%ld, stage #%d\n",
 		pkt.stage = stage;
 		pkt.fftlen = gwfftlen (&ecmdata.gwdata);
 		pkt.done = !continueECM;
+		strcpy (pkt.JSONmessage, JSONbuf);
 		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 
 /* If continuing ECM, subtract the curves we just reported from the */
@@ -4283,7 +4428,7 @@ int pminus1 (
 	gwnum	x, gg, tmp_gwnum, t3;
 	readSaveFileState read_save_file_state;	/* Manage savefile names during reading */
 	writeSaveFileState write_save_file_state; /* Manage savefile names during writing */
-	char	filename[32], buf[255], testnum[100];
+	char	filename[32], buf[255], JSONbuf[4000], testnum[100];
 	int	have_save_file;
 	int	res, stop_reason, stage, saving, near_fft_limit, echk;
 	double	one_over_len, one_over_B, one_pair_pct;
@@ -4380,6 +4525,7 @@ restart:
 	gwinit (&pm1data.gwdata);
 	gwset_sum_inputs_checking (&pm1data.gwdata, SUM_INPUTS_ERRCHK);
 	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pm1data.gwdata);
+	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&pm1data.gwdata);
 	if (HYPERTHREAD_LL) {
 		sp_info->normal_work_hyperthreads = IniGetInt (LOCALINI_FILE, "HyperthreadLLcount", CPU_HYPERTHREADS);
 		gwset_will_hyperthread (&pm1data.gwdata, sp_info->normal_work_hyperthreads);
@@ -4414,7 +4560,7 @@ restart:
 /* Output message about the FFT length chosen */
 
 	{
-		char	fft_desc[100];
+		char	fft_desc[200];
 		gwfft_description (&pm1data.gwdata, fft_desc);
 		sprintf (buf, "Using %s\n", fft_desc);
 		OutputStr (thread_num, buf);
@@ -5327,18 +5473,38 @@ restart4:
 /* Output line to results file indicating P-1 run */
 
 msg_and_exit:
-	sprintf (buf, "%s completed P-1, B1=%.0f",
-		 gwmodulo_as_string (&pm1data.gwdata), (double) B);
+	sprintf (buf, "%s completed P-1, B1=%.0f", gwmodulo_as_string (&pm1data.gwdata), (double) B);
 	if (C > B) {
 		if (pm1data.E <= 2)
 			sprintf (buf+strlen(buf), ", B2=%.0f", (double) C);
 		else
 			sprintf (buf+strlen(buf), ", B2=%.0f, E=%lu", (double) C, pm1data.E);
 	}
-	sprintf (buf+strlen(buf), ", Wg%d: %08lX\n", PORT, SEC5 (w->n, B, C));
+	sprintf (buf+strlen(buf), ", Wh%d: %08lX\n", PORT, SEC5 (w->n, B, C));
 	OutputStr (thread_num, buf);
 	formatMsgForResultsFile (buf, w);
 	writeResults (buf);
+
+/* Format a JSON version of the result.  An example follows: */
+/* {"status":"NF", "exponent":45581713, "worktype":"P-1", "b1":50000, "b2":5000000, "brent-suyama":6, */
+/* "fft-length":5120, "security-code":"39AB1238", */
+/* "program":{"name":"prime95", "version":"29.5", "build":"8"}, "timestamp":"2019-01-15 23:28:16", */
+/* "user":"gw_2", "cpu":"work_computer", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
+
+	strcpy (JSONbuf, "{\"status\":\"NF\"");
+	JSONaddExponent (JSONbuf, w);
+	strcat (JSONbuf, ", \"worktype\":\"P-1\"");
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%.0f", (double) B);
+	if (C > B) {
+		sprintf (JSONbuf+strlen(JSONbuf), ", \"b2\":%.0f", (double) C);
+		if (pm1data.E > 2) sprintf (JSONbuf+strlen(JSONbuf), ", \"brent-suyama\":%lu", pm1data.E);
+	}
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", pm1data.gwdata.FFTLEN);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, B, C));
+	JSONaddProgramTimestamp (JSONbuf);
+	JSONaddUserComputerAID (JSONbuf, w);
+	strcat (JSONbuf, "}\n");
+	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
 
 /* Send P-1 completed message to the server.  Although don't do it for puny */
 /* B1 values as this is just the user tinkering with P-1 factoring. */
@@ -5357,8 +5523,8 @@ msg_and_exit:
 		pkt.B1 = (double) B;
 		pkt.B2 = (double) C;
 		pkt.fftlen = gwfftlen (&pm1data.gwdata);
-		pkt.done = (w->work_type == WORK_PMINUS1 ||
-			    w->work_type == WORK_PFACTOR);
+		pkt.done = (w->work_type == WORK_PMINUS1 || w->work_type == WORK_PFACTOR);
+		strcpy (pkt.JSONmessage, JSONbuf);
 		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 	}
 
@@ -5438,8 +5604,7 @@ bingo:	if (stage == 1)
 /* Validate the factor we just found */
 
 	if (!testFactor (&pm1data.gwdata, w, factor)) {
-		sprintf (msg, "ERROR: Bad factor for %s found: %s\n",
-			 gwmodulo_as_string (&pm1data.gwdata), str);
+		sprintf (msg, "ERROR: Bad factor for %s found: %s\n", gwmodulo_as_string (&pm1data.gwdata), str);
 		OutputBoth (thread_num, msg);
 		unlinkSaveFiles (&write_save_file_state);
 		OutputStr (thread_num, "Restarting P-1 from scratch.\n");
@@ -5462,12 +5627,34 @@ bingo:	if (stage == 1)
 	formatMsgForResultsFile (msg, w);
 	writeResults (msg);
 
+/* Format a JSON version of the result.  An example follows: */
+/* {"status":"F", "exponent":45581713, "worktype":"P-1", "factors":"430639100587696027847", */
+/* "b1":50000, "b2":5000000, "brent-suyama":6, */
+/* "fft-length":5120, "security-code":"39AB1238", */
+/* "program":{"name":"prime95", "version":"29.5", "build":"8"}, "timestamp":"2019-01-15 23:28:16", */
+/* "user":"gw_2", "cpu":"work_computer", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
+
+	strcpy (JSONbuf, "{\"status\":\"F\"");
+	JSONaddExponent (JSONbuf, w);
+	strcat (JSONbuf, ", \"worktype\":\"P-1\"");
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"factors\":\"%s\"", str);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%.0f", (double) B);
+	if (stage > 1) {
+		sprintf (JSONbuf+strlen(JSONbuf), ", \"b2\":%.0f", (double) C);
+		if (pm1data.E > 2) sprintf (JSONbuf+strlen(JSONbuf), ", \"brent-suyama\":%lu", pm1data.E);
+	}
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", pm1data.gwdata.FFTLEN);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, B, C));
+	JSONaddProgramTimestamp (JSONbuf);
+	JSONaddUserComputerAID (JSONbuf, w);
+	strcat (JSONbuf, "}\n");
+	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
+
 /* Send assignment result to the server.  To avoid flooding the server */
 /* with small factors from users needlessly redoing factoring work, make */
 /* sure the factor is more than 50 bits or so. */
 
-	if (strlen (str) >= 15 ||
-	    IniGetInt (INI_FILE, "SendAllFactorData", 0)) {
+	if (strlen (str) >= 15 || IniGetInt (INI_FILE, "SendAllFactorData", 0)) {
 		struct primenetAssignmentResult pkt;
 		memset (&pkt, 0, sizeof (pkt));
 		strcpy (pkt.computer_guid, COMPUTER_GUID);
@@ -5483,6 +5670,7 @@ bingo:	if (stage == 1)
 		pkt.B2 = (double) (stage == 1 ? 0 : C);
 		pkt.fftlen = gwfftlen (&pm1data.gwdata);
 		pkt.done = TRUE;
+		strcpy (pkt.JSONmessage, JSONbuf);
 		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 	}
 

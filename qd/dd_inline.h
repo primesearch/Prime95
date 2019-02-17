@@ -5,7 +5,7 @@
  * of Mathematical, Information, and Computational Sciences of the
  * U.S. Department of Energy under contract number DE-AC03-76SF00098.
  *
- * Copyright (c) 2000-2001
+ * Copyright (c) 2000-2018
  *
  * Contains small functions (suitable for inlining) in the double-double
  * arithmetic package.
@@ -13,7 +13,7 @@
 #ifndef _DD_INLINE_H_
 #define _DD_INLINE_H_
 
-#include <cmath>
+#include "math.h"
 #include "inline.h"
 
 #ifdef NO_INLINE

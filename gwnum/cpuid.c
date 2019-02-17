@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2019 Mersenne Research, Inc.  All rights reserved
 | Author:  George Woltman
 | Email: woltman@alum.mit.edu
 |
@@ -31,12 +31,10 @@
 #endif
 #if defined (__linux__) || defined (__FreeBSD__) || defined (__APPLE__) || defined (__HAIKU__)
 #include <sys/time.h>
-#define _timeb	timeb
-#define _ftime	ftime
 #endif
-#include <sys/timeb.h>
 #include "cpuid.h"
 #include "gwthread.h"
+#include "gwutil.h"
 
 #define safe_strcpy(d,s)	memmove (d, s, strlen (s) + 1)
 
@@ -390,33 +388,26 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 			CPU_FLAGS |= CPU_SSE42;
 
 /* If hardware supports AVX that doesn't mean the OS supports AVX. */
-/* See if OS supports XGETBV, then see if OS supports AVX. */
+/* See if OS supports XGETBV, then see if OS supports AVX, FMA, and AVX-512. */
 
-		if ((reg.ECX >> 28) & 0x1) {
-			if ((reg.ECX >> 27) & 0x1) {
-				struct cpuid_data getbv_reg;
-				Xgetbv (0, &getbv_reg);
-				if ((getbv_reg.EAX & 6) == 6) CPU_FLAGS |= CPU_AVX;
-			}
-		}
+		if ((reg.ECX >> 27) & 0x1) {
+			struct cpuid_data getbv_reg;
+			Xgetbv (0, &getbv_reg);
 
-		if (((reg.ECX >> 12) & 0x1) && (CPU_FLAGS & CPU_AVX))
-			CPU_FLAGS |= CPU_FMA3;
-	}
+			if (((reg.ECX >> 28) & 0x1) && ((getbv_reg.EAX & 6) == 6)) CPU_FLAGS |= CPU_AVX;
+			if (((reg.ECX >> 12) & 0x1) && (CPU_FLAGS & CPU_AVX)) CPU_FLAGS |= CPU_FMA3;
 
 /* Get more feature flags.  Specifically the AVX2, AVX512F, AVX512PF and PREFETCHWT1 flags. */
 
-	if (max_cpuid_value >= 7) {
-		reg.ECX = 0;
-		Cpuid (7, &reg);
-		if (((reg.EBX >> 5) & 0x1) && (CPU_FLAGS & CPU_AVX))
-			CPU_FLAGS |= CPU_AVX2;
-		if (((reg.EBX >> 16) & 0x1) && (CPU_FLAGS & CPU_AVX))
-			CPU_FLAGS |= CPU_AVX512F;
-		if (((reg.EBX >> 26) & 0x1) && (CPU_FLAGS & CPU_AVX))
-			CPU_FLAGS |= CPU_AVX512PF;
-		if (reg.ECX & 0x1)
-			CPU_FLAGS |= CPU_PREFETCHWT1;
+			if (max_cpuid_value >= 7) {
+				reg.ECX = 0;
+				Cpuid (7, &reg);
+				if (((reg.EBX >> 5) & 0x1) && (CPU_FLAGS & CPU_AVX)) CPU_FLAGS |= CPU_AVX2;
+				if (((reg.EBX >> 16) & 0x1) && ((getbv_reg.EAX & 0xE0) == 0xE0)) CPU_FLAGS |= CPU_AVX512F;
+				if (((reg.EBX >> 26) & 0x1) && (CPU_FLAGS & CPU_AVX512F)) CPU_FLAGS |= CPU_AVX512PF;
+				if (reg.ECX & 0x1) CPU_FLAGS |= CPU_PREFETCHWT1;
+			}
+		}
 	}
 
 /* Call CPUID with 0x80000000 argument.  It tells us how many extended CPU */
@@ -547,8 +538,9 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 			 (family == 6 && model == 86) ||		// Core i7, mobile (based on Broadwell technology)
 			 (family == 6 && model == 94) ||		// Core i7 (based on Skylake technology)
 			 (family == 6 && model == 142) ||		// Core i7, (based on Kaby Lake technology)
-			 (family == 6 && model == 158) ||		// Core i7, mobile (based on Kaby Lake technology)
-			 (family == 6 && model == 168))			// Core i7, (based on Coffee Lake technology)
+			 (family == 6 && model == 158) ||		// Core i7, mobile (based on Coffee Lake technology)
+			 (family == 6 && model == 168) ||		// Core i7, (based on Coffee Lake technology)
+			 (family == 6 && model == 78))			// Core i3/i5/i7, mobile (based on Skylake technology)
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_CORE_I7;
 		else if ((family == 6 && model == 28) ||
 			 (family == 6 && model == 38) ||
@@ -559,7 +551,8 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 			 (family == 6 && model == 76) ||
 			 (family == 6 && model == 77) ||
 			 (family == 6 && model == 90) ||
-			 (family == 6 && model == 93))
+			 (family == 6 && model == 93) ||
+			 (family == 6 && model == 92))			// Apollo Lake, mobile/laptop
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_ATOM;
 		else if ((family == 6 && model == 87))			// Knight's Landing
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_PHI;
@@ -1036,18 +1029,20 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 				prefetch_stride = (reg.EDX & 0x3FF);
 				if (prefetch_stride == 0) prefetch_stride = 64;
 				/* Not documented, but 45nm core 2 returns prefetch_stride of 1 */
+				/* Skylake-X returns an incorrect value for L2 cache size.  To compensate, in version 29.5 */
+				/* we've made the code below supercede any previous cache size calculations. */
 				if (prefetch_stride == 1) prefetch_stride = 64;
-				if (CPU_L1_CACHE_SIZE == -1 && cache_level == 1) {
+				if (cache_level == 1) {
 					CPU_L1_CACHE_SIZE = (associativity * partitions * line_size * sets) >> 10;
 					CPU_L1_SET_ASSOCIATIVE = associativity;
 					CPU_L1_CACHE_LINE_SIZE = prefetch_stride;
 				}
-				if (CPU_L2_CACHE_SIZE == -1 && cache_level == 2) {
+				if (cache_level == 2) {
 					CPU_L2_CACHE_SIZE = (associativity * partitions * line_size * sets) >> 10;
 					CPU_L2_SET_ASSOCIATIVE = associativity;
 					CPU_L2_CACHE_LINE_SIZE = prefetch_stride;
 				}
-				if (CPU_L3_CACHE_SIZE == -1 && cache_level == 3) {
+				if (cache_level == 3) {
 					CPU_L3_CACHE_SIZE = (associativity * partitions * line_size * sets) >> 10;
 					CPU_L3_SET_ASSOCIATIVE = associativity;
 					CPU_L3_CACHE_LINE_SIZE = prefetch_stride;
@@ -1519,7 +1514,7 @@ void guessCpuSpeed (void)
 /* Otherwise use the low resolution timer to measure CPU speed */
 
 	else {
-		struct _timeb temp, start_time, end_time;
+		struct timeval temp, start_time, end_time;
 		uint32_t start_hi, start_lo, end_hi, end_lo;
 		double	speed1, speed2, speed3, avg_speed, elapsed_time;
 		int	tries;
@@ -1538,17 +1533,17 @@ void guessCpuSpeed (void)
 
 /* Loop waiting for low resolution timer to change */
 
-			_ftime (&temp);
+			gettimeofday (&temp, NULL);
 			do
-				_ftime (&start_time);
-			while (temp.millitm == start_time.millitm);
+				gettimeofday (&start_time, NULL);
+			while (temp.tv_usec == start_time.tv_usec);
 			rdtsc (&start_hi, &start_lo);
 
 /* Now loop waiting for timer to change again */
 
 			do
-				_ftime (&end_time);
-			while (start_time.millitm == end_time.millitm);
+				gettimeofday (&end_time, NULL);
+			while (start_time.tv_usec == end_time.tv_usec);
 			rdtsc (&end_hi, &end_lo);
 
 /* Compute elapsed time.  Since most PCs have a low resolution clock */
@@ -1556,17 +1551,13 @@ void guessCpuSpeed (void)
 /* to 1 / 18.2 seconds, then assume the elapsed time is */
 /* 1 / 18.206... = 0.054925493 seconds. */
 
-			elapsed_time = (end_time.time - start_time.time) +
-				  ((int) end_time.millitm -
-				   (int) start_time.millitm) / 1000.0;
+			elapsed_time = (end_time.tv_sec - start_time.tv_sec) + (end_time.tv_usec - start_time.tv_usec) / 1000000.0;
 			if (elapsed_time >= 0.049 && elapsed_time <= 0.061)
 				elapsed_time = 0.054925493;
 
 /* Compute speed based on number of clocks in the time interval */
 
-			speed1 = (end_hi * 4294967296.0 + end_lo -
-				  start_hi * 4294967296.0 - start_lo) /
-				 elapsed_time / 1000000.0;
+			speed1 = (end_hi * 4294967296.0 + end_lo - start_hi * 4294967296.0 - start_lo) / elapsed_time / 1000000.0;
 
 /* Caclulate average of last 3 speeds.  Loop if this average isn't */
 /* very close to all of the last three speed calculations. */

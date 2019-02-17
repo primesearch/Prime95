@@ -1,4 +1,4 @@
-; Copyright 2011-2016 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2017 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -5080,7 +5080,7 @@ b3b:	yr4_rb4cl_four_complex_djbfft rsi, 64, 8*64, 16*64, rdi, 4*YMM_SCD3, 8
 	yloop	4, b3b, -4*dist32	;; Test loop counter, restore source pointer
 	end_timer 6
 
-;; Do FFT levels 8,9
+;; Do FFT levels 8,9,10
 ;; On input and output the 64-byte cache lines hold these data values:
 ;;	0	+256	+256	+256	8	+256	+256	+256
 ;;	1

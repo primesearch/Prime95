@@ -1,7 +1,7 @@
 # Assembler command lines
 #
-# HJWasm is a MASM-compatible assembler that is supported much better than MASM.
-# It can be downloaded at http://www.terraspace.co.uk/hjwasm.html
+# Uasm is a MASM-compatible assembler that is supported much better than MASM.
+# It can be downloaded at http://www.terraspace.co.uk/uasm.html
 #
 # objconv comes courtesy of Agner Fog.  Download available at
 # http://www.agner.org/optimize/#objconv
@@ -27,7 +27,7 @@ all:	gwnumd.lib gwnum.lib linux\gwnum.a macosx\gwnum.a release\ecmstag1.obj debu
 
 gwnumd.lib: debug\cpuid.obj debug\gwnum.obj debug\gwtables.obj debug\gwthread.obj debug\gwini.obj debug\gwbench.obj debug\gwutil.obj \
 	    debug\gwdbldbl.obj debug\giants.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2aux.obj \
-	    mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj \
+	    mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj hyperhlp.obj \
 	    xmult1ax.obj xmult2.obj xmult2a_core.obj xmult2a_k8.obj xmult2ax.obj xmult3.obj xmult3a_core.obj xmult3a_k8.obj xmult3ax.obj \
 	    hg_blend.obj hg_core.obj hg_p4.obj hg_p4tp.obj hg_k8.obj hg_k10.obj \
 	    r4_core.obj r4_p4.obj r4_p4tp.obj r4_k8.obj r4_k10.obj \
@@ -46,7 +46,7 @@ gwnumd.lib: debug\cpuid.obj debug\gwnum.obj debug\gwtables.obj debug\gwthread.ob
 
 gwnum.lib: release\cpuid.obj release\gwnum.obj release\gwtables.obj release\gwthread.obj release\gwini.obj release\gwbench.obj \
 	   release\gwutil.obj release\gwdbldbl.obj release\giants.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj \
-	   mult2aux.obj mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj \
+	   mult2aux.obj mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj hyperhlp.obj \
 	   xmult1ax.obj xmult2.obj xmult2a_core.obj xmult2a_k8.obj xmult2ax.obj xmult3.obj xmult3a_core.obj xmult3a_k8.obj xmult3ax.obj \
 	   hg_blend.obj hg_core.obj hg_p4.obj hg_p4tp.obj hg_k8.obj hg_k10.obj \
 	   r4_core.obj r4_p4.obj r4_p4tp.obj r4_k8.obj r4_k10.obj \
@@ -64,7 +64,7 @@ gwnum.lib: release\cpuid.obj release\gwnum.obj release\gwtables.obj release\gwth
     lib /OUT:gwnum.lib release\*.obj *.obj
 
 linux\gwnum.a: mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2aux.obj \
-	       mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj \
+	       mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj hyperhlp.obj \
 	       xmult1ax.obj xmult2.obj xmult2a_core.obj xmult2a_k8.obj xmult2ax.obj xmult3.obj xmult3a_core.obj xmult3a_k8.obj xmult3ax.obj \
 	       hg_blend.obj hg_core.obj hg_p4.obj hg_p4tp.obj hg_k8.obj hg_k10.obj \
 	       r4_core.obj r4_p4.obj r4_p4tp.obj r4_k8.obj r4_k10.obj \
@@ -87,7 +87,7 @@ linux\gwnum.a: mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj m
     del linux\gwnum.lib
 
 macosx\gwnum.a: macosx\mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2aux.obj \
-		mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj \
+		mult3.obj mult3p.obj mult3a.obj mult3ap.obj mult4.obj mult4p.obj gianthlp.obj cpuidhlp.obj hyperhlp.obj \
 		xmult1ax.obj xmult2.obj xmult2a_core.obj xmult2ax.obj xmult3.obj xmult3a_core.obj xmult3ax.obj \
 		hg_blend.obj hg_core.obj hg_p4.obj \
 		r4_core.obj r4_p4.obj \
@@ -248,6 +248,10 @@ gianthlp.obj: gianthlp.asm
 cpuidhlp.obj: cpuidhlp.asm
     $(masm) cpuidhlp.asm
     strip cpuidhlp.obj
+
+hyperhlp.obj: hyperhlp.asm
+    $(masm) hyperhlp.asm
+    strip hyperhlp.obj
 
 xmult1ax.obj: xmult1ax.asm xmult.mac xnormal.mac
     $(masm) /DARCH=BLEND xmult1ax.asm

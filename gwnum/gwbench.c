@@ -10,7 +10,7 @@
 | on the end user machine looking for an FFT implementation that is faster than the
 | default selection.
 |
-| Copyright 2017 Mersenne Research, Inc.  All rights reserved.
+| Copyright 2017-2019 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -172,17 +172,27 @@ void gwbench_read_data (void)
 
 	for (i = 1; ; i++) {
 		int	fftlen, bench_length, num_cores, num_workers, num_hyperthreads, impl_id;
-		char	bench_date[80];
+		char	fftlen_multiplier, bench_date[80];
 		double	throughput;
 
 		IniGetNthString (GWNUMINI_FILE, "BenchData", i, bench_data, sizeof (bench_data), NULL);
 		if (bench_data[0] == 0) break;
 
-		sscanf (bench_data, "%dK,%d,%d,%d,%08X,%10s,%d,%lf",
-			&fftlen, &num_cores, &num_workers, &num_hyperthreads, &impl_id, bench_date, &bench_length, &throughput);
-		fftlen <<= 10;
+		sscanf (bench_data, "%d%c,%d,%d,%d,%08X,%10s,%d,%lf",
+			&fftlen, &fftlen_multiplier, &num_cores, &num_workers, &num_hyperthreads,
+			&impl_id, bench_date, &bench_length, &throughput);
+		if (fftlen_multiplier == ',') 
+			sscanf (bench_data, "%d,%d,%d,%d,%08X,%10s,%d,%lf",
+				&fftlen, &num_cores, &num_workers, &num_hyperthreads,
+				&impl_id, bench_date, &bench_length, &throughput);
+		if (fftlen_multiplier == 'K' || fftlen_multiplier == 'k') fftlen <<= 10;
+		if (fftlen_multiplier == 'M' || fftlen_multiplier == 'm') fftlen <<= 20;
 
-//				validate (sanity check) data before writing it
+// validate (sanity check) data before writing it
+
+		if (num_cores < 1 || num_workers < 1 || throughput <= 0.0) continue;
+
+// Add the benchmark data to our SQL table
 
 		errcode = sqlite3_bind_int (sql_stmt, 1, fftlen);
 		if (errcode != SQLITE_OK) goto stmt_error;
@@ -296,7 +306,6 @@ void gwbench_write_data (void)
 		if (errcode != SQLITE_ROW) goto stmt_error;
 
 		fftlen = sqlite3_column_int (sql_stmt, 0);
-		fftlen >>= 10;
 		num_cores = sqlite3_column_int (sql_stmt, 1);
 		num_workers = sqlite3_column_int (sql_stmt, 2);
 		num_hyperthreads = sqlite3_column_int (sql_stmt, 3);
@@ -305,8 +314,9 @@ void gwbench_write_data (void)
 		bench_length = sqlite3_column_int (sql_stmt, 6);
 		throughput = sqlite3_column_double (sql_stmt, 7);
 
-		sprintf (bench_data, "%dK,%d,%d,%d,%08X,%s,%d,%.2f",
-			 fftlen, num_cores, num_workers, num_hyperthreads, impl_id, bench_date, bench_length, throughput);
+		sprintf (bench_data, "%d%s,%d,%d,%d,%08X,%s,%d,%.2f",
+			 (fftlen & 0x3FF) ? fftlen : fftlen >> 10, (fftlen & 0x3FF) ? "" : "K",
+			 num_cores, num_workers, num_hyperthreads, impl_id, bench_date, bench_length, throughput);
 
 		IniWriteNthString (GWNUMINI_FILE, "BenchData", i, bench_data);
 	}
@@ -404,7 +414,8 @@ int gwbench_implementation_id (
 {
 	int	clm;
 
-	if (gwdata->cpu_flags & CPU_AVX) clm = gwdata->PASS1_CACHE_LINES / 4;
+	if (gwdata->cpu_flags & CPU_AVX512F) clm = gwdata->PASS1_CACHE_LINES / 8;
+	else if (gwdata->cpu_flags & CPU_AVX) clm = gwdata->PASS1_CACHE_LINES / 4;
 	else clm = gwdata->PASS1_CACHE_LINES / 2;
 	return (internal_implementation_id (gwdata->FFTLEN, gwdata->FFT_TYPE, gwdata->ALL_COMPLEX_FFT, gwdata->NO_PREFETCH_FFT,
 					    gwdata->IN_PLACE_FFT, error_checking, gwdata->PASS2_SIZE, gwdata->ARCH, clm));
@@ -421,7 +432,7 @@ int internal_implementation_id (
 	int	architecture,
 	int	clm)
 {
-	int	pass2_multiplier;		// 6 possible values: 9,12,15,16,20,25
+	int	pass2_multiplier;		// 10 possible values: 9,12,15,16,20,21,25,28,35,49
 	int	pass2_pow2;
 
 /* Compress the data as follows:
@@ -432,6 +443,8 @@ int internal_implementation_id (
 	pass2_size = 48 to 25600, or 3-bits plus 1 spare to represent 9,12,15,16,20,25 and 4-bits for * 2^(0-15)
 	32/64-bit = 1-bit
 	clm = 2-bits (1,2,4) +1 bit for future use */
+// BUG - we should consider encoding pass 1 size rather than pass 2 size above.  There are far fewer pass 1 sizes supported.
+// If we ever have to ditch old benchmarks, we should do this
 
 	// Map 1,2,4 to 0,1,2
 	if (clm <= 1) clm = 0;
@@ -442,10 +455,14 @@ int internal_implementation_id (
 	else if (pass2_size % 9 == 0) pass2_multiplier = 0, pass2_size /= 9;		// Pass2_size = 9 * 2^x
 	else if (pass2_size % 15 == 0) pass2_multiplier = 2, pass2_size /= 15;		// Pass2_size = 15 * 2^x
 	else if (pass2_size % 25 == 0) pass2_multiplier = 5, pass2_size /= 25;		// Pass2_size = 25 * 2^x
+	else if (pass2_size % 21 == 0) pass2_multiplier = 6, pass2_size /= 21;		// Pass2_size = 21 * 2^x
+	else if (pass2_size % 35 == 0) pass2_multiplier = 7, pass2_size /= 35;		// Pass2_size = 35 * 2^x
+	else if (pass2_size % 49 == 0) pass2_multiplier = 8, pass2_size /= 49;		// Pass2_size = 49 * 2^x
 	else if (pass2_size % 12 == 0) pass2_multiplier = 1, pass2_size /= 12;		// Pass2_size = 12 * 2^x
 	else if (pass2_size % 20 == 0) pass2_multiplier = 4, pass2_size /= 20;		// Pass2_size = 20 * 2^x
+	else if (pass2_size % 28 == 0) pass2_multiplier = 9, pass2_size /= 28;		// Pass2_size = 28 * 2^x
 	else if (pass2_size % 16 == 0) pass2_multiplier = 3, pass2_size /= 16;		// Pass2_size = 16 * 2^x
-	else pass2_multiplier = 7;							// Can't happen
+	else pass2_multiplier = 10;							// Can't happen
 	for (pass2_pow2 = 0; pass2_size >= 2; pass2_pow2++, pass2_size >>= 1);
 	// Make sure error_check, all_complex, other flags are one bit
 	error_check = !!error_check;
@@ -491,10 +508,14 @@ int internal_implementation_ids_match (
 	else if (pass2_size % 9 == 0) pass2_multiplier = 0, pass2_size /= 9;		// Pass2_size = 9 * 2^x
 	else if (pass2_size % 15 == 0) pass2_multiplier = 2, pass2_size /= 15;		// Pass2_size = 15 * 2^x
 	else if (pass2_size % 25 == 0) pass2_multiplier = 5, pass2_size /= 25;		// Pass2_size = 25 * 2^x
+	else if (pass2_size % 21 == 0) pass2_multiplier = 6, pass2_size /= 21;		// Pass2_size = 21 * 2^x
+	else if (pass2_size % 35 == 0) pass2_multiplier = 7, pass2_size /= 35;		// Pass2_size = 35 * 2^x
+	else if (pass2_size % 49 == 0) pass2_multiplier = 8, pass2_size /= 49;		// Pass2_size = 49 * 2^x
 	else if (pass2_size % 12 == 0) pass2_multiplier = 1, pass2_size /= 12;		// Pass2_size = 12 * 2^x
 	else if (pass2_size % 20 == 0) pass2_multiplier = 4, pass2_size /= 20;		// Pass2_size = 20 * 2^x
+	else if (pass2_size % 28 == 0) pass2_multiplier = 9, pass2_size /= 28;		// Pass2_size = 28 * 2^x
 	else if (pass2_size % 16 == 0) pass2_multiplier = 3, pass2_size /= 16;		// Pass2_size = 16 * 2^x
-	else pass2_multiplier = 7;							// Can't happen
+	else pass2_multiplier = 10;							// Can't happen
 	for (pass2_pow2 = 0; pass2_size >= 2; pass2_pow2++, pass2_size >>= 1);
 	// Strip all-complex, error-check, 32-bit flags from implementation id -- gwbench_get_max_throughput will have made sure these match.
 	impl_id &= ~0x8010008;
@@ -511,6 +532,7 @@ int internal_implementation_ids_match (
 
 void gwbench_get_max_throughput (
 	int	fftlen,				/* FFT length to get bench data on */
+	int	arch,				/* Return bench data where this CPU architecture was used */
 	int	num_cores,			/* Return bench data where this number of cores were used */
 	int	num_workers,			/* Return bench data where this number of workers were used */
 	int	num_hyperthreads,		/* Return bench data where this number of hyperthreads were used */
@@ -553,6 +575,7 @@ void gwbench_get_max_throughput (
 		exclude_fft_type = FFT_TYPE_RADIX_4_DWPN << 24;		/* Exclude r4dwpn FFT type */
 	else
 		exclude_fft_type = -1;					/* Do not exclude any FFT types */
+	arch = arch << 12;
 
 /* Prepare a SQL statement to get benchmark data */
 
@@ -560,7 +583,8 @@ void gwbench_get_max_throughput (
 		errcode = sqlite3_prepare_v2 (BENCH_DB, "SELECT impl, avg_throughput FROM avgbest3 \
 							 WHERE fftlen = ?1 AND num_cores = ?2 AND num_workers = ?3 AND \
 								num_hyperthreads = ?4 AND (impl & 0x8010008) = ?5 AND \
-								(impl & 0x7000000) <> ?6 \
+								(impl & 0x7000000) <> ?6 AND \
+								(impl & 0xF000) = ?7 \
 							 ORDER BY avg_throughput DESC LIMIT 1", -1, &get_max_sql_stmt, NULL);
 		if (errcode != SQLITE_OK) goto stmt_error;
 		get_max_sql_stmt_prepared = TRUE;
@@ -584,6 +608,9 @@ void gwbench_get_max_throughput (
 	if (errcode != SQLITE_OK) goto stmt_error;
 
 	errcode = sqlite3_bind_int (get_max_sql_stmt, 6, exclude_fft_type);
+	if (errcode != SQLITE_OK) goto stmt_error;
+
+	errcode = sqlite3_bind_int (get_max_sql_stmt, 7, arch);
 	if (errcode != SQLITE_OK) goto stmt_error;
 
 	errcode = sqlite3_step (get_max_sql_stmt);

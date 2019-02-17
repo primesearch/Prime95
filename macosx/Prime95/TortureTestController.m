@@ -3,7 +3,7 @@
 //  Prime95
 //
 //  Created by George Woltman on 4/25/09.
-//  Copyright 2009-2017 Mersenne Research, Inc. All rights reserved.
+//  Copyright 2009-2019 Mersenne Research, Inc. All rights reserved.
 //
 
 #import "TortureTestController.h"
@@ -26,18 +26,30 @@
 {
 	int	mem, in_place_fft;
 
-	[self setTortureType:2];
+	[self setTortureType:4];
 
 	[self setNumberOfThreads:NUM_CPUS * CPU_HYPERTHREADS];
+	[self setNumberOfThreadsMin:1];
 	[self setNumberOfThreadsMax:NUM_CPUS * CPU_HYPERTHREADS];
 	[self setNumberOfThreadsEnabled:(NUM_CPUS * CPU_HYPERTHREADS > 1)];
+	[self setSmallFFTsEnabled:(CPU_TOTAL_L3_CACHE_SIZE > 0)];
+	[self setMediumFFTsEnabled:(CPU_TOTAL_L4_CACHE_SIZE > 0)];
 	[self setCustomSettingsEnabled:NO];
 	[self setCustomMemoryEnabled:NO];
-	[self setMinFFTSize:8];
-	[self setMaxFFTSize:4096];
+	[self setMinFFTSize:4];
+	[self setMaxFFTSize:(CPU_TOTAL_L4_CACHE_SIZE ? 32768 : 8192)];
+	[self setDisableAVX512:NO];
+	[self setDisableFMA3:NO];
+	[self setDisableAVX:NO];
+	[self setDisableAVX512Enabled:(CPU_FLAGS & CPU_AVX512F)];
+	[self setDisableFMA3Enabled:(CPU_FLAGS & CPU_FMA3)];
 
 	mem = physical_memory ();
-	if (mem >= 2000) {
+	// New in 29.5 default to all but 2.5GB
+	if (mem >= 4500) {
+		blendMemory = GetSuggestedMemory (mem - 2500);
+		in_place_fft = FALSE;
+	} else if (mem >= 2000) {
 		blendMemory = GetSuggestedMemory (1600);
 		in_place_fft = FALSE;
 	} else if (mem >= 500) {
@@ -52,7 +64,18 @@
 	}
 	[self setRunFFTsInPlace:in_place_fft];
 	[self setMemoryToUse:blendMemory];
-	[self setTimeToRunEachFFT:15];
+	[self setTimeToRunEachFFT:CPU_HYPERTHREADS * 3];
+}
+
+- (int)numberOfThreads
+{
+	return numberOfThreads;
+}
+
+- (void)setNumberOfThreads:(int) _value
+{
+	numberOfThreads = _value;
+	[self setTortureType:tortureType];		// Set FFT lengths for new numberOfThreads
 }
 
 - (int)tortureType
@@ -62,36 +85,25 @@
 
 - (void)setTortureType:(int) _value
 {
-	if (_value == 0) {			// Small FFTs (in L2 cache)
-		int	maxfft;
-		[self setCustomSettingsEnabled:NO];
-		[self setCustomMemoryEnabled:NO];
-		[self setMinFFTSize:8];
-		if (CPU_L2_CACHE_SIZE <= 128) maxfft = 8;
-		else if (CPU_L2_CACHE_SIZE <= 256) maxfft = 16;
-		else if (CPU_L2_CACHE_SIZE <= 512) maxfft = 32;
-		else maxfft = 64;
+	if (_value != 5) {				// Not custom
+		int	minfft, maxfft;
+
+		// Calculate default FFT sizes
+		tortureTestDefaultSizes (_value, numberOfThreads, &minfft, &maxfft);
+		if (minfft < 4) minfft = 4;
+		if (maxfft < minfft) maxfft = minfft;
+		if (maxfft > 32768) maxfft = 32768;
+		[self setMinFFTSize:minfft];
 		[self setMaxFFTSize:maxfft];
-		[self setRunFFTsInPlace:YES];
-		[self setMemoryToUse:0];
-		[self setTimeToRunEachFFT:15];
-	} else if (_value == 1) {		// Large in-place FFTs
+
+		// Assign other options
+		[self setRunFFTsInPlace:(_value <= 2)];	// TRUE for L2/L3/L4 cache
+		[self setMemoryToUse:(runFFTsInPlace ? 0 : blendMemory)];
+		[self setTimeToRunEachFFT:(numberOfThreads > NUM_CPUS ? 6 : 3)];
 		[self setCustomSettingsEnabled:NO];
 		[self setCustomMemoryEnabled:NO];
-		[self setMinFFTSize:8];
-		[self setMaxFFTSize:1024];
-		[self setRunFFTsInPlace:YES];
-		[self setMemoryToUse:8];
-		[self setTimeToRunEachFFT:15];
-	} else if (_value == 2) {		// Blend
-		[self setCustomSettingsEnabled:NO];
-		[self setCustomMemoryEnabled:NO];
-		[self setMinFFTSize:8];
-		[self setMaxFFTSize:4096];
-		[self setRunFFTsInPlace:NO];
-		[self setMemoryToUse:blendMemory];
-		[self setTimeToRunEachFFT:15];
-	} else {				// Custom
+	}
+	else {						// Custom
 		[self setCustomSettingsEnabled:YES];
 		[self setCustomMemoryEnabled:!runFFTsInPlace];
 	}
@@ -111,28 +123,36 @@
 	runFFTsInPlace = _value;
 }
 
-@synthesize numberOfThreads;
+@synthesize numberOfThreadsMin;
 @synthesize numberOfThreadsMax;
 @synthesize numberOfThreadsEnabled;
+@synthesize smallFFTsEnabled;
+@synthesize mediumFFTsEnabled;
 @synthesize customSettingsEnabled;
 @synthesize customMemoryEnabled;
 @synthesize minFFTSize;
 @synthesize maxFFTSize;
 @synthesize memoryToUse;
 @synthesize timeToRunEachFFT;
+@synthesize disableAVX512;
+@synthesize disableFMA3;
+@synthesize disableAVX;
+@synthesize disableAVX512Enabled;
+@synthesize disableFMA3Enabled;
 
 - (IBAction)ok:(id)sender
 {
-	int	mem;
-	
+	int	weak;
+
 	[[self window] makeFirstResponder:nil];			// End any active text field edits
 
 	IniWriteInt (INI_FILE, "MinTortureFFT", minFFTSize);
 	IniWriteInt (INI_FILE, "MaxTortureFFT", maxFFTSize);
-	mem = memoryToUse / numberOfThreads;
-	if (runFFTsInPlace) mem = 8;
-	IniWriteInt (INI_FILE, "TortureMem", mem);
+	if (runFFTsInPlace) memoryToUse = 8;
+	IniWriteInt (INI_FILE, "TortureMem", memoryToUse);
 	IniWriteInt (INI_FILE, "TortureTime", timeToRunEachFFT);
+	weak = (disableAVX512 ? CPU_AVX512F : 0) + (disableFMA3 ? CPU_FMA3 : 0) + (disableAVX ? CPU_AVX : 0);
+	IniWriteInt (INI_FILE, "TortureWeak", weak);
 	LaunchTortureTest (numberOfThreads, FALSE);
 
 	[[self window] performClose:self];

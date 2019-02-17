@@ -1,4 +1,4 @@
-/* Copyright 1995-2017 Mersenne Research, Inc. */
+/* Copyright 1995-2019 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -59,8 +59,6 @@
 #define _stricmp	strcasecmp
 
 #ifndef __WATCOMC__
-#define _timeb		timeb
-#define _ftime		ftime
 #define _O_APPEND	O_APPEND
 #define _O_RDONLY	O_RDONLY
 #define _O_WRONLY	O_WRONLY

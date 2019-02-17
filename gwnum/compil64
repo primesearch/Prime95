@@ -1,7 +1,7 @@
 # Assembler command lines
 #
-# HJWasm is a MASM-compatible assembler that is supported much better than MASM.
-# It can be downloaded at http://www.terraspace.co.uk/hjwasm.html
+# Uasm is a MASM-compatible assembler that is supported much better than MASM.
+# It can be downloaded at http://www.terraspace.co.uk/uasm.html
 #
 # objconv comes courtesy of Agner Fog.  Download available at
 # http://www.agner.org/optimize/#objconv
@@ -26,6 +26,7 @@ cl64do=cl /GF /W3 /MT /DX86_64 /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Z7 /O2 /c
 # List of all buildables in this makefile
 
 all:	gwnum64.lib gwnum64d.lib linux64\gwnum.a macosx64\gwnum.a amd64\release\ecmstag1.obj amd64\debug\ecmstag1.obj
+#all:	linux64\gwnum.a
 
 # Make libraries out of the object files
 
@@ -45,7 +46,8 @@ gwnum64.lib: amd64\release\cpuid.obj amd64\release\gwnum.obj amd64\release\gwtab
 	     amd64\ymult3.obj amd64\ymult3a_core.obj amd64\ymult3a_fma3.obj amd64\ymult3ax.obj \
 	     amd64\yr4dwpn_core.obj amd64\yr4dwpn3_core.obj amd64\yr4dwpn4_core.obj amd64\yr4dwpn5_core.obj \
 	     amd64\yr4dwpn_fma3.obj amd64\yr4dwpn3_fma3.obj amd64\yr4dwpn4_fma3.obj amd64\yr4dwpn5_fma3.obj \
-	     amd64\cpuidhlp.obj amd64\mult.obj amd64\gianthlp.obj amd64\timeit.obj
+	     amd64\zmult3.obj amd64\zmult3a_skx.obj amd64\zmult3ax.obj amd64\zr4dwpn_skx.obj amd64\zr4dwpn2_skx.obj \
+	     amd64\cpuidhlp.obj amd64\hyperhlp.obj amd64\mult.obj amd64\gianthlp.obj amd64\timeit.obj
     del gwnum64.lib
     lib /OUT:gwnum64.lib amd64\release\*.obj amd64\*.obj
 
@@ -65,7 +67,8 @@ gwnum64d.lib: amd64\debug\cpuid.obj amd64\debug\gwnum.obj amd64\debug\gwtables.o
 	      amd64\ymult3.obj amd64\ymult3a_core.obj amd64\ymult3a_fma3.obj amd64\ymult3ax.obj \
 	      amd64\yr4dwpn_core.obj amd64\yr4dwpn3_core.obj amd64\yr4dwpn4_core.obj amd64\yr4dwpn5_core.obj \
 	      amd64\yr4dwpn_fma3.obj amd64\yr4dwpn3_fma3.obj amd64\yr4dwpn4_fma3.obj amd64\yr4dwpn5_fma3.obj \
-	      amd64\cpuidhlp.obj amd64\mult.obj amd64\gianthlp.obj amd64\timeit.obj
+	      amd64\zmult3.obj amd64\zmult3a_skx.obj amd64\zmult3ax.obj amd64\zr4dwpn_skx.obj amd64\zr4dwpn2_skx.obj \
+	      amd64\cpuidhlp.obj amd64\hyperhlp.obj amd64\mult.obj amd64\gianthlp.obj amd64\timeit.obj
     del gwnum64d.lib
     lib /OUT:gwnum64d.lib amd64\debug\*.obj amd64\*.obj
 
@@ -83,7 +86,8 @@ linux64\gwnum.a: linux64\xmult1ax.obj linux64\xmult2.obj linux64\xmult2a_core.ob
 		 linux64\ymult3.obj linux64\ymult3a_core.obj linux64\ymult3a_fma3.obj linux64\ymult3ax.obj \
 		 linux64\yr4dwpn_core.obj linux64\yr4dwpn3_core.obj linux64\yr4dwpn4_core.obj linux64\yr4dwpn5_core.obj \
 		 linux64\yr4dwpn_fma3.obj linux64\yr4dwpn3_fma3.obj linux64\yr4dwpn4_fma3.obj linux64\yr4dwpn5_fma3.obj \
-		 linux64\cpuidhlp.obj linux64\mult.obj linux64\gianthlp.obj linux64\timeit.obj
+		 linux64\zmult3.obj linux64\zmult3a_skx.obj linux64\zmult3ax.obj linux64\zr4dwpn_skx.obj linux64\zr4dwpn2_skx.obj \
+		 linux64\cpuidhlp.obj linux64\hyperhlp.obj linux64\mult.obj linux64\gianthlp.obj linux64\timeit.obj
     attrib -r linux64\gwnum.a
     del linux64\gwnum.a
     lib /OUT:linux64\gwnum.lib linux64\*.obj
@@ -105,7 +109,8 @@ macosx64\gwnum.a: linux64\xmult1ax.obj linux64\xmult2.obj linux64\xmult2a_core.o
 		  linux64\ymult3.obj linux64\ymult3a_core.obj linux64\ymult3a_fma3.obj linux64\ymult3ax.obj \
 		  linux64\yr4dwpn_core.obj linux64\yr4dwpn3_core.obj linux64\yr4dwpn4_core.obj linux64\yr4dwpn5_core.obj \
 		  linux64\yr4dwpn_fma3.obj linux64\yr4dwpn3_fma3.obj linux64\yr4dwpn4_fma3.obj linux64\yr4dwpn5_fma3.obj \
-		  linux64\cpuidhlp.obj macosx64\mult.obj linux64\gianthlp.obj linux64\timeit.obj
+		  linux64\zmult3.obj linux64\zmult3a_skx.obj linux64\zmult3ax.obj linux64\zr4dwpn_skx.obj linux64\zr4dwpn2_skx.obj \
+		  linux64\cpuidhlp.obj linux64\hyperhlp.obj macosx64\mult.obj linux64\gianthlp.obj linux64\timeit.obj
     attrib -r macosx64\gwnum.a
     del /q macosx64\foo
     del macosx64\gwnum.a
@@ -425,9 +430,33 @@ amd64\yr4dwpn5_fma3.obj: yr4dwpn5.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.mac 
     $(masm64) /DARCH=FMA3 /Foamd64\yr4dwpn5_fma3.obj yr4dwpn5.asm
     strip amd64\yr4dwpn5_fma3.obj
 
+amd64\zmult3.obj: zmult3.asm zmult.mac znormal.mac znormal_zpad.mac
+    $(masm64) /DARCH=BLEND /Foamd64\zmult3.obj zmult3.asm
+    strip amd64\zmult3.obj
+
+amd64\zmult3a_skx.obj: zmult3a.asm zmult.mac znormal.mac znormal_zpad.mac
+    $(masm64) /DARCH=SKX /Foamd64\zmult3a_skx.obj zmult3a.asm
+    strip amd64\zmult3a_skx.obj
+
+amd64\zmult3ax.obj: zmult3ax.asm zmult.mac znormal.mac znormal_zpad.mac
+    $(masm64) /DARCH=BLEND /Foamd64\zmult3ax.obj zmult3ax.asm
+    strip amd64\zmult3ax.obj
+
+amd64\zr4dwpn_skx.obj: zr4dwpn.asm zmult.mac zr4dwpnpass1sc.mac zonepass.mac zr4.mac zr5.mac zr6.mac zr7.mac zr8.mac zr10.mac zr12.mac zr16.mac
+    $(masm64) /DARCH=SKX /Foamd64\zr4dwpn_skx.obj zr4dwpn.asm
+    strip amd64\zr4dwpn_skx.obj
+
+amd64\zr4dwpn2_skx.obj: zr4dwpn2.asm zmult.mac zr4dwpnpass2.mac zr4.mac zr5.mac zr6.mac zr7.mac zr8.mac zr10.mac zr12.mac zr16.mac zr64.mac
+    $(masm64) /DARCH=SKX /Foamd64\zr4dwpn2_skx.obj zr4dwpn2.asm
+    strip amd64\zr4dwpn2_skx.obj
+
 amd64\cpuidhlp.obj: cpuidhlp.asm
     $(masm64) /Foamd64\cpuidhlp.obj cpuidhlp.asm
     strip amd64\cpuidhlp.obj
+
+amd64\hyperhlp.obj: hyperhlp.asm
+    $(masm64) /Foamd64\hyperhlp.obj hyperhlp.asm
+    strip amd64\hyperhlp.obj
 
 amd64\mult.obj: mult.asm
     $(masm64) /Foamd64\mult.obj mult.asm
@@ -437,7 +466,7 @@ amd64\gianthlp.obj: gianthlp.asm
     $(masm64) /Foamd64\gianthlp.obj gianthlp.asm
     strip amd64\gianthlp.obj
 
-amd64\timeit.obj: timeit.asm xmult.mac hg.mac r4.mac r2.mac r3.mac r5.mac r7.mac r8.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac ynormal.mac
+amd64\timeit.obj: timeit.asm xmult.mac hg.mac r4.mac r2.mac r3.mac r5.mac r7.mac r8.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac ynormal.mac zonepass.mac zr4.mac zr5.mac zr6.mac zr7.mac zr8.mac zr10.mac zr12.mac zr16.mac zr64.mac znormal.mac
     $(masm64) /DARCH=FMA3 /Foamd64\timeit.obj timeit.asm
     strip amd64\timeit.obj
 
@@ -619,8 +648,26 @@ linux64\yr4dwpn5_core.obj: yr4dwpn5.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.ma
 linux64\yr4dwpn5_fma3.obj: yr4dwpn5.asm ymult.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac yr4dwpnpass1sc.mac yr4dwpnpass2.mac
     $(masm64lx) /DARCH=FMA3 /Folinux64\yr4dwpn5_fma3.obj yr4dwpn5.asm
 
+linux64\zmult3.obj: zmult3.asm zmult.mac znormal.mac znormal_zpad.mac
+    $(masm64lx) /DARCH=BLEND /Folinux64\zmult3.obj zmult3.asm
+
+linux64\zmult3a_skx.obj: zmult3a.asm zmult.mac znormal.mac znormal_zpad.mac
+    $(masm64lx) /DARCH=SKX /Folinux64\zmult3a_skx.obj zmult3a.asm
+
+linux64\zmult3ax.obj: zmult3ax.asm zmult.mac znormal.mac znormal_zpad.mac
+    $(masm64lx) /DARCH=BLEND /Folinux64\zmult3ax.obj zmult3ax.asm
+
+linux64\zr4dwpn_skx.obj: zr4dwpn.asm zmult.mac zr4dwpnpass1sc.mac zonepass.mac zr4.mac zr5.mac zr6.mac zr7.mac zr8.mac zr10.mac zr12.mac zr16.mac
+    $(masm64lx) /DARCH=SKX /Folinux64\zr4dwpn_skx.obj zr4dwpn.asm
+
+linux64\zr4dwpn2_skx.obj: zr4dwpn2.asm zmult.mac zr4dwpnpass2.mac zr4.mac zr5.mac zr6.mac zr7.mac zr8.mac zr10.mac zr12.mac zr16.mac zr64.mac
+    $(masm64lx) /DARCH=SKX /Folinux64\zr4dwpn2_skx.obj zr4dwpn2.asm
+
 linux64\cpuidhlp.obj: cpuidhlp.asm
     $(masm64lx) /Folinux64\cpuidhlp.obj cpuidhlp.asm
+
+linux64\hyperhlp.obj: hyperhlp.asm
+    $(masm64lx) /Folinux64\hyperhlp.obj hyperhlp.asm
 
 linux64\mult.obj: mult.asm
     $(masm64lx) /Folinux64\mult.obj mult.asm
@@ -628,7 +675,7 @@ linux64\mult.obj: mult.asm
 linux64\gianthlp.obj: gianthlp.asm
     $(masm64lx) /Folinux64\gianthlp.obj gianthlp.asm
 
-linux64\timeit.obj: timeit.asm xmult.mac hg.mac r4.mac r2.mac r3.mac r5.mac r8.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac ynormal.mac
+linux64\timeit.obj: timeit.asm xmult.mac hg.mac r4.mac r2.mac r3.mac r5.mac r8.mac yr4.mac yr3.mac yr5.mac yr7.mac yr8.mac ynormal.mac zonepass.mac zr4.mac zr5.mac zr6.mac zr7.mac zr8.mac zr10.mac zr12.mac zr16.mac zr64.mac znormal.mac
     $(masm64lx) /DARCH=FMA3 /Folinux64\timeit.obj timeit.asm
 
 # Create 64-bit Mac OS X object files.

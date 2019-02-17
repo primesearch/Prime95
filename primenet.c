@@ -9,7 +9,7 @@
 // THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
 // PARTICULAR PURPOSE.
 //
-// Copyright (c) 1997-2017 Mersenne Research, Inc. All Rights Reserved.
+// Copyright (c) 1997-2019 Mersenne Research, Inc. All Rights Reserved.
 //
 //  MODULE:   primenet.c
 //
@@ -22,6 +22,7 @@
 //	      Woltman 1/2002, Windows support and bug fixes
 //	      Woltman 10/2005, Version 5 API support, CURL library
 //	      Woltman 9/2017, Added interim residues to AP msg, added PRP support
+//	      Woltman 9/2019, Added PRP dblchk support
 //
 //  ASSUMPTIONS: 1. less than 4k of data is sent or received per call
 //               2. HTTP/1.1
@@ -649,7 +650,7 @@ int pnHttpServerCURL (char *pbuf, unsigned cbuf, char* postargs)
 {
 	CURL	*curl;
 	CURLcode res;
-	int	debug;
+	int	try_proxy, debug;
 	char	szSITE[120];
 	char	url[4096], buf[4150], errbuf[CURL_ERROR_SIZE];
 	char	szProxyHost[PROXY_HOST_BUFSIZE];
@@ -657,75 +658,89 @@ int pnHttpServerCURL (char *pbuf, unsigned cbuf, char* postargs)
 	char	szProxyPassword[PROXY_PASSWORD_BUFSIZE];
 	unsigned short nProxyPort;
 
-/* Init the cURL structures */
-
-	curl = curl_easy_init ();
-	if (curl == NULL) return (PRIMENET_ERROR_CURL_INIT);
-	curl_easy_setopt (curl, CURLOPT_NOPROGRESS, 1);
-
 /* Get debug logging flag */
 
 	debug = IniSectionGetInt (INI_FILE, iniSection, "Debug", 0);
  
+/* Loop to try with proxy, then after a failure without proxy.  Ixfd64 requested this */
+/* feature here:  https://www.mersenneforum.org/showpost.php?p=505557&postcount=415 */
+
+	for (try_proxy = 1; ; try_proxy = 0) {
+
+/* Init the cURL structures */
+
+		curl = curl_easy_init ();
+		if (curl == NULL) return (PRIMENET_ERROR_CURL_INIT);
+		curl_easy_setopt (curl, CURLOPT_NOPROGRESS, 1);
+
 /* Give curl library the HTTP string to send */
 
-	strcpy (url, "http://");
-	IniSectionGetString (INI_FILE, iniSection, "MersenneIP",
-			     szSITE, sizeof (szSITE), szSITEstr);
-	strcat (url, szSITE);
-	if (IniSectionGetInt (INI_FILE, iniSection, "SendPortNumber", 0))
-		sprintf (url + strlen (url), ":%d", nHostPort);
-	strcat (url, szFILE);
-	strcat (url, postargs);
-	curl_easy_setopt (curl, CURLOPT_URL, url);
-	if (debug) {
-		sprintf (buf, "URL: %s\n", url);
-		LogMsg (buf);
-	}
+		strcpy (url, "http://");
+		IniSectionGetString (INI_FILE, iniSection, "MersenneIP", szSITE, sizeof (szSITE), szSITEstr);
+		strcat (url, szSITE);
+		if (IniSectionGetInt (INI_FILE, iniSection, "SendPortNumber", 0))
+			sprintf (url + strlen (url), ":%d", nHostPort);
+		strcat (url, szFILE);
+		strcat (url, postargs);
+		curl_easy_setopt (curl, CURLOPT_URL, url);
+		if (debug) {
+			sprintf (buf, "URL: %s\n", url);
+			LogMsg (buf);
+		}
 
 /* Get information about the optional proxy server */
 
-	getProxyInfo (szProxyHost, &nProxyPort, szProxyUser, szProxyPassword);
-	if (szProxyHost[0]) {
-		curl_easy_setopt (curl, CURLOPT_PROXY, szProxyHost);
-		curl_easy_setopt (curl, CURLOPT_PROXYPORT, (long) nProxyPort);
-//bug?		curl_easy_setopt (curl, CURLOPT_PROXYTYPE, ???);
-		if (szProxyUser[0]) {
-			sprintf (buf, "%s:%s", szProxyUser, szProxyPassword);
-			curl_easy_setopt (curl, CURLOPT_PROXYUSERPWD, buf);
-			curl_easy_setopt (curl, CURLOPT_PROXYAUTH, CURLAUTH_ANY);
+		if (try_proxy) {
+			getProxyInfo (szProxyHost, &nProxyPort, szProxyUser, szProxyPassword);
+			if (szProxyHost[0]) {
+				curl_easy_setopt (curl, CURLOPT_PROXY, szProxyHost);
+				curl_easy_setopt (curl, CURLOPT_PROXYPORT, (long) nProxyPort);
+//bug?				curl_easy_setopt (curl, CURLOPT_PROXYTYPE, ???);
+				if (szProxyUser[0]) {
+					sprintf (buf, "%s:%s", szProxyUser, szProxyPassword);
+					curl_easy_setopt (curl, CURLOPT_PROXYUSERPWD, buf);
+					curl_easy_setopt (curl, CURLOPT_PROXYAUTH, CURLAUTH_ANY);
+				}
+			}
 		}
-	}
 
 /* Setup function to receive the response */
 
-	curl_easy_setopt (curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-	curl_easy_setopt (curl, CURLOPT_WRITEDATA, (void *) pbuf);
-	pbuf[0] = 0;
+		curl_easy_setopt (curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+		curl_easy_setopt (curl, CURLOPT_WRITEDATA, (void *) pbuf);
+		pbuf[0] = 0;
 
 /* Output verbose debug information */
 
-	if (debug >= 2) {
-		curl_easy_setopt (curl, CURLOPT_DEBUGFUNCTION, curl_trace);
-		curl_easy_setopt (curl, CURLOPT_DEBUGDATA, NULL);
-		/* the DEBUGFUNCTION has no effect until we enable VERBOSE */
-		curl_easy_setopt (curl, CURLOPT_VERBOSE, 1);
-	}
+		if (debug >= 2) {
+			curl_easy_setopt (curl, CURLOPT_DEBUGFUNCTION, curl_trace);
+			curl_easy_setopt (curl, CURLOPT_DEBUGDATA, NULL);
+			/* the DEBUGFUNCTION has no effect until we enable VERBOSE */
+			curl_easy_setopt (curl, CURLOPT_VERBOSE, 1);
+		}
 
 /* Send the URL request */
 
-	curl_easy_setopt (curl, CURLOPT_FOLLOWLOCATION, 1);
-	curl_easy_setopt (curl, CURLOPT_NOSIGNAL, 1);
-	curl_easy_setopt (curl, CURLOPT_CONNECTTIMEOUT, 180);
-	curl_easy_setopt (curl, CURLOPT_TIMEOUT, 180);
-	curl_easy_setopt (curl, CURLOPT_ERRORBUFFER, errbuf);
-	res = curl_easy_perform (curl);
-	if (res != CURLE_OK) {
-		sprintf (buf, "CURL library error: %s\n", errbuf);
-		LogMsg (buf);
-		OutputStr (COMM_THREAD_NUM, buf);
-		curl_easy_cleanup (curl);
-		return (PRIMENET_ERROR_CURL_PERFORM);
+		curl_easy_setopt (curl, CURLOPT_FOLLOWLOCATION, 1);
+		curl_easy_setopt (curl, CURLOPT_NOSIGNAL, 1);
+		curl_easy_setopt (curl, CURLOPT_CONNECTTIMEOUT, 180);
+		curl_easy_setopt (curl, CURLOPT_TIMEOUT, 180);
+		curl_easy_setopt (curl, CURLOPT_ERRORBUFFER, errbuf);
+		res = curl_easy_perform (curl);
+		if (res != CURLE_OK) {
+			sprintf (buf, "CURL library error: %s\n", errbuf);
+			LogMsg (buf);
+			OutputStr (COMM_THREAD_NUM, buf);
+			curl_easy_cleanup (curl);
+			// By default, try again without using a proxy server
+			if (try_proxy && szProxyHost[0] && IniSectionGetInt (INI_FILE, iniSection, "TryNoProxyAfterProxyFailure", 1))
+				continue;
+			return (PRIMENET_ERROR_CURL_PERFORM);
+		}
+
+/* Success, break out of loop */
+
+		break;
 	}
 
 /* Cleanup */
@@ -1464,6 +1479,7 @@ int parse_page (char *response_buf, short operation, void *pkt)
 		parse_double (s, "saved", &z->tests_saved);
 		parse_uint (s, "base", &z->prp_base);
 		parse_uint (s, "rt", &z->prp_residue_type);
+		parse_uint (s, "dc", &z->prp_dblchk);
 		parse_string (s, "kf", z->known_factors, sizeof (z->known_factors));
 		break;
 		}

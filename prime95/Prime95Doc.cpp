@@ -1,6 +1,6 @@
 // Prime95Doc.cpp : implementation of the CPrime95Doc class
 //
-// Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2019 Mersenne Research, Inc.  All rights reserved
 //
 
 #include "stdafx.h"
@@ -805,18 +805,20 @@ void CPrime95Doc::OnBenchmark()
 	dlg.m_bench_workers = default_workers_string;
 
 	if (dlg.DoModal () == IDOK) {
-		IniWriteInt (INI_FILE, "MinBenchFFT", dlg.m_minFFT);
-		IniWriteInt (INI_FILE, "MaxBenchFFT", dlg.m_maxFFT);
-		IniWriteInt (INI_FILE, "BenchErrorCheck", dlg.m_errchk);
-		IniWriteInt (INI_FILE, "BenchAllComplex", dlg.m_all_complex ? 2 : 0);
-		IniWriteInt (INI_FILE, "OnlyBench5678", dlg.m_limit_FFT_sizes);
-
+		if (dlg.m_bench_type != 2) {
+			IniWriteInt (INI_FILE, "MinBenchFFT", dlg.m_minFFT);
+			IniWriteInt (INI_FILE, "MaxBenchFFT", dlg.m_maxFFT);
+			IniWriteInt (INI_FILE, "BenchErrorCheck", dlg.m_errchk);
+			IniWriteInt (INI_FILE, "BenchAllComplex", dlg.m_all_complex ? 2 : 0);
+			IniWriteInt (INI_FILE, "OnlyBench5678", dlg.m_limit_FFT_sizes);
+		}
 		IniWriteString (INI_FILE, "BenchCores", dlg.m_bench_cores);
 		IniWriteInt (INI_FILE, "BenchHyperthreads", dlg.m_hyperthreading);
-
-		IniWriteString (INI_FILE, "BenchWorkers", dlg.m_bench_workers);
-		IniWriteInt (INI_FILE, "AllBench", dlg.m_all_FFT_impl);
-		IniWriteInt (INI_FILE, "BenchTime", dlg.m_bench_time);
+		if (dlg.m_bench_type == 0) {
+			IniWriteString (INI_FILE, "BenchWorkers", dlg.m_bench_workers);
+			IniWriteInt (INI_FILE, "AllBench", dlg.m_all_FFT_impl);
+			IniWriteInt (INI_FILE, "BenchTime", dlg.m_bench_time);
+		}
 		LaunchBench (dlg.m_bench_type);
 	}
 }
@@ -831,35 +833,46 @@ void CPrime95Doc::OnTorture()
 	CTortureDlg dlg;
 	int	mem;
 
-	dlg.m_minfft = 8;
-	dlg.m_maxfft = 4096;
+	dlg.m_minfft = 4;
+	dlg.m_maxfft = (CPU_TOTAL_L4_CACHE_SIZE ? 32768 : 8192);
 	dlg.m_thread = NUM_CPUS * CPU_HYPERTHREADS;
 	mem = physical_memory ();
+	// New in 29.5, raise the default memory used to all but 2.5GB on 64-bit machines.  Almost all machines today have
+	// more than 4.5GB of memory installed.  If memory serves me, there may be issues in Win32 allocating more than 2GB.
+#ifdef X86_64
+	if (mem >= 4500) {
+		dlg.m_blendmemory = GetSuggestedMemory (mem - 2500);
+		dlg.m_in_place = FALSE;
+	} else
+#endif
+	// These are the pre 29.5 memory defaults.
 	if (mem >= 3000) {
 		dlg.m_blendmemory = GetSuggestedMemory (2000);
-		dlg.m_in_place_fft = FALSE;
+		dlg.m_in_place = FALSE;
 	} else if (mem >= 2000) {
 		dlg.m_blendmemory = GetSuggestedMemory (1500);
-		dlg.m_in_place_fft = FALSE;
+		dlg.m_in_place = FALSE;
 	} else if (mem >= 500) {
 		dlg.m_blendmemory = GetSuggestedMemory (mem - 256);
-		dlg.m_in_place_fft = FALSE;
+		dlg.m_in_place = FALSE;
 	} else if (mem >= 200) {
 		dlg.m_blendmemory = GetSuggestedMemory (mem / 2);
-		dlg.m_in_place_fft = TRUE;
+		dlg.m_in_place = TRUE;
 	} else {
 		dlg.m_blendmemory = 8;
-		dlg.m_in_place_fft = TRUE;
+		dlg.m_in_place = TRUE;
 	}
 	dlg.m_memory = dlg.m_blendmemory;
-	dlg.m_timefft = 3;
+	dlg.m_timefft = CPU_HYPERTHREADS * 3;
 	if (dlg.DoModal () == IDOK) {
+		int	m_weak;
 		IniWriteInt (INI_FILE, "MinTortureFFT", dlg.m_minfft);
 		IniWriteInt (INI_FILE, "MaxTortureFFT", dlg.m_maxfft);
-		mem = dlg.m_memory / dlg.m_thread;
-		if (dlg.m_in_place_fft) mem = 8;
-		IniWriteInt (INI_FILE, "TortureMem", mem);
+		if (dlg.m_in_place) dlg.m_memory = 8;
+		IniWriteInt (INI_FILE, "TortureMem", dlg.m_memory);
 		IniWriteInt (INI_FILE, "TortureTime", dlg.m_timefft);
+		m_weak = dlg.m_avx512 * CPU_AVX512F + dlg.m_fma3 * CPU_FMA3 + dlg.m_avx * CPU_AVX + dlg.m_sse2 * CPU_SSE2;
+		IniWriteInt (INI_FILE, "TortureWeak", m_weak);
 		LaunchTortureTest (dlg.m_thread, FALSE);
 	}
 }
@@ -1123,7 +1136,6 @@ void flashWindowAndBeep ()
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/timeb.h>
 #include <gwutil.h>
 
 #ifdef X86_64
@@ -1131,12 +1143,12 @@ void flashWindowAndBeep ()
 #else
 #define PORT	1
 #endif
+#include "comm95b.c"
+#include "comm95c.c"
 #include "commona.c"
 #include "commonb.c"
 #include "commonc.c"
 #include "ecm.c"
-#include "comm95b.c"
-#include "comm95c.c"
 #include "primenet.c"
 #include "gwtest.c"
 

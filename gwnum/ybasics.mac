@@ -1,4 +1,4 @@
-; Copyright 2011-2013 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2018 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -6,7 +6,7 @@
 ; all FFT types.
 ;
 
-;; Macros that try to make it easier to right code that works best on both Bulldozer 
+;; Macros that try to make it easier to write code that works best on both Bulldozer 
 ;; which supports the superior FMA4 instruction and Intel which only supports the
 ;; more clumsy FMA3 instructions.
 

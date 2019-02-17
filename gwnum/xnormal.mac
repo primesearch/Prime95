@@ -4357,7 +4357,7 @@ shuflp:	movsd	xmm4, Q [rsi+0*16]	;; Load low carry word
 	movsd	xmm3, Q [rsi+3*16+8]	;; Load high carry for next cache line
 	movsd	Q [rsi+3*16+8], xmm4	;; Move this cache line's low carry to high word
 	bump	rsi, 64			;; Next carry cache line
-	dec	rax			;; Decement count of cache lines
+	dec	rax			;; Decrement count of cache lines
 	jnz	short shuflp
 	subsd	xmm3, Q XMM_BIGVAL
 	mulsd	xmm3, Q XMM_MINUS_C	;; Negate the very last carry
@@ -4736,7 +4736,7 @@ shuflp:	movsd	xmm4, Q [rsi+0*16]	;; Load low carry word
 	movsd	xmm3, Q [rsi+3*16+8]	;; Load high carry for next cache line
 	movsd	Q [rsi+3*16+8], xmm4	;; Move this cache line's low carry to high word
 	bump	rsi, 64			;; Next carry cache line
-	dec	rax			;; Decement count of cache lines
+	dec	rax			;; Decrement count of cache lines
 	jnz	short shuflp
 	mov	rsi, carries		;; Reload carries array pointer
 ;;	movsd	Q [rsi+0*16], xmm3	;; Move last cache line's high carries into first cache line

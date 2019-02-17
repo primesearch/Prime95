@@ -10,10 +10,10 @@ CFLAGS64 = -I.. -I../sqlite-amalgamation-3180000 -O2 -DX86_64 -m64 -fno-exceptio
 CFLAGS64D = -I.. -I../sqlite-amalgamation-3180000 -g -DGDEBUG -DX86_64 -m64 -fno-exceptions
 
 CPP = g++
-CPPFLAGS = -I.. -I../qd -O2 -m32 -march=i686 -fno-exceptions -fno-rtti
-CPPFLAGSD = -I.. -I../qd -g -DGDEBUG -m32 -march=i686 -fno-exceptions -fno-rtti
-CPPFLAGS64 = -I.. -I../qd -O2 -DX86_64 -m64 -fno-exceptions -fno-rtti
-CPPFLAGS64D = -I.. -I../qd -g -DGDEBUG -DX86_64 -m64 -fno-exceptions -fno-rtti
+CPPFLAGS = -I.. -I../qd -O2 -m32 -march=i686 -fno-exceptions -fno-rtti -Wno-stdlibcxx-not-found
+CPPFLAGSD = -I.. -I../qd -g -DGDEBUG -m32 -march=i686 -fno-exceptions -fno-rtti -Wno-stdlibcxx-not-found
+CPPFLAGS64 = -I.. -I../qd -O2 -DX86_64 -m64 -fno-exceptions -fno-rtti -Wno-stdlibcxx-not-found
+CPPFLAGS64D = -I.. -I../qd -g -DGDEBUG -DX86_64 -m64 -fno-exceptions -fno-rtti -Wno-stdlibcxx-not-found
 
 AR = ar
 

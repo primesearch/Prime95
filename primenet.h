@@ -4,7 +4,7 @@
 // THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
 // PARTICULAR PURPOSE.
 //
-// Copyright (c) 1997-2017 Mersenne Research, Inc. All Rights Reserved.
+// Copyright (c) 1997-2019 Mersenne Research, Inc. All Rights Reserved.
 //
 */
 
@@ -171,6 +171,7 @@ struct primenetGetAssignment {
 	uint32_t curves;		/* ECM curves to run */
 	uint32_t prp_base;		/* PRP base to use in a PRP double-check */
 	uint32_t prp_residue_type;	/* PRP residue type to return in a PRP double-check */
+	uint32_t prp_dblchk;		/* True is this is a PRP double-check */
 	char	known_factors[2000];	/* List of known factors */
 };
 
@@ -239,11 +240,11 @@ struct primenetAssignmentProgress {
 #define PRIMENET_AR_PRP_PRIME	151	/* PRP result, probably prime */
 
 // There are (at least) 5 PRP residue types for testing N=(k*b^n+c)/d:
-#define	PRIMNET_PRP_TYPE_FERMAT		1	// Fermat PRP.  Calculate a^(N-1) mod N.  PRP if result = 1
-#define	PRIMNET_PRP_TYPE_SPRP		2	// SPRP variant.  Calculate a^((N-1)/2) mod N.  PRP if result = +/-1
-#define	PRIMNET_PRP_TYPE_FERMAT_VAR	3	// Type 1 variant,b=2,d=1. Calculate a^(N-c) mod N.  PRP if result = a^-(c-1)
-#define	PRIMNET_PRP_TYPE_SPRP_VAR	4	// Type 2 variant,b=2,d=1. Calculate a^((N-c)/2) mod N.  PRP if result = +/-a^-((c-1)/2)
-#define	PRIMNET_PRP_TYPE_COFACTOR	5	// Cofactor variant.  Calculate a^(N*d-1) mod N*d.  PRP if result = a^(d-1) mod N
+#define	PRIMENET_PRP_TYPE_FERMAT	1	// Fermat PRP.  Calculate a^(N-1) mod N.  PRP if result = 1
+#define	PRIMENET_PRP_TYPE_SPRP		2	// SPRP variant.  Calculate a^((N-1)/2) mod N.  PRP if result = +/-1
+#define	PRIMENET_PRP_TYPE_FERMAT_VAR	3	// Type 1 variant,b=2,d=1. Calculate a^(N-c) mod N.  PRP if result = a^-(c-1)
+#define	PRIMENET_PRP_TYPE_SPRP_VAR	4	// Type 2 variant,b=2,d=1. Calculate a^((N-c)/2) mod N.  PRP if result = +/-a^-((c-1)/2)
+#define	PRIMENET_PRP_TYPE_COFACTOR	5	// Cofactor variant.  Calculate a^(N*d-1) mod N*d.  PRP if result = a^(d-1) mod N
 // Primenet encourages programs to return type 1 PRP residues as that has been the standard for prime95, PFGW, LLR for many years.
 
 struct primenetAssignmentResult {

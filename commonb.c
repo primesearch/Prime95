@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2019 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -32,6 +32,8 @@ static const char ERRMSG4[] = "Waiting five minutes before restarting.\n";
 static const char ERRMSG5[] = "For added safety, redoing iteration using a slower, more reliable method.\n";
 static const char ERRMSG6[] = "ERROR: Comparing PRP double-check values failed.  Rolling back to iteration %lu.\n";
 static const char ERRMSG7[] = "ERROR: Comparing Gerbicz checksum values failed.  Rolling back to iteration %lu.\n";
+static const char ERRMSG8[] = "ERROR: Invalid FFT data.  Restarting from last save file.\n";
+static const char ERRMSG9[] = "ERROR: Invalid PRP state.  Restarting from last save file.\n";
 static const char ERROK[] = "Disregard last error.  Result is reproducible and thus not a hardware problem.\n";
 static const char READFILEERR[] = "Error reading intermediate file: %s\n";
 static const char WRITEFILEERR[] = "Error writing intermediate file: %s\n";
@@ -53,6 +55,7 @@ int	PAUSE_MUTEX_INITIALIZED = 0;
 gwmutex	PAUSE_MUTEX;		/* Lock for accessing pause globals */
 struct pause_info *PAUSE_DATA = NULL;
 int	PAUSE_WHILE_RUNNING_FREQ = 10;
+int	PAUSEABLE_WORKERS_RUNNING = FALSE;
 
 /* Globals for stopping and starting worker threads */
 
@@ -225,9 +228,9 @@ void start_timer (
 		rdtsc (&hi, &lo);
 		timers[i] -= (double) hi * 4294967296.0 + lo;
 	} else {
-		struct _timeb timeval;
-		_ftime (&timeval);
-		timers[i] -= (double) timeval.time * 1000.0 + timeval.millitm;
+		struct timeval start_time;
+		gettimeofday (&start_time, NULL);
+		timers[i] -= (double) start_time.tv_sec * 1000000.0 + start_time.tv_usec;
 	}
 }
 
@@ -242,9 +245,9 @@ void end_timer (
 		rdtsc (&hi, &lo);
 		timers[i] += (double) hi * 4294967296.0 + lo;
 	} else {
-		struct _timeb timeval;
-		_ftime (&timeval);
-		timers[i] += (double) timeval.time * 1000.0 + timeval.millitm;
+		struct timeval end_time;
+		gettimeofday (&end_time, NULL);
+		timers[i] += (double) end_time.tv_sec * 1000000.0 + end_time.tv_usec;
 	}
 }
 
@@ -265,7 +268,7 @@ double timer_value (
 	else if (RDTSC_TIMING > 10 && (CPU_FLAGS & CPU_RDTSC))
 		return (timers[i] / CPU_SPEED / 1000000.0);
 	else
-		return (timers[i] / 1000.0);
+		return (timers[i] / 1000000.0);
 }
 
 #define TIMER_NL	0x1
@@ -530,7 +533,9 @@ void SetPriority (
 /* Output an informative message */
 
 	if (NUM_CPUS > 1 && info->verbose_flag) {
-		if (info->aux_thread_num == 0)
+		if (info->aux_hyperthread)
+			sprintf (buf, "Setting affinity to run prefetching hyperthread on ");
+		else if (info->aux_thread_num == 0)
 			strcpy (buf, "Setting affinity to run worker on ");
 		else
 			sprintf (buf, "Setting affinity to run helper thread %d on ", info->aux_thread_num);
@@ -551,12 +556,15 @@ void SetPriority (
 		int	num_cores;
 		hwloc_obj_t obj;
 		num_cores = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_CORE);
+		if (num_cores < 1) num_cores = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PU);
+		if (num_cores < 1) num_cores = 1;	// This shouldn't happen
 		if (core >= num_cores) {		// This shouldn't happen
 			sprintf (buf, "Error setting affinity to core #%d.  There are %d cores.\n", core+1, num_cores);
 			OutputStr (info->worker_num, buf);
 			core %= num_cores;
 		}
-		obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_CORE, core);	/* Get proper core */
+		obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_CORE, core);			/* Get proper core */
+		if (obj == NULL) obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_PU, core);	/* Get proper core */
 		if (obj) {
 			if (hwloc_set_cpubind (hwloc_topology, obj->cpuset, HWLOC_CPUBIND_THREAD)) { /* Bind thread to all logical CPUs in the core */
 				char *str;
@@ -634,18 +642,19 @@ void SetAuxThreadPriority (int aux_thread_num, int action, void *data)
 {
 	struct PriorityInfo sp_info;
 
-/* Handle thread start action.  Set the thread priority. */
+/* Handle thread start and hyperthread start action.  Set the thread priority. */
 
-	if (action == 0) {
+	if (action == 0 || action == 10) {
 		memcpy (&sp_info, data, sizeof (struct PriorityInfo));
 		sp_info.aux_thread_num = aux_thread_num;
+		sp_info.aux_hyperthread = (action == 10);
 		SetPriority (&sp_info);
 	}
 
-/* Handle thread terminate action.  Remove thread handle from list */
+/* Handle thread terminate and hyperthread terminate action.  Remove thread handle from list */
 /* of active worker threads. */
 
-	if (action == 1) {
+	if (action == 1 || action == 11) {
 		registerThreadTermination ();
 	}
 }
@@ -657,7 +666,7 @@ void SetAuxThreadPriority (int aux_thread_num, int action, void *data)
 
 /* This routine checks if the worker thread needs to be stopped for any */
 /* reason whatsoever.  If the worker thread should stop, a stop reason */
-/* is returned.  The routine is declared EXTERNC becasue it can be called */
+/* is returned.  The routine is declared EXTERNC because it can be called */
 /* by the C code in giants that does GCD. */
 
 EXTERNC int stopCheck (
@@ -704,8 +713,7 @@ EXTERNC int stopCheck (
 
 	if (STOP_FOR_BATTERY) return (STOP_BATTERY);
 
-/* If we are on battery power, stop processing all worker */
-/* threads until we cease running on the battery. */
+/* Check if we need to do an auto-benchmark */
 
 	if (STOP_FOR_AUTOBENCH) return (STOP_AUTOBENCH);
 
@@ -1034,7 +1042,7 @@ void read_mem_info (void)
 /* Read and parse the Memory data from the INI file */
 
 	seconds_until_reread = 0;
-	AVAIL_MEM = IniGetTimedInt (LOCALINI_FILE, "Memory", 8, &seconds);
+	AVAIL_MEM = IniGetTimedInt (LOCALINI_FILE, "Memory", physical_memory () / 16, &seconds);
 	if (seconds && (seconds_until_reread == 0 || seconds < seconds_until_reread))
 		seconds_until_reread = seconds;
 	for (tnum = 0; tnum < (int) MAX_NUM_WORKER_THREADS; tnum++) {
@@ -1810,8 +1818,7 @@ void implement_stop_battery (
 /*              Routine dealing auto-benchmark                */
 /**************************************************************/
 
-/* Stopping while on battery power, restart thread only when AC power */
-/* is restored. */
+/* Stop temporarily to perform an automatic benchmark */
 
 void implement_stop_autobench (
 	int	thread_num)
@@ -2089,10 +2096,10 @@ void read_pause_info (void)
 	if (seconds_until_reread)
 		add_timed_event (TE_READ_PAUSE_DATA, seconds_until_reread);
 
-/* If the pause timer is active, then call checkPauseWhileRunning so that */
+/* If the pauseable workers are running, then call checkPauseWhileRunning so that */
 /* we can decide which workers need to be paused based on this new pause info. */
 
-	if (is_timed_event_active (TE_PAUSE_WHILE)) {
+	if (PAUSEABLE_WORKERS_RUNNING) {
 		delete_timed_event (TE_PAUSE_WHILE);
 		checkPauseWhileRunning ();
 	}
@@ -2104,12 +2111,14 @@ void read_pause_info (void)
 
 void start_pause_while_running_timer (void)
 {
+	PAUSEABLE_WORKERS_RUNNING = TRUE;
 	if (PAUSE_DATA == NULL) return;
 	add_timed_event (TE_PAUSE_WHILE, 0);		// Check for pause-while-running programs immediately
 }
 
 void stop_pause_while_running_timer (void)
 {
+	PAUSEABLE_WORKERS_RUNNING = FALSE;
 	delete_timed_event (TE_PAUSE_WHILE);
 }
 
@@ -2240,10 +2249,10 @@ void checkPauseWhileRunning (void)
 /* If there are any pause-for-specific program entries, then we must reset */
 /* the timer to check the pause list in a few seconds.  If there are only */
 /* star (match any program) entries, then we don't need to check the pause */
-/* list until new PauseWhileRunning info is read from the INI file.  However, */
-/* do not delete the timer as read_pause_info checks for the timer being active! */	
+/* list until new PauseWhileRunning info is read from the INI file. */
 
-	add_timed_event (TE_PAUSE_WHILE, named_program_entries ? PAUSE_WHILE_RUNNING_FREQ : 1000000);
+	if (named_program_entries)
+		add_timed_event (TE_PAUSE_WHILE, PAUSE_WHILE_RUNNING_FREQ);
 }
 
 /* This routine is called by the OS-specific routine that gets the process */
@@ -2534,18 +2543,13 @@ void implementThrottle (
 int isKnownMersennePrime (
 	unsigned long p)
 {
-	return (p == 2 || p == 3 || p == 5 || p == 7 || p == 13 || p == 17 ||
-		p == 19 || p == 31 || p == 61 || p == 89 || p == 107 ||
-		p == 127 || p == 521 || p == 607 || p == 1279 || p == 2203 ||
-		p == 2281 || p == 3217 || p == 4253 || p == 4423 ||
-		p == 9689 || p == 9941 || p == 11213 || p == 19937 ||
-		p == 21701 || p == 23209 || p == 44497 || p == 86243 ||
-		p == 110503 || p == 132049 || p == 216091 || p == 756839 ||
-		p == 859433 || p == 1257787 || p == 1398269 || p == 2976221 ||
-		p == 3021377 || p == 6972593 || p == 13466917 ||
-		p == 20996011 || p == 24036583 || p == 25964951 ||
-		p == 30402457 || p == 32582657 || p == 37156667 ||
-		p == 42643801 || p == 43112609 || p == 57885161 || p == 74207281 || p == 77232917);
+	return (p == 2 || p == 3 || p == 5 || p == 7 || p == 13 || p == 17 || p == 19 || p == 31 || p == 61 || p == 89 || p == 107 ||
+		p == 127 || p == 521 || p == 607 || p == 1279 || p == 2203 || p == 2281 || p == 3217 || p == 4253 || p == 4423 ||
+		p == 9689 || p == 9941 || p == 11213 || p == 19937 || p == 21701 || p == 23209 || p == 44497 || p == 86243 ||
+		p == 110503 || p == 132049 || p == 216091 || p == 756839 || p == 859433 || p == 1257787 || p == 1398269 || p == 2976221 ||
+		p == 3021377 || p == 6972593 || p == 13466917 || p == 20996011 || p == 24036583 || p == 25964951 || p == 30402457 ||
+		p == 32582657 || p == 37156667 || p == 42643801 || p == 43112609 || p == 57885161 || p == 74207281 || p == 77232917 ||
+		p == 82589933);
 }
 
 /* Make a string out of a 96-bit value (a found factor) */
@@ -3113,11 +3117,11 @@ int primeContinue (
 
 /* Set the process/thread priority */
 
+	memset (&sp_info, 0, sizeof (sp_info));
 	sp_info.type = SET_PRIORITY_NORMAL_WORK;
 	sp_info.worker_num = thread_num;
 	sp_info.verbose_flag = IniGetInt (INI_FILE, "AffinityVerbosity", 1);
 	sp_info.normal_work_hyperthreads = 1;
-	sp_info.aux_thread_num = 0;
 	SetPriority (&sp_info);
 
 /* Loop until the ESC key is hit or the entire work-to-do INI file */
@@ -3627,7 +3631,7 @@ typedef struct write_save_file_state {
 	char	base_filename[80];
 	int	num_ordinary_save_files;
 	int	num_special_save_files;		/* Example: Number of save files to keep that passed the Jacobi error check */
-	int	special;			/* Which ordinary save file is also special (zero if none) */
+	uint64_t special;			/* Bit array for which ordinary save files are special */
 } writeSaveFileState;
 
 /* Prepare for writing save files */
@@ -3640,7 +3644,7 @@ void writeSaveFileStateInit (
 	strcpy (state->base_filename, filename);
 	state->num_ordinary_save_files = NUM_BACKUP_FILES;
 	state->num_special_save_files = num_special_save_files;
-	state->special = 0;			/* Init with "no ordinary file is special" */
+	state->special = 0;			/* Init with "no ordinary files are special" */
 }
 
 /* Open the save file for writing.  Either overwrite or generate a temporary */
@@ -3690,9 +3694,13 @@ void closeWriteSaveFile (
 
 	if (state->num_ordinary_save_files == 99) return;
 
-/* Decide how many save files need renaming */
+/* Save files that are special will be one step further down the chain after renaming */
 
-	rename_count = (state->special == state->num_ordinary_save_files) ?
+	state->special <<= 1;
+
+/* Decide how many save files need renaming (does the last ordinary file deserve to move into the special save files?) */
+
+	rename_count = bittst (&state->special, state->num_ordinary_save_files) ?
 			       state->num_ordinary_save_files + state->num_special_save_files : state->num_ordinary_save_files;
 
 /* Delete the last file in the rename chain */
@@ -3712,12 +3720,14 @@ void closeWriteSaveFile (
 		rename (src_filename, dest_filename);
 		strcpy (dest_filename, src_filename);
 	}
+}
 
-/* If there was an ordinary save file that was special, it is one step further down the chain */
-/* or has finally reached the special save files. */
+/* Mark the current save file as special (a super good save file -- Jacobi or Gerbicz checked) */
 
-	if (state->special > 0 && state->special < state->num_ordinary_save_files) state->special++;
-	else state->special = 0;
+void setWriteSaveFileSpecial (
+	writeSaveFileState *state)
+{
+	state->special |= 1;
 }
 
 /* Close and delete the save file we were writing.  This is done */
@@ -5230,7 +5240,7 @@ int primeFactor (
 	readSaveFileState read_save_file_state; /* Manage savefile names during reading */
 	writeSaveFileState write_save_file_state; /* Manage savefile names during writing */
 	char	filename[32];
-	char	buf[200], str[80];
+	char	buf[200], JSONbuf[4000], str[80];
 	double	timers[2];
 
 /* Init */
@@ -5639,6 +5649,20 @@ begin:	factor_found = 0;
 			formatMsgForResultsFile (buf, w);
 			writeResults (buf);
 
+/* Format a JSON version of the result.  An example follows: */
+/* {"status":"F", "exponent":45581713, "worktype":"TF", "factors":"430639100587696027847", */
+/* "program":{"name":"prime95", "version":"29.5", "build":"8"}, "timestamp":"2019-01-15 23:28:16", */
+/* "user":"gw_2", "cpu":"office_computer", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
+
+			strcpy (JSONbuf, "{\"status\":\"F\"");
+			JSONaddExponent (JSONbuf, w);
+			strcat (JSONbuf, ", \"worktype\":\"TF\"");
+			sprintf (JSONbuf+strlen(JSONbuf), ", \"factors\":\"%s\"", str);
+			JSONaddProgramTimestamp (JSONbuf);
+			JSONaddUserComputerAID (JSONbuf, w);
+			strcat (JSONbuf, "}\n");
+			if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
+
 /* Send assignment result to the server.  To avoid flooding the server */
 /* with small factors from users needlessly redoing factoring work, make */
 /* sure the factor is more than 60 bits or so. */
@@ -5654,12 +5678,12 @@ begin:	factor_found = 0;
 				strcpy (pkt.factor, str);
 				pkt.start_bits = (bits < report_bits) ? (unsigned int) w->sieve_depth : bits;
 				pkt.done = !find_smaller_factor;
+				strcpy (pkt.JSONmessage, JSONbuf);
 				spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 			}
 		} while (getAnotherFactorIfAny (&facdata));
 
-/* If we're looking for smaller factors, set a new end point.  Otherwise, */
-/* skip all remaining passes. */
+/* If we're looking for smaller factors, set a new end point.  Otherwise, skip all remaining passes. */
 
 		if (!find_smaller_factor) break;
 
@@ -5698,27 +5722,37 @@ nextpass:	;
 	    if (end_bits >= report_bits) {
 		unsigned int start_bits;
 
-		start_bits = (end_bits == report_bits) ?
-				(unsigned int) w->sieve_depth : bits;
+		start_bits = (end_bits == report_bits) ? (unsigned int) w->sieve_depth : bits;
 		if (start_bits < 32)
-		    sprintf (buf,
-			     "M%ld no factor to 2^%d, Wg%d: %08lX\n",
-			     p, end_bits, PORT, SEC3 (p));
+		    sprintf (buf, "M%ld no factor to 2^%d, Wh%d: %08lX\n", p, end_bits, PORT, SEC3 (p));
 		else
-		    sprintf (buf,
-			     "M%ld no factor from 2^%d to 2^%d, Wg%d: %08lX\n",
-			     p, start_bits, end_bits, PORT, SEC3 (p));
+		    sprintf (buf, "M%ld no factor from 2^%d to 2^%d, Wh%d: %08lX\n", p, start_bits, end_bits, PORT, SEC3 (p));
 		OutputStr (thread_num, buf);
 		formatMsgForResultsFile (buf, w);
 		writeResults (buf);
+
+/* Format a JSON version of the result.  An example follows: */
+/* {"status":"NF", "exponent":25000000, "worktype":"TF", "bitlo":73, "bithi":74, */
+/* "security-code":"C6B0B26C", "program":{"name":"prime95", "version":"29.5", "build":"8"}, "timestamp":"2019-01-15 23:28:16", */
+/* "user":"gw_2", "cpu":"laptop1", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
+
+		strcpy (JSONbuf, "{\"status\":\"NF\"");
+		JSONaddExponent (JSONbuf, w);
+		strcat (JSONbuf, ", \"worktype\":\"TF\"");
+		sprintf (JSONbuf+strlen(JSONbuf), ", \"bitlo\":%d", start_bits);
+		sprintf (JSONbuf+strlen(JSONbuf), ", \"bithi\":%d", end_bits);
+		sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC3 (p));
+		JSONaddProgramTimestamp (JSONbuf);
+		JSONaddUserComputerAID (JSONbuf, w);
+		strcat (JSONbuf, "}\n");
+		if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
 
 /* Send no factor found message to the server for each bit */
 /* level (i.e. one bit at a time).  As always to avoid swamping */
 /* the server with needless data, do not send small bit level */
 /* messages - that work has already been done. */
 
-		if (end_bits >= 50 ||
-		    IniGetInt (INI_FILE, "SendAllFactorData", 0)) {
+		if (end_bits >= 50 || IniGetInt (INI_FILE, "SendAllFactorData", 0)) {
 			struct primenetAssignmentResult pkt;
 			memset (&pkt, 0, sizeof (pkt));
 			strcpy (pkt.computer_guid, COMPUTER_GUID);
@@ -5728,8 +5762,8 @@ nextpass:	;
 			pkt.n = p;
 			pkt.start_bits = start_bits;
 			pkt.end_bits = end_bits;
-			pkt.done = (w->work_type == WORK_FACTOR) &&
-				   (end_bits >= test_bits);
+			pkt.done = (w->work_type == WORK_FACTOR) && (end_bits >= test_bits);
+			strcpy (pkt.JSONmessage, JSONbuf);
 			spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 		}
 	    }
@@ -5782,13 +5816,12 @@ typedef struct {		/* Some of the data kept during LL test */
 	unsigned long units_bit; /* Shift count */
 } llhandle;
 
-/* Prepare for running a Lucas-Lehmer test.  Caller must have already */
-/* called gwinit. */
+/* Prepare for running a Lucas-Lehmer test.  Caller must have already called gwinit. */
 
 int lucasSetup (
 	int	thread_num,	/* Worker thread number */
 	unsigned long p,	/* Exponent to test */
-	unsigned long fftlen,	/* Specific FFT length to use, or zero */
+	unsigned long fftlen,	/* Specific FFT length to use or zero.  Add one to test all-complex. */
 	llhandle *lldata)	/* Common LL data structure */
 {
 	int	res;
@@ -6040,7 +6073,7 @@ void inc_error_count (
 	else if (type == 4) addin = 1 << 4, maxval = 0x0F << 4;		// Jacobi error check
 	else if (type == 1) addin = 1 << 8, maxval = 0x3F << 8;		// Roundoff > 0.4
 	else if (type == 5) orin = 1 << 14;				// Zeroed FFT data
-	else if (type == 6) orin = 1 << 15;				// Units bit counter corrupted
+	else if (type == 6) orin = 1 << 15;				// Units bit, counter, or other value corrupted
 	else if (type == 2) addin = 1 << 16, maxval = 0xF << 16;	// ILLEGAL SUMOUT
 	else if (type == 7) addin = 1 << 20, maxval = 0xF << 20;	// High reliability (Gerbicz or dblchk) PRP error
 	else if (type == 3) addin = 1 << 24, maxval = 0x3F << 24;	// Repeatable error
@@ -6091,38 +6124,49 @@ int make_error_count_message (
 	}
 
 	if (message_type == 2) {
-		if (count_total == 1)
-			strcpy (counts_buf, "1 error");
-		else
-			sprintf (counts_buf, "%d errors", count_total);
-		if (count_repeatable >= 1)
-			sprintf (local_buf, ", %d were repeatable (not errors)", count_repeatable);
+		sprintf (counts_buf, "%d error%s", count_total, count_total > 1 ? "s": "");
+		if (count_repeatable == 1) {
+			strcpy (local_buf, ", 1 was repeatable (not an error)");
+			strcat (counts_buf, local_buf);
+		} else if (count_repeatable > 1) {
+			sprintf (local_buf, ", %d%s were repeatable (not errors)",
+				 count_repeatable, count_repeatable == 0x3F ? " or more" : "");
+			strcat (counts_buf, local_buf);
+		}
 	}
 
 	if (message_type == 3) {
 		if (count_jacobi >= 1) {
-			sprintf (local_buf, "%d Jacobi errors, ", count_jacobi);
+			sprintf (local_buf, "%d%s Jacobi error%s, ",
+				 count_jacobi, count_jacobi == 0xF ? " or more" : "", count_jacobi > 1 ? "s" : "");
 			strcat (counts_buf, local_buf);
 		}
 		if (count_gerbicz >= 1) {
-			sprintf (local_buf, "%d Gerbicz/double-check errors, ", count_gerbicz);
+			sprintf (local_buf, "%d%s Gerbicz/double-check error%s, ",
+				 count_gerbicz, count_gerbicz == 0xF ? " or more" : "", count_gerbicz > 1 ? "s" : "");
 			strcat (counts_buf, local_buf);
 		}
 		if (count_roundoff >= 1) {
-			sprintf (local_buf, "%d ROUNDOFF > 0.4, ", count_roundoff);
+			sprintf (local_buf, "%d%s ROUNDOFF > 0.4, ",
+				 count_roundoff, count_roundoff == 0x3F ? " or more" : "");
 			strcat (counts_buf, local_buf);
 		}
 		if (count_suminp >= 1) {
-			sprintf (local_buf, "%d SUM(INPUTS) != SUM(OUTPUTS), ", count_suminp);
+			sprintf (local_buf, "%d%s SUM(INPUTS) != SUM(OUTPUTS), ",
+				 count_suminp, count_suminp == 0xF ? " or more" : "");
 			strcat (counts_buf, local_buf);
 		}
 		if (count_illegal_sumout >= 1) {
-			sprintf (local_buf, "%d ILLEGAL SUMOUT, ", count_illegal_sumout);
+			sprintf (local_buf, "%d%s ILLEGAL SUMOUT/bad FFT data, ",
+				 count_illegal_sumout, count_illegal_sumout == 0xF ? " or more" : "");
 			strcat (counts_buf, local_buf);
 		}
 		counts_buf[strlen(counts_buf)-2] = 0;
 		if (count_repeatable >= 1) {
-			sprintf (local_buf, "of which %d were repeatable (not hardware errors)", count_repeatable);
+			if (count_repeatable == 1)
+				strcpy (local_buf, "of which 1 was repeatable (not a hardware error)");
+			else
+				sprintf (local_buf, "of which %d were repeatable (not hardware errors)", count_repeatable);
 			if (strlen (counts_buf) <= 40) strcat (counts_buf, " ");
 			else strcat (counts_buf, "\n");
 			strcat (counts_buf, local_buf);
@@ -6225,6 +6269,13 @@ int pick_fft_size (
 
 	if (w->minimum_fftlen) return (0);
 
+/* Starting in version 29.5, we created a spreadsheet to calculate FFT crossovers based on average roundoff error */
+/* of sample exponents (previously it was based on volatile maximum roundoff error, which led to inconsistent crossovers). */
+/* We're discontinuing running the code below by default and relying on gwnum having set crossovers properly. */
+/* Users can use the ExtraSafetyMargin INI setting to shift the crossovers up or down a little bit. */
+
+	if (!IniGetInt (INI_FILE, "OldStyleSoftCrossover", 0)) return (0);
+
 /* Get info on what percentage of exponents on either side of */
 /* an FFT crossover we will do this 1000 iteration test. */
 
@@ -6236,9 +6287,10 @@ int pick_fft_size (
 	large_fftlen = gwmap_to_fftlen (1.0, 2, (unsigned long) ((1.0 + softpct) * w->n), -1);
 	if (small_fftlen == large_fftlen || large_fftlen == 0) return (0);
 
-/* Let the user be more conservative or more aggressive in picking the */
-/* acceptable average error.  By default, we accept an average error */
-/* between 0.241 and 0.243 depending on the FFT size. */
+/* Let the user be more conservative or more aggressive in picking the acceptable average error. */
+/* By default, we accept an average error between 0.241 and 0.243 depending on the FFT size. */
+/* NOTE: This code was written when the maximum FFT length was 4M.  The code below now allows an */
+/* average error of almost 0.245 for the largest FFT legngths.  I think that will be OK. */
 
 	max_avg_error = 0.241 + 0.002 *
 		(log ((double) small_fftlen) - log ((double) 262144.0)) /
@@ -6463,7 +6515,7 @@ int prime (
 	int	first_iter_msg, near_fft_limit, sleep5;
 	unsigned long high32, low32;
 	int	rc, isPrime, stop_reason;
-	char	buf[400], fft_desc[100];
+	char	buf[400], JSONbuf[4000], fft_desc[200];
 	int	slow_iteration_count;
 	double	best_iteration_time;
 	unsigned long last_counter = 0xFFFFFFFF;	/* Iteration of last error */
@@ -6551,11 +6603,17 @@ int prime (
 	}
 #endif
 
+/* Init the write save file state.  This remembers which save files are Jacobi-checked.  Do this initialization */
+/* before the restart for roundoff errors so that error recovery does not destroy thw write save file state. */
+
+	tempFileName (w, filename);
+	writeSaveFileStateInit (&write_save_file_state, filename, NUM_JACOBI_BACKUP_FILES);
+
 /* Setup the LL test */
 
 begin:	gwinit (&lldata.gwdata);
-	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0))
-		gwset_use_large_pages (&lldata.gwdata);
+	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&lldata.gwdata);
+	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&lldata.gwdata);
 	gwset_sum_inputs_checking (&lldata.gwdata, SUM_INPUTS_ERRCHK);
 	if (HYPERTHREAD_LL) {
 		sp_info->normal_work_hyperthreads = IniGetInt (LOCALINI_FILE, "HyperthreadLLcount", CPU_HYPERTHREADS);
@@ -6578,9 +6636,7 @@ begin:	gwinit (&lldata.gwdata);
 /* Loop reading from save files (and backup save files).  Limit number of backup */
 /* files we try to read in case there is an error deleting bad save files. */
 
-	tempFileName (w, filename);
 	readSaveFileStateInit (&read_save_file_state, thread_num, filename);
-	writeSaveFileStateInit (&write_save_file_state, filename, NUM_JACOBI_BACKUP_FILES);
 	for ( ; ; ) {
 
 /* If there are no more save files, start off with the 1st Lucas number. */
@@ -6608,7 +6664,7 @@ begin:	gwinit (&lldata.gwdata);
 		    counter <= w->n &&
 		    (!Jacobi_testing_enabled || jacobi_test (thread_num, p, &lldata))) {
 			first_iter_msg = TRUE;
-			if (Jacobi_testing_enabled) write_save_file_state.special = 1;
+			if (Jacobi_testing_enabled) setWriteSaveFileSpecial (&write_save_file_state);
 			break;
 		}
 
@@ -6636,7 +6692,7 @@ begin:	gwinit (&lldata.gwdata);
 
 /* Init the title */
 
-	sprintf (buf, "%ld / %ld", counter, p);
+	sprintf (buf, "Iteration %ld of LL M%ld", counter, p);
 	title (thread_num, buf);
 
 /* Init vars for Test/Status and CommunicateWithServer */
@@ -6921,7 +6977,7 @@ begin:	gwinit (&lldata.gwdata);
 		actual_frequency = (int) (ITER_OUTPUT * output_title_frequency);
 		if (actual_frequency < 1) actual_frequency = 1;
 		if (counter % actual_frequency == 0 || first_iter_msg) {
-			sprintf (buf, "%.*f%% of M%ld", (int) PRECISION, trunc_percent (w->pct_complete), p);
+			sprintf (buf, "%.*f%% of LL M%ld", (int) PRECISION, trunc_percent (w->pct_complete), p);
 			title (thread_num, buf);
 		}
 
@@ -7001,7 +7057,7 @@ begin:	gwinit (&lldata.gwdata);
 				sprintf (buf, WRITEFILEERR, filename);
 				OutputBoth (thread_num, buf);
 			}
-			if (Jacobi_testing) write_save_file_state.special = 1;
+			if (Jacobi_testing) setWriteSaveFileSpecial (&write_save_file_state);
 		}
 
 /* If an escape key was hit, write out the results and return */
@@ -7018,7 +7074,7 @@ begin:	gwinit (&lldata.gwdata);
 /* the residues for possible verification at a later date.  We could catch suspect computers */
 /* or malicious cheaters without doing a full double-check. */
 
-		if (sending_residue) {
+		if (sending_residue && w->assignment_uid[0]) {
 			struct primenetAssignmentProgress pkt;
 			memset (&pkt, 0, sizeof (pkt));
 			strcpy (pkt.computer_guid, COMPUTER_GUID);
@@ -7030,7 +7086,12 @@ begin:	gwinit (&lldata.gwdata);
 			pkt.next_update = (uint32_t) (DAYS_BETWEEN_CHECKINS * 86400.0);
 			pkt.fftlen = w->fftlen;
 			pkt.iteration = counter - 2;
-			generateResidue64 (&lldata, p, &high32, &low32);
+			if (generateResidue64 (&lldata, p, &high32, &low32) < 0) {
+				OutputBoth (thread_num, ERRMSG8);
+				inc_error_count (2, &error_count);
+				sleep5 = TRUE;
+				goto restart;
+			}
 			sprintf (pkt.residue, "%08lX%08lX", high32, low32);
 			sprintf (pkt.error_count, "%08lX", error_count);
 			spoolMessage (-PRIMENET_ASSIGNMENT_PROGRESS, &pkt);
@@ -7041,8 +7102,13 @@ begin:	gwinit (&lldata.gwdata);
 /* residues to programs that sensibly start counter at zero or one. */
 
 		if (interim_residue) {
-			generateResidue64 (&lldata, p, &high32, &low32);
-			sprintf (buf, "M%ld interim Wg%d residue %08lX%08lX at iteration %ld\n", p, PORT, high32, low32, counter);
+			if (generateResidue64 (&lldata, p, &high32, &low32) < 0) {
+				OutputBoth (thread_num, ERRMSG8);
+				inc_error_count (2, &error_count);
+				sleep5 = TRUE;
+				goto restart;
+			}
+			sprintf (buf, "M%ld interim LL residue %08lX%08lX at iteration %ld\n", p, high32, low32, counter);
 			OutputBoth (thread_num, buf);
 		}
 
@@ -7095,16 +7161,42 @@ begin:	gwinit (&lldata.gwdata);
 /* Format the output message */
 
 	if (isPrime)
-		sprintf (buf, "M%ld is prime! Wg%d: %08lX,%08lX\n", p, PORT, SEC1 (p), error_count);
+		sprintf (buf, "M%ld is prime! Wh%d: %08lX,%08lX\n", p, PORT, SEC1 (p), error_count);
 	else
 		sprintf (buf,
-			 "M%ld is not prime. Res64: %08lX%08lX. Wg%d: %08lX,%ld,%08lX\n",
+			 "M%ld is not prime. Res64: %08lX%08lX. Wh%d: %08lX,%ld,%08lX\n",
 			 p, high32, low32, PORT,
 			 SEC2 (p, high32, low32, lldata.units_bit, error_count),
 			 lldata.units_bit, error_count);
 	OutputStr (thread_num, buf);
 	formatMsgForResultsFile (buf, w);
 	rc = writeResults (buf);
+
+/* Format a JSON version of the result.  An example follows: */
+/* {"status":"C", "exponent":25000000, "worktype":"LL", "res64":"0123456789ABCDEF", "fft-length":4096000, */
+/* "shift-count":1234567, "error-code":"00010000", "security-code":"C6B0B26C", */
+/* "program":{"name":"prime95", "version":"29.5", "build":"8"}, "timestamp":"2019-01-15 23:28:16", */
+/* "errors":{"roundoff":2}, "user":"gw_2", "cpu":"bedroom_computer", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
+
+	sprintf (JSONbuf, "{\"status\":\"%s\"", isPrime ? "P" : "C");
+	JSONaddExponent (JSONbuf, w);
+	strcat (JSONbuf, ", \"worktype\":\"LL\"");
+	if (!isPrime) sprintf (JSONbuf+strlen(JSONbuf), ", \"res64\":\"%08lX%08lX\"", high32, low32);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", lldata.gwdata.FFTLEN);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"shift-count\":%ld", lldata.units_bit);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"error-code\":\"%08lX\"", error_count);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC2 (p, high32, low32, lldata.units_bit, error_count));
+	JSONaddProgramTimestamp (JSONbuf);
+	if (error_count & 0x3FF0) {
+		strcat (JSONbuf, ", \"errors\":{");
+		if (error_count & 0x3F00) sprintf (JSONbuf+strlen(JSONbuf), "\"Roundoff\":%lu, ", (error_count >> 8) & 0x3F);
+		if (error_count & 0xF0) sprintf (JSONbuf+strlen(JSONbuf), "\"Jacobi\":%lu, ", (error_count >> 4) & 0xF);
+		JSONbuf[strlen(JSONbuf)-2] = 0;
+		strcat (JSONbuf, "}");
+	}
+	JSONaddUserComputerAID (JSONbuf, w);
+	strcat (JSONbuf, "}\n");
+	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
 
 /* Send results to the server if they might possibly be of interest */
 
@@ -7121,11 +7213,11 @@ begin:	gwinit (&lldata.gwdata);
 		sprintf (pkt.error_count, "%08lX", error_count);
 		pkt.fftlen = gwfftlen (&lldata.gwdata);
 		pkt.done = TRUE;
+		strcpy (pkt.JSONmessage, JSONbuf);
 		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 	}
 
-/* Delete the continuation files - assuming the results file write */
-/* was successful. */
+/* Delete the continuation files - assuming the results file write was successful. */
 
 	if (!isPrime || isKnownMersennePrime (p)) {
 		if (rc) unlinkSaveFiles (&write_save_file_state);
@@ -7179,7 +7271,7 @@ static const char TORTURE2[] = "Please read stress.txt.  Hit ^C to end this test
 #else
 static const char TORTURE2[] = "Please read stress.txt.  Choose Test/Stop to end this test.\n";
 #endif
-static const char SELF1[] = "Test %i, %i Lucas-Lehmer iterations of M%ld using %s.\n";
+static const char SELF1[] = "Test %i, %i Lucas-Lehmer %siterations of M%ld using %s.\n";
 static const char SELFFAIL[] = "FATAL ERROR: Final result was %08lX, expected: %08lX.\n";
 static const char SELFFAIL1[] = "ERROR: ILLEGAL SUMOUT\n";
 static const char SELFFAIL2[] = "FATAL ERROR: Resulting sum was %.16g, expected: %.16g\n";
@@ -7197,688 +7289,369 @@ struct self_test_info {
 	unsigned long reshi;
 };
 
-#define MAX_SELF_TEST_ITERS	405
+#define MAX_SELF_TEST_ITERS	357
 const struct self_test_info SELF_TEST_DATA[MAX_SELF_TEST_ITERS] = {
-{560000001, 100, 0x7F853A0A}, {420000001, 150, 0x89665E7E},
-{280000001, 200, 0xC32CAD46}, {210000001, 300, 0x89823329},
-{140000001, 400, 0x15EF4F24}, {110000001, 500, 0x893C9000},
-{78643201, 400, 0x2D9C8904}, {78643199, 400, 0x7D469182},
-{75497473, 400, 0x052C7FD8}, {75497471, 400, 0xCCE7495D},
-{71303169, 400, 0x467A9338}, {71303167, 400, 0xBBF8B37D},
-{68157441, 400, 0xBE71E616}, {68157439, 400, 0x93A71CC2},
-{66060289, 400, 0xF296BB99}, {66060287, 400, 0x649EEF2A},
-{62390273, 400, 0xBC8DFC27}, {62390271, 400, 0xDE7D5B5E},
-{56623105, 400, 0x0AEBF972}, {56623103, 400, 0x1BA96297},
-{53477377, 400, 0x5455F347}, {53477375, 400, 0xCE1C7F78},
-{50331649, 400, 0x3D746AC8}, {50331647, 400, 0xE23F2DE6},
-{49807361, 400, 0xB43EF4C5}, {49807359, 400, 0xA8BEB02D},
-{47185921, 400, 0xD862563C}, {47185919, 400, 0x17281086},
-{41943041, 400, 0x0EDA1F92}, {41943039, 400, 0xDE6911AE},
-{39845889, 400, 0x43D8A96A}, {39845887, 400, 0x3D118E8F},
-{37748737, 400, 0x38261154}, {37748735, 400, 0x22B34CD2},
-{35651585, 400, 0xB0E48D2E}, {35651583, 400, 0xCC3340C6},
-{34865153, 400, 0xD2C00E6C}, {34865151, 400, 0xFA644F69},
-{33030145, 400, 0x83E5738D}, {33030143, 400, 0x6EDBC5B5},
-{31195137, 400, 0xFF9591CF}, {31195135, 400, 0x04577C70},
-{29884417, 400, 0xACC36457}, {29884415, 400, 0xC0FE7B1E},
-{28311553, 400, 0x780EB8F5}, {28311551, 400, 0xE6D128C3},
-{26738689, 400, 0x09DC45B0}, {26738687, 400, 0xDC7C074A},
-{24903681, 400, 0xA482CF1E}, {24903679, 400, 0x4B3F5121},
-{23592961, 400, 0xAFE3C198}, {23592959, 400, 0xCF9AD48C},
-{20971521, 400, 0x304EC13B}, {20971519, 400, 0x9C4E157E},
-{19922945, 400, 0x83FE36D9}, {19922943, 400, 0x9C60E7A2},
-{18874369, 400, 0x83A9F8CB}, {18874367, 400, 0x5A6E22E0},
-{17825793, 400, 0xF3A90A5E}, {17825791, 400, 0x6477CA76},
-{17432577, 400, 0xCAB36E6A}, {17432575, 400, 0xB8F814C6},
-{16515073, 400, 0x91EFCB1C}, {16515071, 400, 0xA0C35CD9},
-{15597569, 400, 0x12E057AD}, {15597567, 400, 0xC4EFAEFD},
-{14942209, 400, 0x1C912A7B}, {14942207, 400, 0xABA9EA6E},
-{14155777, 400, 0x4A943A4E}, {14155775, 400, 0x00789FB9},
-{13369345, 400, 0x27A041EE}, {13369343, 400, 0xA8B01A41},
-{12451841, 400, 0x4DC891F6}, {12451839, 400, 0xA75BF824},
-{11796481, 400, 0xFDD67368}, {11796479, 400, 0xE0237D19},
-{10485761, 400, 0x15419597}, {10485759, 400, 0x154D473B},
-{10223617, 400, 0x26039EB7}, {10223615, 400, 0xC9DFB1A4},
-{9961473, 400, 0x3EB29644}, {9961471, 400, 0xE2AB9CB2},
-{9437185, 400, 0x42609D65}, {9437183, 400, 0x77ED0792},
-{8716289, 400, 0xCCA0C17B}, {8716287, 400, 0xD47E0E85},
-{8257537, 400, 0x80B5C05F}, {8257535, 400, 0x278AE556},
-{7798785, 400, 0x55A2468D}, {7798783, 400, 0xCF62032E},
-{7471105, 400, 0x0AE03D3A}, {7471103, 400, 0xD8AB333B},
-{7077889, 400, 0xC516359D}, {7077887, 400, 0xA23EA7B3},
-{6684673, 400, 0xA7576F00}, {6684671, 400, 0x057E57F4},
-{6422529, 400, 0xC779D2C3}, {6422527, 400, 0xA8263D37},
-{6225921, 400, 0xB46AEB2F}, {6225919, 400, 0xD0A5FD5F},
-{5898241, 400, 0xE46E76F9}, {5898239, 400, 0x29ED63B2},
-{5505025, 400, 0x83566CC3}, {5505023, 400, 0x0B9CBE64},
-{5242881, 400, 0x3CC408F6}, {5242879, 400, 0x0EA4D112},
-{4980737, 400, 0x6A2056EF}, {4980735, 400, 0xE03CC669},
-{4718593, 400, 0x87622D6B}, {4718591, 400, 0xF79922E2},
-{4587521, 400, 0xE189A38A}, {4587519, 400, 0x930FF36C},
-{4358145, 400, 0xDFEBF850}, {4358143, 400, 0xBB63D330},
-{4128769, 400, 0xC0844AD1}, {4128767, 400, 0x25BDBFC3},
-{3932161, 400, 0x7A525A7E}, {3932159, 400, 0xF30C9045},
-{3735553, 400, 0xFAD79E97}, {3735551, 400, 0x005ED15A},
-{3538945, 400, 0xDDE5BA46}, {3538943, 400, 0x15ED5982},
-{3342337, 400, 0x1A6E87E9}, {3342335, 400, 0xECEEA390},
-{3276801, 400, 0x3341C77F}, {3276799, 400, 0xACA2EE28},
-{3112961, 400, 0x2BDF9D2B}, {3112959, 400, 0xA0AC8635},
-{2949121, 400, 0x36EDB768}, {2949119, 400, 0x53FD5473},
-{2785281, 400, 0x66816C94}, {2785279, 400, 0x059E8D6B},
-{2654999, 400, 0x07EE900D}, {2621441, 400, 0x2BC1DACD},
-{2621439, 400, 0xBCBA58F1}, {2653987, 400, 0xB005CACC},
-{2651879, 400, 0x38DCD06B}, {2654003, 400, 0x1ED556E7},
-{2620317, 400, 0x09DB64F8}, {2539613, 400, 0x4146EECA},
-{2573917, 400, 0x939DA3B3}, {2359297, 400, 0x73A131F0},
-{2359295, 400, 0x53A92203}, {2646917, 400, 0x71D4E5A2},
-{2605473, 400, 0xE11637FC}, {2495213, 400, 0x89D80370},
-{2540831, 400, 0x2CF01FBB}, {2654557, 400, 0x4106F46F},
-{2388831, 400, 0xA508B5A7}, {2654777, 400, 0x9E744AA3},
-{2584313, 400, 0x800E9A61}, {2408447, 400, 0x8C91E8AA},
-{2408449, 400, 0x437ECC01}, {2345677, 400, 0x60AEE9C2},
-{2332451, 400, 0xAB209667}, {2330097, 400, 0x3FB88055},
-{2333851, 400, 0xFE4ECF19}, {2444819, 400, 0x56BF33C5},
-{2555671, 400, 0x9DC03527}, {2654333, 400, 0xE81BCF40},
-{2543123, 400, 0x379CA95D}, {2432123, 400, 0x5952676A},
-{2321123, 400, 0x24DCD25F}, {2654227, 400, 0xAC3B7F2B},
-{2329999, 400, 0xF5E902A5}, {2293761, 400, 0x9E4BBB8A},
-{2293759, 400, 0x1901F07B}, {2236671, 400, 0x45EB162A},
-{2193011, 400, 0x382B6E4B}, {2329001, 400, 0x4FF052BB},
-{2327763, 400, 0x3B315213}, {2325483, 400, 0x0DC5165A},
-{2323869, 400, 0xD220E27F}, {2315679, 400, 0xF650BE33},
-{2004817, 400, 0xC2FF3440}, {2130357, 400, 0xC25804D8},
-{2288753, 400, 0xA4DD9AAD}, {2266413, 400, 0x675257DB},
-{2244765, 400, 0xC08FF487}, {2222517, 400, 0x1A128B22},
-{2200339, 400, 0x0EB0E827}, {2328117, 400, 0x0A24673A},
-{2329557, 400, 0x2E267692}, {2188001, 400, 0xD012AF6A},
-{2166567, 400, 0x509BA41A}, {2144651, 400, 0x54CFC0E6},
-{2122923, 400, 0xA47068E6}, {2100559, 400, 0xACFAB4E1},
-{2088461, 400, 0xEA01E860}, {2066543, 400, 0x847DF0D0},
-{2044767, 400, 0x04225888}, {2022823, 400, 0x6EA34B32},
-{2328527, 400, 0xC55E3E05}, {2327441, 400, 0x207C8CEC},
-{2326991, 400, 0x0A4F2ACD}, {2009987, 400, 0xE6A59DEF},
-{1999999, 400, 0xD645A18F}, {1966081, 400, 0xB88828A1},
-{1966079, 400, 0x5BD87C45}, {1998973, 400, 0xCBDD74F7},
-{1997651, 400, 0x666B0CB1}, {1675001, 400, 0x50A94DB7},
-{1977987, 400, 0x30D1CD1F}, {1955087, 400, 0x5B9426A4},
-{1933071, 400, 0x23C1AF0B}, {1911957, 400, 0xF7699248},
-{1899247, 400, 0x11C76E04}, {1877431, 400, 0xA3299B39},
-{1855067, 400, 0x35243683}, {1833457, 400, 0xCF630DC0},
-{1811987, 400, 0x7C7022EC}, {1799789, 400, 0xEFEC47B7},
-{1777773, 400, 0x0F16E2D6}, {1755321, 400, 0x1AC5D492},
-{1733333, 400, 0x5DA0555E}, {1711983, 400, 0xDC19DA8B},
-{1699779, 400, 0x2B44914E}, {1677323, 400, 0x03D3980B},
-{1995091, 400, 0x922E555B}, {1993041, 400, 0x0CA8451B},
-{1991991, 400, 0xDFFB212D}, {1679779, 400, 0x51D75E0F},
-{1684993, 400, 0x048BBCE8}, {1970009, 400, 0x646E0DFA},
-{1957445, 400, 0xC8D244ED}, {1999997, 400, 0x5FC899D0},
-{1998983, 400, 0x1CD518AA}, {1999007, 400, 0xA9DD8591},
-{1674999, 400, 0xDB0169D8}, {1638401, 400, 0xD3F8A8C5},
-{1638399, 400, 0xF270D8DD}, {1674997, 400, 0xC824EF15},
-{1674551, 400, 0xD844AEAD}, {1674001, 400, 0x8F5EFA50},
-{1345001, 400, 0x18EE2E2D}, {1655083, 400, 0x09B30DEE},
-{1633941, 400, 0x0B87C8B1}, {1611557, 400, 0x6B57E48D},
-{1599549, 400, 0x48EA38B2}, {1577771, 400, 0xCE84D9DC},
-{1555947, 400, 0x6797EEF4}, {1533349, 400, 0xD6897409},
-{1511861, 400, 0x8A8177AC}, {1499625, 400, 0x56BB6FB3},
-{1477941, 400, 0xF3DD8ED3}, {1455931, 400, 0x31A222C7},
-{1433069, 400, 0x28F01E1B}, {1411747, 400, 0x680C6E39},
-{1399449, 400, 0xB7F01A54}, {1377247, 400, 0xE656F652},
-{1355991, 400, 0xB2AA2819}, {1350061, 400, 0x31F9A728},
-{1673881, 400, 0xA51D38E4}, {1672771, 400, 0x5474B6F9},
-{1671221, 400, 0x2710DDEA}, {1670551, 400, 0x31FC3838},
-{1660881, 400, 0x4C5B22C5}, {1650771, 400, 0x998F747B},
-{1655001, 400, 0x164659A6}, {1674339, 400, 0xED2D23E2},
-{1344999, 400, 0x158AA064}, {1310721, 400, 0x5694A427},
-{1310719, 400, 0x258BDDE3}, {1344997, 400, 0x1D059D4F},
-{1344551, 400, 0x60606AA3}, {1344001, 400, 0x9AC6AB36},
-{1322851, 400, 0x3A000D0A}, {1300993, 400, 0x77CB0184},
-{1288771, 400, 0x7431D9E2}, {1266711, 400, 0xB4BC4E8D},
-{1244881, 400, 0x48BC9FF9}, {1222991, 400, 0x3F5FC39E},
-{1200881, 400, 0xD5DF4944}, {1188441, 400, 0xD9D8968B},
-{1166661, 400, 0xD4AB97F4}, {1144221, 400, 0x9940943B},
-{1122001, 400, 0x647406B8}, {1100881, 400, 0x3AD40CE0},
-{1088511, 400, 0xD578BB51}, {1066837, 400, 0x2F82BFBB},
-{1044811, 400, 0x7C6EDDD1}, {1022991, 400, 0x6A1C2DD4},
-{1000001, 400, 0x2879748F}, {1343881, 400, 0xB59E8006},
-{1342771, 400, 0x87563FFE}, {1341221, 400, 0x29AD6127},
-{1340551, 400, 0x17DB4ACB}, {1330881, 400, 0x9642F068},
-{942079, 1000, 0xE528A9B0}, {974849, 1000, 0x79791EDB},
-{983041, 1000, 0x29216C43}, {901121, 1000, 0x26C4E660},
-{917503, 1000, 0x5F244685}, {933889, 1000, 0x62490F57},
-{851967, 1000, 0x331AA906}, {860161, 1000, 0x41185F27},
-{884735, 1000, 0x7BC7A661}, {802817, 1000, 0xA9645693},
-{819199, 1000, 0x48AFB0A5}, {835585, 1000, 0x706437D3},
-{753663, 1000, 0x99C43F31}, {778241, 1000, 0x1729A6C4},
-{786431, 1000, 0x61080929}, {720897, 1000, 0x1E96863D},
-{737279, 1000, 0x1B07A764}, {745473, 1000, 0x7BCE80AA},
-{655359, 1000, 0x1107F161}, {659457, 1000, 0x589C16A4},
-{688127, 1000, 0xD01E5A85}, {622593, 1000, 0x26F6FC8C},
-{630783, 1000, 0x4DD2E603}, {638977, 1000, 0xC88F34B4},
-{589823, 1000, 0x0290B60B}, {602113, 1000, 0xEFCD5BA8},
-{614399, 1000, 0x6408F880}, {557057, 1000, 0xC30FE589},
-{565247, 1000, 0xF4CA3679}, {573441, 1000, 0xF8F039AA},
-{532479, 1000, 0x0072FE03}, {540673, 1000, 0xDA0E0D99},
-{544767, 1000, 0x62443C6B}, {491521, 1000, 0x3F520DFA},
-{516095, 1000, 0xA6BD9423}, {524289, 1000, 0xCD591388},
-{466943, 1000, 0xE10EE929}, {471041, 1000, 0x18752F40},
-{487423, 1000, 0x933FFF17}, {442369, 1000, 0xC22471C3},
-{450559, 1000, 0x025B1320}, {458753, 1000, 0xE296CC00},
-{417791, 1000, 0x080C803C}, {425985, 1000, 0xB2095F04},
-{430079, 1000, 0x98B1EC61}, {393217, 1000, 0x26DD79ED},
-{401407, 1000, 0x2F0F75F9}, {409601, 1000, 0xAEFAC2F8},
-{372735, 1000, 0xCB6D00A2}, {376833, 1000, 0x915D5458},
-{389119, 1000, 0x6188E38D}, {344065, 1000, 0x4D0C5089},
-{360447, 1000, 0x84AC5CFD}, {368641, 1000, 0x72414364},
-{319487, 1000, 0x24ED1BE9}, {327681, 1000, 0x3101106A},
-{329727, 1000, 0x5BDB69AF}, {307201, 1000, 0x68536CD1},
-{311295, 1000, 0x69778074}, {315393, 1000, 0x429D4950},
-{286719, 1000, 0x1A31A686}, {294913, 1000, 0xF55727C6},
-{301055, 1000, 0x33BDB242}, {272385, 1000, 0xEF6EC4B4},
-{278527, 1000, 0x05530FD5}, {282625, 1000, 0x34A4E699},
-{262143, 1000, 0xA9638844}, {266241, 1000, 0xE0969CED},
-{270335, 1000, 0x14AD54BE}, {243713, 1000, 0xC19AEA91},
-{245759, 1000, 0x7538BF0B}, {258049, 1000, 0x73F541AD},
-{229375, 1000, 0x6E42B26A}, {233473, 1000, 0x1964F897},
-{235519, 1000, 0x661BBC3F}, {215041, 1000, 0x04D5D2F0},
-{221183, 1000, 0xA89E7764}, {225281, 1000, 0x20876BED},
-{204799, 1000, 0xD20C2126}, {208897, 1000, 0x9D4DCF0E},
-{212991, 1000, 0x1FF00E2A}, {194561, 1000, 0x6ED1CB70},
-{196607, 1000, 0x3190D5F5}, {200705, 1000, 0xFAD28F5A},
-{184319, 1000, 0x360EF08E}, {186369, 1000, 0x0F001482},
-{188415, 1000, 0x86FCE4D6}, {164865, 1000, 0x4942B002},
-{172031, 1000, 0xC5AF29DB}, {180225, 1000, 0x35D49D74},
-{157695, 1000, 0x5422FACF}, {159745, 1000, 0xB5CD03A1},
-{163839, 1000, 0x1CA6048E}, {150529, 1000, 0x7412F09C},
-{153599, 1000, 0xA9FAAE69}, {155649, 1000, 0xA7B736AF},
-{141311, 1000, 0x7A5D0730}, {143361, 1000, 0x580F4DC4},
-{147455, 1000, 0x176B299A}, {135169, 1000, 0x65AC10A4},
-{136191, 1000, 0xC4591D37}, {139265, 1000, 0xBCE1FC80},
-{129023, 1000, 0xAFE1E7A8}, {131073, 1000, 0xC5AAB12F},
-{133119, 1000, 0xDE51C35A}, {117761, 1000, 0x054A26F6},
-{121855, 1000, 0x55AF2385}, {122881, 1000, 0x652827AC},
-{112639, 1000, 0x6FA4DB24}, {114689, 1000, 0x0BBAF161},
-{116735, 1000, 0xB85F0E8E}, {106497, 1000, 0xF833D925},
-{107519, 1000, 0x80F177D8}, {110593, 1000, 0x1A56AA86},
-{100351, 1000, 0x1DE12CE6}, {102401, 1000, 0x19F967B4},
-{104447, 1000, 0xF9F3CDFD}
+{560000001, 100, 0x7F853A0A}, {420000001, 150, 0x89665E7E}, {280000001, 200, 0xC32CAD46}, {210000001, 300, 0x89823329},
+{140000001, 400, 0x15EF4F24}, {110000001, 500, 0x893C9000}, {78643201, 400, 0x2D9C8904}, {78643199, 400, 0x7D469182},
+{75497473, 400, 0x052C7FD8}, {75497471, 400, 0xCCE7495D}, {71303169, 400, 0x467A9338}, {71303167, 400, 0xBBF8B37D},
+{68157441, 400, 0xBE71E616}, {68157439, 400, 0x93A71CC2}, {66060289, 400, 0xF296BB99}, {66060287, 400, 0x649EEF2A},
+{62390273, 400, 0xBC8DFC27}, {62390271, 400, 0xDE7D5B5E}, {56623105, 400, 0x0AEBF972}, {56623103, 400, 0x1BA96297},
+{53477377, 400, 0x5455F347}, {53477375, 400, 0xCE1C7F78}, {50331649, 400, 0x3D746AC8}, {50331647, 400, 0xE23F2DE6},
+{49807361, 400, 0xB43EF4C5}, {49807359, 400, 0xA8BEB02D}, {47185921, 400, 0xD862563C}, {47185919, 400, 0x17281086},
+{41943041, 400, 0x0EDA1F92}, {41943039, 400, 0xDE6911AE}, {39845889, 400, 0x43D8A96A}, {39845887, 400, 0x3D118E8F},
+{37748737, 400, 0x38261154}, {37748735, 400, 0x22B34CD2}, {35651585, 400, 0xB0E48D2E}, {35651583, 400, 0xCC3340C6},
+{34865153, 400, 0xD2C00E6C}, {34865151, 400, 0xFA644F69}, {33030145, 400, 0x83E5738D}, {33030143, 400, 0x6EDBC5B5},
+{31195137, 400, 0xFF9591CF}, {31195135, 400, 0x04577C70}, {29884417, 400, 0xACC36457}, {29884415, 400, 0xC0FE7B1E},
+{28311553, 400, 0x780EB8F5}, {28311551, 400, 0xE6D128C3}, {26738689, 400, 0x09DC45B0}, {26738687, 400, 0xDC7C074A},
+{24903681, 400, 0xA482CF1E}, {24903679, 400, 0x4B3F5121}, {23592961, 400, 0xAFE3C198}, {23592959, 400, 0xCF9AD48C},
+{20971521, 400, 0x304EC13B}, {20971519, 400, 0x9C4E157E}, {19922945, 400, 0x83FE36D9}, {19922943, 400, 0x9C60E7A2},
+{18874369, 400, 0x83A9F8CB}, {18874367, 400, 0x5A6E22E0}, {17825793, 400, 0xF3A90A5E}, {17825791, 400, 0x6477CA76},
+{17432577, 400, 0xCAB36E6A}, {17432575, 400, 0xB8F814C6}, {16515073, 400, 0x91EFCB1C}, {16515071, 400, 0xA0C35CD9},
+{15597569, 400, 0x12E057AD}, {15597567, 400, 0xC4EFAEFD}, {14942209, 400, 0x1C912A7B}, {14942207, 400, 0xABA9EA6E},
+{14155777, 400, 0x4A943A4E}, {14155775, 400, 0x00789FB9}, {13369345, 400, 0x27A041EE}, {13369343, 400, 0xA8B01A41},
+{12451841, 400, 0x4DC891F6}, {12451839, 400, 0xA75BF824}, {11796481, 400, 0xFDD67368}, {11796479, 400, 0xE0237D19},
+{10485761, 400, 0x15419597}, {10485759, 400, 0x154D473B}, {10223617, 400, 0x26039EB7}, {10223615, 400, 0xC9DFB1A4},
+{9961473, 400, 0x3EB29644}, {9961471, 400, 0xE2AB9CB2}, {9437185, 400, 0x42609D65}, {9437183, 400, 0x77ED0792},
+{8716289, 400, 0xCCA0C17B}, {8716287, 400, 0xD47E0E85}, {8257537, 400, 0x80B5C05F}, {8257535, 400, 0x278AE556},
+{7798785, 400, 0x55A2468D}, {7798783, 400, 0xCF62032E}, {7471105, 400, 0x0AE03D3A}, {7471103, 400, 0xD8AB333B},
+{7077889, 400, 0xC516359D}, {7077887, 400, 0xA23EA7B3}, {6684673, 400, 0xA7576F00}, {6684671, 400, 0x057E57F4},
+{6422529, 400, 0xC779D2C3}, {6422527, 400, 0xA8263D37}, {6225921, 400, 0xB46AEB2F}, {6225919, 400, 0xD0A5FD5F},
+{5898241, 400, 0xE46E76F9}, {5898239, 400, 0x29ED63B2}, {5505025, 400, 0x83566CC3}, {5505023, 400, 0x0B9CBE64},
+{5242881, 400, 0x3CC408F6}, {5242879, 400, 0x0EA4D112}, {4980737, 400, 0x6A2056EF}, {4980735, 400, 0xE03CC669},
+{4718593, 400, 0x87622D6B}, {4718591, 400, 0xF79922E2}, {4587521, 400, 0xE189A38A}, {4587519, 400, 0x930FF36C},
+{4358145, 400, 0xDFEBF850}, {4358143, 400, 0xBB63D330}, {4128769, 400, 0xC0844AD1}, {4128767, 400, 0x25BDBFC3},
+{3932161, 400, 0x7A525A7E}, {3932159, 400, 0xF30C9045}, {3735553, 400, 0xFAD79E97}, {3735551, 400, 0x005ED15A},
+{3538945, 400, 0xDDE5BA46}, {3538943, 400, 0x15ED5982}, {3342337, 400, 0x1A6E87E9}, {3342335, 400, 0xECEEA390},
+{3276801, 400, 0x3341C77F}, {3276799, 400, 0xACA2EE28}, {3112961, 400, 0x2BDF9D2B}, {3112959, 400, 0xA0AC8635},
+{2949121, 400, 0x36EDB768}, {2949119, 400, 0x53FD5473}, {2785281, 400, 0x66816C94}, {2785279, 400, 0x059E8D6B},
+{2654999, 400, 0x07EE900D}, {2654777, 400, 0x9E744AA3}, {2654557, 400, 0x4106F46F}, {2654333, 400, 0xE81BCF40},
+{2654227, 400, 0xAC3B7F2B}, {2654003, 400, 0x1ED556E7}, {2620317, 400, 0x09DB64F8}, {2605473, 400, 0xE11637FC},
+{2584313, 400, 0x800E9A61}, {2573917, 400, 0x939DA3B3}, {2555671, 400, 0x9DC03527}, {2543123, 400, 0x379CA95D},
+{2540831, 400, 0x2CF01FBB}, {2539613, 400, 0x4146EECA}, {2495213, 400, 0x89D80370}, {2444819, 400, 0x56BF33C5},
+{2432123, 400, 0x5952676A}, {2408449, 400, 0x437ECC01}, {2408447, 400, 0x8C91E8AA}, {2388831, 400, 0xA508B5A7},
+{2359297, 400, 0x73A131F0}, {2332451, 400, 0xAB209667}, {2330097, 400, 0x3FB88055}, {2329999, 400, 0xF5E902A5},
+{2329557, 400, 0x2E267692}, {2328527, 400, 0xC55E3E05}, {2328117, 400, 0x0A24673A}, {2293761, 400, 0x9E4BBB8A},
+{2293759, 400, 0x1901F07B}, {2288753, 400, 0xA4DD9AAD}, {2266413, 400, 0x675257DB}, {2244765, 400, 0xC08FF487},
+{2236671, 400, 0x45EB162A}, {2222517, 400, 0x1A128B22}, {2200339, 400, 0x0EB0E827}, {2193011, 400, 0x382B6E4B},
+{2188001, 400, 0xD012AF6A}, {2166567, 400, 0x509BA41A}, {2144651, 400, 0x54CFC0E6}, {2130357, 400, 0xC25804D8},
+{2122923, 400, 0xA47068E6}, {2100559, 400, 0xACFAB4E1}, {2088461, 400, 0xEA01E860}, {2066543, 400, 0x847DF0D0},
+{2044767, 400, 0x04225888}, {2022823, 400, 0x6EA34B32}, {2009987, 400, 0xE6A59DEF}, {2004817, 400, 0xC2FF3440}, 
+{1999999, 400, 0xD645A18F}, {1998973, 400, 0xCBDD74F7}, {1997651, 400, 0x666B0CB1}, {1977987, 400, 0x30D1CD1F},
+{1970009, 400, 0x646E0DFA}, {1966081, 400, 0xB88828A1}, {1966079, 400, 0x5BD87C45}, {1955087, 400, 0x5B9426A4},
+{1899247, 400, 0x11C76E04}, {1877431, 400, 0xA3299B39}, {1855067, 400, 0x35243683}, {1833457, 400, 0xCF630DC0},
+{1811987, 400, 0x7C7022EC}, {1799789, 400, 0xEFEC47B7}, {1777773, 400, 0x0F16E2D6}, {1755321, 400, 0x1AC5D492},
+{1733333, 400, 0x5DA0555E}, {1711983, 400, 0xDC19DA8B}, {1699779, 400, 0x2B44914E}, {1679779, 400, 0x51D75E0F},
+{1677323, 400, 0x03D3980B}, {1675001, 400, 0x50A94DB7}, {1673881, 400, 0xA51D38E4}, {1672771, 400, 0x5474B6F9},
+{1671221, 400, 0x2710DDEA}, {1670551, 400, 0x31FC3838}, {1599549, 400, 0x48EA38B2}, {1577771, 400, 0xCE84D9DC},
+{1555947, 400, 0x6797EEF4}, {1533349, 400, 0xD6897409}, {1511861, 400, 0x8A8177AC}, {1499625, 400, 0x56BB6FB3},
+{1477941, 400, 0xF3DD8ED3}, {1455931, 400, 0x31A222C7}, {1433069, 400, 0x28F01E1B}, {1411747, 400, 0x680C6E39},
+{1399449, 400, 0xB7F01A54}, {1377247, 400, 0xE656F652}, {1355991, 400, 0xB2AA2819}, {1350061, 400, 0x31F9A728},
+{1344999, 400, 0x158AA064}, {1344997, 400, 0x1D059D4F}, {1310721, 400, 0x5694A427}, {1310719, 400, 0x258BDDE3}, 
+{1288771, 400, 0x7431D9E2}, {1266711, 400, 0xB4BC4E8D}, {1244881, 400, 0x48BC9FF9}, {1222991, 400, 0x3F5FC39E},
+{1200881, 400, 0xD5DF4944}, {1188441, 400, 0xD9D8968B}, {1166661, 400, 0xD4AB97F4}, {1144221, 400, 0x9940943B},
+{1122001, 400, 0x647406B8}, {1100881, 400, 0x3AD40CE0}, {1088511, 400, 0xD578BB51}, {1066837, 400, 0x2F82BFBB},
+{1044811, 400, 0x7C6EDDD1}, {1022991, 400, 0x6A1C2DD4}, {1000001, 400, 0x2879748F}, {983041, 1000, 0x29216C43},
+{974849, 1000, 0x79791EDB}, {942079, 1000, 0xE528A9B0}, {933889, 1000, 0x62490F57}, {917503, 1000, 0x5F244685},
+{901121, 1000, 0x26C4E660}, {884735, 1000, 0x7BC7A661}, {860161, 1000, 0x41185F27}, {851967, 1000, 0x331AA906},
+{835585, 1000, 0x706437D3}, {819199, 1000, 0x48AFB0A5}, {802817, 1000, 0xA9645693}, {786431, 1000, 0x61080929},
+{778241, 1000, 0x1729A6C4}, {753663, 1000, 0x99C43F31}, {745473, 1000, 0x7BCE80AA}, {737279, 1000, 0x1B07A764}, 
+{720897, 1000, 0x1E96863D}, {688127, 1000, 0xD01E5A85}, {659457, 1000, 0x589C16A4}, {655359, 1000, 0x1107F161},
+{638977, 1000, 0xC88F34B4}, {630783, 1000, 0x4DD2E603}, {622593, 1000, 0x26F6FC8C}, {614399, 1000, 0x6408F880},
+{602113, 1000, 0xEFCD5BA8}, {589823, 1000, 0x0290B60B}, {573441, 1000, 0xF8F039AA}, {565247, 1000, 0xF4CA3679}, 
+{557057, 1000, 0xC30FE589}, {540673, 1000, 0xDA0E0D99}, {532479, 1000, 0x0072FE03}, {524289, 1000, 0xCD591388},
+{516095, 1000, 0xA6BD9423}, {487423, 1000, 0x933FFF17}, {471041, 1000, 0x18752F40}, {466943, 1000, 0xE10EE929},
+{458753, 1000, 0xE296CC00}, {450559, 1000, 0x025B1320}, {442369, 1000, 0xC22471C3}, {425985, 1000, 0xB2095F04},
+{417791, 1000, 0x080C803C}, {389119, 1000, 0x6188E38D}, {376833, 1000, 0x915D5458}, {372735, 1000, 0xCB6D00A2},
+{368641, 1000, 0x72414364}, {360447, 1000, 0x84AC5CFD}, {344065, 1000, 0x4D0C5089}, {327681, 1000, 0x3101106A},
+{319487, 1000, 0x24ED1BE9}, {294913, 1000, 0xF55727C6}, {286719, 1000, 0x1A31A686}, {282625, 1000, 0x34A4E699},
+{278527, 1000, 0x05530FD5}, {272385, 1000, 0xEF6EC4B4}, {270335, 1000, 0x14AD54BE}, {266241, 1000, 0xE0969CED},
+{262143, 1000, 0xA9638844}, {258049, 1000, 0x73F541AD}, {243713, 1000, 0xC19AEA91}, {245759, 1000, 0x7538BF0B},
+{233473, 1000, 0x1964F897}, {235519, 1000, 0x661BBC3F}, {229375, 1000, 0x6E42B26A}, {225281, 1000, 0x20876BED},
+{221183, 1000, 0xA89E7764}, {215041, 1000, 0x04D5D2F0}, {212991, 1000, 0x1FF00E2A}, {208897, 1000, 0x9D4DCF0E},
+{204799, 1000, 0xD20C2126}, {200705, 1000, 0xFAD28F5A}, {196607, 1000, 0x3190D5F5}, {194561, 1000, 0x6ED1CB70},
+{188415, 1000, 0x86FCE4D6}, {186369, 1000, 0x0F001482}, {184319, 1000, 0x360EF08E}, {180225, 1000, 0x35D49D74},
+{172031, 1000, 0xC5AF29DB}, {164865, 1000, 0x4942B002}, {163839, 1000, 0x1CA6048E}, {159745, 1000, 0xB5CD03A1},
+{157695, 1000, 0x5422FACF}, {155649, 1000, 0xA7B736AF}, {153599, 1000, 0xA9FAAE69}, {150529, 1000, 0x7412F09C},
+{147455, 1000, 0x176B299A}, {143361, 1000, 0x580F4DC4}, {141311, 1000, 0x7A5D0730}, {139265, 1000, 0xBCE1FC80},
+{136191, 1000, 0xC4591D37}, {135169, 1000, 0x65AC10A4}, {133119, 1000, 0xDE51C35A}, {131073, 1000, 0xC5AAB12F},
+{129023, 1000, 0xAFE1E7A8}, {122881, 1000, 0x652827AC}, {121855, 1000, 0x55AF2385}, {117761, 1000, 0x054A26F6},
+{116735, 1000, 0xB85F0E8E}, {114689, 1000, 0x0BBAF161}, {112639, 1000, 0x6FA4DB24}, {110593, 1000, 0x1A56AA86},
+{107519, 1000, 0x80F177D8}, {106497, 1000, 0xF833D925}, {104447, 1000, 0xF9F3CDFD}, {102401, 1000, 0x19F967B4},
+{100351, 1000, 0x1DE12CE6}, {96607, 10000, 0xFC88D4F0}, {94561, 10000, 0xBD7FAFD2}, {94319, 10000, 0x1B306C54},
+{83839, 10000, 0x528128D0}, {82031, 10000, 0xDCEA44BA}, {79745, 10000, 0xEC4F1AF4}, {77455, 10000, 0x56774C7A},
+{75649, 10000, 0xF1498DE6}, {73361, 10000, 0x058CB75D}, {71311, 10000, 0xF85DC1F2}, {66241, 10000, 0x877A4E1E},
+{65281, 10000, 0x75108380}
 };
 
-#define MAX_SELF_TEST_ITERS2	376
+#define MAX_SELF_TEST_ITERS2	403
 const struct self_test_info SELF_TEST_DATA2[MAX_SELF_TEST_ITERS2] = {
-{560000001, 100, 0x7F853A0A}, {420000001, 150, 0x89665E7E},
-{280000001, 200, 0xC32CAD46}, {210000001, 300, 0x89823329},
-{140000001, 400, 0x15EF4F24}, {110000001, 500, 0x893C9000},
-{77497473, 900, 0xF0B43F54}, {76497471, 900, 0xF30AFA95},
-{75497473, 900, 0x32D8D3A7}, {75497471, 900, 0x9E689331},
-{74497473, 900, 0xD43166A4}, {73497471, 900, 0x639E4F0C},
-{72303169, 900, 0x74BDED5C}, {71303169, 900, 0xA2147B5C},
-{71303167, 900, 0x717525AB}, {70303167, 900, 0xD716B4F0},
-{68060289, 1000, 0xF90C7BFF}, {67060287, 1000, 0xFE9BF47C},
-{66060289, 1000, 0x057C60F5}, {66060287, 1000, 0x2ECC97CE},
-{65390273, 1000, 0xC55C6369}, {64390271, 1000, 0x48552448},
-{63390273, 1000, 0x6FF8CD84}, {62390273, 1000, 0x42ACEB15},
-{62390271, 1000, 0x48764DF8}, {61390271, 1000, 0xD5408698},
-{57623105, 1200, 0x098B4491}, {56623105, 1200, 0x5E720717},
-{56623103, 1200, 0x1980D8BC}, {55623103, 1200, 0xEDD592B6},
-{53477377, 1200, 0xBAEF5CCC}, {53477375, 1200, 0x2F296FC8},
-{52331647, 1200, 0xA1EAE85D}, {51331649, 1200, 0xE3B39845},
-{50331649, 1200, 0x53543DF2}, {50331647, 1200, 0x0049E54B},
-{48185921, 1500, 0x78F4AEAA}, {47185921, 1500, 0x4D7FFDDC},
-{47185919, 1500, 0x059D196F}, {46185919, 1500, 0x38B1D9AD},
-{45943041, 1500, 0x7670FDDF}, {44943039, 1500, 0xA859BBD7},
-{43943041, 1500, 0xD673E000}, {42943039, 1500, 0x6B69D8CE},
-{41943041, 1500, 0x6E92CE47}, {41943039, 1500, 0x888BEE79},
-{39151585, 1900, 0x3B06496C}, {38748737, 1900, 0x6429E0FD},
-{38251583, 1900, 0x04AD7F99}, {37748737, 1900, 0x47659BC5},
-{37748735, 1900, 0x2DFA41B0}, {36748735, 1900, 0x1A1DA557},
-{36251585, 1900, 0x83F23FA8}, {35651585, 1900, 0x3598B4B9},
-{35651583, 1900, 0x7E443962}, {35251583, 1900, 0x1CE4D084},
-{34230145, 2100, 0x0FDE9717}, {33730143, 2100, 0x54EB5333},
-{33030145, 2100, 0xF37897B8}, {33030143, 2100, 0x52B3981B},
-{32595137, 2100, 0xA76D0805}, {32095135, 2100, 0xCF443ACD},
-{31595137, 2100, 0xA6DEA70A}, {31195137, 2100, 0x0777442D},
-{31195135, 2100, 0x9B265F8F}, {30695135, 2100, 0xA3BC760F},
-{29311553, 2500, 0xFD1D6D74}, {28811551, 2500, 0xE720BFD3},
-{28311553, 2500, 0xA11F75AB}, {28311551, 2500, 0x7E0471E5},
-{27738689, 2500, 0xD246DC55}, {27238687, 2500, 0x806A3A62},
-{26738689, 2500, 0x8E8450B1}, {26738687, 2500, 0xD4A0DBC9},
-{26138689, 2500, 0x47C47755}, {25638687, 2500, 0x7E9C7E8E},
-{24903681, 3100, 0x50835AB8}, {24903679, 3100, 0xAE3D2F94},
-{24092961, 3100, 0x7B540B4D}, {23892959, 3100, 0xA0D4EC50},
-{23592961, 3100, 0x47FBD6FE}, {23592959, 3100, 0x09FD89AB},
-{22971521, 3100, 0x99DFEDB9}, {21871519, 3100, 0x35A8B46A},
-{20971521, 3100, 0x94C12572}, {20971519, 3100, 0x1F6D3003},
-{19922945, 4000, 0x86B106EB}, {19922943, 4000, 0xE1CE3C1A},
-{19374367, 4000, 0xD1045A66}, {19174369, 4000, 0x3247CE82},
-{18874369, 4000, 0x33BB2689}, {18874367, 4000, 0x6856F21F},
-{18474367, 4000, 0x95E2F6FA}, {18274367, 4000, 0x61182009},
-{18274369, 4000, 0xB2FD8175}, {18074369, 4000, 0x7F242A6E},
-{17432577, 4500, 0x632CAD0B}, {17432575, 4500, 0xC9C79F07},
-{17115073, 4500, 0xF2B70D4B}, {16815071, 4500, 0x71B22529},
-{16515073, 4500, 0xAB1CC854}, {16515071, 4500, 0xF54D05D7},
-{16297569, 4500, 0x6B5F72DA}, {15997567, 4500, 0x9669F188},
-{15597569, 4500, 0x352BFCCF}, {15597567, 4500, 0x36B164ED},
-{14942209, 5300, 0xEA5DB53B}, {14942207, 5300, 0x6CC650A2},
-{14155777, 5300, 0xEB7C125D}, {14155775, 5300, 0xB4C8B09B},
-{13969343, 5300, 0x832359A5}, {13669345, 5300, 0x7EE99140},
-{13369345, 5300, 0xCDF43471}, {13369343, 5300, 0x343FEA12},
-{13069345, 5300, 0x65B17A9B}, {12969343, 5300, 0x063F492B},
-{12451841, 6500, 0xCB168E5D}, {12451839, 6500, 0xE91EEB5A},
-{12196481, 6500, 0x0A261B7E}, {11796481, 6500, 0x38100A5F},
-{11796479, 6500, 0x78FCF8C5}, {11596479, 6500, 0x8C481635},
-{11285761, 6500, 0x2580BC8D}, {10885759, 6500, 0x54030992},
-{10485761, 6500, 0x054660AA}, {10485759, 6500, 0x50F74AF0},
-{9961473, 7800, 0x7991161C}, {9961471, 7800, 0x627F3BEE},
-{9837183, 7800, 0xBC67A608}, {9737185, 7800, 0x9A0CBC59},
-{9537183, 7800, 0xA6A509A6}, {9437185, 7800, 0x877C09B6},
-{9437183, 7800, 0x1D259540}, {9337185, 7800, 0x5EF3F14C},
-{9237183, 7800, 0x5780245F}, {9137185, 7800, 0x6C1162A9},
-{8716289, 9000, 0x2011133F}, {8716287, 9000, 0xEEEC1181},
-{8516289, 9000, 0xF1D93A69}, {8316287, 9000, 0x53D6E3CB},
-{8257537, 9000, 0x38DB98D6}, {8257535, 9000, 0x7D1BECA7},
-{8098785, 9000, 0x51E9FA27}, {7998783, 9000, 0xF7F14FF2},
-{7798785, 9000, 0x8437BC4D}, {7798783, 9000, 0x9E28D8E1},
-{7471105, 11000, 0xEFDA89EA}, {7471103, 11000, 0x4061C4BF},
-{7377889, 11000, 0x65ABE846}, {7277887, 11000, 0x02B0EBD7},
-{7077889, 11000, 0x336E1030}, {7077887, 11000, 0x685B792E},
-{6984673, 11000, 0x3AE19FAF}, {6884671, 11000, 0x2A0ED16A},
-{6684673, 11000, 0x206A3512}, {6684671, 11000, 0x4FD9980A},
-{6225921, 13000, 0x1A922371}, {6225919, 13000, 0xC0F63BD8},
-{6198241, 13000, 0xDA664501}, {6098239, 13000, 0xB92015CD},
-{5898241, 13000, 0xDA384BD9}, {5898239, 13000, 0x20B59AC8},
-{5705025, 13000, 0x941A2DA0}, {5605023, 13000, 0xCFDF5835},
-{5505025, 13000, 0x37A6C972}, {5505023, 13000, 0x6252AB5C},
-{5120737, 17000, 0x512705D0}, {5030735, 17000, 0x633E3E74},
-{4980737, 17000, 0xD8245D49}, {4980735, 17000, 0xFB2C3530},
-{4888593, 17000, 0xE3C6EDBC}, {4818591, 17000, 0x89E7FE48},
-{4718593, 17000, 0xA23C713D}, {4718591, 17000, 0xC7BA41D6},
-{4698593, 17000, 0xA0194103}, {4648591, 17000, 0xD5A50A23},
-{4501145, 19000, 0x7BAF4344}, {4458143, 19000, 0x686F6B13},
-{4358145, 19000, 0x682E6643}, {4358143, 19000, 0x974DA6CC},
-{4298769, 19000, 0x1FC0E577}, {4228767, 19000, 0x46B5F3CD},
-{4128769, 19000, 0x59332478}, {4128767, 19000, 0x4AF5C8B8},
-{4028769, 19000, 0x542C17CB}, {3978767, 19000, 0x76E41351},
-{3835553, 22000, 0x9058FE40}, {3785551, 22000, 0x45EF5C15},
-{3735553, 22000, 0x2700B350}, {3735551, 22000, 0x09EDCEAD},
-{3688945, 22000, 0x626C29D3}, {3618943, 22000, 0x82B1D4D1},
-{3538945, 22000, 0x70331CC6}, {3538943, 22000, 0x00FEB746},
-{3342337, 22000, 0x7CEE24AE}, {3342335, 22000, 0x1802D072},
-{3242961, 27000, 0xE877F863}, {3172959, 27000, 0x04C9F1F7},
-{3112961, 27000, 0x241E93DB}, {3112959, 27000, 0x8D359307},
-{2949121, 27000, 0x6B545E09}, {2949119, 27000, 0xAFD6F417},
-{2885281, 27000, 0x439E57E6}, {2785281, 27000, 0xB4E40DFE},
-{2785279, 27000, 0x3787D3FA}, {2685279, 27000, 0x902967B7},
-{2605473, 34000, 0xE21C344E}, {2584313, 34000, 0xFDBCFCB2},
-{2573917, 34000, 0x89B5012C}, {2540831, 34000, 0x201BAA90},
-{2539613, 34000, 0x2226BA6B}, {2495213, 34000, 0xE3577D9F},
-{2408447, 34000, 0x594C9155}, {2388831, 34000, 0x55CE9F16},
-{2359297, 34000, 0x09A72A40}, {2359295, 34000, 0x621E8BF9},
-{2244765, 39000, 0xEC2F362D}, {2236671, 39000, 0x4B50CA20},
-{2222517, 39000, 0x8DA427C0}, {2193011, 39000, 0xD1DE8993},
-{2130357, 39000, 0x4B5EBB90}, {2122923, 39000, 0x5F9110FC},
-{2100559, 39000, 0xE0CF8904}, {2088461, 39000, 0x26AD1DEA},
-{2066543, 39000, 0xB78C9237}, {2004817, 39000, 0x3D7838F8},
-{1933071, 46000, 0x86323D21}, {1911957, 46000, 0x500CFEAD},
-{1899247, 46000, 0x128667DF}, {1877431, 46000, 0x2A59B6B5},
-{1855067, 46000, 0xBE9AABF5}, {1833457, 46000, 0xB84D7929},
-{1777773, 46000, 0x771E0A9D}, {1755321, 46000, 0xF93334E3},
-{1699779, 46000, 0x07B46DEE}, {1677323, 46000, 0x910E0320},
-{1633941, 56000, 0x455509CD}, {1611557, 56000, 0x0F51FA1E},
-{1599549, 56000, 0x646A96B0}, {1577771, 56000, 0xA4A21303},
-{1555947, 56000, 0x80B84725}, {1533349, 56000, 0x23E9F7B1},
-{1477941, 56000, 0x593F208F}, {1455931, 56000, 0x11002C52},
-{1433069, 56000, 0x5B641D8B}, {1411747, 56000, 0x5EAE18A8},
-{1322851, 75000, 0xD5C50F2E}, {1310721, 75000, 0x855E44A2},
-{1310719, 75000, 0xC0836C1F}, {1300993, 75000, 0xF62263D6},
-{1288771, 75000, 0x867EBBAB}, {1266711, 75000, 0xBA1FF3BE},
-{1244881, 75000, 0xCE8199EB}, {1222991, 75000, 0xCDE49EF5},
-{1200881, 75000, 0xC8610F6C}, {1188441, 75000, 0xFC772495},
-{1150221, 84000, 0xA3334541}, {1144221, 84000, 0x44307B03},
-{1122001, 84000, 0x9B937DCF}, {1108511, 84000, 0x9F3D191E},
-{1100881, 84000, 0xBAF4EA2D}, {1096837, 84000, 0xAA9396F1},
-{1088511, 84000, 0xB0CB2704}, {1066837, 84000, 0x031F202C},
-{1044811, 84000, 0x7EA89CFE}, {1022991, 84000, 0xD42294C8},
-{983041, 100000, 0x4052BBC0}, {974849, 100000, 0xB0E9EB07},
-{942079, 100000, 0xEE230987}, {933889, 100000, 0x58FA63B0},
-{917503, 100000, 0x8B457209}, {901121, 100000, 0xD2325FC4},
-{884735, 100000, 0xCBB5A603}, {860161, 100000, 0xBC240C77},
-{854735, 100000, 0xE8BE766D}, {851967, 100000, 0x09AD9B74},
-{827279, 120000, 0x64B01894}, {819199, 120000, 0xF97F1E2B},
-{802817, 120000, 0xC4EDBC3C}, {795473, 120000, 0x046584E0},
-{786431, 120000, 0xC6BA553D}, {778241, 120000, 0x856A5147},
-{753663, 120000, 0xC7895B4A}, {745473, 120000, 0x42B47EA2},
-{737279, 120000, 0x29E477B8}, {720897, 120000, 0x97111FA7},
-{662593, 160000, 0x32472A99}, {659457, 160000, 0xEF49D340},
-{655359, 160000, 0x75C12C38}, {644399, 160000, 0xDE632783},
-{638977, 160000, 0xDCDB98B4}, {630783, 160000, 0x6B8F0706},
-{622593, 160000, 0xD732286D}, {614399, 160000, 0x2489EFB3},
-{612113, 160000, 0xCAE00EC6}, {602113, 160000, 0x792AD67D},
-{580673, 180000, 0xC508CAFA}, {573441, 180000, 0xB0680C2B},
-{565247, 180000, 0xF1DBB762}, {557057, 180000, 0x374F647B},
-{544767, 180000, 0x3DC41F49}, {540673, 180000, 0x949A4CB7},
-{532479, 180000, 0xEA06DC97}, {524289, 180000, 0xA76CE14A},
-{522479, 180000, 0xAA8EAC14}, {516095, 180000, 0x04F0CC23},
-{501041, 210000, 0xD9F72F62}, {496943, 210000, 0xD62D5380},
-{487423, 210000, 0x55ACB2FD}, {471041, 210000, 0xB6AEAB0E},
-{466943, 210000, 0x251CDE78}, {458753, 210000, 0xDC40CADB},
-{450559, 210000, 0x2AD0CF72}, {442369, 210000, 0x5FF2E46E},
-{441041, 210000, 0x1194CC23}, {436943, 210000, 0x0272AF35},
-{420217, 270000, 0xD233852A}, {409601, 270000, 0x6F89825C},
-{401407, 270000, 0x3D9DE818}, {393217, 270000, 0xDE8E6FF0},
-{392119, 270000, 0x30CA58B7}, {389119, 270000, 0x80975797},
-{376833, 270000, 0xC75824DB}, {372735, 270000, 0xF8BE0932},
-{368641, 270000, 0xA48AC5E3}, {360447, 270000, 0x7DD29C13},
-{339487, 340000, 0xA7311A6D}, {335393, 340000, 0xD9704DF2},
-{331681, 340000, 0x3316A003}, {329727, 340000, 0xE46D5991},
-{327681, 340000, 0xBEDA4A7B}, {319487, 340000, 0xB25C84FF},
-{315393, 340000, 0xF5AD1DDA}, {311295, 340000, 0xFE41A12A},
-{308295, 340000, 0x03AAC47E}, {307201, 340000, 0xFC08ACCC},
-{291913, 380000, 0xC56AB884}, {286719, 380000, 0x248EF622},
-{282625, 380000, 0x50A98488}, {280335, 380000, 0x9B64A843},
-{278527, 380000, 0x39D5B7DB}, {274335, 380000, 0x48623B41},
-{270335, 380000, 0xC04B857A}, {266241, 380000, 0xFE4475F6},
-{262143, 380000, 0xADC3ECE9}, {260335, 380000, 0x15B8F9EF},
-{250519, 460000, 0xA2FE3B50}, {245759, 460000, 0xC6D800D6},
-{245281, 460000, 0x4F23AA34}, {243713, 460000, 0xB30EC823},
-{235519, 460000, 0x31FD709E}, {233473, 460000, 0x8FCC69C2},
-{231183, 460000, 0xD59255CC}, {229375, 460000, 0x788520D0},
-{225281, 460000, 0xD669C8BC}, {221183, 460000, 0x9B915F4B},
-{212991, 560000, 0x0555250D}, {210415, 560000, 0x3FC3CCD7},
-{208897, 560000, 0x9FF8F462}, {204799, 560000, 0x294EB549},
-{200705, 560000, 0x80B1222F}, {196607, 560000, 0x8AB8D945},
-{194561, 560000, 0x4140E623}, {188415, 560000, 0xFA0A3453},
-{186369, 560000, 0xAC17EAB6}, {184319, 560000, 0x835F341B},
-{172031, 800000, 0xF6BD0728}, {163839, 800000, 0x26C78657},
-{159745, 800000, 0x6ACBB961}, {157695, 800000, 0x3EA979F3},
-{155649, 800000, 0x09C7ADE4}, {153599, 800000, 0xF601EB92},
-{147455, 800000, 0x0AA97D21}, {143361, 800000, 0xEA6A01F1},
-{141311, 800000, 0x9BB8A6A3}, {135169, 800000, 0xECA55A45}
+{560000001, 100, 0x7F853A0A}, {420000001, 150, 0x89665E7E}, {280000001, 200, 0xC32CAD46}, {210000001, 300, 0x89823329},
+{140000001, 400, 0x15EF4F24}, {110000001, 500, 0x893C9000}, {77497473, 900, 0xF0B43F54}, {76497471, 900, 0xF30AFA95},
+{75497473, 900, 0x32D8D3A7}, {75497471, 900, 0x9E689331}, {74497473, 900, 0xD43166A4}, {73497471, 900, 0x639E4F0C},
+{72303169, 900, 0x74BDED5C}, {71303169, 900, 0xA2147B5C}, {71303167, 900, 0x717525AB}, {70303167, 900, 0xD716B4F0},
+{68060289, 1000, 0xF90C7BFF}, {67060287, 1000, 0xFE9BF47C}, {66060289, 1000, 0x057C60F5}, {66060287, 1000, 0x2ECC97CE},
+{65390273, 1000, 0xC55C6369}, {64390271, 1000, 0x48552448}, {63390273, 1000, 0x6FF8CD84}, {62390273, 1000, 0x42ACEB15},
+{62390271, 1000, 0x48764DF8}, {61390271, 1000, 0xD5408698}, {57623105, 1200, 0x098B4491}, {56623105, 1200, 0x5E720717},
+{56623103, 1200, 0x1980D8BC}, {55623103, 1200, 0xEDD592B6}, {53477377, 1200, 0xBAEF5CCC}, {53477375, 1200, 0x2F296FC8},
+{52331647, 1200, 0xA1EAE85D}, {51331649, 1200, 0xE3B39845}, {50331649, 1200, 0x53543DF2}, {50331647, 1200, 0x0049E54B},
+{48185921, 1500, 0x78F4AEAA}, {47185921, 1500, 0x4D7FFDDC}, {47185919, 1500, 0x059D196F}, {46185919, 1500, 0x38B1D9AD},
+{45943041, 1500, 0x7670FDDF}, {44943039, 1500, 0xA859BBD7}, {43943041, 1500, 0xD673E000}, {42943039, 1500, 0x6B69D8CE},
+{41943041, 1500, 0x6E92CE47}, {41943039, 1500, 0x888BEE79}, {39151585, 1900, 0x3B06496C}, {38748737, 1900, 0x6429E0FD},
+{38251583, 1900, 0x04AD7F99}, {37748737, 1900, 0x47659BC5}, {37748735, 1900, 0x2DFA41B0}, {36748735, 1900, 0x1A1DA557},
+{36251585, 1900, 0x83F23FA8}, {35651585, 1900, 0x3598B4B9}, {35651583, 1900, 0x7E443962}, {35251583, 1900, 0x1CE4D084},
+{34230145, 2100, 0x0FDE9717}, {33730143, 2100, 0x54EB5333}, {33030145, 2100, 0xF37897B8}, {33030143, 2100, 0x52B3981B},
+{32595137, 2100, 0xA76D0805}, {32095135, 2100, 0xCF443ACD}, {31595137, 2100, 0xA6DEA70A}, {31195137, 2100, 0x0777442D},
+{31195135, 2100, 0x9B265F8F}, {30695135, 2100, 0xA3BC760F}, {29311553, 2500, 0xFD1D6D74}, {28811551, 2500, 0xE720BFD3},
+{28311553, 2500, 0xA11F75AB}, {28311551, 2500, 0x7E0471E5}, {27738689, 2500, 0xD246DC55}, {27238687, 2500, 0x806A3A62},
+{26738689, 2500, 0x8E8450B1}, {26738687, 2500, 0xD4A0DBC9}, {26138689, 2500, 0x47C47755}, {25638687, 2500, 0x7E9C7E8E},
+{24903681, 3100, 0x50835AB8}, {24903679, 3100, 0xAE3D2F94}, {24092961, 3100, 0x7B540B4D}, {23892959, 3100, 0xA0D4EC50},
+{23592961, 3100, 0x47FBD6FE}, {23592959, 3100, 0x09FD89AB}, {22971521, 3100, 0x99DFEDB9}, {21871519, 3100, 0x35A8B46A},
+{20971521, 3100, 0x94C12572}, {20971519, 3100, 0x1F6D3003}, {19922945, 4000, 0x86B106EB}, {19922943, 4000, 0xE1CE3C1A},
+{19374367, 4000, 0xD1045A66}, {19174369, 4000, 0x3247CE82}, {18874369, 4000, 0x33BB2689}, {18874367, 4000, 0x6856F21F},
+{18474367, 4000, 0x95E2F6FA}, {18274367, 4000, 0x61182009}, {18274369, 4000, 0xB2FD8175}, {18074369, 4000, 0x7F242A6E},
+{17432577, 4500, 0x632CAD0B}, {17432575, 4500, 0xC9C79F07}, {17115073, 4500, 0xF2B70D4B}, {16815071, 4500, 0x71B22529},
+{16515073, 4500, 0xAB1CC854}, {16515071, 4500, 0xF54D05D7}, {16297569, 4500, 0x6B5F72DA}, {15997567, 4500, 0x9669F188},
+{15597569, 4500, 0x352BFCCF}, {15597567, 4500, 0x36B164ED}, {14942209, 5300, 0xEA5DB53B}, {14942207, 5300, 0x6CC650A2},
+{14155777, 5300, 0xEB7C125D}, {14155775, 5300, 0xB4C8B09B}, {13969343, 5300, 0x832359A5}, {13669345, 5300, 0x7EE99140},
+{13369345, 5300, 0xCDF43471}, {13369343, 5300, 0x343FEA12}, {13069345, 5300, 0x65B17A9B}, {12969343, 5300, 0x063F492B},
+{12451841, 6500, 0xCB168E5D}, {12451839, 6500, 0xE91EEB5A}, {12196481, 6500, 0x0A261B7E}, {11796481, 6500, 0x38100A5F},
+{11796479, 6500, 0x78FCF8C5}, {11596479, 6500, 0x8C481635}, {11285761, 6500, 0x2580BC8D}, {10885759, 6500, 0x54030992},
+{10485761, 6500, 0x054660AA}, {10485759, 6500, 0x50F74AF0}, {9961473, 7800, 0x7991161C}, {9961471, 7800, 0x627F3BEE},
+{9837183, 7800, 0xBC67A608}, {9737185, 7800, 0x9A0CBC59}, {9537183, 7800, 0xA6A509A6}, {9437185, 7800, 0x877C09B6},
+{9437183, 7800, 0x1D259540}, {9337185, 7800, 0x5EF3F14C}, {9237183, 7800, 0x5780245F}, {9137185, 7800, 0x6C1162A9},
+{8716289, 9000, 0x2011133F}, {8716287, 9000, 0xEEEC1181}, {8516289, 9000, 0xF1D93A69}, {8316287, 9000, 0x53D6E3CB},
+{8257537, 9000, 0x38DB98D6}, {8257535, 9000, 0x7D1BECA7}, {8098785, 9000, 0x51E9FA27}, {7998783, 9000, 0xF7F14FF2},
+{7798785, 9000, 0x8437BC4D}, {7798783, 9000, 0x9E28D8E1}, {7471105, 11000, 0xEFDA89EA}, {7471103, 11000, 0x4061C4BF},
+{7377889, 11000, 0x65ABE846}, {7277887, 11000, 0x02B0EBD7}, {7077889, 11000, 0x336E1030}, {7077887, 11000, 0x685B792E},
+{6984673, 11000, 0x3AE19FAF}, {6884671, 11000, 0x2A0ED16A}, {6684673, 11000, 0x206A3512}, {6684671, 11000, 0x4FD9980A},
+{6225921, 13000, 0x1A922371}, {6225919, 13000, 0xC0F63BD8}, {6198241, 13000, 0xDA664501}, {6098239, 13000, 0xB92015CD},
+{5898241, 13000, 0xDA384BD9}, {5898239, 13000, 0x20B59AC8}, {5705025, 13000, 0x941A2DA0}, {5605023, 13000, 0xCFDF5835},
+{5505025, 13000, 0x37A6C972}, {5505023, 13000, 0x6252AB5C}, {5120737, 17000, 0x512705D0}, {5030735, 17000, 0x633E3E74},
+{4980737, 17000, 0xD8245D49}, {4980735, 17000, 0xFB2C3530}, {4888593, 17000, 0xE3C6EDBC}, {4818591, 17000, 0x89E7FE48},
+{4718593, 17000, 0xA23C713D}, {4718591, 17000, 0xC7BA41D6}, {4698593, 17000, 0xA0194103}, {4648591, 17000, 0xD5A50A23},
+{4501145, 19000, 0x7BAF4344}, {4458143, 19000, 0x686F6B13}, {4358145, 19000, 0x682E6643}, {4358143, 19000, 0x974DA6CC},
+{4298769, 19000, 0x1FC0E577}, {4228767, 19000, 0x46B5F3CD}, {4128769, 19000, 0x59332478}, {4128767, 19000, 0x4AF5C8B8},
+{4028769, 19000, 0x542C17CB}, {3978767, 19000, 0x76E41351}, {3835553, 22000, 0x9058FE40}, {3785551, 22000, 0x45EF5C15},
+{3735553, 22000, 0x2700B350}, {3735551, 22000, 0x09EDCEAD}, {3688945, 22000, 0x626C29D3}, {3618943, 22000, 0x82B1D4D1},
+{3538945, 22000, 0x70331CC6}, {3538943, 22000, 0x00FEB746}, {3342337, 22000, 0x7CEE24AE}, {3342335, 22000, 0x1802D072},
+{3242961, 27000, 0xE877F863}, {3172959, 27000, 0x04C9F1F7}, {3112961, 27000, 0x241E93DB}, {3112959, 27000, 0x8D359307},
+{2949121, 27000, 0x6B545E09}, {2949119, 27000, 0xAFD6F417}, {2885281, 27000, 0x439E57E6}, {2785281, 27000, 0xB4E40DFE},
+{2785279, 27000, 0x3787D3FA}, {2685279, 27000, 0x902967B7}, {2605473, 34000, 0xE21C344E}, {2584313, 34000, 0xFDBCFCB2},
+{2573917, 34000, 0x89B5012C}, {2540831, 34000, 0x201BAA90}, {2539613, 34000, 0x2226BA6B}, {2495213, 34000, 0xE3577D9F},
+{2408447, 34000, 0x594C9155}, {2388831, 34000, 0x55CE9F16}, {2359297, 34000, 0x09A72A40}, {2359295, 34000, 0x621E8BF9},
+{2244765, 39000, 0xEC2F362D}, {2236671, 39000, 0x4B50CA20}, {2222517, 39000, 0x8DA427C0}, {2193011, 39000, 0xD1DE8993},
+{2130357, 39000, 0x4B5EBB90}, {2122923, 39000, 0x5F9110FC}, {2100559, 39000, 0xE0CF8904}, {2088461, 39000, 0x26AD1DEA},
+{2066543, 39000, 0xB78C9237}, {2004817, 39000, 0x3D7838F8}, {1933071, 46000, 0x86323D21}, {1911957, 46000, 0x500CFEAD},
+{1899247, 46000, 0x128667DF}, {1877431, 46000, 0x2A59B6B5}, {1855067, 46000, 0xBE9AABF5}, {1833457, 46000, 0xB84D7929},
+{1777773, 46000, 0x771E0A9D}, {1755321, 46000, 0xF93334E3}, {1699779, 46000, 0x07B46DEE}, {1677323, 46000, 0x910E0320},
+{1633941, 56000, 0x455509CD}, {1611557, 56000, 0x0F51FA1E}, {1599549, 56000, 0x646A96B0}, {1577771, 56000, 0xA4A21303},
+{1555947, 56000, 0x80B84725}, {1533349, 56000, 0x23E9F7B1}, {1477941, 56000, 0x593F208F}, {1455931, 56000, 0x11002C52},
+{1433069, 56000, 0x5B641D8B}, {1411747, 56000, 0x5EAE18A8}, {1322851, 75000, 0xD5C50F2E}, {1310721, 75000, 0x855E44A2},
+{1310719, 75000, 0xC0836C1F}, {1300993, 75000, 0xF62263D6}, {1288771, 75000, 0x867EBBAB}, {1266711, 75000, 0xBA1FF3BE},
+{1244881, 75000, 0xCE8199EB}, {1222991, 75000, 0xCDE49EF5}, {1200881, 75000, 0xC8610F6C}, {1188441, 75000, 0xFC772495},
+{1150221, 84000, 0xA3334541}, {1144221, 84000, 0x44307B03}, {1122001, 84000, 0x9B937DCF}, {1108511, 84000, 0x9F3D191E},
+{1100881, 84000, 0xBAF4EA2D}, {1096837, 84000, 0xAA9396F1}, {1088511, 84000, 0xB0CB2704}, {1066837, 84000, 0x031F202C},
+{1044811, 84000, 0x7EA89CFE}, {1022991, 84000, 0xD42294C8}, {983041, 100000, 0x4052BBC0}, {974849, 100000, 0xB0E9EB07},
+{942079, 100000, 0xEE230987}, {933889, 100000, 0x58FA63B0}, {917503, 100000, 0x8B457209}, {901121, 100000, 0xD2325FC4},
+{884735, 100000, 0xCBB5A603}, {860161, 100000, 0xBC240C77}, {854735, 100000, 0xE8BE766D}, {851967, 100000, 0x09AD9B74},
+{827279, 120000, 0x64B01894}, {819199, 120000, 0xF97F1E2B}, {802817, 120000, 0xC4EDBC3C}, {795473, 120000, 0x046584E0},
+{786431, 120000, 0xC6BA553D}, {778241, 120000, 0x856A5147}, {753663, 120000, 0xC7895B4A}, {745473, 120000, 0x42B47EA2},
+{737279, 120000, 0x29E477B8}, {720897, 120000, 0x97111FA7}, {662593, 160000, 0x32472A99}, {659457, 160000, 0xEF49D340},
+{655359, 160000, 0x75C12C38}, {644399, 160000, 0xDE632783}, {638977, 160000, 0xDCDB98B4}, {630783, 160000, 0x6B8F0706},
+{622593, 160000, 0xD732286D}, {614399, 160000, 0x2489EFB3}, {612113, 160000, 0xCAE00EC6}, {602113, 160000, 0x792AD67D},
+{580673, 180000, 0xC508CAFA}, {573441, 180000, 0xB0680C2B}, {565247, 180000, 0xF1DBB762}, {557057, 180000, 0x374F647B},
+{544767, 180000, 0x3DC41F49}, {540673, 180000, 0x949A4CB7}, {532479, 180000, 0xEA06DC97}, {524289, 180000, 0xA76CE14A},
+{522479, 180000, 0xAA8EAC14}, {516095, 180000, 0x04F0CC23}, {501041, 210000, 0xD9F72F62}, {496943, 210000, 0xD62D5380},
+{487423, 210000, 0x55ACB2FD}, {471041, 210000, 0xB6AEAB0E}, {466943, 210000, 0x251CDE78}, {458753, 210000, 0xDC40CADB},
+{450559, 210000, 0x2AD0CF72}, {442369, 210000, 0x5FF2E46E}, {441041, 210000, 0x1194CC23}, {436943, 210000, 0x0272AF35},
+{420217, 270000, 0xD233852A}, {409601, 270000, 0x6F89825C}, {401407, 270000, 0x3D9DE818}, {393217, 270000, 0xDE8E6FF0},
+{392119, 270000, 0x30CA58B7}, {389119, 270000, 0x80975797}, {376833, 270000, 0xC75824DB}, {372735, 270000, 0xF8BE0932},
+{368641, 270000, 0xA48AC5E3}, {360447, 270000, 0x7DD29C13}, {339487, 340000, 0xA7311A6D}, {335393, 340000, 0xD9704DF2},
+{331681, 340000, 0x3316A003}, {329727, 340000, 0xE46D5991}, {327681, 340000, 0xBEDA4A7B}, {319487, 340000, 0xB25C84FF},
+{315393, 340000, 0xF5AD1DDA}, {311295, 340000, 0xFE41A12A}, {308295, 340000, 0x03AAC47E}, {307201, 340000, 0xFC08ACCC},
+{291913, 380000, 0xC56AB884}, {286719, 380000, 0x248EF622}, {282625, 380000, 0x50A98488}, {280335, 380000, 0x9B64A843},
+{278527, 380000, 0x39D5B7DB}, {274335, 380000, 0x48623B41}, {270335, 380000, 0xC04B857A}, {266241, 380000, 0xFE4475F6},
+{262143, 380000, 0xADC3ECE9}, {260335, 380000, 0x15B8F9EF}, {250519, 460000, 0xA2FE3B50}, {245759, 460000, 0xC6D800D6},
+{245281, 460000, 0x4F23AA34}, {243713, 460000, 0xB30EC823}, {235519, 460000, 0x31FD709E}, {233473, 460000, 0x8FCC69C2},
+{231183, 460000, 0xD59255CC}, {229375, 460000, 0x788520D0}, {225281, 460000, 0xD669C8BC}, {221183, 460000, 0x9B915F4B},
+{212991, 560000, 0x0555250D}, {210415, 560000, 0x3FC3CCD7}, {208897, 560000, 0x9FF8F462}, {204799, 560000, 0x294EB549},
+{200705, 560000, 0x80B1222F}, {196607, 560000, 0x8AB8D945}, {194561, 560000, 0x4140E623}, {188415, 560000, 0xFA0A3453},
+{186369, 560000, 0xAC17EAB6}, {184319, 560000, 0x835F341B}, {172031, 800000, 0xF6BD0728}, {163839, 800000, 0x26C78657},
+{159745, 800000, 0x6ACBB961}, {157695, 800000, 0x3EA979F3}, {155649, 800000, 0x09C7ADE4}, {153599, 800000, 0xF601EB92},
+{147455, 800000, 0x0AA97D21}, {143361, 800000, 0xEA6A01F1}, {141311, 800000, 0x9BB8A6A3}, {135169, 800000, 0xECA55A45},
+{133119, 800000, 0x2BF9C8EB}, {131073, 800000, 0x7468DFA2}, {129023, 920000, 0x7B8900B5}, {122881, 920000, 0x3DE6AE55},
+{121855, 920000, 0x146C8E62}, {117761, 920000, 0xD0E39716}, {116735, 920000, 0x67FDC6D0}, {114689, 920000, 0x77254063},
+{112639, 920000, 0x0872C067}, {110593, 920000, 0x3EAFFEE3}, {107519, 1120000, 0xDD5F3AED}, {106497, 1120000, 0x2F182F25},
+{104447, 1120000, 0xC5885E9D}, {102401, 1120000, 0xAC7AEC15}, {100351, 1120000, 0xEE0C6D03}, {96607, 1120000, 0xA9D88469},
+{94561, 1120000, 0xCC083FA7}, {94319, 1120000, 0x6769F679}, {83839, 1600000, 0x08EAB191}, {82031, 1600000, 0x26CFC344},
+{79745, 1600000, 0xCED1C919}, {77455, 1600000, 0x2552E499}, {75649, 1600000, 0x06D05124}, {73361, 1600000, 0x6DD17477},
+{71311, 1600000, 0x919E2A20}, {66241, 1600000, 0x296D46E6}, {65281, 1600000, 0x6232240E}
 };
 
 #define MAX_SELF_TEST_ITERS3	488
 const struct self_test_info SELF_TEST_DATA3[MAX_SELF_TEST_ITERS3] = {
-{900000001, 100, 0xCF8ADC6F}, {800000001, 100, 0x5171F784},
-{700000001, 200, 0x52DE4DB3}, {600000001, 200, 0x1E01473F},
-{560000001, 400, 0x5D2075F2}, {420000001, 600, 0x76973D8D},
-{280000001, 800, 0xA4B0C213}, {210000001, 1200, 0x9B0FEEA5},
-{140000001, 1600, 0xEC8F25E6}, {110000001, 2000, 0xD7EE8401},
-{77497473, 3600, 0xEE1F9603}, {76497471, 3600, 0xABE435B0},
-{75497473, 3600, 0x36285106}, {75497471, 3600, 0xE8CC66CA},
-{74497473, 3600, 0x24B8A2BF}, {73497471, 3600, 0xC12E28E9},
-{72303169, 3600, 0x51A924BC}, {71303169, 3600, 0x8FB537CB},
-{71303167, 3600, 0xB71873A1}, {70303167, 3600, 0x92EFC50B},
-{68060289, 4000, 0xA2629086}, {67060287, 4000, 0x23347B16},
-{66060289, 4000, 0xDA787057}, {66060287, 4000, 0x0810958A},
-{65390273, 4000, 0xAD06FF26}, {64390271, 4000, 0xE3A7F5DB},
-{63390273, 4000, 0x874392AC}, {62390273, 4000, 0xB4718A58},
-{62390271, 4000, 0x80C10B5F}, {61390271, 4000, 0xCAD8F47A},
-{57623105, 4800, 0x1C2BA27E}, {56623105, 4800, 0xBA735E8B},
-{56623103, 4800, 0x13519FDB}, {55623103, 4800, 0xE787C20E},
-{53477377, 4800, 0xB35788F2}, {53477375, 4800, 0x03E36F38},
-{52331647, 4800, 0xDC9F1FA1}, {51331649, 4800, 0x82533823},
-{50331649, 4800, 0x97F22401}, {50331647, 4800, 0x5A2FDCC0},
-{48185921, 6000, 0x966A35F6}, {47185921, 6000, 0xD8378EF6},
-{47185919, 6000, 0xD04DD7C3}, {46185919, 6000, 0x3BA8288B},
-{45943041, 6000, 0xFF87BC35}, {44943039, 6000, 0x726253F8},
-{43943041, 6000, 0x8E343AC4}, {42943039, 6000, 0xADF105FF},
-{41943041, 6000, 0xE0C8040C}, {41943039, 6000, 0x5EF2E3E9},
-{39151585, 7600, 0x294D16AC}, {38748737, 7600, 0xBA261FA4},
-{38251583, 7600, 0xA64744BA}, {37748737, 7600, 0xCEA0A996},
-{37748735, 7600, 0x71246EC6}, {36748735, 7600, 0xDF0D4C96},
-{36251585, 7600, 0x6941330C}, {35651585, 7600, 0x9454919C},
-{35651583, 7600, 0xE953A8B3}, {35251583, 7600, 0x95E45098},
-{34230145, 8400, 0x0FF2D27E}, {33730143, 8400, 0xA815C3CD},
-{33030145, 8400, 0x2968002F}, {33030143, 8400, 0x4AFDF43B},
-{32595137, 8400, 0x979CF919}, {32095135, 8400, 0x7C0E8693},
-{31595137, 8400, 0x6FD95140}, {31195137, 8400, 0xAA6AD58C},
-{31195135, 8400, 0x65EE1BF7}, {30695135, 8400, 0x9D10BC3A},
-{29311553, 10000, 0xB8C54183}, {28811551, 10000, 0xC70F9D7E},
-{28311553, 10000, 0xEA018EED}, {28311551, 10000, 0x43E2096F},
-{27738689, 10000, 0x0EA59538}, {27238687, 10000, 0xC53169EE},
-{26738689, 10000, 0x9F98CF04}, {26738687, 10000, 0x733122D3},
-{26138689, 10000, 0xD88162ED}, {25638687, 10000, 0x6ADB6B49},
-{24903681, 12400, 0xEF9EC005}, {24903679, 12400, 0xAB56E004},
-{24092961, 12400, 0x3518F8DD}, {23892959, 12400, 0xE0AEFA13},
-{23592961, 12400, 0xD1EC53D7}, {23592959, 12400, 0xB006AE40},
-{22971521, 12400, 0xA8964CC4}, {21871519, 12400, 0x4DDF7551},
-{20971521, 12400, 0x8927FFB4}, {20971519, 12400, 0x7B3217C2},
-{19922945, 16000, 0x069C3DCD}, {19922943, 16000, 0xBED8A46E},
-{19374367, 16000, 0x11A21885}, {19174369, 16000, 0x2BB5AEAD},
-{18874369, 16000, 0xF47D9EC1}, {18874367, 16000, 0xC342E089},
-{18474367, 16000, 0x8AC5B7C8}, {18274367, 16000, 0x4DB0F691},
-{18274369, 16000, 0x9886B1C9}, {18074369, 16000, 0x241D5A65},
-{17432577, 18000, 0xE7FEF929}, {17432575, 18000, 0xE0673389},
-{17115073, 18000, 0xCA8909F8}, {16815071, 18000, 0x4C1D976F},
-{16515073, 18000, 0xE86FAE0C}, {16515071, 18000, 0x37F5DF1E},
-{16297569, 18000, 0x82A0AF96}, {15997567, 18000, 0x321905E4},
-{15597569, 18000, 0x2790951D}, {15597567, 18000, 0xFD88F93B},
-{14942209, 21000, 0xE9467E64}, {14942207, 21000, 0x781D4424},
-{14155777, 21000, 0xBA64B1E8}, {14155775, 21000, 0xF88B7AAE},
-{13969343, 21000, 0xD091E8C3}, {13669345, 21000, 0xE57FED05},
-{13369345, 21000, 0xCEEEA179}, {13369343, 21000, 0xBB87F46F},
-{13069345, 21000, 0x47222D3F}, {12969343, 21000, 0x477EEFE4},
-{12451841, 26000, 0x9A1DC942}, {12451839, 26000, 0x8FEFE60F},
-{12196481, 26000, 0x1AD3B450}, {11796481, 26000, 0x6A42C88D},
-{11796479, 26000, 0x1A3C83A4}, {11596479, 26000, 0x69D18B9B},
-{11285761, 26000, 0x6980EFB6}, {10885759, 26000, 0x223C49A6},
-{10485761, 26000, 0xBD0AFF34}, {10485759, 26000, 0xD4216A83},
-{9961473, 31000, 0x25DE6210}, {9961471, 31000, 0x2FE72634},
-{9837183, 31000, 0x44128AF8}, {9737185, 31000, 0x84C70161},
-{9537183, 31000, 0x017BE747}, {9437185, 31000, 0x3D38D6E4},
-{9437183, 31000, 0xCF2C58C4}, {9337185, 31000, 0x13BFB2D4},
-{9237183, 31000, 0xBBC6391C}, {9137185, 31000, 0x23AF0A31},
-{8716289, 36000, 0x10FB9FB7}, {8716287, 36000, 0xDF905C4F},
-{8516289, 36000, 0xCB8D21BD}, {8316287, 36000, 0xC61BC2BA},
-{8257537, 36000, 0x2F93BEA5}, {8257535, 36000, 0xA9B6681A},
-{8098785, 36000, 0x7CEFE90D}, {7998783, 36000, 0x32CA4DC8},
-{7798785, 36000, 0xB2669EFF}, {7798783, 36000, 0xF2D393AC},
-{7471105, 44000, 0x3D4F6CBB}, {7471103, 44000, 0x51F68987},
-{7377889, 44000, 0xD3F710E4}, {7277887, 44000, 0xAF76194F},
-{7077889, 44000, 0x815E3804}, {7077887, 44000, 0x2C55F47D},
-{6984673, 44000, 0xE530552B}, {6884671, 44000, 0x96085903},
-{6684673, 44000, 0x5143D5DB}, {6684671, 44000, 0xD153D55E},
-{6225921, 52000, 0xF11B3E86}, {6225919, 52000, 0x26AEF35D},
-{6198241, 52000, 0x55A1AD52}, {6098239, 52000, 0xEE20AC08},
-{5898241, 52000, 0x024AA620}, {5898239, 52000, 0x36EC9FDB},
-{5705025, 52000, 0x87610A79}, {5605023, 52000, 0xBA409794},
-{5505025, 52000, 0x0D4AD8BF}, {5505023, 52000, 0xAA82E4D6},
-{5120737, 68000, 0xF6376191}, {5030735, 68000, 0x6608D7A5},
-{4980737, 68000, 0xE0F7D92F}, {4980735, 68000, 0x8EFD0C10},
-{4888593, 68000, 0xF25A28E9}, {4818591, 68000, 0x5EF8173F},
-{4718593, 68000, 0x8A2349A7}, {4718591, 68000, 0xD6782279},
-{4698593, 68000, 0xE695F8C3}, {4648591, 68000, 0xEEAC3CB7},
-{4501145, 76000, 0x9EA735B3}, {4458143, 76000, 0x5D196BB0},
-{4358145, 76000, 0x69BA2CCC}, {4358143, 76000, 0x9C4DD97B},
-{4298769, 76000, 0xAA0A48AD}, {4228767, 76000, 0xD3AF13A3},
-{4128769, 76000, 0xCC2E5548}, {4128767, 76000, 0xB2F51617},
-{4028769, 76000, 0x6186CC09}, {3978767, 76000, 0x40CC887E},
-{3835553, 88000, 0xE3CA2ED9}, {3785551, 88000, 0x1BD285F6},
-{3735553, 88000, 0xAF0621FF}, {3735551, 88000, 0xBC97EF83},
-{3688945, 88000, 0xBE99894A}, {3618943, 88000, 0x9D3E55C1},
-{3538945, 88000, 0x9757CD7F}, {3538943, 88000, 0xB3AA0A96},
-{3342337, 88000, 0xE78AC3D0}, {3342335, 88000, 0x6127F902},
-{3242961, 110000, 0x0722ADC3}, {3172959, 110000, 0xA4F278FB},
-{3112961, 110000, 0x98E79B6B}, {3112959, 110000, 0x3EC57BE5},
-{2949121, 110000, 0x7E5BA333}, {2949119, 110000, 0xE6D8CF29},
-{2885281, 110000, 0x4F575F34}, {2785281, 110000, 0x73483675},
-{2785279, 110000, 0x95FDDD37}, {2685279, 110000, 0x018291EF},
-{2605473, 140000, 0xB0C85136}, {2584313, 140000, 0x90790AD6},
-{2573917, 140000, 0x303B334A}, {2540831, 140000, 0x031C1AA0},
-{2539613, 140000, 0x79A266C8}, {2495213, 140000, 0x18EE9970},
-{2408447, 140000, 0x7B7030D4}, {2388831, 140000, 0x3339B0E9},
-{2359297, 140000, 0x4B5D9EF4}, {2359295, 140000, 0xA8FD205D},
-{2244765, 160000, 0xE719BC36}, {2236671, 160000, 0x642AE29B},
-{2222517, 160000, 0x1E20BD07}, {2193011, 160000, 0x3C64988F},
-{2130357, 160000, 0xAA1D86BC}, {2122923, 160000, 0x42499686},
-{2100559, 160000, 0x31F3C1EB}, {2088461, 160000, 0xE48241A0},
-{2066543, 160000, 0x3BBBFBD6}, {2004817, 160000, 0x5F9B943D},
-{1933071, 180000, 0x09344960}, {1911957, 180000, 0x66F5EC79},
-{1899247, 180000, 0x6D8B1D9B}, {1877431, 180000, 0x325EB183},
-{1855067, 180000, 0xCB9EED7F}, {1833457, 180000, 0x0663527F},
-{1777773, 180000, 0xB78DA358}, {1755321, 180000, 0xDE573EE9},
-{1699779, 180000, 0x8745CD26}, {1677323, 180000, 0xE138A3E2},
-{1633941, 220000, 0x8D116786}, {1611557, 220000, 0x8CD83629},
-{1599549, 220000, 0xD950AEE1}, {1577771, 220000, 0xB592C606},
-{1555947, 220000, 0xD7C183D6}, {1533349, 220000, 0xBAE10734},
-{1477941, 220000, 0x903394EC}, {1455931, 220000, 0x22203D42},
-{1433069, 220000, 0x1CB8E61C}, {1411747, 220000, 0x6104BE9F},
-{1322851, 300000, 0x20B81597}, {1310721, 300000, 0xE89D646E},
-{1310719, 300000, 0x41AE4CA1}, {1300993, 300000, 0xD34E4497},
-{1288771, 300000, 0x128E16D1}, {1266711, 300000, 0x840497CE},
-{1244881, 300000, 0x8AFB3D24}, {1222991, 300000, 0xDAFAE5FB},
-{1200881, 300000, 0x5190783B}, {1188441, 300000, 0xF5FD938D},
-{1150221, 330000, 0x7311E3A0}, {1144221, 330000, 0x6A2EB001},
-{1122001, 330000, 0x25448CBB}, {1108511, 330000, 0x36C4124A},
-{1100881, 330000, 0x957930CB}, {1096837, 330000, 0x39C43852},
-{1088511, 330000, 0x79B0E4DB}, {1066837, 330000, 0x4FDDE395},
-{1044811, 330000, 0x70108FEE}, {1022991, 330000, 0xACCCA430},
-{983041, 400000, 0x205E1EF2}, {974849, 400000, 0x2E8CEF15},
-{942079, 400000, 0xCDF36D31}, {933889, 400000, 0x1A75EF3C},
-{917503, 400000, 0x91D50B39}, {901121, 400000, 0x5E87DF64},
-{884735, 400000, 0xE12C485D}, {860161, 400000, 0x524E6891},
-{854735, 400000, 0x8B9BF82E}, {851967, 400000, 0xAF790945},
-{827279, 480000, 0xE880E7E1}, {819199, 480000, 0x6A230C26},
-{802817, 480000, 0x62EA07D7}, {795473, 480000, 0x0FE31D56},
-{786431, 480000, 0xCF4CE6EF}, {778241, 480000, 0x8E467FCA},
-{753663, 480000, 0x85D18DAE}, {745473, 480000, 0x06C55332},
-{737279, 480000, 0xE19FE986}, {720897, 480000, 0xC83C96AA},
-{662593, 640000, 0x42DD71CD}, {659457, 640000, 0x1B973A76},
-{655359, 640000, 0x4B3D2077}, {644399, 640000, 0x0C222CE6},
-{638977, 640000, 0x3CB3F547}, {630783, 640000, 0x926291B7},
-{622593, 640000, 0x4BE31D76}, {614399, 640000, 0x87AD01DB},
-{612113, 640000, 0xE29B49BB}, {602113, 640000, 0xE61272B7},
-{580673, 720000, 0xC5E9DE8B}, {573441, 720000, 0xDC079BC0},
-{565247, 720000, 0xCF1CA37C}, {557057, 720000, 0x9EEF945E},
-{544767, 720000, 0xCC75A226}, {540673, 720000, 0x223549D1},
-{532479, 720000, 0x40759687}, {524289, 720000, 0xA30037F1},
-{522479, 720000, 0xAE25C4CA}, {516095, 720000, 0x2968525A},
-{501041, 840000, 0x5D010F00}, {496943, 840000, 0x264D9BA7},
-{487423, 840000, 0xE5FE5968}, {471041, 840000, 0x2A4CFB08},
-{466943, 840000, 0x7CD3183C}, {458753, 840000, 0x84645EE0},
-{450559, 840000, 0xE84CD133}, {442369, 840000, 0x930A5D84},
-{441041, 840000, 0x7F778EED}, {436943, 840000, 0x31400F2C},
-{420217, 1100000, 0x4D58EEF3}, {409601, 1100000, 0x4938363A},
-{401407, 1100000, 0x92B347B5}, {393217, 1100000, 0xF6D354E3},
-{392119, 1100000, 0x1D1D9D2E}, {389119, 1100000, 0x4DF62116},
-{376833, 1100000, 0x4F526504}, {372735, 1100000, 0x3A3B365A},
-{368641, 1100000, 0xBF818C14}, {360447, 1100000, 0xFAEF41BB},
-{339487, 1400000, 0x62266123}, {335393, 1400000, 0x9198809B},
-{331681, 1400000, 0x093642F5}, {329727, 1400000, 0xE092ED88},
-{327681, 1400000, 0xD127F6AF}, {319487, 1400000, 0x7EDD49B9},
-{315393, 1400000, 0x2AD1CBBB}, {311295, 1400000, 0xB501E32F},
-{308295, 1400000, 0x58F6B52C}, {307201, 1400000, 0x382936EE},
-{291913, 1500000, 0x34AC1486}, {286719, 1500000, 0x32151B08},
-{282625, 1500000, 0x98F655CC}, {280335, 1500000, 0x47FF5C70},
-{278527, 1500000, 0xF74DF4BE}, {274335, 1500000, 0x2322F4FA},
-{270335, 1500000, 0xC065C6F4}, {266241, 1500000, 0x120A64F0},
-{262143, 1500000, 0x7A473DE6}, {260335, 1500000, 0xB69E9EB9},
-{250519, 1800000, 0x763B1556}, {245759, 1800000, 0xFBB67721},
-{245281, 1800000, 0xF640633D}, {243713, 1800000, 0xCDC2C7AA},
-{235519, 1800000, 0xC4A7AD0F}, {233473, 1800000, 0x39EF35D2},
-{231183, 1800000, 0xB8792E3B}, {229375, 1800000, 0xE028677D},
-{225281, 1800000, 0xFC11CE76}, {221183, 1800000, 0xACCF7139},
-{212991, 2200000, 0x161FB56E}, {210415, 2200000, 0x7B60E81C},
-{208897, 2200000, 0x63514A8F}, {204799, 2200000, 0xB1925D4B},
-{200705, 2200000, 0x91E5EF6D}, {196607, 2200000, 0x0B2FA06D},
-{194561, 2200000, 0x004E1A6D}, {188415, 2200000, 0x7C10EA53},
-{186369, 2200000, 0xE723EC59}, {184319, 2200000, 0x1EC9F330},
-{172031, 3200000, 0xA8289A03}, {163839, 3200000, 0x9BCEAD72},
-{159745, 3200000, 0x4D30796D}, {157695, 3200000, 0x2719836B},
-{155649, 3200000, 0x7C4B1002}, {153599, 3200000, 0x10F2B05E},
-{147455, 3200000, 0x3BD06944}, {143361, 3200000, 0xA5C7C148},
-{141311, 3200000, 0x71A19953}, {138527, 4000000, 0xD2E65D57},
-{136241, 4000000, 0x99EE467C}, {135169, 4000000, 0x1115D06F},
-{134335, 4000000, 0x32AA5A36}, {132143, 4000000, 0x392D9060},
-{130335, 4000000, 0x689E07C6}, {130331, 4000000, 0xA791824A},
-{125759, 5000000, 0x68E60664}, {125281, 5000000, 0x99421692},
-{123713, 5000000, 0x883AC578}, {120519, 5000000, 0x6915D35E},
-{119375, 5000000, 0x5930769A}, {115519, 5000000, 0x4092717B},
-{115281, 5000000, 0x9C03F336}, {113473, 5000000, 0x15571C02},
-{111183, 5000000, 0xAE6E91FF}, {111181, 5000000, 0x0E250D4F},
-{108897, 6000000, 0xBEE96B52}, {104799, 6000000, 0xFF4FDA4D},
-{102991, 6000000, 0x272CB267}, {100705, 6000000, 0xC0D285CF},
-{100415, 6000000, 0x8FC75796}, {98415, 6000000, 0x55F0423B},
-{96607, 6000000, 0xF60BA9EB}, {96369, 6000000, 0x5015EFE2},
-{94561, 6000000, 0x27F5F9D8}, {94319, 6000000, 0x22FEEB22},
-{83839, 7000000, 0xF3816D12}, {82031, 7000000, 0xD102B9B5},
-{79745, 7000000, 0xDA483FC0}, {77695, 7000000, 0x62E51145},
-{77455, 7000000, 0x9AEBD3EA}, {75649, 7000000, 0x64961C9D},
-{73599, 7000000, 0x16415370}, {73361, 7000000, 0x87ED3BB9},
-{71311, 7000000, 0x8F9E1C81}, {68527, 7000000, 0x44F5B375},
-{66241, 8000000, 0x58E92942}, {65759, 8000000, 0x45F7CAD9},
-{65281, 8000000, 0x71D13735}, {65169, 8000000, 0x9291C45D},
-{64335, 8000000, 0x179EEB42}, {63713, 8000000, 0xC4D70CD3},
-{62143, 8000000, 0x4EADFEDC}, {60519, 9000000, 0x59187C4E},
-{60337, 8000000, 0x06B2F274}, {60335, 8000000, 0xF4A5C109},
-{59375, 9000000, 0xECACBD29}, {58897, 9000000, 0x2D49F445},
-{55519, 9000000, 0xCC57A689}, {55281, 9000000, 0x370811FF},
-{54799, 11000000, 0xDF09CED1}, {53473, 11000000, 0x7527A443},
-{52991, 11000000, 0x3F3E6D08}, {51183, 11000000, 0x63B7BC14},
-{51181, 11000000, 0xCF23C3FE}, {50705, 11000000, 0xD7755CCA},
-{50415, 11000000, 0xF13B5703}, {48415, 11000000, 0x18720A74},
-{46607, 11000000, 0xEFAD69EB}, {46369, 11000000, 0x36576FF2},
-{44561, 11000000, 0xBBFF519A}, {44319, 11000000, 0x67D8C7C8},
-{43839, 14000000, 0xAB4287EC}, {42031, 14000000, 0x07E5F336},
-{39745, 14000000, 0xB1F4CDA4}, {37695, 14000000, 0x5E68A976},
-{37455, 14000000, 0x160940DF}, {35649, 14000000, 0x82C7BF50},
-{35169, 14000000, 0xA9AA21D4}, {34527, 14000000, 0x746D4F98},
-{33599, 14000000, 0xEEC3F4A4}, {33361, 14000000, 0x8060C92F},
-{33241, 16000000, 0x6B01C7DF}, {32759, 16000000, 0x114A953B},
-{32335, 16000000, 0x3E6C186B}, {32281, 16000000, 0x19CCFAF9},
-{31713, 16000000, 0x8AFEC931}, {31311, 16000000, 0x7BF36CD8},
-{31143, 16000000, 0x311C5B29}, {30519, 16000000, 0xD6403088},
-{30335, 16000000, 0xCC66B636}, {30331, 16000000, 0x06615CC4},
-{29897, 18000000, 0x376F4617}, {29375, 18000000, 0x2F7EEC43},
-{27799, 18000000, 0xB887EB2B}, {27519, 18000000, 0x3E2FC829},
-{27281, 18000000, 0x61D01456}, {26991, 18000000, 0x5500B456},
-{26473, 22000000, 0x18B413C8}, {25705, 22000000, 0xE3A124A8},
-{25415, 22000000, 0x5BAB711C}, {25183, 22000000, 0x4D02C76D},
-{25181, 22000000, 0x54240561}, {24415, 22000000, 0x76E207FC},
-{23607, 22000000, 0xE0ED69CD}, {23369, 22000000, 0x7B6B1955},
-{22561, 22000000, 0xF68FF31A}, {22319, 22000000, 0x65736E87},
-{21839, 28000000, 0x04ECD2F5}, {21031, 28000000, 0xBD7BB022},
-{19745, 28000000, 0xC0E93F7C}, {18695, 28000000, 0x0E424A5F},
-{18455, 28000000, 0xC0C87A73}, {17649, 28000000, 0xECB5F4E2},
-{16599, 28000000, 0x2614F881}, {16361, 28000000, 0x9575CC6F},
-{15311, 28000000, 0xDB715E07}, {15169, 28000000, 0xB7945996}
+{900000001, 100, 0xCF8ADC6F}, {800000001, 100, 0x5171F784}, {700000001, 200, 0x52DE4DB3}, {600000001, 200, 0x1E01473F},
+{560000001, 400, 0x5D2075F2}, {420000001, 600, 0x76973D8D}, {280000001, 800, 0xA4B0C213}, {210000001, 1200, 0x9B0FEEA5},
+{140000001, 1600, 0xEC8F25E6}, {110000001, 2000, 0xD7EE8401}, {77497473, 3600, 0xEE1F9603}, {76497471, 3600, 0xABE435B0},
+{75497473, 3600, 0x36285106}, {75497471, 3600, 0xE8CC66CA}, {74497473, 3600, 0x24B8A2BF}, {73497471, 3600, 0xC12E28E9},
+{72303169, 3600, 0x51A924BC}, {71303169, 3600, 0x8FB537CB}, {71303167, 3600, 0xB71873A1}, {70303167, 3600, 0x92EFC50B},
+{68060289, 4000, 0xA2629086}, {67060287, 4000, 0x23347B16}, {66060289, 4000, 0xDA787057}, {66060287, 4000, 0x0810958A},
+{65390273, 4000, 0xAD06FF26}, {64390271, 4000, 0xE3A7F5DB}, {63390273, 4000, 0x874392AC}, {62390273, 4000, 0xB4718A58},
+{62390271, 4000, 0x80C10B5F}, {61390271, 4000, 0xCAD8F47A}, {57623105, 4800, 0x1C2BA27E}, {56623105, 4800, 0xBA735E8B},
+{56623103, 4800, 0x13519FDB}, {55623103, 4800, 0xE787C20E}, {53477377, 4800, 0xB35788F2}, {53477375, 4800, 0x03E36F38},
+{52331647, 4800, 0xDC9F1FA1}, {51331649, 4800, 0x82533823}, {50331649, 4800, 0x97F22401}, {50331647, 4800, 0x5A2FDCC0},
+{48185921, 6000, 0x966A35F6}, {47185921, 6000, 0xD8378EF6}, {47185919, 6000, 0xD04DD7C3}, {46185919, 6000, 0x3BA8288B},
+{45943041, 6000, 0xFF87BC35}, {44943039, 6000, 0x726253F8}, {43943041, 6000, 0x8E343AC4}, {42943039, 6000, 0xADF105FF},
+{41943041, 6000, 0xE0C8040C}, {41943039, 6000, 0x5EF2E3E9}, {39151585, 7600, 0x294D16AC}, {38748737, 7600, 0xBA261FA4},
+{38251583, 7600, 0xA64744BA}, {37748737, 7600, 0xCEA0A996}, {37748735, 7600, 0x71246EC6}, {36748735, 7600, 0xDF0D4C96},
+{36251585, 7600, 0x6941330C}, {35651585, 7600, 0x9454919C}, {35651583, 7600, 0xE953A8B3}, {35251583, 7600, 0x95E45098},
+{34230145, 8400, 0x0FF2D27E}, {33730143, 8400, 0xA815C3CD}, {33030145, 8400, 0x2968002F}, {33030143, 8400, 0x4AFDF43B},
+{32595137, 8400, 0x979CF919}, {32095135, 8400, 0x7C0E8693}, {31595137, 8400, 0x6FD95140}, {31195137, 8400, 0xAA6AD58C},
+{31195135, 8400, 0x65EE1BF7}, {30695135, 8400, 0x9D10BC3A}, {29311553, 10000, 0xB8C54183}, {28811551, 10000, 0xC70F9D7E},
+{28311553, 10000, 0xEA018EED}, {28311551, 10000, 0x43E2096F}, {27738689, 10000, 0x0EA59538}, {27238687, 10000, 0xC53169EE},
+{26738689, 10000, 0x9F98CF04}, {26738687, 10000, 0x733122D3}, {26138689, 10000, 0xD88162ED}, {25638687, 10000, 0x6ADB6B49},
+{24903681, 12400, 0xEF9EC005}, {24903679, 12400, 0xAB56E004}, {24092961, 12400, 0x3518F8DD}, {23892959, 12400, 0xE0AEFA13},
+{23592961, 12400, 0xD1EC53D7}, {23592959, 12400, 0xB006AE40}, {22971521, 12400, 0xA8964CC4}, {21871519, 12400, 0x4DDF7551},
+{20971521, 12400, 0x8927FFB4}, {20971519, 12400, 0x7B3217C2}, {19922945, 16000, 0x069C3DCD}, {19922943, 16000, 0xBED8A46E},
+{19374367, 16000, 0x11A21885}, {19174369, 16000, 0x2BB5AEAD}, {18874369, 16000, 0xF47D9EC1}, {18874367, 16000, 0xC342E089},
+{18474367, 16000, 0x8AC5B7C8}, {18274367, 16000, 0x4DB0F691}, {18274369, 16000, 0x9886B1C9}, {18074369, 16000, 0x241D5A65},
+{17432577, 18000, 0xE7FEF929}, {17432575, 18000, 0xE0673389}, {17115073, 18000, 0xCA8909F8}, {16815071, 18000, 0x4C1D976F},
+{16515073, 18000, 0xE86FAE0C}, {16515071, 18000, 0x37F5DF1E}, {16297569, 18000, 0x82A0AF96}, {15997567, 18000, 0x321905E4},
+{15597569, 18000, 0x2790951D}, {15597567, 18000, 0xFD88F93B}, {14942209, 21000, 0xE9467E64}, {14942207, 21000, 0x781D4424},
+{14155777, 21000, 0xBA64B1E8}, {14155775, 21000, 0xF88B7AAE}, {13969343, 21000, 0xD091E8C3}, {13669345, 21000, 0xE57FED05},
+{13369345, 21000, 0xCEEEA179}, {13369343, 21000, 0xBB87F46F}, {13069345, 21000, 0x47222D3F}, {12969343, 21000, 0x477EEFE4},
+{12451841, 26000, 0x9A1DC942}, {12451839, 26000, 0x8FEFE60F}, {12196481, 26000, 0x1AD3B450}, {11796481, 26000, 0x6A42C88D},
+{11796479, 26000, 0x1A3C83A4}, {11596479, 26000, 0x69D18B9B}, {11285761, 26000, 0x6980EFB6}, {10885759, 26000, 0x223C49A6},
+{10485761, 26000, 0xBD0AFF34}, {10485759, 26000, 0xD4216A83}, {9961473, 31000, 0x25DE6210}, {9961471, 31000, 0x2FE72634},
+{9837183, 31000, 0x44128AF8}, {9737185, 31000, 0x84C70161}, {9537183, 31000, 0x017BE747}, {9437185, 31000, 0x3D38D6E4},
+{9437183, 31000, 0xCF2C58C4}, {9337185, 31000, 0x13BFB2D4}, {9237183, 31000, 0xBBC6391C}, {9137185, 31000, 0x23AF0A31},
+{8716289, 36000, 0x10FB9FB7}, {8716287, 36000, 0xDF905C4F}, {8516289, 36000, 0xCB8D21BD}, {8316287, 36000, 0xC61BC2BA},
+{8257537, 36000, 0x2F93BEA5}, {8257535, 36000, 0xA9B6681A}, {8098785, 36000, 0x7CEFE90D}, {7998783, 36000, 0x32CA4DC8},
+{7798785, 36000, 0xB2669EFF}, {7798783, 36000, 0xF2D393AC}, {7471105, 44000, 0x3D4F6CBB}, {7471103, 44000, 0x51F68987},
+{7377889, 44000, 0xD3F710E4}, {7277887, 44000, 0xAF76194F}, {7077889, 44000, 0x815E3804}, {7077887, 44000, 0x2C55F47D},
+{6984673, 44000, 0xE530552B}, {6884671, 44000, 0x96085903}, {6684673, 44000, 0x5143D5DB}, {6684671, 44000, 0xD153D55E},
+{6225921, 52000, 0xF11B3E86}, {6225919, 52000, 0x26AEF35D}, {6198241, 52000, 0x55A1AD52}, {6098239, 52000, 0xEE20AC08},
+{5898241, 52000, 0x024AA620}, {5898239, 52000, 0x36EC9FDB}, {5705025, 52000, 0x87610A79}, {5605023, 52000, 0xBA409794},
+{5505025, 52000, 0x0D4AD8BF}, {5505023, 52000, 0xAA82E4D6}, {5120737, 68000, 0xF6376191}, {5030735, 68000, 0x6608D7A5},
+{4980737, 68000, 0xE0F7D92F}, {4980735, 68000, 0x8EFD0C10}, {4888593, 68000, 0xF25A28E9}, {4818591, 68000, 0x5EF8173F},
+{4718593, 68000, 0x8A2349A7}, {4718591, 68000, 0xD6782279}, {4698593, 68000, 0xE695F8C3}, {4648591, 68000, 0xEEAC3CB7},
+{4501145, 76000, 0x9EA735B3}, {4458143, 76000, 0x5D196BB0}, {4358145, 76000, 0x69BA2CCC}, {4358143, 76000, 0x9C4DD97B},
+{4298769, 76000, 0xAA0A48AD}, {4228767, 76000, 0xD3AF13A3}, {4128769, 76000, 0xCC2E5548}, {4128767, 76000, 0xB2F51617},
+{4028769, 76000, 0x6186CC09}, {3978767, 76000, 0x40CC887E}, {3835553, 88000, 0xE3CA2ED9}, {3785551, 88000, 0x1BD285F6},
+{3735553, 88000, 0xAF0621FF}, {3735551, 88000, 0xBC97EF83}, {3688945, 88000, 0xBE99894A}, {3618943, 88000, 0x9D3E55C1},
+{3538945, 88000, 0x9757CD7F}, {3538943, 88000, 0xB3AA0A96}, {3342337, 88000, 0xE78AC3D0}, {3342335, 88000, 0x6127F902},
+{3242961, 110000, 0x0722ADC3}, {3172959, 110000, 0xA4F278FB}, {3112961, 110000, 0x98E79B6B}, {3112959, 110000, 0x3EC57BE5},
+{2949121, 110000, 0x7E5BA333}, {2949119, 110000, 0xE6D8CF29}, {2885281, 110000, 0x4F575F34}, {2785281, 110000, 0x73483675},
+{2785279, 110000, 0x95FDDD37}, {2685279, 110000, 0x018291EF}, {2605473, 140000, 0xB0C85136}, {2584313, 140000, 0x90790AD6},
+{2573917, 140000, 0x303B334A}, {2540831, 140000, 0x031C1AA0}, {2539613, 140000, 0x79A266C8}, {2495213, 140000, 0x18EE9970},
+{2408447, 140000, 0x7B7030D4}, {2388831, 140000, 0x3339B0E9}, {2359297, 140000, 0x4B5D9EF4}, {2359295, 140000, 0xA8FD205D},
+{2244765, 160000, 0xE719BC36}, {2236671, 160000, 0x642AE29B}, {2222517, 160000, 0x1E20BD07}, {2193011, 160000, 0x3C64988F},
+{2130357, 160000, 0xAA1D86BC}, {2122923, 160000, 0x42499686}, {2100559, 160000, 0x31F3C1EB}, {2088461, 160000, 0xE48241A0},
+{2066543, 160000, 0x3BBBFBD6}, {2004817, 160000, 0x5F9B943D}, {1933071, 180000, 0x09344960}, {1911957, 180000, 0x66F5EC79},
+{1899247, 180000, 0x6D8B1D9B}, {1877431, 180000, 0x325EB183}, {1855067, 180000, 0xCB9EED7F}, {1833457, 180000, 0x0663527F},
+{1777773, 180000, 0xB78DA358}, {1755321, 180000, 0xDE573EE9}, {1699779, 180000, 0x8745CD26}, {1677323, 180000, 0xE138A3E2},
+{1633941, 220000, 0x8D116786}, {1611557, 220000, 0x8CD83629}, {1599549, 220000, 0xD950AEE1}, {1577771, 220000, 0xB592C606},
+{1555947, 220000, 0xD7C183D6}, {1533349, 220000, 0xBAE10734}, {1477941, 220000, 0x903394EC}, {1455931, 220000, 0x22203D42},
+{1433069, 220000, 0x1CB8E61C}, {1411747, 220000, 0x6104BE9F}, {1322851, 300000, 0x20B81597}, {1310721, 300000, 0xE89D646E},
+{1310719, 300000, 0x41AE4CA1}, {1300993, 300000, 0xD34E4497}, {1288771, 300000, 0x128E16D1}, {1266711, 300000, 0x840497CE},
+{1244881, 300000, 0x8AFB3D24}, {1222991, 300000, 0xDAFAE5FB}, {1200881, 300000, 0x5190783B}, {1188441, 300000, 0xF5FD938D},
+{1150221, 330000, 0x7311E3A0}, {1144221, 330000, 0x6A2EB001}, {1122001, 330000, 0x25448CBB}, {1108511, 330000, 0x36C4124A},
+{1100881, 330000, 0x957930CB}, {1096837, 330000, 0x39C43852}, {1088511, 330000, 0x79B0E4DB}, {1066837, 330000, 0x4FDDE395},
+{1044811, 330000, 0x70108FEE}, {1022991, 330000, 0xACCCA430}, {983041, 400000, 0x205E1EF2}, {974849, 400000, 0x2E8CEF15},
+{942079, 400000, 0xCDF36D31}, {933889, 400000, 0x1A75EF3C}, {917503, 400000, 0x91D50B39}, {901121, 400000, 0x5E87DF64},
+{884735, 400000, 0xE12C485D}, {860161, 400000, 0x524E6891}, {854735, 400000, 0x8B9BF82E}, {851967, 400000, 0xAF790945},
+{827279, 480000, 0xE880E7E1}, {819199, 480000, 0x6A230C26}, {802817, 480000, 0x62EA07D7}, {795473, 480000, 0x0FE31D56},
+{786431, 480000, 0xCF4CE6EF}, {778241, 480000, 0x8E467FCA}, {753663, 480000, 0x85D18DAE}, {745473, 480000, 0x06C55332},
+{737279, 480000, 0xE19FE986}, {720897, 480000, 0xC83C96AA}, {662593, 640000, 0x42DD71CD}, {659457, 640000, 0x1B973A76},
+{655359, 640000, 0x4B3D2077}, {644399, 640000, 0x0C222CE6}, {638977, 640000, 0x3CB3F547}, {630783, 640000, 0x926291B7},
+{622593, 640000, 0x4BE31D76}, {614399, 640000, 0x87AD01DB}, {612113, 640000, 0xE29B49BB}, {602113, 640000, 0xE61272B7},
+{580673, 720000, 0xC5E9DE8B}, {573441, 720000, 0xDC079BC0}, {565247, 720000, 0xCF1CA37C}, {557057, 720000, 0x9EEF945E},
+{544767, 720000, 0xCC75A226}, {540673, 720000, 0x223549D1}, {532479, 720000, 0x40759687}, {524289, 720000, 0xA30037F1},
+{522479, 720000, 0xAE25C4CA}, {516095, 720000, 0x2968525A}, {501041, 840000, 0x5D010F00}, {496943, 840000, 0x264D9BA7},
+{487423, 840000, 0xE5FE5968}, {471041, 840000, 0x2A4CFB08}, {466943, 840000, 0x7CD3183C}, {458753, 840000, 0x84645EE0},
+{450559, 840000, 0xE84CD133}, {442369, 840000, 0x930A5D84}, {441041, 840000, 0x7F778EED}, {436943, 840000, 0x31400F2C},
+{420217, 1100000, 0x4D58EEF3}, {409601, 1100000, 0x4938363A}, {401407, 1100000, 0x92B347B5}, {393217, 1100000, 0xF6D354E3},
+{392119, 1100000, 0x1D1D9D2E}, {389119, 1100000, 0x4DF62116}, {376833, 1100000, 0x4F526504}, {372735, 1100000, 0x3A3B365A},
+{368641, 1100000, 0xBF818C14}, {360447, 1100000, 0xFAEF41BB}, {339487, 1400000, 0x62266123}, {335393, 1400000, 0x9198809B},
+{331681, 1400000, 0x093642F5}, {329727, 1400000, 0xE092ED88}, {327681, 1400000, 0xD127F6AF}, {319487, 1400000, 0x7EDD49B9},
+{315393, 1400000, 0x2AD1CBBB}, {311295, 1400000, 0xB501E32F}, {308295, 1400000, 0x58F6B52C}, {307201, 1400000, 0x382936EE},
+{291913, 1500000, 0x34AC1486}, {286719, 1500000, 0x32151B08}, {282625, 1500000, 0x98F655CC}, {280335, 1500000, 0x47FF5C70},
+{278527, 1500000, 0xF74DF4BE}, {274335, 1500000, 0x2322F4FA}, {270335, 1500000, 0xC065C6F4}, {266241, 1500000, 0x120A64F0},
+{262143, 1500000, 0x7A473DE6}, {260335, 1500000, 0xB69E9EB9}, {250519, 1800000, 0x763B1556}, {245759, 1800000, 0xFBB67721},
+{245281, 1800000, 0xF640633D}, {243713, 1800000, 0xCDC2C7AA}, {235519, 1800000, 0xC4A7AD0F}, {233473, 1800000, 0x39EF35D2},
+{231183, 1800000, 0xB8792E3B}, {229375, 1800000, 0xE028677D}, {225281, 1800000, 0xFC11CE76}, {221183, 1800000, 0xACCF7139},
+{212991, 2200000, 0x161FB56E}, {210415, 2200000, 0x7B60E81C}, {208897, 2200000, 0x63514A8F}, {204799, 2200000, 0xB1925D4B},
+{200705, 2200000, 0x91E5EF6D}, {196607, 2200000, 0x0B2FA06D}, {194561, 2200000, 0x004E1A6D}, {188415, 2200000, 0x7C10EA53},
+{186369, 2200000, 0xE723EC59}, {184319, 2200000, 0x1EC9F330}, {172031, 3200000, 0xA8289A03}, {163839, 3200000, 0x9BCEAD72},
+{159745, 3200000, 0x4D30796D}, {157695, 3200000, 0x2719836B}, {155649, 3200000, 0x7C4B1002}, {153599, 3200000, 0x10F2B05E},
+{147455, 3200000, 0x3BD06944}, {143361, 3200000, 0xA5C7C148}, {141311, 3200000, 0x71A19953}, {138527, 4000000, 0xD2E65D57},
+{136241, 4000000, 0x99EE467C}, {135169, 4000000, 0x1115D06F}, {134335, 4000000, 0x32AA5A36}, {132143, 4000000, 0x392D9060},
+{130335, 4000000, 0x689E07C6}, {130331, 4000000, 0xA791824A}, {125759, 5000000, 0x68E60664}, {125281, 5000000, 0x99421692},
+{123713, 5000000, 0x883AC578}, {120519, 5000000, 0x6915D35E}, {119375, 5000000, 0x5930769A}, {115519, 5000000, 0x4092717B},
+{115281, 5000000, 0x9C03F336}, {113473, 5000000, 0x15571C02}, {111183, 5000000, 0xAE6E91FF}, {111181, 5000000, 0x0E250D4F},
+{108897, 6000000, 0xBEE96B52}, {104799, 6000000, 0xFF4FDA4D}, {102991, 6000000, 0x272CB267}, {100705, 6000000, 0xC0D285CF},
+{100415, 6000000, 0x8FC75796}, {98415, 6000000, 0x55F0423B}, {96607, 6000000, 0xF60BA9EB}, {96369, 6000000, 0x5015EFE2},
+{94561, 6000000, 0x27F5F9D8}, {94319, 6000000, 0x22FEEB22}, {83839, 7000000, 0xF3816D12}, {82031, 7000000, 0xD102B9B5},
+{79745, 7000000, 0xDA483FC0}, {77695, 7000000, 0x62E51145}, {77455, 7000000, 0x9AEBD3EA}, {75649, 7000000, 0x64961C9D},
+{73599, 7000000, 0x16415370}, {73361, 7000000, 0x87ED3BB9}, {71311, 7000000, 0x8F9E1C81}, {68527, 7000000, 0x44F5B375},
+{66241, 8000000, 0x58E92942}, {65759, 8000000, 0x45F7CAD9}, {65281, 8000000, 0x71D13735}, {65169, 8000000, 0x9291C45D},
+{64335, 8000000, 0x179EEB42}, {63713, 8000000, 0xC4D70CD3}, {62143, 8000000, 0x4EADFEDC}, {60519, 9000000, 0x59187C4E},
+{60337, 8000000, 0x06B2F274}, {60335, 8000000, 0xF4A5C109}, {59375, 9000000, 0xECACBD29}, {58897, 9000000, 0x2D49F445},
+{55519, 9000000, 0xCC57A689}, {55281, 9000000, 0x370811FF}, {54799, 11000000, 0xDF09CED1}, {53473, 11000000, 0x7527A443},
+{52991, 11000000, 0x3F3E6D08}, {51183, 11000000, 0x63B7BC14}, {51181, 11000000, 0xCF23C3FE}, {50705, 11000000, 0xD7755CCA},
+{50415, 11000000, 0xF13B5703}, {48415, 11000000, 0x18720A74}, {46607, 11000000, 0xEFAD69EB}, {46369, 11000000, 0x36576FF2},
+{44561, 11000000, 0xBBFF519A}, {44319, 11000000, 0x67D8C7C8}, {43839, 14000000, 0xAB4287EC}, {42031, 14000000, 0x07E5F336},
+{39745, 14000000, 0xB1F4CDA4}, {37695, 14000000, 0x5E68A976}, {37455, 14000000, 0x160940DF}, {35649, 14000000, 0x82C7BF50},
+{35169, 14000000, 0xA9AA21D4}, {34527, 14000000, 0x746D4F98}, {33599, 14000000, 0xEEC3F4A4}, {33361, 14000000, 0x8060C92F},
+{33241, 16000000, 0x6B01C7DF}, {32759, 16000000, 0x114A953B}, {32335, 16000000, 0x3E6C186B}, {32281, 16000000, 0x19CCFAF9},
+{31713, 16000000, 0x8AFEC931}, {31311, 16000000, 0x7BF36CD8}, {31143, 16000000, 0x311C5B29}, {30519, 16000000, 0xD6403088},
+{30335, 16000000, 0xCC66B636}, {30331, 16000000, 0x06615CC4}, {29897, 18000000, 0x376F4617}, {29375, 18000000, 0x2F7EEC43},
+{27799, 18000000, 0xB887EB2B}, {27519, 18000000, 0x3E2FC829}, {27281, 18000000, 0x61D01456}, {26991, 18000000, 0x5500B456},
+{26473, 22000000, 0x18B413C8}, {25705, 22000000, 0xE3A124A8}, {25415, 22000000, 0x5BAB711C}, {25183, 22000000, 0x4D02C76D},
+{25181, 22000000, 0x54240561}, {24415, 22000000, 0x76E207FC}, {23607, 22000000, 0xE0ED69CD}, {23369, 22000000, 0x7B6B1955},
+{22561, 22000000, 0xF68FF31A}, {22319, 22000000, 0x65736E87}, {21839, 28000000, 0x04ECD2F5}, {21031, 28000000, 0xBD7BB022},
+{19745, 28000000, 0xC0E93F7C}, {18695, 28000000, 0x0E424A5F}, {18455, 28000000, 0xC0C87A73}, {17649, 28000000, 0xECB5F4E2},
+{16599, 28000000, 0x2614F881}, {16361, 28000000, 0x9575CC6F}, {15311, 28000000, 0xDB715E07}, {15169, 28000000, 0xB7945996}
 };
 
 int selfTestInternal (
 	int	thread_num,
 	struct PriorityInfo *sp_info,
 	unsigned long fftlen,
+	int	is_small,	/* TRUE if FFT data will fit in L2/L3/L4 caches */
 	unsigned int test_time,	/* Number of minutes to self-test */
 	int	*torture_index,	/* Index into self test data array */
 	unsigned int memory,	/* MB of memory the torture test can use */
 	void	*bigbuf,	/* Memory block for the torture test */
 	const struct self_test_info *test_data, /* Self test data */
 	unsigned int test_data_count,
+	int	disabled_cpu_flags, /* Which CPU instructions we should not use */	      
 	int	*completed,	/* Returned count of tests completed */
 	int	*errors,	/* Returned count of self test errors */
 	int	*warnings)	/* Returned count of self test warnings */
 {
 	llhandle lldata;
-	unsigned long k, limit, num_threads;
+	unsigned long k, limit;
 	unsigned int i, iter;
-	char	buf[120];
+	char	buf[256];
 //	char	iniName[32];
 	time_t	start_time, current_time;
-	int	stop_reason;
+	int	num_threads_per_test, alternate_in_place, in_place, stop_reason;
 
 /* Set the title */
 
 	title (thread_num, "Self-Test");
 
-/* Decide how many threads the torture test can use.  This should only */
-/* really be needed for QA purposes as the user can probably create more */
-/* more stress by running one torture test window for each CPU core. */
+/* Decide how many threads the torture test can use (an undoc.txt feature).  This should only be needed for QA purposes */
+/* as the user can probably create more stress by running one torture test window for each CPU logical or physical core. */
+/* Get flag indicating if we should alternate use-lots-of-mem with run-in-place. */
 
-	num_threads = IniGetInt (INI_FILE, "TortureTestThreads", 1);
+	num_threads_per_test = IniGetInt (INI_FILE, "TortureThreadsPerTest", 1);
+	alternate_in_place = IniGetInt (INI_FILE, "TortureAlternateInPlace", 1);
 
 /* Determine the range from which we'll choose an exponent to test. */
 
-	limit = gwmap_fftlen_to_max_exponent (fftlen);
+	limit = gwmap_with_cpu_flags_fftlen_to_max_exponent (CPU_FLAGS & ~disabled_cpu_flags, fftlen);
 
 /* Get the current time */
 
@@ -7893,7 +7666,7 @@ int selfTestInternal (
 /* time runs out */
 
 	for (iter = 1; ; iter++) {
-		char	fft_desc[100];
+		char	fft_desc[200];
 		unsigned long p, reshi, reslo;
 		unsigned int ll_iters, num_gwnums;
 		gwnum	*gwarray, g;
@@ -7930,33 +7703,35 @@ int selfTestInternal (
 /* For a better variety of tests, enable SUM(INPUTS) != SUM(OUTPUTS) checking half the time. */
 
 		gwinit (&lldata.gwdata);
+		lldata.gwdata.cpu_flags &= ~disabled_cpu_flags;
 		gwclear_use_benchmarks (&lldata.gwdata);
 		gwset_sum_inputs_checking (&lldata.gwdata, iter & 1);
-		gwset_num_threads (&lldata.gwdata, num_threads);
+		gwset_num_threads (&lldata.gwdata, num_threads_per_test);
 		gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
-		gwset_thread_callback_data (&lldata.gwdata, &sp_info);
+		gwset_thread_callback_data (&lldata.gwdata, sp_info);
 		lldata.gwdata.GW_BIGBUF = (char *) bigbuf;
 		lldata.gwdata.GW_BIGBUF_SIZE = (bigbuf != NULL) ? (size_t) memory * (size_t) 1048576 : 0;
 		stop_reason = lucasSetup (thread_num, p, fftlen, &lldata);
 		if (stop_reason) return (stop_reason);
 		lldata.gwdata.MAXDIFF *= 2.0;
 
-/* Output start message */
-
-		ll_iters = test_data[i].iters;
-		gwfft_description (&lldata.gwdata, fft_desc);
-		sprintf (buf, SELF1, iter, ll_iters, p, fft_desc);
-		OutputStr (thread_num, buf);
-
 /* Determine how many gwnums we can allocate in the memory we are given */
 
-		if (memory <= 8 || (iter & 1) == 0)
+		ll_iters = test_data[i].iters;
+		in_place = (is_small || memory <= 8 || (alternate_in_place && (iter & 1) == 0));
+		if (in_place)
 			num_gwnums = 1;
 		else {
 			num_gwnums = cvt_mem_to_gwnums (&lldata.gwdata, memory);
 			if (num_gwnums < 1) num_gwnums = 1;
 			if (num_gwnums > ll_iters) num_gwnums = ll_iters;
 		}
+
+/* Output start message */
+
+		gwfft_description (&lldata.gwdata, fft_desc);
+		sprintf (buf, SELF1, iter, ll_iters, in_place ? "in-place " : "", p, fft_desc);
+		OutputStr (thread_num, buf);
 
 /* Allocate gwnums to eat up the available memory */
 
@@ -7982,28 +7757,26 @@ restart_test:	dbltogw (&lldata.gwdata, 4.0, lldata.lldata);
 /* Do Lucas-Lehmer iterations */
 
 		for (k = 0; k < ll_iters; k++) {
+			gwnum	prev;
 
-/* Copy previous squared value (so we plow through memory) */
+/* "Copy" previous squared value (so we plow through memory) */
 
-			if (k && num_gwnums > 1) {
-				gwnum	prev;
-				prev = g;
-				g = gwarray[k % num_gwnums];
-				gwcopy (&lldata.gwdata, prev, g);
-			}
+			prev = g;
+			if (num_gwnums > 1) g = gwarray[k % num_gwnums];
 
 /* One Lucas-Lehmer test with error checking */
 
 			gwsetnormroutine (&lldata.gwdata, 0, 1, 0);
 			gwstartnextfft (&lldata.gwdata, k != ll_iters - 1);
-			lucas_fixup (&lldata, p);
-			gwsquare (&lldata.gwdata, g);
+			gwsetaddin (&lldata.gwdata, -2);
+			gwsquare2 (&lldata.gwdata, prev, g);
 
 /* If the sum of the output values is an error (such as infinity) */
 /* then raise an error. */
 
 			if (gw_test_illegal_sumout (&lldata.gwdata)) {
 				OutputBoth (thread_num, SELFFAIL1);
+				flashWindowAndBeep ();
 				(*warnings)++;
 				if (*warnings < 100) {
 					OutputBoth (thread_num, SELFFAIL4);
@@ -8016,15 +7789,13 @@ restart_test:	dbltogw (&lldata.gwdata, 4.0, lldata.lldata);
 				}
 			}
 
-/* Check that the sum of the input numbers squared is approximately */
-/* equal to the sum of unfft results. */
+/* Check that the sum of the input numbers squared is approximately equal to the sum of unfft results. */
 
 			if (gw_test_mismatched_sums (&lldata.gwdata)) {
-				sprintf (buf, SELFFAIL2,
-					 gwsumout (&lldata.gwdata, g),
-					 gwsuminp (&lldata.gwdata, g));
+				sprintf (buf, SELFFAIL2, gwsumout (&lldata.gwdata, g), gwsuminp (&lldata.gwdata, g));
 				OutputBoth (thread_num, buf);
 				OutputBoth (thread_num, SELFFAIL5);
+				flashWindowAndBeep ();
 				(*errors)++;
 				lucasDone (&lldata);
 				free (gwarray);
@@ -8037,6 +7808,7 @@ restart_test:	dbltogw (&lldata.gwdata, 4.0, lldata.lldata);
 				sprintf (buf, SELFFAIL3, gw_get_maxerr (&lldata.gwdata));
 				OutputBoth (thread_num, buf);
 				OutputBoth (thread_num, SELFFAIL5);
+				flashWindowAndBeep ();
 				(*errors)++;
 				lucasDone (&lldata);
 				free (gwarray);
@@ -8053,20 +7825,20 @@ restart_test:	dbltogw (&lldata.gwdata, 4.0, lldata.lldata);
 			}
 		}
 
-/* Copy the final result back to lldata.  If more than one gwnum was used */
-/* then free the extra gwnums so that generateResidue64 has some memory */
-/* to work with. */
+/* If more than one gwnum was used then free the extra gwnums so that generateResidue64 has plenty of memory to work with. */
 
-		if (g != lldata.lldata)
-			gwcopy (&lldata.gwdata, g, lldata.lldata);
 		for (k = 1; k < num_gwnums; k++) {
-			if (gwarray[k] != lldata.lldata)
-				gwfree (&lldata.gwdata, gwarray[k]);
+			if (gwarray[k] != g) gwfree (&lldata.gwdata, gwarray[k]);
 		}
+
+/* Generate the final residue */
+
+		gwswap (g, lldata.lldata);
+		generateResidue64 (&lldata, p, &reshi, &reslo);
+		gwswap (g, lldata.lldata);
 
 /* Compare final 32 bits with the pre-computed array of correct residues */
 
-		generateResidue64 (&lldata, p, &reshi, &reslo);
 		lucasDone (&lldata);
 		free (gwarray);
 		(*completed)++;
@@ -8074,6 +7846,7 @@ restart_test:	dbltogw (&lldata.gwdata, 4.0, lldata.lldata);
 			sprintf (buf, SELFFAIL, reshi, test_data[i].reshi);
 			OutputBoth (thread_num, buf);
 			OutputBoth (thread_num, SELFFAIL5);
+			flashWindowAndBeep ();
 			(*errors)++;
 			return (STOP_FATAL_ERROR);
 		}
@@ -8082,10 +7855,12 @@ restart_test:	dbltogw (&lldata.gwdata, 4.0, lldata.lldata);
 
 		i++;
 
-/* Has time expired? */
+/* Has time (rounded to nearest minute) expired?  Also break if the minimum */
+/* specifiable time was selected (a poor man's run-only-test-per-FFT flag) */
 
+		if (test_time == 1) break;
 		time (&current_time);
-		if ((unsigned int) (current_time - start_time) >= test_time * 60) break;
+		if ((unsigned int) (current_time - start_time) + 30 >= test_time * 60) break;
 	}
 
 /* Save our position in self test data array for next time torture test */
@@ -8152,10 +7927,101 @@ int selfTest (
 	tests_completed = 0;
 	self_test_errors = 0;
 	self_test_warnings = 0;
-	return (selfTestInternal (thread_num, sp_info, fftlen, 60, NULL, 0, NULL,
+	return (selfTestInternal (thread_num, sp_info, fftlen, 60, NULL, 0, NULL, 0,
 				  &tests_completed, &self_test_errors, &self_test_warnings));
 }
 #endif
+
+/* Helper routine for torture test dialog boxes.  Return the FFT sizes for stressing L2, L3, L4, RAM based */
+/* on computers cache sizes and number of torture test workers to run. */
+
+void tortureTestDefaultSizes (
+	int	torture_type,		// 0 = L2 cache, 1 = L3 cache, 2 = L4 cache, 3 = large, 4 = blend
+	int	num_threads,		// Number of torture workers
+	int	*minfft,		// Minimum FFT size to run
+	int	*maxfft)		// Maximum FFT size to run
+{
+	int	affinity;		// Set if affinity settings will ensure all workers are assigned different cores
+	int	min_adjusted_L2_cache_size, min_adjusted_L3_cache_size, min_adjusted_L4_cache_size;
+	int	max_adjusted_L2_cache_size, max_adjusted_L3_cache_size, max_adjusted_L4_cache_size;
+
+	// Determine if the threads can be evenly distributed across cores using affinity
+	if (OS_CAN_SET_AFFINITY && num_threads % NUM_CPUS == 0) affinity = num_threads / NUM_CPUS;
+	else affinity = 0;
+
+	// Determine how much cache torture test workers will have access to.  This is predictable when affinity is
+	// used to uniformly distribute torture threads amongst cores.  If affinity cannot do that we need to compute
+	// the best case and worst case scenarios.
+	min_adjusted_L2_cache_size = max_adjusted_L2_cache_size = 0;
+	min_adjusted_L3_cache_size = max_adjusted_L3_cache_size = 0;
+	min_adjusted_L4_cache_size = max_adjusted_L4_cache_size = 0;
+	if (CPU_NUM_L2_CACHES) {
+		int	min_workers_per_L2_cache, max_workers_per_L2_cache;
+		if (affinity)
+			min_workers_per_L2_cache = max_workers_per_L2_cache = affinity;
+		else {
+			max_workers_per_L2_cache = NUM_CPUS * CPU_HYPERTHREADS / CPU_NUM_L2_CACHES;
+			min_workers_per_L2_cache = num_threads / CPU_NUM_L2_CACHES;
+			if (num_threads < max_workers_per_L2_cache) max_workers_per_L2_cache = num_threads;
+			if (min_workers_per_L2_cache < 1) min_workers_per_L2_cache = 1;
+		}
+		max_adjusted_L2_cache_size = CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES / min_workers_per_L2_cache;
+		min_adjusted_L2_cache_size = CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES / max_workers_per_L2_cache;
+	}
+	if (CPU_NUM_L3_CACHES) {
+		int	min_workers_per_L3_cache, max_workers_per_L3_cache;
+		if (affinity)
+			min_workers_per_L3_cache = max_workers_per_L3_cache = affinity;
+		else {
+			max_workers_per_L3_cache = NUM_CPUS * CPU_HYPERTHREADS / CPU_NUM_L3_CACHES;
+			min_workers_per_L3_cache = num_threads / CPU_NUM_L3_CACHES;
+			if (num_threads < max_workers_per_L3_cache) max_workers_per_L3_cache = num_threads;
+			if (min_workers_per_L3_cache < 1) min_workers_per_L3_cache = 1;
+		}
+		max_adjusted_L3_cache_size = CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES / min_workers_per_L3_cache;
+		min_adjusted_L3_cache_size = CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES / max_workers_per_L3_cache;
+	}
+	if (CPU_NUM_L4_CACHES) {
+		int	min_workers_per_L4_cache, max_workers_per_L4_cache;
+		if (affinity)
+			min_workers_per_L4_cache = max_workers_per_L4_cache = affinity;
+		else {
+			max_workers_per_L4_cache = NUM_CPUS * CPU_HYPERTHREADS / CPU_NUM_L4_CACHES;
+			min_workers_per_L4_cache = num_threads / CPU_NUM_L4_CACHES;
+			if (num_threads < max_workers_per_L4_cache) max_workers_per_L4_cache = num_threads;
+			if (min_workers_per_L4_cache < 1) min_workers_per_L4_cache = 1;
+		}
+		max_adjusted_L4_cache_size = CPU_TOTAL_L4_CACHE_SIZE / CPU_NUM_L4_CACHES / min_workers_per_L4_cache;
+		min_adjusted_L4_cache_size = CPU_TOTAL_L4_CACHE_SIZE / CPU_NUM_L4_CACHES / max_workers_per_L4_cache;
+	}
+
+
+/* Select FFT sizes that will overflow smaller caches and fit within the requested larger cache */
+	
+	if (torture_type == 0) {		// L2 cache
+		*minfft = 4;
+		*maxfft = min_adjusted_L2_cache_size / 12;
+	}
+	if (torture_type == 1) {		// L3 cache
+		*minfft = max_adjusted_L2_cache_size / 6;
+		*maxfft = min_adjusted_L3_cache_size / 12;
+	}
+	if (torture_type == 2) {		// L4 cache
+		*minfft = max_adjusted_L3_cache_size / 6;
+		*maxfft = min_adjusted_L4_cache_size / 12;
+	}
+	if (torture_type == 3) {		// Large FFT
+		*minfft = (max_adjusted_L4_cache_size ? max_adjusted_L4_cache_size :
+			   max_adjusted_L3_cache_size ? max_adjusted_L3_cache_size : max_adjusted_L2_cache_size) / 6;
+		*maxfft = (CPU_TOTAL_L4_CACHE_SIZE ? 32768 : 8192);
+	}
+	if (torture_type == 4) {		// Blend
+		*minfft = 4;
+		*maxfft = (CPU_TOTAL_L4_CACHE_SIZE ? 32768 : 8192);
+	}
+}
+
+/* Execute a torture test */
 
 int tortureTest (
 	int	thread_num,
@@ -8165,24 +8031,26 @@ int tortureTest (
 	const struct self_test_info *test_data; /* Self test data */
 	unsigned int test_data_count;
 	int	num_lengths;		/* Number of FFT lengths we will torture test */
+	int	num_large_lengths;	/* Number of FFT lengths that overwhelm the L2/L3/L4 caches */
+	int	current_small_index, current_large_index; /* Which small/large FFT length we are now testing */
 	unsigned long lengths[500];	/* The FFT lengths we will torture test */
 	int	data_index[500];	/* Last exponent tested for each FFT length */
-	int	test_time;
+	int	test_time, disabled_cpu_flags;
 	int	tests_completed, self_test_errors, self_test_warnings;
 	int	i, run_indefinitely, stop_reason;
-	unsigned long fftlen, min_fft, max_fft;
-	time_t	start_time, current_time;
-	unsigned int memory;	/* Memory to use during torture test */
+	unsigned long fftlen, min_fft, max_fft, max_small_fftlen;
+	time_t	start_time;
+	unsigned int memory;		/* Memory this worker can use during torture test */
 	void	*bigbuf = NULL;
 
 /* Set the process/thread priority */
 
+	memset (&sp_info, 0, sizeof (sp_info));
 	sp_info.type = SET_PRIORITY_TORTURE;
 	sp_info.worker_num = thread_num;
 	sp_info.torture_num_workers = num_torture_workers;
 	sp_info.torture_threads_per_test = IniGetInt (INI_FILE, "TortureTestThreads", 1);
 	sp_info.verbose_flag = IniGetInt (INI_FILE, "AffinityVerbosityTorture", 0);
-	sp_info.aux_thread_num = 0;
 	SetPriority (&sp_info);
 
 /* Init counters */
@@ -8207,28 +8075,33 @@ int tortureTest (
 		test_data_count = MAX_SELF_TEST_ITERS;
 	}
 
+/* Calculate the largest FFT length that will fit in the L2/L3/L4 caches.  We always run these small FFTs in-place. */
+
+	if (CPU_TOTAL_L4_CACHE_SIZE) max_small_fftlen = (CPU_TOTAL_L4_CACHE_SIZE / 12 / num_torture_workers) << 10;
+	else if (CPU_TOTAL_L3_CACHE_SIZE) max_small_fftlen = (CPU_TOTAL_L3_CACHE_SIZE / 12 / num_torture_workers) << 10;
+	else if (CPU_TOTAL_L2_CACHE_SIZE) max_small_fftlen = (CPU_TOTAL_L2_CACHE_SIZE / 12 / num_torture_workers) << 10;
+	else if (CPU_TOTAL_L1_CACHE_SIZE) max_small_fftlen = (CPU_TOTAL_L1_CACHE_SIZE / 12 / num_torture_workers) << 10;
+	else max_small_fftlen = 8 << 10;
+
 /* We used to support a menu option to run the self-test for an hour on */
-/* each FFT length.  If we ever decide to resupport this option, change */
-/* the run_indefinitely variable to an argument and change the output */
-/* message below. */
+/* each FFT length.  If we ever decide to resupport this option, add */
+/* a run_indefinitely argument and change the output message below. */
 
 loop:	run_indefinitely = TRUE;
 
-/* Make sure the user really wants to spend many hours doing this now */
+/* Output a torture test starting message */
 
-	if (run_indefinitely) {
-		OutputStr (thread_num, TORTURE1);
-		OutputStr (thread_num, TORTURE2);
-		test_time = IniGetInt (INI_FILE, "TortureTime", 15);
-	}
+	OutputStr (thread_num, TORTURE1);
+	OutputStr (thread_num, TORTURE2);
 
 /* Determine fft lengths we should run and allocate a big block */
 /* of memory to test. */
 
-	min_fft = IniGetInt (INI_FILE, "MinTortureFFT", 8) * 1024;
+	min_fft = IniGetInt (INI_FILE, "MinTortureFFT", 4) * 1024;
 	if (min_fft < 32) min_fft = 32;
 	max_fft = IniGetInt (INI_FILE, "MaxTortureFFT", 4096) * 1024;
 	memory = IniGetInt (INI_FILE, "TortureMem", 8);
+	memory = memory / num_torture_workers;
 	while (memory > 8 && bigbuf == NULL) {
 		bigbuf = aligned_malloc ((size_t) memory * (size_t) 1048576, 128);
 		if (bigbuf == NULL) memory--;
@@ -8237,14 +8110,17 @@ loop:	run_indefinitely = TRUE;
 /* Enumerate the FFT lengths we will torture test. */
 
 	num_lengths = 0;
-	fftlen = gwmap_to_fftlen (1.0, 2, 15 * min_fft, -1);
+	num_large_lengths = 0;
+	disabled_cpu_flags = IniGetInt (INI_FILE, "TortureWeak", 0);
+	fftlen = gwmap_with_cpu_flags_to_fftlen (CPU_FLAGS & ~disabled_cpu_flags, 1.0, 2, 15 * min_fft, -1);
 	while (fftlen <= max_fft) {
-		unsigned long max_exponent = gwmap_fftlen_to_max_exponent (fftlen);
+		unsigned long max_exponent = gwmap_with_cpu_flags_fftlen_to_max_exponent (CPU_FLAGS & ~disabled_cpu_flags, fftlen);
 		if (fftlen >= min_fft && max_exponent > test_data[test_data_count-1].p) {
 			lengths[num_lengths] = fftlen;
 			data_index[num_lengths++] = 0;
+			if (fftlen > max_small_fftlen * 2) num_large_lengths++;
 		}
-		fftlen = gwmap_to_fftlen (1.0, 2, max_exponent + 100, -1);
+		fftlen = gwmap_with_cpu_flags_to_fftlen (CPU_FLAGS & ~disabled_cpu_flags, 1.0, 2, max_exponent + 100, -1);
 		if (fftlen == 0) break;
 	}
 
@@ -8258,52 +8134,71 @@ loop:	run_indefinitely = TRUE;
 /* For historical reasons, we alternate testing big and small FFT lengths */
 /* (the theory being we'll find bad memory or an overheat problem more quickly). */
 
-	for (i = 0; i <= num_lengths / 2 - 2; i += 2) {
-		int	temp;
-		temp = lengths[i];
-		lengths[i] = lengths[i + num_lengths / 2];
-		lengths[i + num_lengths / 2] = lengths[i + num_lengths / 2 + 1];
-		lengths[i + num_lengths / 2 + 1] = lengths[i + 1];
-		lengths[i + 1] = temp;
-	}
+//	for (i = 0; i <= num_lengths / 2 - 2; i += 2) {
+//		int	temp;
+//		temp = lengths[i];
+//		lengths[i] = lengths[i + num_lengths / 2];
+//		lengths[i + num_lengths / 2] = lengths[i + num_lengths / 2 + 1];
+//		lengths[i + num_lengths / 2 + 1] = lengths[i + 1];
+//		lengths[i + 1] = temp;
+//	}
 
-/* Now self-test each fft length */
+/* Now test each fft length */
 
-	stop_reason = 0;
 	time (&start_time);
-	for ( ; ; ) {
-	    for (i = 0; i < num_lengths; i++) {
-		stop_reason =
-			selfTestInternal (thread_num, &sp_info, lengths[i], test_time, &data_index[i],
-					  memory, bigbuf, test_data, test_data_count, &tests_completed,
-					  &self_test_errors, &self_test_warnings);
-		if (stop_reason) {
-			char	buf[120];
-			int	hours, minutes;
-			time (&current_time);
-			minutes = (int) (current_time - start_time) / 60;
-			hours = minutes / 60;
-			minutes = minutes % 60;
-			sprintf (buf, "Torture Test completed %d tests in ", tests_completed);
-			if (hours > 1) sprintf (buf+strlen(buf), "%d hours, ", hours);
-			else if (hours == 1) sprintf (buf+strlen(buf), "1 hour, ");
-			sprintf (buf+strlen(buf),
-				 "%d minutes - %d errors, %d warnings.\n",
-				 minutes, self_test_errors, self_test_warnings);
-			OutputStr (thread_num, buf);
-			run_indefinitely = FALSE;
-			break;
+	current_small_index = 0;
+	current_large_index = num_lengths - num_large_lengths;
+	test_time = IniGetInt (INI_FILE, "TortureTime", 15);
+	for (i = 0; ; i++) {
+		int	index;
+
+/* For a blend test, switch between large and small fft lengths (we start with a large fft length as we think memory */
+/* issues are the most common failure).  There is an easy way to do this alternating, best described with an example. */
+/* Picture 2 small FFTs and 5 large FFTs.  We operate mod 7 adding 5 each time (0 5 3 1 6 4 2), we do a large FFT */
+/* for values 0 to 4, small for 5 and 6. */
+
+		index = i * num_large_lengths % num_lengths;
+		if (index < num_large_lengths) {
+			index = current_large_index++;
+			if (current_large_index == num_lengths) current_large_index = 0;
+		} else {
+			index = current_small_index++;
+			if (current_small_index == num_lengths) current_small_index = 0;
 		}
-	    }
-	    if (! run_indefinitely) break;
+
+/* Do the self test for this FFT length */
+
+		stop_reason = selfTestInternal (thread_num, &sp_info, lengths[index], lengths[index] <= max_small_fftlen, test_time,
+						&data_index[index], memory, bigbuf, test_data, test_data_count, disabled_cpu_flags,
+						&tests_completed, &self_test_errors, &self_test_warnings);
+		if (stop_reason) break;
 	}
 
-/* Self test completed!  Free memory. */
+/* Torture test completed, output a message. */
+
+	{
+		char	buf[200];
+		time_t	current_time;
+		int	hours, minutes;
+
+		time (&current_time);
+		minutes = (int) (current_time - start_time) / 60;
+		hours = minutes / 60;
+		minutes = minutes % 60;
+		sprintf (buf, "Torture Test completed %d tests in ", tests_completed);
+		if (hours > 1) sprintf (buf+strlen(buf), "%d hours, ", hours);
+		else if (hours == 1) strcat (buf, "1 hour, ");
+		sprintf (buf+strlen(buf), "%d minutes - %d errors, %d warnings.\n", minutes, self_test_errors, self_test_warnings);
+		OutputStr (thread_num, buf);
+	}
+
+/* Clean up */
 
 	aligned_free (bigbuf);
 
 /* If this was a user requested stop, then wait for a restart */
 
+//BUG??? - what is this???
 	while (stop_reason == STOP_WORKER) {
 		implement_stop_one_worker (thread_num);
 		stop_reason = stopCheck (thread_num);
@@ -8783,11 +8678,14 @@ int cpuid_dump (
 
 /* Dump the extended GETBV (control registers) data */
 
-	Xgetbv (0, &reg);
-	dumpreg ();
-	if (IniGetInt (INI_FILE, "AdditionalGetBV", 0)) {
-		Xgetbv (IniGetInt (INI_FILE, "AdditionalGetBV", 0), &reg);
+	Cpuid (1, &reg);
+	if ((reg.ECX >> 27) & 0x1) {
+		Xgetbv (0, &reg);
 		dumpreg ();
+		if (IniGetInt (INI_FILE, "AdditionalGetBV", 0)) {
+			Xgetbv (IniGetInt (INI_FILE, "AdditionalGetBV", 0), &reg);
+			dumpreg ();
+		}
 	}
 
 	return (0);
@@ -8804,26 +8702,27 @@ int primeTime (
 	unsigned long p,
 	unsigned long iterations)
 {
+static	int	time_all_complex = 0;	/* TRUE if we should time all-complex FFTs */
 	struct PriorityInfo sp_info;
 #define SAVED_LIMIT	10
 	llhandle lldata;
 	unsigned long i, j, saved, save_limit;
 	int	min_cores, max_cores, incr_cores, min_hyperthreads, max_hyperthreads;
 	int	num_cores, num_hyperthreads;
-	char	buf[120], fft_desc[100];
+	char	buf[256], fft_desc[200];
 	double	time, saved_times[SAVED_LIMIT];
 	int	days, hours, minutes, stop_reason, print_every_iter;
 	uint32_t *ASM_TIMERS;
 	uint32_t best_asm_timers[32] = {0};
 	double	timers[2];
 
-/* Look for special values to run QA suites */
+/* Look for special values to run QA suites or manage settings */
 
 	if (p >= 9900 && p <= 9999) {
+		memset (&sp_info, 0, sizeof (sp_info));
 		sp_info.type = SET_PRIORITY_QA;
 		sp_info.worker_num = thread_num;
 		sp_info.verbose_flag = IniGetInt (INI_FILE, "AffinityVerbosityQA", 0);
-		sp_info.aux_thread_num = 0;
 		SetPriority (&sp_info);
 
 		if (p >= 9994 && p <= 9999)
@@ -8836,6 +8735,10 @@ int primeTime (
 			return (primeSieveTest (thread_num));
 		if (p == 9950)
 			return (cpuid_dump (thread_num));
+		if (p == 9951) {
+			time_all_complex = !time_all_complex;
+			return (0);
+		}
 		if (p >= 9900 && p <= 9919)
 			return (test_randomly (thread_num, &sp_info));
 		return (test_all_impl (thread_num, &sp_info));
@@ -8843,10 +8746,10 @@ int primeTime (
 
 /* Set the process/thread priority */
 
+	memset (&sp_info, 0, sizeof (sp_info));
 	sp_info.type = SET_PRIORITY_TIME;
 	sp_info.worker_num = thread_num;
 	sp_info.verbose_flag = IniGetInt (INI_FILE, "AffinityVerbosityTime", 0);
-	sp_info.aux_thread_num = 0;
 	sp_info.time_hyperthreads = 1;
 	SetPriority (&sp_info);
 
@@ -8892,8 +8795,8 @@ int primeTime (
 			gwset_bench_workers (&lldata.gwdata, NUM_WORKER_THREADS); // We're most likely to have bench data for this case
 			if (ERRCHK) gwset_will_error_check (&lldata.gwdata);
 			else gwset_will_error_check_near_limit (&lldata.gwdata);
-			if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0))
-				gwset_use_large_pages (&lldata.gwdata);
+			if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&lldata.gwdata);
+			if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&lldata.gwdata);
 			// Here is a hack to let me time different FFT implementations.
 			// For example, 39000001 times the first 2M FFT implementation,
 			// 39000002 times the second 2M FFT implementation, etc.
@@ -8902,7 +8805,7 @@ int primeTime (
 			gwset_num_threads (&lldata.gwdata, num_cores * num_hyperthreads);
 			gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
 			gwset_thread_callback_data (&lldata.gwdata, &sp_info);
-			stop_reason = lucasSetup (thread_num, p, IniGetInt (INI_FILE, "TimePlus1", 0), &lldata);
+			stop_reason = lucasSetup (thread_num, p, time_all_complex, &lldata);
 			if (stop_reason) return (stop_reason);
 			ASM_TIMERS = get_asm_timers (&lldata.gwdata);
 			memset (ASM_TIMERS, 0, 32 * sizeof (uint32_t));
@@ -9023,10 +8926,10 @@ void bench_busy_loop (void *arg)
 /* Set the affinity so that busy loop runs on the specified CPU core */
 
 	cpu_num = (int) (intptr_t) arg;
+	memset (&sp_info, 0, sizeof (sp_info));
 	sp_info.type = SET_PRIORITY_BUSY_LOOP;
 	sp_info.worker_num = MAIN_THREAD_NUM;
 	sp_info.busy_loop_cpu = cpu_num;
-	sp_info.verbose_flag = 0;
 	SetPriority (&sp_info);
 
 /* Stay busy until last_bench_cpu_num says this CPU thread should close */
@@ -9166,12 +9069,13 @@ int factorBench (
 		OutputStrNoTimeStamp (thread_num, buf);
 		sprintf (buf, "Best time for %d bit trial factors: ", bit_lengths[i]);
 		print_timer (timers, 0, buf, TIMER_NL | TIMER_MS);
-		writeResults (buf);
+		writeResultsBench (buf);
 	}
 
 /* End the threads that are looping and return */
 
 	last_bench_cpu_num = NUM_CPUS;
+	writeResultsBench ("\n");
 	return (0);
 }
 
@@ -9215,12 +9119,12 @@ void primeBenchOneWorker (void *arg)
 
 /* Set the affinity so that worker runs on the specified CPU core */
 
+	memset (&sp_info, 0, sizeof (sp_info));
 	sp_info.type = SET_PRIORITY_BENCHMARKING;
 	sp_info.worker_num = info->main_thread_num;
 	sp_info.verbose_flag = IniGetInt (INI_FILE, "AffinityVerbosityBench", 0);
 	sp_info.bench_base_cpu_num = info->cpu_num;
 	sp_info.bench_hyperthreads = info->hyperthreads;
-	sp_info.aux_thread_num = 0;
 	SetPriority (&sp_info);
 
 /* Initialize this FFT length */
@@ -9266,9 +9170,12 @@ void primeBenchOneWorker (void *arg)
 		end_timer (timers, 0);
 		// If any of the bench workers have finished, then do not imclude this timing
 		if (bench_worker_finished) break;
-		// Add in this timing.  If time exceeds our limit, end this worker
+		// Add in this timing.  If time exceeds our limit, end this worker.
+		// Note: the timer should never be <= 0, but I have seen unexplained timer behavior in the past.
+		// Just to be safe from infinite loops, if the timer is zero or less, assume the iteration took 1 second.
 		info->iterations++;
-		info->total_time += timer_value (timers, 0);
+		if (timer_value (timers, 0) <= 0.0) info->total_time += 1.0;
+		else info->total_time += timer_value (timers, 0);
 		if (info->total_time > bench_workers_time) {
 			bench_worker_finished = TRUE;
 			break;
@@ -9344,13 +9251,6 @@ int primeBenchMultipleWorkersInternal (
 		    break;
 	    }
 
-/* Only bench FFT lengths that are a multiple of 1K */
-
-	    if (fftlen & 0x3FF) {
-		    lucasDone (&lldata);
-		    continue;
-	    }
-
 /* If requested, only bench PFAs of 5,6,7,8 */
 
 	    for (i = fftlen; i >= 9 && (i & 1) == 0; i >>= 1);
@@ -9372,12 +9272,19 @@ int primeBenchMultipleWorkersInternal (
 	    for (impl = 1; ; impl++) {
 		if (impl > 1) {
 			if (!all_bench) break;
-			lucasDone (&lldata);
 			gwinit (&lldata.gwdata);
 			gwset_sum_inputs_checking (&lldata.gwdata, SUM_INPUTS_ERRCHK);
 			lldata.gwdata.bench_pick_nth_fft = impl;
 			stop_reason = lucasSetup (thread_num, fftlen * 17 + 1, fftlen + plus1, &lldata);
 			if (stop_reason) break;	// Assume stop_reason set because there are no more implementations for this FFT
+		}
+
+/* Hack for my use only.  This let's me quickly run gwinit on every FFT implementation so that I can determine */
+/* the memory needed value to fill in the tables in mult.asm. */
+
+		if (IniGetInt (INI_FILE, "gwinit_only", 0)) {
+			lucasDone (&lldata);
+			continue;
 		}
 
 /* Loop over all possible multithread possibilities */
@@ -9398,8 +9305,10 @@ int primeBenchMultipleWorkersInternal (
 
 /* Output start message for this benchmark */
 
-			    sprintf (buf, "Timing %luK%s FFT, %d core%s%s, %d worker%s.  ",
-				     fftlen / 1024, plus1 ? " all-complex" : "",
+			    sprintf (buf, "Timing %lu%s%s FFT, %d core%s%s, %d worker%s.  ",
+				     (fftlen & 0x3FF) ? fftlen : fftlen / 1024,
+				     (fftlen & 0x3FF) ? "" : "K",
+				     plus1 ? " all-complex" : "",
 				     cpus, cpus > 1 ? "s" : "",
 				     hypercpus > 1 ? " hyperthreaded" : "",
 				     workers, workers > 1 ? "s" : "");
@@ -9448,13 +9357,14 @@ int primeBenchMultipleWorkersInternal (
 /* Wait for all the workers to finish */
 
 			    for (i = 0; i < workers; i++)
-				gwthread_wait_for_exit (&thread_id[i]);
+				    gwthread_wait_for_exit (&thread_id[i]);
 			    stop_reason = stopCheck (thread_num);
 			    if (stop_reason) {
-				    if (all_bench) gwbench_write_data ();	/* Write accumulated benchmark data to gwnum.txt */
-				    gwmutex_destroy (&bench_workers_mutex);
-				    gwevent_destroy (&bench_workers_sync);
-				    return (stop_reason);
+				if (all_bench) gwbench_write_data ();	/* Write accumulated benchmark data to gwnum.txt */
+				lucasDone (&lldata);
+				gwmutex_destroy (&bench_workers_mutex);
+				gwevent_destroy (&bench_workers_sync);
+				return (stop_reason);
 			    }
 
 /* Print the total throughput and average times for this FFT length */
@@ -9476,15 +9386,19 @@ int primeBenchMultipleWorkersInternal (
 
 			    if (all_bench) {
 				sprintf (buf,
-					 "FFTlen=%luK%s, Type=%d, Arch=%d, Pass1=%lu, Pass2=%lu, clm=%lu",
-					 fftlen / 1024, plus1 ? " all-complex" : "",
+					 "FFTlen=%lu%s%s, Type=%d, Arch=%d, Pass1=%lu, Pass2=%lu, clm=%lu",
+					 (fftlen & 0x3FF) ? fftlen : fftlen / 1024,
+					 (fftlen & 0x3FF) ? "" : "K",
+					 plus1 ? " all-complex" : "",
 					 lldata.gwdata.FFT_TYPE, lldata.gwdata.ARCH,
 					 fftlen / (lldata.gwdata.PASS2_SIZE ? lldata.gwdata.PASS2_SIZE : 1),
 					 lldata.gwdata.PASS2_SIZE,
-					 lldata.gwdata.PASS1_CACHE_LINES / ((CPU_FLAGS & CPU_AVX) ? 4 : 2));
+					 lldata.gwdata.PASS1_CACHE_LINES / ((CPU_FLAGS & CPU_AVX512F) ? 8 : ((CPU_FLAGS & CPU_AVX) ? 4 : 2)));
 			    } else {
-				sprintf (buf, "Timings for %luK%s FFT length",
-					 fftlen / 1024, plus1 ? " all-complex" : "");
+				sprintf (buf, "Timings for %lu%s%s FFT length",
+					 (fftlen & 0x3FF) ? fftlen : fftlen / 1024,
+					 (fftlen & 0x3FF) ? "" : "K",
+					 plus1 ? " all-complex" : "");
 			    }
 			    if (hypercpus <= 2)
 				sprintf (buf+strlen(buf), " (%d core%s%s, %d worker%s): ",
@@ -9507,7 +9421,7 @@ int primeBenchMultipleWorkersInternal (
 					strcat (buf, "INF");
 			    }
 			    sprintf (buf+strlen(buf), " ms.  Throughput: %5.2f iter/sec.\n", throughput);
-			    writeResults (buf);
+			    writeResultsBench (buf);
 
 /* Write the benchmark data to gwnum's SQL database so that gwnum can select the FFT implementation with the best throughput */
 
@@ -9540,6 +9454,7 @@ int primeBenchMultipleWorkersInternal (
 	  }  // End fftlen loop
 	}  // End plus1 loop
 	OutputStr (thread_num, "\n");
+	writeResultsBench ("\n");
 
 /* Write the benchmark data to gwnum.txt so that gwnum can select the FFT implementations with the best throughput */
 
@@ -9669,9 +9584,9 @@ void autoBench (void)
 	} ffts_to_bench[200];
 	struct primenetBenchmarkData pkt;
 
-/* If workers are not active, do not benchmark now */
+/* If workers are not active or we're not doing normal work, do not benchmark now */
 
-	if (!WORKER_THREADS_ACTIVE || WORKER_THREADS_STOPPING) return;
+	if (!WORKER_THREADS_ACTIVE || WORKER_THREADS_STOPPING || LAUNCH_TYPE != LD_CONTINUE) return;
 
 /* If we're not supposed to run while on battery and we are on battery power now, then skip this benchmark */
 
@@ -9888,14 +9803,14 @@ int primeBench (
 
 	title (thread_num, "Benchmarking");
 	OutputStr (thread_num, BENCH1);
-	OutputBoth (thread_num, BENCH2);
+	OutputBothBench (thread_num, BENCH2);
 
 /* Output to the results file a full CPU description */
 
 	getCpuDescription (buf, 1);
-	writeResults (buf);
+	writeResultsBench (buf);
 	if (IniGetInt (INI_FILE, "BenchOutputTopology", 1)) {
-		writeResults ("Machine topology as determined by hwloc library:\n");
+		writeResultsBench ("Machine topology as determined by hwloc library:\n");
 		topology_print_children (hwloc_get_root_obj (hwloc_topology), 0);
 	}
 
@@ -9904,17 +9819,16 @@ int primeBench (
 #else
 	sprintf (buf, "Prime95 32-bit version %s, RdtscTiming=%d\n", VERSION, RDTSC_TIMING);
 #endif
-	writeResults (buf);
+	writeResultsBench (buf);
 
 /* Set the process/thread priority AFTER getting the CPU description. */
 /* This is required so that any threads spawned by getCpuSpeed will not */
 /* be confined to just one CPU core. */
 
+	memset (&sp_info, 0, sizeof (sp_info));
 	sp_info.type = SET_PRIORITY_BENCHMARKING;
 	sp_info.worker_num = thread_num;
 	sp_info.verbose_flag = IniGetInt (INI_FILE, "AffinityVerbosityBench", 0);
-	sp_info.aux_thread_num = 0;
-	sp_info.bench_base_cpu_num = 0;
 	sp_info.bench_hyperthreads = 1;
 	SetPriority (&sp_info);
 
@@ -9995,7 +9909,7 @@ int primeBench (
 	        sprintf (buf, "Timing FFTs using %d cores.\n", cpu);
 	      else
 	        sprintf (buf, "Timing FFTs using %d threads on %d core%s.\n", cpu * hypercpu, cpu, cpu > 1 ? "s" : "");
-	      OutputBoth (thread_num, buf);
+	      OutputBothBench (thread_num, buf);
 	    }
 
 /* Set global that makes sure we are running the correct number of busy loops */
@@ -10017,8 +9931,8 @@ int primeBench (
 
 		  gwinit (&lldata.gwdata);
 		  gwset_sum_inputs_checking (&lldata.gwdata, SUM_INPUTS_ERRCHK);
-		  if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0))
-			gwset_use_large_pages (&lldata.gwdata);
+		  if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&lldata.gwdata);
+		  if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&lldata.gwdata);
 		  gwset_num_threads (&lldata.gwdata, cpu * hypercpu);
 		  sp_info.bench_base_cpu_num = 0;
 		  sp_info.bench_hyperthreads = hypercpu;
@@ -10063,7 +9977,7 @@ int primeBench (
 
 /* Output a blank line between different FFT lengths when timing all implementations */
 
-		  if (all_bench && impl == 1) writeResults ("\n");
+		  if (all_bench && impl == 1) writeResultsBench ("\n");
 
 /* Compute the number of iterations to time.  This is based on the fact that it doesn't */
 /* take too long for my 1400 MHz P4 to run 10 iterations of a 1792K FFT. */
@@ -10132,7 +10046,7 @@ int primeBench (
 				 lldata.gwdata.FFT_TYPE, lldata.gwdata.ARCH,
 				 fftlen / (lldata.gwdata.PASS2_SIZE ? lldata.gwdata.PASS2_SIZE : 1),
 				 lldata.gwdata.PASS2_SIZE,
-				 lldata.gwdata.PASS1_CACHE_LINES / ((CPU_FLAGS & CPU_AVX) ? 4 : 2));
+				 lldata.gwdata.PASS1_CACHE_LINES / ((CPU_FLAGS & CPU_AVX512F) ? 8 : ((CPU_FLAGS & CPU_AVX) ? 4 : 2)));
 			timers[0] = best_time;
 			print_timer (timers, 0, buf, TIMER_MS);
 			timers[0] = total_time / iterations;
@@ -10147,7 +10061,7 @@ int primeBench (
 			strcat (buf, ", avg: ");
 			print_timer (timers, 0, buf, TIMER_NL | TIMER_MS);
 		  }
-		  writeResults (buf);
+		  writeResultsBench (buf);
 
 /* Accumulate best times to send to the server.  These are the "classic" best times -- that is, */
 /* best non-hyperthreaded single-core timings for FFT lengths from 1M on up. */
@@ -10177,6 +10091,7 @@ int primeBench (
 /* Single worker benchmark complete */
 
 	OutputStr (thread_num, "FFT timings benchmark complete.\n");
+	writeResultsBench ("\n");
 
 /* Send the benchmark data to the server. */
 
@@ -10226,9 +10141,10 @@ struct prp_state {
 #define PRP_STATE_DCHK_PASS2		11	/* Do squarings for a while, compare vals, then switch back to pass 1 */
 #define PRP_STATE_GERB_START_BLOCK	22	/* Determine how many iters are in the next Gerbicz block */
 #define PRP_STATE_GERB_MID_BLOCK	23	/* Do squarings for L iterations */
-#define PRP_STATE_GERB_MID_BLOCK_MULT	24	/* Do checksum multiply after the L-th squaring */
+#define PRP_STATE_GERB_MID_BLOCK_MULT	24	/* Do checksum multiply after the L-th squaring (except last block) */
 #define PRP_STATE_GERB_END_BLOCK	25	/* After L^2 squarings, do alt squarings to compute 2nd Gerbicz compare value */
-#define PRP_STATE_GERB_END_BLOCK_MULT	26	/* After L alt squarings, do one last mul and then compare checksum values */
+#define PRP_STATE_GERB_END_BLOCK_MULT	26	/* After L alt squarings, do one last mul to compute checksum #2 */
+#define PRP_STATE_GERB_FINAL_MULT	27	/* Do one last mul to compute checksum #1 and then compare checksum values */
 
 /* Write intermediate PRP results to a file */
 /* The PRP save file format is: */
@@ -10257,7 +10173,7 @@ struct prp_state {
 /*	gwnum		FFT data for d (u32 len, array u32s) (version number >= 3) */
 
 #define PRP_MAGICNUM		0x87f2a91b
-#define PRP_VERSION		3
+#define PRP_VERSION		4
 
 int writePRPSaveFile (
 	gwhandle *gwdata,
@@ -10289,12 +10205,18 @@ int writePRPSaveFile (
 	if (!write_long (fd, ps->next_mul_counter, &sum)) goto err;
 	if (!write_long (fd, ps->end_counter, &sum)) goto err;
 	if (!write_gwnum (fd, gwdata, ps->x, &sum)) goto err;
-	if (ps->state != PRP_STATE_NORMAL && ps->state != PRP_STATE_GERB_START_BLOCK && ps->state != PRP_STATE_GERB_MID_BLOCK) {
+
+	if (ps->state != PRP_STATE_NORMAL && ps->state != PRP_STATE_GERB_MID_BLOCK && ps->state != PRP_STATE_GERB_MID_BLOCK_MULT) {
 		if (!write_gwnum (fd, gwdata, ps->alt_x, &sum)) goto err;
 	}
-	if (ps->state != PRP_STATE_NORMAL && ps->state != PRP_STATE_GERB_START_BLOCK &&
-	    ps->state != PRP_STATE_DCHK_PASS1 && ps->state != PRP_STATE_DCHK_PASS2) {
+
+	if (ps->state != PRP_STATE_NORMAL && ps->state != PRP_STATE_DCHK_PASS1 && ps->state != PRP_STATE_DCHK_PASS2 &&
+	    ps->state != PRP_STATE_GERB_START_BLOCK && ps->state != PRP_STATE_GERB_FINAL_MULT) {
 		if (!write_gwnum (fd, gwdata, ps->u0, &sum)) goto err;
+	}
+
+	if (ps->state != PRP_STATE_NORMAL && ps->state != PRP_STATE_DCHK_PASS1 && ps->state != PRP_STATE_DCHK_PASS2 &&
+	    ps->state != PRP_STATE_GERB_START_BLOCK) {
 		if (!write_gwnum (fd, gwdata, ps->d, &sum)) goto err;
 	}
 
@@ -10365,16 +10287,38 @@ int readPRPSaveFile (
 		if (!read_long (fd, &ps->end_counter, &sum)) goto err;
 	}
 
+	// In version 3, we did not delay the final multiply in calculation of checksum #1.
+	// We must ignore some save files because the version 3 and version 4 states are subtly different.
+	if (version == 3 && (ps->state == PRP_STATE_GERB_MID_BLOCK_MULT ||
+			     ps->state == PRP_STATE_GERB_END_BLOCK ||
+			     ps->state == PRP_STATE_GERB_END_BLOCK_MULT)) goto err;
+
+	// All PRP states wrote an x value
 	if (!read_gwnum (fd, gwdata, ps->x, &sum)) goto err;
-	if (ps->state != PRP_STATE_NORMAL && ps->state != PRP_STATE_GERB_START_BLOCK && ps->state != PRP_STATE_GERB_MID_BLOCK) {
+
+	// In version 3, we only wrote x to the save file at Gerbicz start block.  In version 4, we write x and the
+	// identical alt_x.  There is added error protection by always having at least two gwnum values in memory.
+	if (version == 3 && ps->state == PRP_STATE_GERB_START_BLOCK) {
+		gwcopy (gwdata, ps->x, ps->alt_x);
+		ps->alt_units_bit = ps->units_bit;
+	}
+	else if (ps->state != PRP_STATE_NORMAL && ps->state != PRP_STATE_GERB_MID_BLOCK && ps->state != PRP_STATE_GERB_MID_BLOCK_MULT) {
 		if (!read_gwnum (fd, gwdata, ps->alt_x, &sum)) goto err;
 	}
-	if (ps->state != PRP_STATE_NORMAL && ps->state != PRP_STATE_GERB_START_BLOCK &&
-	    ps->state != PRP_STATE_DCHK_PASS1 && ps->state != PRP_STATE_DCHK_PASS2) {
+
+	// Most PRP Gerbicz states wrote a u0 value
+	if (ps->state != PRP_STATE_NORMAL && ps->state != PRP_STATE_DCHK_PASS1 && ps->state != PRP_STATE_DCHK_PASS2 &&
+	    ps->state != PRP_STATE_GERB_START_BLOCK && ps->state != PRP_STATE_GERB_FINAL_MULT) {
 		if (!read_gwnum (fd, gwdata, ps->u0, &sum)) goto err;
+	}
+
+	// Most PRP Gerbicz states wrote a d value
+	if (ps->state != PRP_STATE_NORMAL && ps->state != PRP_STATE_DCHK_PASS1 && ps->state != PRP_STATE_DCHK_PASS2 &&
+	    ps->state != PRP_STATE_GERB_START_BLOCK) {
 		if (!read_gwnum (fd, gwdata, ps->d, &sum)) goto err;
 	}
 
+	// Validate checksum and return
 	if (filesum != sum) goto err;
 	_close (fd);
 	return (TRUE);
@@ -10410,17 +10354,17 @@ int areTwoPRPValsEqual (
 	unsigned long units_bit2)	/* Shift count #2 */
 {
 	giant	tmp1, tmp2;
-	int	diff;
+	int	diff, err_code1, err_code2;
 
 	tmp1 = popg (&gwdata->gdata, ((unsigned long) gwdata->bit_length >> 5) + 5);
-	gwtogiant (gwdata, val1, tmp1);
+	err_code1 = gwtogiant (gwdata, val1, tmp1) || isZero (tmp1);
 	rotateg (tmp1, p, units_bit1, &gwdata->gdata);
 	tmp2 = popg (&gwdata->gdata, ((unsigned long) gwdata->bit_length >> 5) + 5);
-	gwtogiant (gwdata, val2, tmp2);
+	err_code2 = gwtogiant (gwdata, val2, tmp2) || isZero (tmp2);
 	rotateg (tmp2, p, units_bit2, &gwdata->gdata);
 	diff = gcompg (tmp1, tmp2);
 	pushg (&gwdata->gdata, 2);
-	return (!diff);
+	return (err_code1 == 0 && err_code2 == 0 && !diff);
 }
 
 /* Mul giant by a power of the PRP base.  Used in optimizing PRPs for k*2^n+c numbers. */
@@ -10477,11 +10421,11 @@ int isPRPg (
 
 /* Standard Fermat PRP, test for one */
 
-	if (prp_residue_type == PRIMNET_PRP_TYPE_FERMAT) return (isone (v));
+	if (prp_residue_type == PRIMENET_PRP_TYPE_FERMAT) return (isone (v));
 
 /* SPRP test is PRP if result is one or minus one */
 
-	if (prp_residue_type == PRIMNET_PRP_TYPE_SPRP) {
+	if (prp_residue_type == PRIMENET_PRP_TYPE_SPRP) {
 		if (isone (v)) return (TRUE);
 		subg (v, N); result = isone (N); addg (v, N);
 		return (result);
@@ -10495,9 +10439,9 @@ int isPRPg (
 	gtompz (N, mpz_N);
 	mpz_init (compare_val);
 
-/* Handle the cofactor case.  We calculated v = a^(N*KF-1) mod (N*KF).  We have a PRP if (v mod N) = (a^KF) mod N */
+/* Handle the cofactor case.  We calculated v = a^(N*KF-1) mod (N*KF).  We have a PRP if (v mod N) = (a^(KF-1)) mod N */
 
-	if (prp_residue_type == PRIMNET_PRP_TYPE_COFACTOR) {
+	if (prp_residue_type == PRIMENET_PRP_TYPE_COFACTOR) {
 		mpz_t	kbnc, known_factors, reduced_v;
 		// Calculate k*b^n+c
 		mpz_init (kbnc);
@@ -10528,7 +10472,7 @@ int isPRPg (
 /* Calculate the compare_value */
 
 		mpz_init (power);
-		if (prp_residue_type == PRIMNET_PRP_TYPE_FERMAT_VAR) mpz_set_si (power, - (w->c - 1));
+		if (prp_residue_type == PRIMENET_PRP_TYPE_FERMAT_VAR) mpz_set_si (power, - (w->c - 1));
 		else mpz_set_si (power, - (w->c - 1) / 2);
 		mpz_set_ui (compare_val, prp_base);
 		mpz_powm (compare_val, compare_val, power, mpz_N);
@@ -10537,7 +10481,7 @@ int isPRPg (
 /* Now do the comparison(s) */
 
 		result = mpz_eq (mpz_v, compare_val);
-		if (prp_residue_type == PRIMNET_PRP_TYPE_SPRP_VAR && !result) {
+		if (prp_residue_type == PRIMENET_PRP_TYPE_SPRP_VAR && !result) {
 			mpz_sub (compare_val, mpz_N, compare_val);	// Negate compare val
 			result = mpz_eq (mpz_v, compare_val);
 		}
@@ -10576,7 +10520,8 @@ int prp (
 	readSaveFileState read_save_file_state; /* Manage savefile names during reading */
 	writeSaveFileState write_save_file_state; /* Manage savefile names during writing */
 	char	filename[32];
-	char	buf[400], JSONbuf[2000], fft_desc[100], res64[17];
+	char	buf[400], JSONbuf[4000], fft_desc[200], res64[17], res2048[513];
+	int	have_res2048;
 	unsigned long last_counter = 0xFFFFFFFF;/* Iteration of last error */
 	int	maxerr_recovery_mode = 0;	/* Big roundoff err rerun */
 	double	last_suminp = 0.0;
@@ -10589,10 +10534,9 @@ int prp (
 	unsigned long restart_error_count = 0;	/* On a restart, use this error count rather than the one from a save file */
 	long	restart_counter = -1;		/* On a restart, this specifies how far back to rollback save files */
 
-/* Null gwnums and giants in case they get freed */
+/* Init PRP state */
 
 	memset (&ps, 0, sizeof (ps));
-	N = exp = NULL;
 
 /* See if this number needs P-1 factoring.  We treat P-1 factoring */
 /* that is part of a PRP test as priority work done in pass 1 or as */
@@ -10638,11 +10582,11 @@ int prp (
 	else ps.prp_base = IniGetInt (INI_FILE, "PRPBase", 3);
 
 /* If the Primenet server has not specified a PRP residue type (for double-checking), then by default we */
-/* to return a standard Fermat PRP residue on k*b^n+c (i.e. calculate base^(k*b^n+c-1)) */
+/* return a standard Fermat PRP residue on k*b^n+c (i.e. calculate base^(k*b^n+c-1)) */
 
 	if (w->prp_residue_type) ps.residue_type = w->prp_residue_type;
-	else ps.residue_type = IniGetInt (INI_FILE, "PRPResidueType", PRIMNET_PRP_TYPE_COFACTOR);
-	if (w->known_factors == NULL && ps.residue_type == PRIMNET_PRP_TYPE_COFACTOR) ps.residue_type = PRIMNET_PRP_TYPE_FERMAT;
+	else ps.residue_type = IniGetInt (INI_FILE, "PRPResidueType", PRIMENET_PRP_TYPE_COFACTOR);
+	if (w->known_factors == NULL && ps.residue_type == PRIMENET_PRP_TYPE_COFACTOR) ps.residue_type = PRIMENET_PRP_TYPE_FERMAT;
 
 /* Below is some pseudo-code to show how various input numbers are handled for each PRP residue type (rt=residue type, */
 /* a=PRP base, E is number for the binary exponentiation code, KF=known factors).  We can do Gerbicz error checking if b=2 and */
@@ -10669,13 +10613,11 @@ int prp (
 /* Set flag if we will perform power-of-two optimizations.  These optimizations reduce the number of mul-by-small constants */
 /* by computing a^(k*2^n) which gives us a long run of simple squarings.  These squarings let us do Gerbicz error checking. */
 
-	if (IniGetInt (INI_FILE, "PRPStraightForward", 0))
-		ps.two_power_opt = FALSE;
-	else
-		ps.two_power_opt = (w->b == 2 && (w->known_factors == NULL || ps.residue_type == PRIMNET_PRP_TYPE_COFACTOR));
+	ps.two_power_opt = (!IniGetInt (INI_FILE, "PRPStraightForward", 0) && w->b == 2 &&
+			    (w->known_factors == NULL || ps.residue_type == PRIMENET_PRP_TYPE_COFACTOR));
 	if (!ps.two_power_opt) {
-		if (ps.residue_type == PRIMNET_PRP_TYPE_FERMAT_VAR) ps.residue_type = PRIMNET_PRP_TYPE_FERMAT;
-		else if (ps.residue_type == PRIMNET_PRP_TYPE_SPRP_VAR) ps.residue_type = PRIMNET_PRP_TYPE_SPRP;
+		if (ps.residue_type == PRIMENET_PRP_TYPE_FERMAT_VAR) ps.residue_type = PRIMENET_PRP_TYPE_FERMAT;
+		else if (ps.residue_type == PRIMENET_PRP_TYPE_SPRP_VAR) ps.residue_type = PRIMENET_PRP_TYPE_SPRP;
 	}
 
 /* If k=1,b=2 and we are doing a traditional Fermat PRP implementation, then interim residues are output based on the bit */
@@ -10692,9 +10634,9 @@ int prp (
 
 /* Flag the PRP tests that require multiplying the final a^exp to account for c */
 
-	if (ps.two_power_opt && (ps.residue_type == PRIMNET_PRP_TYPE_FERMAT || ps.residue_type == PRIMNET_PRP_TYPE_COFACTOR))
+	if (ps.two_power_opt && (ps.residue_type == PRIMENET_PRP_TYPE_FERMAT || ps.residue_type == PRIMENET_PRP_TYPE_COFACTOR))
 		mul_final = w->c - 1;
-	else if (ps.two_power_opt && ps.residue_type == PRIMNET_PRP_TYPE_SPRP)
+	else if (ps.two_power_opt && ps.residue_type == PRIMENET_PRP_TYPE_SPRP)
 		mul_final = (w->c - 1) / 2;
 	else
 		mul_final = 0;
@@ -10705,12 +10647,24 @@ int prp (
 	if (echk == 0) ps.error_check_type = PRP_ERRCHK_NONE;
 	if (echk == 1) ps.error_check_type = ps.two_power_opt ? PRP_ERRCHK_GERBICZ : PRP_ERRCHK_NONE;
 	if (echk == 2) ps.error_check_type = ps.two_power_opt ? PRP_ERRCHK_GERBICZ : PRP_ERRCHK_DBLCHK;
+	if (echk == 3) ps.error_check_type = PRP_ERRCHK_DBLCHK;
+
+/* Init the write save file state.  This remembers which save files are Gerbicz-checked.  Do this initialization */
+/* before the restart for roundoff errors so that error recovery does not destroy thw write save file state. */
+
+	tempFileName (w, filename);
+	writeSaveFileStateInit (&write_save_file_state, filename, NUM_JACOBI_BACKUP_FILES);
+
+/* Null gwnums and giants in case they get freed */
+
+begin:	N = exp = NULL;
 
 /* Init the FFT code for squaring modulo k*b^n+c */
 
-begin:	gwinit (&gwdata);
+	gwinit (&gwdata);
 	gwsetmaxmulbyconst (&gwdata, ps.prp_base);
 	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&gwdata);
+	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&gwdata);
 	if (HYPERTHREAD_LL) {
 		sp_info->normal_work_hyperthreads = IniGetInt (LOCALINI_FILE, "HyperthreadLLcount", CPU_HYPERTHREADS);
 		gwset_will_hyperthread (&gwdata, sp_info->normal_work_hyperthreads);
@@ -10815,18 +10769,24 @@ begin:	gwinit (&gwdata);
 
 /* Format the string representation of the test number */
 
-	strcpy (string_rep, gwmodulo_as_string (&gwdata));
-	if (w->known_factors == NULL)
-		string_rep_truncated = FALSE;
-	else if (strlen (w->known_factors) < 40) {
-		char	*p;
-		strcat (string_rep, "/");
-		strcat (string_rep, w->known_factors);
-		while ((p = strchr (string_rep, ',')) != NULL) *p = '/';
+	if (w->known_factors == NULL) {
+		strcpy (string_rep, gwmodulo_as_string (&gwdata));
 		string_rep_truncated = FALSE;
 	} else {
-		strcat (string_rep, "/known_factors");
-		string_rep_truncated = TRUE;
+		if (strchr (gwmodulo_as_string (&gwdata), '^') == NULL)
+			strcpy (string_rep, gwmodulo_as_string (&gwdata));
+		else
+			sprintf (string_rep, "(%s)", gwmodulo_as_string (&gwdata));
+		if (strlen (w->known_factors) < 40) {
+			char	*p;
+			strcat (string_rep, "/");
+			strcat (string_rep, w->known_factors);
+			while ((p = strchr (string_rep, ',')) != NULL) *p = '/';
+			string_rep_truncated = FALSE;
+		} else {
+			strcat (string_rep, "/known_factors");
+			string_rep_truncated = TRUE;
+		}
 	}
 
 /* Init the title */
@@ -10837,9 +10797,7 @@ begin:	gwinit (&gwdata);
 /* Loop reading from save files (and backup save files).  Limit number of backup */
 /* files we try to read in case there is an error deleting bad save files. */
 
-	tempFileName (w, filename);
 	readSaveFileStateInit (&read_save_file_state, thread_num, filename);
-	writeSaveFileStateInit (&write_save_file_state, filename, NUM_JACOBI_BACKUP_FILES);
 	for ( ; ; ) {
 
 /* If there are no more save files, start off with the 1st PRP squaring. */
@@ -10904,20 +10862,31 @@ begin:	gwinit (&gwdata);
 		goto exit;
 	}
 
-/* As a small optimization, base 2 numbers are computed as a^(k*2^n) or a^(k*2^(n-1)) mod N with the final result multiplied by */
-/* a^(c-1).  This eliminates tons of mul-by-consts at the expense of lots of bookkeepping headaches and one squaring if k=1 and c<0. */
+/* As a small optimization, base 2 numbers are computed as a^(k*2^n) or a^(k*2^(n-1)) mod N with the final result */
+/* multiplied by a^(c-1).  This eliminates tons of mul-by-consts at the expense of lots of bookkeepping headaches */
+/* and one squaring if k=1 and c<0. */
 
 	if (ps.two_power_opt) {
 		int	gerbicz_squarings;
-		if (ps.residue_type == PRIMNET_PRP_TYPE_FERMAT ||
-		    ps.residue_type == PRIMNET_PRP_TYPE_FERMAT_VAR ||
-		    ps.residue_type == PRIMNET_PRP_TYPE_COFACTOR)
+		if (ps.residue_type == PRIMENET_PRP_TYPE_FERMAT ||
+		    ps.residue_type == PRIMENET_PRP_TYPE_FERMAT_VAR ||
+		    ps.residue_type == PRIMENET_PRP_TYPE_COFACTOR)
 			gerbicz_squarings = w->n;
 		else
 			gerbicz_squarings = w->n - 1;
 		ultog (2, exp);
 		power (exp, gerbicz_squarings);
 		dblmulg (w->k, exp);
+	}
+
+/* PRP co-factor test.  Do a PRP test on k*b^n+c rather than (k*b^n+c)/known_factors. */
+
+	else if (ps.residue_type == PRIMENET_PRP_TYPE_COFACTOR) {
+		ultog (w->b, exp);
+		power (exp, w->n);
+		dblmulg (w->k, exp);
+		iaddg (w->c, exp);
+		iaddg (-1, exp);
 	}
 
 /* Standard PRP test.  Subtract 1 from N to compute a^(N-1) mod N */
@@ -10996,7 +10965,7 @@ begin:	gwinit (&gwdata);
 		}
 
 /* The next easiest case is double-the-work error-checking comparing residues at specified intervals */
-	
+
 		if (ps.error_check_type == PRP_ERRCHK_DBLCHK) {
 			ps.state = PRP_STATE_DCHK_PASS1;
 			ps.start_counter = 0;
@@ -11020,19 +10989,21 @@ begin:	gwinit (&gwdata);
    We define a "checksum" function below, which is updated every L-th squaring:
 	d[t]=prod(i=0,t,u[L*i]) mod mp
    The key idea is that the checksum function can be calculated two different ways, thus the two can be compared to detect an error:
-	d[t]=d[t-1]*u[L*t] mod mp
-	d[t]=u[0]*d[t-1]^(2^L) mod mp
+	d[t]=d[t-1]*u[L*t] mod mp		(checksum #1)
+	d[t]=u[0]*d[t-1]^(2^L) mod mp		(checksum #2)
    The larger L we choose, the lower the error-checking overhead cost.  For L of 1000, we catch errors every 1 million iterations
    with an overhead of just 0.2%. */
+/* For extra protection, we always keep two copies of the gwnum in memory.  If either one "goes bad" error checking will catch this. */
 
 		if (ps.error_check_type == PRP_ERRCHK_GERBICZ) {
+			// Both PRP_STATE_DCHK_PASS1 and PRP_STATE_GERB_START_BLOCK expect alt_x to be a copy of x
+			gwcopy (&gwdata, ps.x, ps.alt_x);
+			ps.alt_units_bit = ps.units_bit;
 			// We first compute (prp_base^k) by double-checking 
 			if (w->k != 1.0) {
 				ps.state = PRP_STATE_DCHK_PASS1;
 				ps.start_counter = 0;
 				ps.end_counter = (int) _log2 (w->k);
-				gwcopy (&gwdata, ps.x, ps.alt_x);
-				ps.alt_units_bit = ps.units_bit;
 			} else {
 				ps.state = PRP_STATE_GERB_START_BLOCK;
 			}
@@ -11051,7 +11022,7 @@ begin:	gwinit (&gwdata);
 {giant t1, t2;
 t1 = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 4) + 5);
 t2 = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 4) + 5);
-gwtogiant (&gwdata, ps.x, t1);
+(void) gwtogiant (&gwdata, ps.x, t1);
 rotateg (t1, w->n, ps.units_bit, &gwdata.gdata);
 #endif
 	gwsetmulbyconst (&gwdata, ps.prp_base);
@@ -11073,20 +11044,28 @@ rotateg (t1, w->n, ps.units_bit, &gwdata.gdata);
 				ps.state = PRP_STATE_DCHK_PASS1;
 				ps.start_counter = ps.counter;
 				ps.end_counter = final_counter;
-				gwcopy (&gwdata, ps.x, ps.alt_x);
-				ps.alt_units_bit = ps.units_bit;
+				gwadd3 (&gwdata, ps.alt_x, ps.alt_x, ps.alt_x);
+				ps.alt_units_bit = ps.units_bit + 1;
+				if (ps.alt_units_bit >= w->n) ps.alt_units_bit -= w->n;
 			} else {
 				int	gerbicz_block_size;
+				double	adjustment;
 				ps.state = PRP_STATE_GERB_MID_BLOCK;
-				gerbicz_block_size = (int) (IniGetFloat (INI_FILE, "PRPGerbiczCompareIntervalAdj", 1.0) *
-							    IniGetInt (INI_FILE, "PRPGerbiczCompareInterval", 1000000));
-				if (iters_left < gerbicz_block_size) gerbicz_block_size = iters_left;
+				adjustment = IniGetFloat (INI_FILE, "PRPGerbiczCompareIntervalAdj", 1.0);
+				if (adjustment < 0.001 || adjustment > 1.0) adjustment = 0.5;
+				gerbicz_block_size = (int) (adjustment * IniGetInt (INI_FILE, "PRPGerbiczCompareInterval", 1000000));
+				if (gerbicz_block_size < 25) gerbicz_block_size = 25;
+				if (gerbicz_block_size > iters_left) gerbicz_block_size = iters_left;
 				ps.L = (unsigned long) sqrt ((double) gerbicz_block_size);
 				ps.start_counter = ps.counter;
 				ps.next_mul_counter = ps.counter + ps.L;
 				ps.end_counter = ps.counter + ps.L * ps.L;
-				gwcopy (&gwdata, ps.x, ps.u0);
-				gwcopy (&gwdata, ps.x, ps.d);
+				gwswap (ps.alt_x, ps.u0);		// Set u0 to a copy of x
+				gwcopy (&gwdata, ps.x, ps.d);		// Set d[0] to a copy of x
+				if (IniGetInt (INI_FILE, "GerbiczVerbosity", 1) > 1) {
+					sprintf (buf, "Start Gerbicz block of size %ld at iteration %ld.\n", ps.L * ps.L, ps.start_counter);
+					OutputBoth (thread_num, buf);
+				}
 			}
 		}
 
@@ -11102,7 +11081,8 @@ rotateg (t1, w->n, ps.units_bit, &gwdata.gdata);
 /* Round off error check the first and last 50 iterations, before writing a save file, near an FFT size's limit, */
 /* or check every iteration option is set, and every 128th iteration. */
 
-		echk = ps.counter < 50 || ps.counter >= final_counter-50 || saving || near_fft_limit || ERRCHK || ((ps.counter & 127) == 0);
+		echk = ERRCHK || ps.counter < 50 || ps.counter >= final_counter-50 || saving ||
+		       (ps.error_check_type == PRP_ERRCHK_NONE && (near_fft_limit || ((ps.counter & 127) == 0)));
 		gw_clear_maxerr (&gwdata);
 
 /* Check if we should send residue to server, output residue to screen, or create an interediate save file */
@@ -11135,8 +11115,14 @@ rotateg (t1, w->n, ps.units_bit, &gwdata.gdata);
 		} else if (ps.state == PRP_STATE_GERB_END_BLOCK_MULT) {
 			gwstartnextfft (&gwdata, 0);		/* Do not start next forward FFT */
 			gwsetnormroutine (&gwdata, 0, 1, 0);	/* Always roundoff error check multiplies */
-			gwmul (&gwdata, ps.u0, ps.alt_x);	/* Multiply (u0 value can be destroyed) */
+			gwmul (&gwdata, ps.u0, ps.alt_x);	/* Multiply to calc checksum #2.  u0 value can be destroyed. */
 			x = ps.alt_x;				/* Set pointer for checking roundoff errors, sumouts, etc. */
+		} else if (ps.state == PRP_STATE_GERB_FINAL_MULT) {
+			gwcopy (&gwdata, ps.x, ps.u0);		// Copy x (before using it) for next Gerbicz block
+			gwstartnextfft (&gwdata, 0);		/* Do not start next forward FFT */
+			gwsetnormroutine (&gwdata, 0, 1, 0);	/* Always roundoff error check multiplies */
+			gwsafemul (&gwdata, ps.u0, ps.d);	/* "Safe" multiply to compute final d[t] value (checksum #1) */
+			x = ps.d;				/* Set pointer for checking roundoff errors, sumouts, etc. */
 		}
 
 /* Otherwise, do a squaring iteration */
@@ -11181,6 +11167,7 @@ echk=1;
 			if (maxerr_recovery_mode && ps.counter == last_counter) {
 				gwsquare_carefully (&gwdata, x);
 				maxerr_recovery_mode = 0;
+				last_counter = 0xFFFFFFFF;
 				echk = 0;
 			} else if (ps.counter < 30 || ps.counter >= final_counter-30)
 				gwsquare_carefully (&gwdata, x);
@@ -11191,7 +11178,7 @@ echk=1;
 			if (*units_bit >= w->n) *units_bit -= w->n;
 
 #ifdef CHECK_ITER
-gwtogiant (&gwdata, ps.x, t2);
+(void) gwtogiant (&gwdata, ps.x, t2);
 rotateg (t2, w->n, ps.units_bit, &gwdata.gdata);
 if (w->known_factors) modg (N, t2);
 if (gcompg (t1, t2) != 0)
@@ -11221,20 +11208,21 @@ OutputStr (thread_num, "Iteration failed.\n");
 		}
 
 /* If the sum of the output values is an error (such as infinity) then raise an error. */
+/* This kind of error is apt to persist, so always restart from last save file. */
 
 		if (gw_test_illegal_sumout (&gwdata)) {
 			sprintf (buf, ERRMSG0, ps.counter+1, final_counter, ERRMSG1A);
 			OutputBoth (thread_num, buf);
 			inc_error_count (2, &ps.error_count);
-			if (ps.error_check_type == PRP_ERRCHK_NONE) {
-				sleep5 = TRUE;
-				goto restart;
-			}
+			last_counter = ps.counter;		/* create save files before and after this iteration */
+			restart_counter = -1;			/* rollback to any save file */
+			sleep5 = TRUE;
+			goto restart;
 		}
 
-/* Check that the sum of the input numbers squared is approximately */
-/* equal to the sum of unfft results.  Since this check may not */
-/* be perfect, check for identical results after a restart. */
+/* Check that the sum of the input numbers squared is approximately equal to the sum of unfft results. */
+/* Since checking floats for equality is imperfect, check for identical results after a restart. */
+/* Note that if the SUMOUT value is extremely large the result is surely corrupt and we must rollback. */
 
 		if (gw_test_mismatched_sums (&gwdata)) {
 			if (ps.counter == last_counter &&
@@ -11249,20 +11237,22 @@ OutputStr (thread_num, "Iteration failed.\n");
 				sprintf (buf, ERRMSG0, ps.counter+1, final_counter, msg);
 				OutputBoth (thread_num, buf);
 				inc_error_count (0, &ps.error_count);
-				if (ps.error_check_type == PRP_ERRCHK_NONE) {
+				if (ps.error_check_type == PRP_ERRCHK_NONE || fabs (gwsumout (&gwdata, x)) > 1.0e40) {
 					last_counter = ps.counter;
 					last_suminp = gwsuminp (&gwdata, x);
 					last_sumout = gwsumout (&gwdata, x);
+					restart_counter = ps.counter;		/* rollback to this iteration or earlier */
 					sleep5 = TRUE;
 					goto restart;
 				}
 			}
 		}
 
-/* Check for excessive roundoff error.  If round off is too large, repeat */
-/* the iteration to see if this was a hardware error.  If it was repeatable */
-/* then repeat the iteration using a safer, slower method.  This can */
-/* happen when operating near the limit of an FFT. */
+/* Check for excessive roundoff error.  If round off is too large, repeat the iteration to see if this was */
+/* a hardware error.  If it was repeatable then repeat the iteration using a safer, slower method.  This can */
+/* happen when operating near the limit of an FFT.  NOTE: with the introduction of Gerbicz error-checking we */
+/* ignore some of these errors as the Gerbicz check will catch any problems later.  However, if the round off */
+/* error is really large, then results are certainly corrupt and we roll back immmediately. */
 
 		if (echk && gw_get_maxerr (&gwdata) > allowable_maxerr) {
 			if (ps.counter == last_counter && gw_get_maxerr (&gwdata) == last_maxerr) {
@@ -11271,6 +11261,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 				gw_clear_error (&gwdata);
 				OutputBoth (thread_num, ERRMSG5);
 				maxerr_recovery_mode = 1;
+				restart_counter = ps.counter;		/* rollback to this iteration or earlier */
 				sleep5 = FALSE;
 				goto restart;
 			} else {
@@ -11279,9 +11270,11 @@ OutputStr (thread_num, "Iteration failed.\n");
 				sprintf (buf, ERRMSG0, ps.counter+1, final_counter, msg);
 				OutputBoth (thread_num, buf);
 				inc_error_count (1, &ps.error_count);
-				if (ps.error_check_type == PRP_ERRCHK_NONE) {
+				if (ps.error_check_type == PRP_ERRCHK_NONE ||
+				    gw_get_maxerr (&gwdata) > IniGetFloat (INI_FILE, "RoundoffRollbackError", (float) 0.475)) {
 					last_counter = ps.counter;
 					last_maxerr = gw_get_maxerr (&gwdata);
+					restart_counter = ps.counter;		/* rollback to this iteration or earlier */
 					sleep5 = FALSE;
 					goto restart;
 				}
@@ -11304,7 +11297,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 		actual_frequency = (int) (ITER_OUTPUT * output_title_frequency);
 		if (actual_frequency < 1) actual_frequency = 1;
 		if (ps.counter % actual_frequency == 0 || first_iter_msg) {
-			sprintf (buf, "%.*f%% of %s", (int) PRECISION, trunc_percent (w->pct_complete), string_rep);
+			sprintf (buf, "%.*f%% of PRP %s", (int) PRECISION, trunc_percent (w->pct_complete), string_rep);
 			title (thread_num, buf);
 		}
 
@@ -11313,8 +11306,10 @@ OutputStr (thread_num, "Iteration failed.\n");
 		actual_frequency = (int) (ITER_OUTPUT * output_frequency);
 		if (actual_frequency < 1) actual_frequency = 1;
 		if ((ps.counter % actual_frequency == 0 && ps.state != PRP_STATE_GERB_MID_BLOCK_MULT &&
-		     ps.state != PRP_STATE_GERB_END_BLOCK && ps.state != PRP_STATE_GERB_END_BLOCK_MULT) || first_iter_msg) {
-			sprintf (buf, "Iteration: %ld / %ld [%.*f%%]", ps.counter, final_counter, (int) PRECISION, trunc_percent (w->pct_complete));
+		     ps.state != PRP_STATE_GERB_END_BLOCK && ps.state != PRP_STATE_GERB_END_BLOCK_MULT &&
+		     ps.state != PRP_STATE_GERB_FINAL_MULT) || first_iter_msg) {
+			sprintf (buf, "Iteration: %ld / %ld [%.*f%%]",
+				 ps.counter, final_counter, (int) PRECISION, trunc_percent (w->pct_complete));
 			/* Append a short form total errors message */
 			if ((error_count_messages & 0xFF) == 1)
 				make_error_count_message (ps.error_count, error_count_messages, buf + strlen (buf),
@@ -11372,7 +11367,8 @@ OutputStr (thread_num, "Iteration failed.\n");
 /* Print a results file message every so often */
 
 		if ((ps.counter % ITER_OUTPUT_RES == 0 && ps.state != PRP_STATE_GERB_MID_BLOCK_MULT &&
-		     ps.state != PRP_STATE_GERB_END_BLOCK && ps.state != PRP_STATE_GERB_END_BLOCK_MULT) || (NO_GUI && stop_reason)) {
+		     ps.state != PRP_STATE_GERB_END_BLOCK && ps.state != PRP_STATE_GERB_END_BLOCK_MULT &&
+		     ps.state != PRP_STATE_GERB_FINAL_MULT) || (NO_GUI && stop_reason)) {
 			sprintf (buf, "Iteration %ld / %ld\n", ps.counter, final_counter);
 			writeResults (buf);
 		}
@@ -11380,94 +11376,161 @@ OutputStr (thread_num, "Iteration failed.\n");
 /* If double-checking, at end of pass 1 rollback counter and start computing alt_x. */
 /* If double-checking, at end of pass 2 compare values and move onto next block. */
 
-		if (ps.state == PRP_STATE_DCHK_PASS1 && ps.counter == ps.end_counter) {
-			ps.state = PRP_STATE_DCHK_PASS2;
-			ps.counter = ps.start_counter;
-		}
-		if (ps.state == PRP_STATE_DCHK_PASS2 && ps.counter == ps.end_counter) {
-			if (!areTwoPRPValsEqual (&gwdata, w->n, ps.x, ps.units_bit, ps.alt_x, ps.alt_units_bit)) {
-				sprintf (buf, ERRMSG6, ps.start_counter);
-				OutputBoth (thread_num, buf);
-				inc_error_count (7, &ps.error_count);
-				restart_counter = ps.start_counter;		/* rollback to this iteration */
+		if (ps.state == PRP_STATE_DCHK_PASS1) {
+			if (ps.counter < ps.end_counter);		// Do next iteration
+			else if (ps.counter == ps.end_counter) {	// Switch to alt_x computations
+				ps.state = PRP_STATE_DCHK_PASS2;
+				ps.counter = ps.start_counter;
+			} else {					// Can't happen
+				OutputBoth (thread_num, ERRMSG9);
+				inc_error_count (6, &ps.error_count);
+				restart_counter = -1;			/* rollback to any save file */
 				sleep5 = FALSE;
 				goto restart;
 			}
-			/* If doing a full double-check, start next block of iterations */
-			if (ps.error_check_type == PRP_ERRCHK_DBLCHK) {
-				ps.state = PRP_STATE_DCHK_PASS1;
-				ps.start_counter = ps.counter;
-				ps.end_counter = ps.start_counter + IniGetInt (INI_FILE, "PRPDoublecheckCompareInterval", 100000);
-				if (ps.end_counter > final_counter) ps.end_counter = final_counter;
-			}
-			/* Otherwise, we're doing a Gerbicz error-check.  Start next Gerbicz block. */
-			else {
-				ps.state = PRP_STATE_GERB_START_BLOCK;
-			}
-			/* We've reached a verified iteration, create a save file and mark it highly reliable. */
-			/* But if there are less than 1000 iterations left, don't bother creating the save file. */
-			if (final_counter - ps.counter >= 1000) {
-				saving = TRUE;
-				saving_highly_reliable = TRUE;
+		}
+		if (ps.state == PRP_STATE_DCHK_PASS2) {
+			if (ps.counter < ps.end_counter);		// Do next iteration
+			else if (ps.counter == ps.end_counter) {	// Switch to alt_x computations
+				if (!areTwoPRPValsEqual (&gwdata, w->n, ps.x, ps.units_bit, ps.alt_x, ps.alt_units_bit)) {
+					sprintf (buf, ERRMSG6, ps.start_counter);
+					OutputBoth (thread_num, buf);
+					inc_error_count (7, &ps.error_count);
+					restart_counter = ps.start_counter;		/* rollback to this iteration */
+					sleep5 = FALSE;
+					goto restart;
+				}
+				/* If doing a full double-check, start next block of iterations */
+				if (ps.error_check_type == PRP_ERRCHK_DBLCHK) {
+					ps.state = PRP_STATE_DCHK_PASS1;
+					ps.start_counter = ps.counter;
+					ps.end_counter = ps.start_counter + IniGetInt (INI_FILE, "PRPDoublecheckCompareInterval", 100000);
+					if (ps.end_counter > final_counter) ps.end_counter = final_counter;
+				}
+				/* Otherwise, we're doing the first or last few iterations of a Gerbicz error-check. */
+				/* Set state to start next Gerbicz block (in case we just computed prp_base^k). */
+				else {
+					ps.state = PRP_STATE_GERB_START_BLOCK;
+				}
+				/* We've reached a verified iteration, create a save file and mark it highly reliable. */
+				/* But if there are less than 1000 iterations left on a reliable machine */
+				/* don't bother creating the save file. */
+				if (final_counter - ps.counter >= 1000 || ps.error_count > 0) {
+					saving = TRUE;
+					saving_highly_reliable = TRUE;
+				}
+			} else {					// Can't happen
+				OutputBoth (thread_num, ERRMSG9);
+				inc_error_count (6, &ps.error_count);
+				restart_counter = -1;			/* rollback to any save file */
+				sleep5 = FALSE;
+				goto restart;
 			}
 		}
 
-/* If Gerbicz error-checking, see if this is an L-th iteration that needs to do a checksum multiply. */
-/* Also check if this is the L^2-th iteration where we switch to an alternate method of computing the checksum. */
-/* NOTE: We do not need to worry about shift_counts in the checksum, both checksums will end up with the same shift count. */
+/* If Gerbicz error-checking, handle all the possible Gerbicz states.  See if this is an L-th iteration that needs */
+/* to do a checksum multiply.  Also check if this is the L^2-th iteration where we switch to an alternate method to */
+/* compute checksum #2. */
+/* NOTE: We do not need to worry about shift_counts in the checksum as both checksums will end up with the same shift count. */
 
-		if (ps.state == PRP_STATE_GERB_MID_BLOCK && ps.counter == ps.next_mul_counter) {
-			// At block's end, copy d to alt_x in preparation for alternate method of computing Gerbicz checksum
-			if (ps.counter == ps.end_counter) gwcopy (&gwdata, ps.d, ps.alt_x);
-			// Back counter up by one and do one multiply in the computation of first Gerbicz checksum value
-			ps.state = PRP_STATE_GERB_MID_BLOCK_MULT;
-			ps.counter -= 1;
+		// Just did a normal PRP squaring
+		if (ps.state == PRP_STATE_GERB_MID_BLOCK) {
+			if (ps.counter < ps.next_mul_counter);		// Do next iteration
+			else if (ps.counter == ps.end_counter) {	// Delay last checksum #1 multiply, start checksum #2 calculation
+				if (IniGetInt (INI_FILE, "GerbiczVerbosity", 1) > 1) OutputStr (thread_num, "Start Gerbicz error check.\n");
+				// At end of Gerbicz block, switch to "L" squarings of alt_x to create Gerbicz checksum #2 value
+				gwcopy (&gwdata, ps.d, ps.alt_x);	// Copy d[t-1] to alt_x
+				ps.state = PRP_STATE_GERB_END_BLOCK;	// Squaring alt_x state
+				ps.counter -= ps.L;			// L squarings
+			} else if (ps.counter == ps.next_mul_counter) {	// Do a checksum #1 multiply next
+				// Back counter up by one and do one multiply in the computation of Gerbicz checksum #1 value
+				ps.state = PRP_STATE_GERB_MID_BLOCK_MULT;
+				ps.counter -= 1;
+			} else {					// Can't happen
+				OutputBoth (thread_num, ERRMSG9);
+				inc_error_count (6, &ps.error_count);
+				restart_counter = -1;			/* rollback to any save file */
+				sleep5 = FALSE;
+				goto restart;
+			}
 		}
+
+		// Just did a a checksum #1 multiply at the end of a block of L normal squarings
 		else if (ps.state == PRP_STATE_GERB_MID_BLOCK_MULT) {
-			// If in middle of Gerbicz block, do another "L" squarings
-			if (ps.counter != ps.end_counter) {
+			if (ps.counter < ps.end_counter) {		// In middle of Gerbicz block, do another "L" squarings
 				ps.state = PRP_STATE_GERB_MID_BLOCK;
 				ps.next_mul_counter += ps.L;
-			}
-			// At block's end, rollback counter to do "L" squarings of alt_x to create second Gerbicz checksum value
-			else {
-				ps.state = PRP_STATE_GERB_END_BLOCK;
-				ps.counter -= ps.L;
+			} else {					// Can't happen
+				OutputBoth (thread_num, ERRMSG9);
+				inc_error_count (6, &ps.error_count);
+				restart_counter = -1;			/* rollback to any save file */
+				sleep5 = FALSE;
+				goto restart;
 			}
 		}
 
-/* If Gerbicz error-checking and we've finished computing the alternate checksum, then compare the two checksums */
-/* and start next Gerbicz block. */
-
-		if (ps.state == PRP_STATE_GERB_END_BLOCK && ps.counter == ps.end_counter) {
-			ps.state = PRP_STATE_GERB_END_BLOCK_MULT;
-			ps.counter -= 1;
+		// Just did a checksum #2 squaring
+		else if (ps.state == PRP_STATE_GERB_END_BLOCK) {
+			if (ps.counter < ps.end_counter);		// Do next iteration in computing checksum #2
+			else if (ps.counter == ps.end_counter) {	// Next do final multiply in computing checksum #2
+				ps.state = PRP_STATE_GERB_END_BLOCK_MULT;
+				ps.counter -= 1;
+			} else {					// Can't happen
+				OutputBoth (thread_num, ERRMSG9);
+				inc_error_count (6, &ps.error_count);
+				restart_counter = -1;			/* rollback to any save file */
+				sleep5 = FALSE;
+				goto restart;
+			}
 		}
+
+		// Just did the checksum #2 multiply at the end of L checksum #2 squarings
 		else if (ps.state == PRP_STATE_GERB_END_BLOCK_MULT) {
+			if (ps.counter == ps.end_counter) {		// Next do final multiply in computing checksum #1
+				ps.state = PRP_STATE_GERB_FINAL_MULT;
+				ps.counter -= 1;
+			} else {					// Can't happen
+				OutputBoth (thread_num, ERRMSG9);
+				inc_error_count (6, &ps.error_count);
+				restart_counter = -1;			/* rollback to any save file */
+				sleep5 = FALSE;
+				goto restart;
+			}
+		}
+
+		// Just did the final checksum #1 multiply which we delayed until checksum #2 completed
+		else if (ps.state == PRP_STATE_GERB_FINAL_MULT) {
 			double	gerbicz_block_size_adjustment;
 			// We adjust the compare interval size downward when errors occur and upwards when they dont.
 			// That way buggy machines will lose fewer iterations when rolling back.
 			gerbicz_block_size_adjustment = IniGetFloat (INI_FILE, "PRPGerbiczCompareIntervalAdj", 1.0);
-			// compare alt_x, d (the two Gerbicz checksum values that must match)
+			if (gerbicz_block_size_adjustment < 0.001 || gerbicz_block_size_adjustment > 1.0) gerbicz_block_size_adjustment = 0.5;
+			// Compare alt_x, d (the two Gerbicz checksum values that must match)
 			if (!areTwoPRPValsEqual (&gwdata, w->n, ps.alt_x, 0, ps.d, 0)) {
 				sprintf (buf, ERRMSG7, ps.start_counter);
 				OutputBoth (thread_num, buf);
 				gerbicz_block_size_adjustment *= 0.25;		/* This will halve next L */
-				if (gerbicz_block_size_adjustment < 0.01) gerbicz_block_size_adjustment = 0.01;
+				if (gerbicz_block_size_adjustment < 0.001) gerbicz_block_size_adjustment = 0.001;
 				IniWriteFloat (INI_FILE, "PRPGerbiczCompareIntervalAdj", (float) gerbicz_block_size_adjustment);
 				inc_error_count (7, &ps.error_count);
 				restart_counter = ps.start_counter;		/* rollback to this iteration */
 				sleep5 = FALSE;
 				goto restart;
 			}
+			if (IniGetInt (INI_FILE, "GerbiczVerbosity", 1)) {
+				sprintf (buf, "Gerbicz error check passed at iteration %ld.\n", ps.counter);
+				OutputStr (thread_num, buf);
+			}
 			gerbicz_block_size_adjustment *= 1.0473;		/* 30 good blocks to double L */
 			if (gerbicz_block_size_adjustment > 1.0) gerbicz_block_size_adjustment = 1.0;
 			IniWriteFloat (INI_FILE, "PRPGerbiczCompareIntervalAdj", (float) gerbicz_block_size_adjustment);
-			/* Start next Gerbicz block */
+			/* Start next Gerbicz block.  Both x and alt_x must be identical at start of next block. */
 			ps.state = PRP_STATE_GERB_START_BLOCK;
+			gwswap (ps.alt_x, ps.u0);
+			ps.alt_units_bit = ps.units_bit;
 			/* We've reached a verified iteration, create a save file and mark it highly reliable. */
-			/* But if there are less than 1000 iterations left, don't bother creating the save file. */
-			if (final_counter - ps.counter >= 1000) {
+			/* But if there are less than 1000 iterations left on a reliable machine, don't bother creating the save file. */
+			if (final_counter - ps.counter >= 1000 || gerbicz_block_size_adjustment < 1.0) {
 				saving = TRUE;
 				saving_highly_reliable = TRUE;
 			}
@@ -11483,7 +11546,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 			// Mark save files that contain verified computations.  This will keep the save file
 			// for a longer period of time (i.e. will not be replaced by a save file that does
 			// not also contain verified computations).
-			if (saving_highly_reliable) write_save_file_state.special = 1;
+			if (saving_highly_reliable) setWriteSaveFileSpecial (&write_save_file_state);
 		}
 
 /* If an escape key was hit, write out the results and return */
@@ -11499,7 +11562,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 /* the residues for possible verification at a later date.  We could catch suspect computers */
 /* or malicious cheaters without doing a full double-check. */
 
-		if (sending_residue) {
+		if (sending_residue && w->assignment_uid[0]) {
 			struct primenetAssignmentProgress pkt;
 			memset (&pkt, 0, sizeof (pkt));
 			strcpy (pkt.computer_guid, COMPUTER_GUID);
@@ -11510,12 +11573,20 @@ OutputStr (thread_num, "Iteration failed.\n");
 			pkt.end_date = (unsigned long) work_estimate (thread_num, w);
 			pkt.next_update = (uint32_t) (DAYS_BETWEEN_CHECKINS * 86400.0);
 			pkt.fftlen = w->fftlen;
-			pkt.iteration = ps.counter;
+			pkt.iteration = ps.counter - interim_counter_off_one;
 			tmp = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 5) + 5);
-			gwtogiant (&gwdata, x, tmp);
+			if (gwtogiant (&gwdata, x, tmp)) {
+				pushg (&gwdata.gdata, 1);
+				OutputBoth (thread_num, ERRMSG8);
+				inc_error_count (2, &ps.error_count);
+				last_counter = ps.counter;		/* create save files before and after this iteration */
+				restart_counter = -1;			/* rollback to any save file */
+				sleep5 = TRUE;
+				goto restart;
+			}
 			rotateg (tmp, w->n, *units_bit, &gwdata.gdata);
 			if (interim_mul) basemulg (tmp, w, ps.prp_base, -1);
-			if (w->known_factors && ps.residue_type != PRIMNET_PRP_TYPE_COFACTOR) modg (N, tmp);
+			if (w->known_factors && ps.residue_type != PRIMENET_PRP_TYPE_COFACTOR) modg (N, tmp);
 			sprintf (pkt.residue, "%08lX%08lX", (unsigned long) tmp->n[1], (unsigned long) tmp->n[0]);
 			sprintf (pkt.error_count, "%08lX", ps.error_count);
 			spoolMessage (-PRIMENET_ASSIGNMENT_PROGRESS, &pkt);
@@ -11526,12 +11597,20 @@ OutputStr (thread_num, "Iteration failed.\n");
 
 		if (interim_residue) {
 			tmp = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 5) + 5);
-			gwtogiant (&gwdata, x, tmp);
+			if (gwtogiant (&gwdata, x, tmp)) {
+				pushg (&gwdata.gdata, 1);
+				OutputBoth (thread_num, ERRMSG8);
+				inc_error_count (2, &ps.error_count);
+				last_counter = ps.counter;		/* create save files before and after this iteration */
+				restart_counter = -1;			/* rollback to any save file */
+				sleep5 = TRUE;
+				goto restart;
+			}
 			rotateg (tmp, w->n, *units_bit, &gwdata.gdata);
 			if (interim_mul) basemulg (tmp, w, ps.prp_base, -1);
-			if (w->known_factors && ps.residue_type != PRIMNET_PRP_TYPE_COFACTOR) modg (N, tmp);
-			sprintf (buf, "%s interim Wg%d residue %08lX%08lX at iteration %ld\n",
-				 string_rep, PORT, (unsigned long) tmp->n[1], (unsigned long) tmp->n[0],
+			if (w->known_factors && ps.residue_type != PRIMENET_PRP_TYPE_COFACTOR) modg (N, tmp);
+			sprintf (buf, "%s interim PRP residue %08lX%08lX at iteration %ld\n",
+				 string_rep, (unsigned long) tmp->n[1], (unsigned long) tmp->n[0],
 				 ps.counter - interim_counter_off_one);
 			OutputBoth (thread_num, buf);
 			pushg (&gwdata.gdata, 1);
@@ -11574,22 +11653,79 @@ pushg(&gwdata.gdata, 2);}
 
 /* Free up some memory */
 
-	gwfree (&gwdata, ps.alt_x);
 	gwfree (&gwdata, ps.u0);
 	gwfree (&gwdata, ps.d);
+
+/* Make sure PRP state is valid.  We cannot be in the middle of a double-check or in the middle of a Gerbicz block */
+
+	if (ps.state != PRP_STATE_NORMAL && ps.state != PRP_STATE_DCHK_PASS1 && ps.state != PRP_STATE_GERB_START_BLOCK) {
+		OutputBoth (thread_num, ERRMSG9);
+		inc_error_count (6, &ps.error_count);
+		restart_counter = -1;			/* rollback to any save file */
+		sleep5 = FALSE;
+		goto restart;
+	}
 
 /* See if we've found a probable prime.  If not, format a 64-bit residue. */
 
 	tmp = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 5) + 5);
-	gwtogiant (&gwdata, ps.x, tmp);
+	if (gwtogiant (&gwdata, ps.x, tmp)) {
+		pushg (&gwdata.gdata, 1);
+		OutputBoth (thread_num, ERRMSG8);
+		inc_error_count (2, &ps.error_count);
+		restart_counter = -1;			/* rollback to any save file */
+		sleep5 = TRUE;
+		goto restart;
+	}
 	rotateg (tmp, w->n, ps.units_bit, &gwdata.gdata);
 	if (mul_final) basemulg (tmp, w, ps.prp_base, mul_final);
-	if (w->known_factors && ps.residue_type != PRIMNET_PRP_TYPE_COFACTOR) modg (N, tmp);
+	if (w->known_factors && ps.residue_type != PRIMENET_PRP_TYPE_COFACTOR) modg (N, tmp);
 	isProbablePrime = isPRPg (tmp, N, w, ps.prp_base, ps.residue_type);
-	if (!isProbablePrime) sprintf (res64, "%08lX%08lX", (unsigned long) tmp->n[1], (unsigned long) tmp->n[0]);
-	pushg (&gwdata.gdata, 1);
+	if (!isProbablePrime) {
+		sprintf (res64, "%08lX%08lX", (unsigned long) (tmp->sign > 1 ? tmp->n[1] : 0), (unsigned long) tmp->n[0]);
+		have_res2048 = (tmp->sign > 64);
+		if (have_res2048) {
+			int i;
+			for (i = 63; i >= 0; i--) sprintf (res2048+504-i*8, "%08lX", (unsigned long) tmp->n[i]);
+		}
+	}
 	gwfree (&gwdata, ps.x);
-			
+
+/* If we are doing highly reliable error checking, then make sure the calculation of the final residue was error free! */
+/* Perform the same calculations above but use alt_x. */
+
+	if (ps.state == PRP_STATE_DCHK_PASS1 || ps.state == PRP_STATE_GERB_START_BLOCK) {
+		int	alt_match, alt_isProbablePrime;
+		if (gwtogiant (&gwdata, ps.alt_x, tmp)) {
+			pushg (&gwdata.gdata, 1);
+			OutputBoth (thread_num, ERRMSG8);
+			inc_error_count (2, &ps.error_count);
+			restart_counter = -1;			/* rollback to any save file */
+			sleep5 = TRUE;
+			goto restart;
+		}
+		rotateg (tmp, w->n, ps.alt_units_bit, &gwdata.gdata);
+		if (mul_final) basemulg (tmp, w, ps.prp_base, mul_final);
+		if (w->known_factors && ps.residue_type != PRIMENET_PRP_TYPE_COFACTOR) modg (N, tmp);
+		alt_isProbablePrime = isPRPg (tmp, N, w, ps.prp_base, ps.residue_type);
+		alt_match = (isProbablePrime == alt_isProbablePrime);
+		if (alt_match && !alt_isProbablePrime) {
+			char	alt_res64[17];
+			sprintf (alt_res64, "%08lX%08lX", (unsigned long) (tmp->sign > 1 ? tmp->n[1] : 0), (unsigned long) tmp->n[0]);
+			alt_match = !strcmp (res64, alt_res64);
+		}
+		if (!alt_match) {
+			pushg (&gwdata.gdata, 1);
+			OutputBoth (thread_num, ERRMSG8);
+			inc_error_count (2, &ps.error_count);
+			restart_counter = -1;			/* rollback to any save file */
+			sleep5 = TRUE;
+			goto restart;
+		}
+		gwfree (&gwdata, ps.alt_x);
+	}
+	pushg (&gwdata.gdata, 1);
+
 /* Print results */
 
 	if (isProbablePrime) {
@@ -11599,10 +11735,10 @@ pushg(&gwdata.gdata, 2);}
 	} else {
 		sprintf (buf, "%s is not prime.  ", string_rep);
 		if (ps.prp_base != 3) sprintf (buf+strlen(buf), "Base-%u ", ps.prp_base);
-		if (ps.residue_type != PRIMNET_PRP_TYPE_FERMAT) sprintf (buf+strlen(buf), "Type-%d ", ps.residue_type);
+		if (ps.residue_type != PRIMENET_PRP_TYPE_FERMAT) sprintf (buf+strlen(buf), "Type-%d ", ps.residue_type);
 		sprintf (buf+strlen(buf), "RES64: %s.", res64);
 	}
-	sprintf (buf+strlen(buf), " Wg%d: %08lX,", PORT, SEC1 (w->n));
+	sprintf (buf+strlen(buf), " Wh%d: %08lX,", PORT, SEC1 (w->n));
 	if (ps.units_bit) sprintf (buf+strlen(buf), "%ld,", ps.units_bit);
 	sprintf (buf+strlen(buf), "%08lX\n", ps.error_count);
 	OutputStr (thread_num, buf);
@@ -11629,50 +11765,51 @@ pushg(&gwdata.gdata, 2);}
 		}
 	}
 
-/* Format a JSON version of the result.  An example from gpuowl follows: */
-/* {"exponent":25000000, "worktype":"PRP-3", "status":"C", "res64":"0000000000000000", */
-/* "residue-checksum":"c6b0b26c", "program":{"name":"gpuowl", "version":"1.1"}, "timestamp":"2017-09-04 23:28:16", */
-/* "errors":{"gerbicz":0}, "user":"meme", "cpu":"Vega [Radeon RX Vega] 64 @83:0.0", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
+/* Format a JSON version of the result.  An example follows: */
+/* {"status":"C", "exponent":25000000, "known-factors":["12345","67890"], "worktype":"PRP-3", "res64":"0123456789ABCDEF", */
+/* "residue-type":1, "res2048":"BigLongString", "fft-length":4096000, "shift-count":1234567, "error-code":"00010000", */
+/* "security-code":"C6B0B26C", "program":{"name":"prime95", "version":"29.5", "build":"8"}, "timestamp":"2019-01-15 23:28:16", */
+/* "errors":{"gerbicz":0}, "user":"gw_2", "cpu":"basement", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
 
 	sprintf (JSONbuf, "{\"status\":\"%s\"", isProbablePrime ? "P" : "C");
-	if (w->k == 1.0 && w->b == 2 && w->c == -1)
-		sprintf (JSONbuf+strlen(JSONbuf), ", \"exponent\":%lu", w->n);
-	else
-		sprintf (JSONbuf+strlen(JSONbuf), ", \"k\":%.0f, \"b\":%lu, \"n\":%lu, \"c\":%ld", w->k, w->b, w->n, w->c);
+	JSONaddExponent (JSONbuf, w);
 	if (w->known_factors != NULL) {
 		char	fac_string[1210];
-		if (strlen (w->known_factors) <= 1200) strcpy (fac_string, w->known_factors);
-		else {
-			memcpy (fac_string, w->known_factors, 1200);
-			strcpy (fac_string+1200, "...");
+		char	*in, *out;
+		fac_string[0] = 0;
+		// Copy known factors changing commas to quote-comma-quote
+		for (in = w->known_factors, out = fac_string; ; in++) {
+			if (*in == ',') {
+				strcpy (out, "\",\"");
+				out += 3;
+			} else if (out - fac_string > 1200) {
+				strcpy (out, "...");
+				break;
+			} else
+				*out++ = *in;
+			if (*in == 0) break;
 		}
-		sprintf (JSONbuf+strlen(JSONbuf), ", \"known-factors\":\"%s\"", fac_string);
+		sprintf (JSONbuf+strlen(JSONbuf), ", \"known-factors\":[\"%s\"]", fac_string);
 	}
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"worktype\":\"PRP-%u\"", ps.prp_base);
 	if (!isProbablePrime) {
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"res64\":\"%s\"", res64);
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"residue-type\":%d", ps.residue_type);
+		if (have_res2048 && IniGetInt (INI_FILE, "OutputRes2048", 1))
+			sprintf (JSONbuf+strlen(JSONbuf), ", \"res2048\":\"%s\"", res2048);
 	}
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", gwdata.FFTLEN);
 	if (ps.units_bit) sprintf (JSONbuf+strlen(JSONbuf), ", \"shift-count\":%ld", ps.units_bit);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"error-code\":\"%08lX\"", ps.error_count);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC1(w->n));
-	sprintf (JSONbuf+strlen(JSONbuf), ", \"program\":{\"name\":\"Prime95\", \"version\":\"%s\", \"build\":%s, \"port\":%d}",
-		 VERSION, BUILD_NUM, PORT);
-	{
-		time_t rawtime;
-		time (&rawtime);
-		strftime (JSONbuf+strlen(JSONbuf), 80, ", \"timestamp\":\"%Y-%m-%d %H:%M:%S\"", gmtime (&rawtime));
-	}
+	JSONaddProgramTimestamp (JSONbuf);
 	if (ps.error_check_type == PRP_ERRCHK_DBLCHK)
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"errors\":{\"dblchk\":%lu}", (ps.error_count >> 20) & 0xF);
 	if (ps.error_check_type == PRP_ERRCHK_GERBICZ)
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"errors\":{\"gerbicz\":%lu}", (ps.error_count >> 20) & 0xF);
-	if (USERID[0]) sprintf (JSONbuf+strlen(JSONbuf), ", \"user\":\"%s\"", USERID);
-	if (COMPID[0]) sprintf (JSONbuf+strlen(JSONbuf), ", \"computer\":\"%s\"", COMPID);
-	if (w->assignment_uid[0]) sprintf (JSONbuf+strlen(JSONbuf), ", \"aid\":\"%s\"", w->assignment_uid);
-	sprintf (JSONbuf+strlen(JSONbuf), "}\n");
-	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResults (JSONbuf);
+	JSONaddUserComputerAID (JSONbuf, w);
+	strcat (JSONbuf, "}\n");
+	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
 
 /* Output results to the server */
 
@@ -11706,7 +11843,7 @@ pushg(&gwdata.gdata, 2);}
 
 /* Output good news to the screen in an infinite loop */
 
-	if (isProbablePrime && !SILENT_VICTORY_PRP) {
+	if (isProbablePrime && !SILENT_VICTORY_PRP && (w->k != 1.0 || w->b != 2 || !isKnownMersennePrime (w->n) || w->c != -1)) {
 		gwthread thread_handle;
 		char	*arg;
 		arg = (char *) malloc (strlen (string_rep) + 1);
@@ -11746,5 +11883,6 @@ restart:if (sleep5) OutputBoth (thread_num, ERRMSG2);
 
 	gwdone (&gwdata);
 	free (N);
+	free (exp);
 	goto begin;
 }

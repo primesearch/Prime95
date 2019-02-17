@@ -1,4 +1,4 @@
-; Copyright 2001-2016 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2001-2017 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -266,14 +266,14 @@ xs_complex_mult MACRO real1, imag1, real2, imag2, tmp1, tmp2
 xp4c_mulf MACRO r1,r2,r3,r4,r5,r6,r7,r8,m1,m2,m3,m4,m5,m6,m7,m8
 	xstore	XMM_TMP1, r7		;; Save r7
 	xstore	XMM_TMP2, r8		;; Save r8
-	xp_complex_mult r1, r2, Q m1[rbp], Q m2[rbp], r7, r8
-	xp_complex_mult r3, r4, Q m3[rbp], Q m4[rbp], r7, r8
+	xp_complex_mult r1, r2, XX m1[rbp], XX m2[rbp], r7, r8
+	xp_complex_mult r3, r4, XX m3[rbp], XX m4[rbp], r7, r8
 	xload	r7, XMM_TMP1 		;; Restore r7
 	xload	r8, XMM_TMP2	 	;; Restore r8
 	xstore	XMM_TMP1, r1		;; Save r1
 	xstore	XMM_TMP2, r2		;; Save r2
-	xp_complex_mult r5, r6, Q m5[rbp], Q m6[rbp], r1, r2
-	xp_complex_mult r7, r8, Q m7[rbp], Q m8[rbp], r1, r2
+	xp_complex_mult r5, r6, XX m5[rbp], XX m6[rbp], r1, r2
+	xp_complex_mult r7, r8, XX m7[rbp], XX m8[rbp], r1, r2
 	xload	r1, XMM_TMP1 		;; Restore r1
 	xload	r2, XMM_TMP2	 	;; Restore r2
 	ENDM

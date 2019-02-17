@@ -1,4 +1,4 @@
-; Copyright 2011-2014 Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2017 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -94,7 +94,7 @@ echk	ystore	YMM_MAXERR, ymm6	;; Save maximum error
 	jne	done			;; Jump if not last block
 	mov	rsi, saved_rsi		;; Restore FFT data ptr
 ;; BUG - isn't rbp pointing just past last carry?? isn't last carry in ymm5 now? ynorm_top_carry_wpn doesn't use this info
-	ynorm_top_carry_wpn ttp, base2	;; Adjust carry if k > 1
+ttp	ynorm_top_carry_wpn ttp, base2	;; Adjust carry if k > 1
 
 done:	int_epilog SZPTR+16,0,0
 	ENDPP	lab

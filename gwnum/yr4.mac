@@ -2690,7 +2690,7 @@ ENDIF
 ;; by splitting the roots-of-minus-1 premultipliers such that every macro uses the 
 ;; same premultiplier data and we have 4 sin/cos postmultipliers.  Every sin/cos postmultiplier,
 ;; a very big table anyway, is multiplied by the other part of the split roots-of-minus-1.
-;; The common premuliplier data is 1, .924+.383i, SQRTHALF+SQRTHALFi, .383+.924i.
+;; The common premultiplier data is 1, .924+.383i, SQRTHALF+SQRTHALFi, .383+.924i.
 ;; This scheme is used by our simple radix-4 DJB "r4" FFTs.
 
 yr4_fs4cl_four_complex_first_djbfft_preload MACRO
@@ -3348,12 +3348,12 @@ ENDIF
 ;; ************************************* four-complex-last-unfft variants ******************************************
 ;;
 
-;; This code applies the sin/cos multipliers before a radix-4 butterfly.
+;; This code applies the sin/cos postmultipliers before a radix-4 butterfly.
 ;; Then it applies the premultipliers since the all-complex inverse FFT is complete.
 ;; We save memory by splitting the roots-of-minus-1 premultipliers such that every
 ;; macro uses the same premultiplier data.  Every sin/cos postmultiplier, a very big
-;; table anyway, are then multiplied by the other part of the split roots-of-minus-1.
-;; The common postmuliplier data is 1, .924-.383i, SQRTHALF-SQRTHALFi, .383-.924i.
+;; table anyway, is multiplied by the other part of the split roots-of-minus-1.
+;; The common premultiplier data is 1, .924-.383i, SQRTHALF-SQRTHALFi, .383-.924i.
 
 yr4_s4cl_four_complex_last_unfft_preload MACRO
 	ENDM

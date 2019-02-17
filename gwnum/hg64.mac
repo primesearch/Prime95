@@ -1,4 +1,4 @@
-; Copyright 2001-2016 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2001-2017 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -2157,10 +2157,10 @@ xs4c_mulf MACRO r1,r2,r3,r4,r5,r6,r7,r8,m1,m2,m3,m4,m5,m6,m7,m8
 	ENDM
 
 xp4c_mulf MACRO r1,r2,r3,r4,r5,r6,r7,r8,m1,m2,m3,m4,m5,m6,m7,m8
-	xp_complex_mult r1, r2, Q m1[rbp], Q m2[rbp], xmm8, xmm9
-	xp_complex_mult r3, r4, Q m3[rbp], Q m4[rbp], xmm8, xmm9
-	xp_complex_mult r5, r6, Q m5[rbp], Q m6[rbp], xmm8, xmm9
-	xp_complex_mult r7, r8, Q m7[rbp], Q m8[rbp], xmm8, xmm9
+	xp_complex_mult r1, r2, XX m1[rbp], XX m2[rbp], xmm8, xmm9
+	xp_complex_mult r3, r4, XX m3[rbp], XX m4[rbp], xmm8, xmm9
+	xp_complex_mult r5, r6, XX m5[rbp], XX m6[rbp], xmm8, xmm9
+	xp_complex_mult r7, r8, XX m7[rbp], XX m8[rbp], xmm8, xmm9
 	ENDM
 
 s2cl_four_complex_fft_final MACRO srcreg,srcinc,d1

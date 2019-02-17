@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2018 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2019 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -11,21 +11,23 @@
 | Commonc contains information used during setup and execution
 +---------------------------------------------------------------------*/
 
-static const char JUNK[]="Copyright 1996-2018 Mersenne Research, Inc. All rights reserved";
+static const char JUNK[]="Copyright 1996-2019 Mersenne Research, Inc. All rights reserved";
 
 char	INI_FILE[80] = {0};
 char	LOCALINI_FILE[80] = {0};
 char	WORKTODO_FILE[80] = {0};
 char	RESFILE[80] = {0};
+char	RESFILEBENCH[80] = {0};
+char	RESFILEJSON[80] = {0};
 char	SPOOL_FILE[80] = {0};
 char	LOGFILE[80] = {0};
+char	*RESFILES[3] = {RESFILE, RESFILEBENCH, RESFILEJSON};
 
 char	USERID[21] = {0};
 char	COMPID[21] = {0};
 char	COMPUTER_GUID[33] = {0};
 char	HARDWARE_GUID[33] = {0};
 char	WINDOWS_GUID[33] = {0};
-int	FIXED_GUIDS = 0;
 int	USE_PRIMENET = 0;
 int	DIAL_UP = 0;
 unsigned int DAYS_OF_WORK = 5;
@@ -95,6 +97,14 @@ int	WORKTODO_CHANGED = 0;	/* Flag indicating worktodo file needs */
 				/* writing */
 
 hwloc_topology_t hwloc_topology;	/* Hardware topology */
+uint32_t CPU_TOTAL_L1_CACHE_SIZE = 0;	/* Sum of all the L1 caches in KB as determined by hwloc */
+uint32_t CPU_TOTAL_L2_CACHE_SIZE = 0;	/* Sum of all the L2 caches in KB as determined by hwloc */
+uint32_t CPU_TOTAL_L3_CACHE_SIZE = 0;	/* Sum of all the L3 caches in KB as determined by hwloc */
+uint32_t CPU_TOTAL_L4_CACHE_SIZE = 0;	/* Sum of all the L4 caches in KB as determined by hwloc */
+uint32_t CPU_NUM_L1_CACHES = 0;		/* Number of L1 caches as determined by hwloc */
+uint32_t CPU_NUM_L2_CACHES = 0;		/* Number of L2 caches as determined by hwloc */
+uint32_t CPU_NUM_L3_CACHES = 0;		/* Number of L3 caches as determined by hwloc */
+uint32_t CPU_NUM_L4_CACHES = 0;		/* Number of L4 caches as determined by hwloc */
 unsigned int NUM_NUMA_NODES = 1;	/* Number of NUMA nodes in the computer */
 unsigned int NUM_THREADING_NODES = 1;	/* Number of nodes where it might be beneficial to keep a worker's threads in the same node */
 int	OS_CAN_SET_AFFINITY = 1;	/* hwloc supports setting CPU affinity (known exception is Apple) */
@@ -145,14 +155,13 @@ void calc_hardware_guid (void)
 
 /* Sometimes a user might want to run the program on several machines. */
 /* Typically this is done by carrying the program and files around on a */
-/* portable media such as floppy or USB memory stick.  In this case, */
+/* portable media such as a USB memory stick.  In this case, */
 /* we need to defeat the code that automatically detects hardware changes. */
 /* The FixedHardwareUID INI option tells us to get the Windows and */
 /* hardware hashes from the INI file rather than calculating them. */
 
-	if (FIXED_GUIDS) {
-		IniGetString (INI_FILE, "HardwareGUID", HARDWARE_GUID,
-			      sizeof (HARDWARE_GUID), HARDWARE_GUID);
+	if (IniGetInt (INI_FILE, "FixedHardwareUID", 0)) {
+		IniGetString (INI_FILE, "HardwareGUID", HARDWARE_GUID, sizeof (HARDWARE_GUID), HARDWARE_GUID);
 		IniWriteString (INI_FILE, "HardwareGUID", HARDWARE_GUID);
 	}
 }
@@ -185,7 +194,7 @@ void calc_windows_guid (void)
 
 /* Sometimes a user might want to run the program on several machines. */
 /* Typically this is done by carrying the program and files around on a */
-/* portable media such as floppy or USB memory stick.  In this case, */
+/* portable media such as a USB memory stick.  In this case, */
 /* we need to defeat the code that automatically detects hardware changes. */
 /* The FixedHardwareUID INI option tells us to get the Windows and */
 /* hardware hashes from the INI file rather than calculating them. */
@@ -194,9 +203,8 @@ void calc_windows_guid (void)
 /* WindowsGUID when run on a Windows machine.  The server must not */
 /* generate a CPU_IDENTITY_MISMATCH error in this case. */
 
-	if (FIXED_GUIDS) {
-		IniGetString (INI_FILE, "WindowsGUID", WINDOWS_GUID,
-			      sizeof (WINDOWS_GUID), WINDOWS_GUID);
+	if (IniGetInt (INI_FILE, "FixedHardwareUID", 0)) {
+		IniGetString (INI_FILE, "WindowsGUID", WINDOWS_GUID, sizeof (WINDOWS_GUID), WINDOWS_GUID);
 		IniWriteString (INI_FILE, "WindowsGUID", WINDOWS_GUID);
 	}
 }
@@ -235,8 +243,7 @@ void generate_computer_guid (void)
 	time_t	current_time;
 
 	time (&current_time);
-	sprintf (buf, "%s%d%f%d",
-		 CPU_BRAND, CPU_SIGNATURE, CPU_SPEED, (int) current_time);
+	sprintf (buf, "%s%d%f%d", CPU_BRAND, CPU_SIGNATURE, CPU_SPEED, (int) current_time);
 	md5 (COMPUTER_GUID, buf);
 	IniWriteString (LOCALINI_FILE, "ComputerGUID", COMPUTER_GUID);
 
@@ -248,7 +255,7 @@ void generate_computer_guid (void)
 	clearCachedProgramOptions ();
 
 /* Since we're generating a new computer GUID, we can use the latest, */
-/* most robust version of caluculating the Windows GUID. */
+/* most robust version of calculating the Windows GUID. */
 
 	IniWriteInt (INI_FILE, "WGUID_version", 2);
 	calc_windows_guid ();
@@ -348,41 +355,67 @@ void getCpuSpeed (void)
 
 void getCpuInfo (void)
 {
-	int	temp;
+	int	depth, i, temp;
+	hwloc_obj_t obj;
 
 /* Get the CPU info using CPUID instruction */	
 
 	guessCpuType ();
-	NUM_CPUS = CPU_CORES;
 
-/* New in version 29!  Use hwloc info to determine NUM_CPUS and CPU_HYPERTHREADS. */
-/* We still allow overriding this with INI file settings below */
+/* New in version 29!  Use hwloc info to determine NUM_CPUS and CPU_HYPERTHREADS.  Also get number of NUMA nodes */
+/* which we may use later on to allocate memory from the proper NUMA node. */
+/* We still allow overriding these settings using the INI file. */
 
 	NUM_CPUS = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_CORE);
+	if (NUM_CPUS < 1) NUM_CPUS = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PU);
+	if (NUM_CPUS < 1) NUM_CPUS = 1;				// Shouldn't happen
 	CPU_HYPERTHREADS = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PU) / NUM_CPUS;
-
-/* New in version 29, determine the number of NUMA nodes.  We may use this later on to allocate memory from the proper NUMA node. */
-/* We also compute the number of "threading nodes".  That is, number of nodes where we don't want to split a worker's thread */
-/* across 2 threading nodes.  For example, there may well be a performance penalty if a worker's threads are on two different */
-/* physical CPUS or access data from two different L3 caches. */
-// bug -- very likely need much more sophisticated hwloc code here.  such as factoring in sharing L3 caches, or asymetric cores per node
-
+	if (CPU_HYPERTHREADS < 1) CPU_HYPERTHREADS = 1;		// Shouldn't happen
 	NUM_NUMA_NODES = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_NUMANODE);
 	if (NUM_NUMA_NODES < 1 || NUM_CPUS % NUM_NUMA_NODES != 0) NUM_NUMA_NODES = 1;
-	NUM_THREADING_NODES = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PACKAGE);		// bug:  also look at L3 caches???
-	if (NUM_THREADING_NODES < 1 || NUM_CPUS % NUM_THREADING_NODES != 0) NUM_THREADING_NODES = 1;
 
-/* Allow overriding the hwloc's generated values for number of physical processors, hyperthreads, and NUMA nodes. */
+/* New in version 29.5, get L1/L2/L3/L4 total cache size for use in determining torture test FFT sizes. */
+/* Overwrite cpuid's linesize and associativity with hwloc's */
 
-	NUM_CPUS = IniGetInt (LOCALINI_FILE, "NumCPUs", NUM_CPUS);
-	temp = IniGetInt (LOCALINI_FILE, "NumPhysicalCores", 9999);
-	if (temp != 9999) {
-		CPU_HYPERTHREADS = NUM_CPUS / temp;
-		if (CPU_HYPERTHREADS < 1) CPU_HYPERTHREADS = 1;
-		NUM_CPUS = temp;
+	CPU_TOTAL_L1_CACHE_SIZE = CPU_NUM_L1_CACHES = 0;
+	CPU_TOTAL_L2_CACHE_SIZE = CPU_NUM_L2_CACHES = 0;
+	CPU_TOTAL_L3_CACHE_SIZE = CPU_NUM_L3_CACHES = 0;
+	CPU_TOTAL_L4_CACHE_SIZE = CPU_NUM_L4_CACHES = 0;
+	for (depth = 0; depth < hwloc_topology_get_depth (hwloc_topology); depth++) {
+		for (i = 0; i < (int) hwloc_get_nbobjs_by_depth (hwloc_topology, depth); i++) {
+			obj = hwloc_get_obj_by_depth (hwloc_topology, depth, i);
+			if (obj == NULL || obj->attr == NULL) break; // can't happen
+			if (obj->type == HWLOC_OBJ_L1CACHE) {
+				CPU_TOTAL_L1_CACHE_SIZE += (uint32_t) (obj->attr->cache.size >> 10);
+				CPU_NUM_L1_CACHES++;
+				if (obj->attr->cache.linesize > 0) CPU_L1_CACHE_LINE_SIZE = obj->attr->cache.linesize;
+				if (obj->attr->cache.associativity > 0) CPU_L1_SET_ASSOCIATIVE = obj->attr->cache.associativity;
+			}
+			else if (obj->type == HWLOC_OBJ_L2CACHE) {
+				CPU_TOTAL_L2_CACHE_SIZE += (uint32_t) (obj->attr->cache.size >> 10);
+				CPU_NUM_L2_CACHES++;
+				if (obj->attr->cache.linesize > 0) CPU_L2_CACHE_LINE_SIZE = obj->attr->cache.linesize;
+				if (obj->attr->cache.associativity > 0) CPU_L2_SET_ASSOCIATIVE = obj->attr->cache.associativity;
+			}
+			else if (obj->type == HWLOC_OBJ_L3CACHE) {
+				CPU_TOTAL_L3_CACHE_SIZE += (uint32_t) (obj->attr->cache.size >> 10);
+				CPU_NUM_L3_CACHES++;
+				if (obj->attr->cache.linesize > 0) CPU_L3_CACHE_LINE_SIZE = obj->attr->cache.linesize;
+				if (obj->attr->cache.associativity > 0) CPU_L3_SET_ASSOCIATIVE = obj->attr->cache.associativity;
+			}
+			else if (obj->type == HWLOC_OBJ_L4CACHE) {
+				CPU_TOTAL_L4_CACHE_SIZE += (uint32_t) (obj->attr->cache.size >> 10);
+				CPU_NUM_L4_CACHES++;
+			}
+		}
 	}
-	NUM_NUMA_NODES = IniGetInt (LOCALINI_FILE, "NumNUMANodes", NUM_NUMA_NODES);
-	NUM_THREADING_NODES = IniGetInt (LOCALINI_FILE, "NumThreadingNodes", NUM_THREADING_NODES);
+
+/* Overwrite the cache info calculated via CPUID as hwloc's info is more detailed and I believe more reliable. */
+/* We are transitioning away from using the cache size global variables computed by the CPUID code. */
+
+	if (CPU_NUM_L1_CACHES) CPU_L1_CACHE_SIZE = CPU_TOTAL_L1_CACHE_SIZE / CPU_NUM_L1_CACHES;
+	if (CPU_NUM_L2_CACHES) CPU_L2_CACHE_SIZE = CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES;
+	if (CPU_NUM_L3_CACHES) CPU_L3_CACHE_SIZE = CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES;
 
 /* Calculate hardware GUID (global unique identifier) using the CPUID info. */
 /* Well, it isn't unique but it is about as good as we can do and still have */
@@ -436,31 +469,53 @@ void getCpuInfo (void)
 	if (temp == 0) CPU_FLAGS &= ~CPU_AVX512F;
 	if (temp == 1) CPU_FLAGS |= CPU_AVX512F;
 
-/* Let the user override the L2 cache size in local.ini file */
+/* Let the user override the L1/L2/L3/L4 cache size in local.txt file */
 
+	CPU_TOTAL_L1_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL1TotalCacheSize", CPU_TOTAL_L1_CACHE_SIZE);
+	CPU_NUM_L1_CACHES = IniGetInt (LOCALINI_FILE, "CpuL1NumCaches", CPU_NUM_L1_CACHES);
+
+	CPU_TOTAL_L2_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL2TotalCacheSize", CPU_TOTAL_L2_CACHE_SIZE);
+	CPU_NUM_L2_CACHES = IniGetInt (LOCALINI_FILE, "CpuL2NumCaches", CPU_NUM_L2_CACHES);
 	CPU_L2_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL2CacheSize", CPU_L2_CACHE_SIZE);
 	CPU_L2_CACHE_LINE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL2CacheLineSize", CPU_L2_CACHE_LINE_SIZE);
 	CPU_L2_SET_ASSOCIATIVE = IniGetInt (LOCALINI_FILE, "CpuL2SetAssociative", CPU_L2_SET_ASSOCIATIVE);
 
-/* Let the user override the L3 cache size in local.ini file */
-
+	CPU_TOTAL_L3_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL3TotalCacheSize", CPU_TOTAL_L3_CACHE_SIZE);
+	CPU_NUM_L3_CACHES = IniGetInt (LOCALINI_FILE, "CpuL3NumCaches", CPU_NUM_L3_CACHES);
 	CPU_L3_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL3CacheSize", CPU_L3_CACHE_SIZE);
 	CPU_L3_CACHE_LINE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL3CacheLineSize", CPU_L3_CACHE_LINE_SIZE);
 	CPU_L3_SET_ASSOCIATIVE = IniGetInt (LOCALINI_FILE, "CpuL3SetAssociative", CPU_L3_SET_ASSOCIATIVE);
+
+	CPU_TOTAL_L4_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL4TotalCacheSize", CPU_TOTAL_L4_CACHE_SIZE);
+	CPU_NUM_L4_CACHES = IniGetInt (LOCALINI_FILE, "CpuL4NumCaches", CPU_NUM_L4_CACHES);
 
 /* Let the user override the CPUID brand string.  It should never be necessary. */
 /* However, one Athlon owner's brand string became corrupted with illegal characters. */
 	
 	IniGetString (LOCALINI_FILE, "CpuBrand", CPU_BRAND, sizeof(CPU_BRAND), CPU_BRAND);
 
-/* Let user override the number of hyperthreads */
+/* Allow overriding the hwloc's generated values for number of physical processors, hyperthreads, and NUMA nodes. */
 
+	NUM_CPUS = IniGetInt (LOCALINI_FILE, "NumCPUs", NUM_CPUS);
+	if (NUM_CPUS == 0) NUM_CPUS = 1;
 	CPU_HYPERTHREADS = IniGetInt (LOCALINI_FILE, "CpuNumHyperthreads", CPU_HYPERTHREADS);
 	if (CPU_HYPERTHREADS == 0) CPU_HYPERTHREADS = 1;
+	NUM_NUMA_NODES = IniGetInt (LOCALINI_FILE, "NumNUMANodes", NUM_NUMA_NODES);
+	if (NUM_NUMA_NODES == 0) NUM_NUMA_NODES = 1;
 
 /* Let user override the CPU architecture */
 
 	CPU_ARCHITECTURE = IniGetInt (LOCALINI_FILE, "CpuArchitecture", CPU_ARCHITECTURE);
+
+/* We also compute the number of "threading nodes".  That is, number of nodes where we don't want to split a worker's threads */
+/* across 2 threading nodes.  For example, there may well be a performance penalty if a worker's threads are on two different */
+/* physical CPUS or access data from two different L3 caches. */
+// bug -- may need much more sophisticated hwloc code here, such as handling asymetric cores or caches per threading node
+
+	NUM_THREADING_NODES = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_PACKAGE);
+	if (CPU_NUM_L3_CACHES > NUM_THREADING_NODES) NUM_THREADING_NODES = CPU_NUM_L3_CACHES;
+	NUM_THREADING_NODES = IniGetInt (LOCALINI_FILE, "NumThreadingNodes", NUM_THREADING_NODES);
+	if (NUM_THREADING_NODES < 1 || NUM_CPUS % NUM_THREADING_NODES != 0) NUM_THREADING_NODES = 1;
 
 /* Now get the CPU speed */
 
@@ -474,8 +529,7 @@ void getCpuDescription (
 	int	long_desc)		/* True for a very long description */
 {
 
-/* Recalculate the CPU speed in case speed step has changed the original */
-/* settings. */
+/* Recalculate the CPU speed in case speed step has changed the original settings. */
 
 	getCpuSpeed ();
 
@@ -507,23 +561,41 @@ void getCpuDescription (
 		if (CPU_FLAGS & CPU_AVX512F) strcat (buf, "AVX512F, ");
 		strcpy (buf + strlen (buf) - 2, "\n");
 	}
+
 	strcat (buf, "L1 cache size: ");
-	if (CPU_L1_CACHE_SIZE < 0) strcat (buf, "unknown\n");
-	else sprintf (buf + strlen (buf), "%d KB\n", CPU_L1_CACHE_SIZE);
-	strcat (buf, "L2 cache size: ");
-	if (CPU_L2_CACHE_SIZE < 0) strcat (buf, "unknown\n");
-	else {
-		if (CPU_L2_CACHE_SIZE & 0x3FF)
-			sprintf (buf + strlen (buf), "%d KB\n", CPU_L2_CACHE_SIZE);
+	if (CPU_NUM_L1_CACHES <= 0) strcat (buf, "unknown");
+	if (CPU_NUM_L1_CACHES > 1) sprintf (buf + strlen (buf), "%dx", CPU_NUM_L1_CACHES);
+	if (CPU_NUM_L1_CACHES >= 1) sprintf (buf + strlen (buf), "%d KB", CPU_TOTAL_L1_CACHE_SIZE / CPU_NUM_L1_CACHES);
+	
+	strcat (buf, ", L2 cache size: ");
+	if (CPU_NUM_L2_CACHES <= 0) strcat (buf, "unknown");
+	if (CPU_NUM_L2_CACHES > 1) sprintf (buf + strlen (buf), "%dx", CPU_NUM_L2_CACHES);
+	if (CPU_NUM_L2_CACHES >= 1) {
+		if ((CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES) & 0x3FF)
+			sprintf (buf + strlen (buf), "%d KB", CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES);
 		else
-			sprintf (buf + strlen (buf), "%d MB\n", CPU_L2_CACHE_SIZE >> 10);
+			sprintf (buf + strlen (buf), "%d MB", CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES / 1024);
 	}
-	if (CPU_L3_CACHE_SIZE > 0) {
-		if (CPU_L3_CACHE_SIZE & 0x3FF)
-			sprintf (buf + strlen (buf) - 1, ", L3 cache size: %d KB\n", CPU_L3_CACHE_SIZE);
+
+	if (CPU_NUM_L3_CACHES > 0) {
+		strcat (buf, CPU_NUM_L4_CACHES > 0 ? "\n" : ", ");
+		strcat (buf, "L3 cache size: ");
+		if (CPU_NUM_L3_CACHES > 1) sprintf (buf + strlen (buf), "%dx", CPU_NUM_L3_CACHES);
+		if ((CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES) & 0x3FF)
+			sprintf (buf + strlen (buf), "%d KB", CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES);
 		else
-			sprintf (buf + strlen (buf) - 1, ", L3 cache size: %d MB\n", CPU_L3_CACHE_SIZE >> 10);
+			sprintf (buf + strlen (buf), "%d MB", CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES / 1024);
 	}
+
+	if (CPU_NUM_L4_CACHES > 0) {
+		strcat (buf, ", L4 cache size: ");
+		if (CPU_NUM_L4_CACHES > 1) sprintf (buf + strlen (buf), "%dx", CPU_NUM_L4_CACHES);
+		if ((CPU_TOTAL_L4_CACHE_SIZE / CPU_NUM_L4_CACHES) & 0x3FF)
+			sprintf (buf + strlen (buf), "%d KB", CPU_TOTAL_L4_CACHE_SIZE / CPU_NUM_L4_CACHES);
+		else
+			sprintf (buf + strlen (buf), "%d MB", CPU_TOTAL_L4_CACHE_SIZE / CPU_NUM_L4_CACHES / 1024);
+	}
+
 	if (! long_desc) return;
 	strcat (buf, "L1 cache line size: ");
 	if (CPU_L1_CACHE_LINE_SIZE < 0) strcat (buf, "unknown\n");
@@ -531,12 +603,6 @@ void getCpuDescription (
 	strcat (buf, "L2 cache line size: ");
 	if (CPU_L2_CACHE_LINE_SIZE < 0) strcat (buf, "unknown\n");
 	else sprintf (buf+strlen(buf), "%d bytes\n", CPU_L2_CACHE_LINE_SIZE);
-	if (CPU_L1_DATA_TLBS > 0)
-		sprintf (buf + strlen (buf), "L1 TLBS: %d\n", CPU_L1_DATA_TLBS);
-	if (CPU_L2_DATA_TLBS > 0)
-		sprintf (buf + strlen (buf), "%sTLBS: %d\n",
-			 CPU_L1_DATA_TLBS > 0 ? "L2 " : "",
-			 CPU_L2_DATA_TLBS);
 }
 
 /* Print the machine topology as discovered by hwloc library */
@@ -561,7 +627,7 @@ void topology_print_children (
 	else if (attr[0]) sprintf (buf+strlen(buf), " (%s)", attr);
 	else if (cpuset[0]) sprintf (buf+strlen(buf), " (cpuset: %s)", cpuset);
 	strcat (buf, "\n");
-	writeResults (buf);
+	writeResultsBench (buf);
 	for (i = 0; i < obj->arity; i++) {
 		topology_print_children (obj->children[i], depth + 1);
 	}
@@ -994,6 +1060,8 @@ void nameAndReadIniFiles (
 		strcpy (LOCALINI_FILE, "local.txt");
 		strcpy (WORKTODO_FILE, "worktodo.txt");
 		strcpy (RESFILE, "results.txt");
+		strcpy (RESFILEBENCH, "results.bench.txt");
+		strcpy (RESFILEJSON, "results.json.txt");
 		strcpy (SPOOL_FILE, "prime.spl");
 		strcpy (LOGFILE, "prime.log");
 	} else {
@@ -1001,6 +1069,8 @@ void nameAndReadIniFiles (
 		sprintf (LOCALINI_FILE, "loca%04d.txt", named_ini_files);
 		sprintf (WORKTODO_FILE, "work%04d.txt", named_ini_files);
 		sprintf (RESFILE, "resu%04d.txt", named_ini_files);
+		sprintf (RESFILEBENCH, "resu%04d.bench.txt", named_ini_files);
+		sprintf (RESFILEJSON, "resu%04d.json.txt", named_ini_files);
 		sprintf (SPOOL_FILE, "prim%04d.spl", named_ini_files);
 		sprintf (LOGFILE, "prim%04d.log", named_ini_files);
 	}
@@ -1011,6 +1081,8 @@ void nameAndReadIniFiles (
 	IniGetString (INI_FILE, "local.ini", LOCALINI_FILE, 80, LOCALINI_FILE);
 	IniGetString (INI_FILE, "worktodo.ini", WORKTODO_FILE, 80, WORKTODO_FILE);
 	IniGetString (INI_FILE, "results.txt", RESFILE, 80, RESFILE);
+	IniGetString (INI_FILE, "results.bench.txt", RESFILEBENCH, 80, RESFILEBENCH);
+	IniGetString (INI_FILE, "results.json.txt", RESFILEJSON, 80, RESFILEJSON);
 	IniGetString (INI_FILE, "prime.spl", SPOOL_FILE, 80, SPOOL_FILE);
 	IniGetString (INI_FILE, "prime.log", LOGFILE, 80, LOGFILE);
 	IniGetString (INI_FILE, "prime.ini", INI_FILE, 80, INI_FILE);
@@ -1085,16 +1157,21 @@ void nameAndReadIniFiles (
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_ZEN ? "AMD Zen" :
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_OTHER ? "Not Intel and not AMD" : "Undefined");
 	strcat (buf, "L2 cache size: ");
-	if (CPU_L2_CACHE_SIZE < 0) strcat (buf, "unknown");
-	else if (CPU_L2_CACHE_SIZE & 0x3FF)
-		sprintf (buf + strlen (buf), "%d KB", CPU_L2_CACHE_SIZE);
-	else
-		sprintf (buf + strlen (buf), "%d MB", CPU_L2_CACHE_SIZE >> 10);
-	if (CPU_L3_CACHE_SIZE > 0) {
-		if (CPU_L3_CACHE_SIZE & 0x3FF)
-			sprintf (buf + strlen (buf), ", L3 cache size: %d KB", CPU_L3_CACHE_SIZE);
+	if (CPU_NUM_L2_CACHES <= 0) strcat (buf, "unknown");
+	if (CPU_NUM_L2_CACHES > 1) sprintf (buf + strlen (buf), "%dx", CPU_NUM_L2_CACHES);
+	if (CPU_NUM_L2_CACHES >= 1) {
+		if ((CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES) & 0x3FF)
+			sprintf (buf + strlen (buf), "%d KB", CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES);
 		else
-			sprintf (buf + strlen (buf), ", L3 cache size: %d MB", CPU_L3_CACHE_SIZE >> 10);
+			sprintf (buf + strlen (buf), "%d MB", CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES / 1024);
+	}
+	if (CPU_NUM_L3_CACHES > 0) {
+		strcat (buf, ", L3 cache size: ");
+		if (CPU_NUM_L3_CACHES > 1) sprintf (buf + strlen (buf), "%dx", CPU_NUM_L3_CACHES);
+		if ((CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES) & 0x3FF)
+			sprintf (buf + strlen (buf), "%d KB", CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES);
+		else
+			sprintf (buf + strlen (buf), "%d MB", CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES / 1024);
 	}
 	strcat (buf, "\n");
 	OutputStr (MAIN_THREAD_NUM, buf);
@@ -1296,8 +1373,6 @@ int readIniFiles (void)
 /* Put commonly used options in global variables */
 
 	IniGetString (LOCALINI_FILE, "ComputerGUID", COMPUTER_GUID, sizeof (COMPUTER_GUID), NULL);
-	FIXED_GUIDS = IniGetInt (INI_FILE, "FixedHardwareUID", 0);
-
 	IniGetString (INI_FILE, "V5UserID", USERID, sizeof (USERID), NULL);
 	IniGetString (LOCALINI_FILE, "ComputerID", COMPID, sizeof (COMPID), NULL);
 	sanitizeString (COMPID);
@@ -1810,6 +1885,16 @@ void OutputBoth (
 	writeResults (buf);
 }
 
+/* Output string to both the screen and results.bench file */
+
+void OutputBothBench (
+	int	thread_num,
+	const char *buf)
+{
+	OutputStr (thread_num, buf);
+	writeResultsBench (buf);
+}
+
 /* Output string to screen.  Prefix it with an optional timestamp. */
 
 void OutputStr (
@@ -1896,6 +1981,40 @@ int OutOfMemory (
 {
 	OutputStr (thread_num, "Out of memory!\n");
 	return (STOP_OUT_OF_MEM);
+}
+
+/* Append exponent or kbnc to JSON message */
+
+void JSONaddExponent (
+	char	*JSONbuf,
+	struct work_unit *w)
+{
+	if (w->k == 1.0 && w->b == 2 && w->c == -1) sprintf (JSONbuf+strlen(JSONbuf), ", \"exponent\":%lu", w->n);
+	else sprintf (JSONbuf+strlen(JSONbuf), ", \"k\":%.0f, \"b\":%lu, \"n\":%lu, \"c\":%ld", w->k, w->b, w->n, w->c);
+}
+
+/* Append program and timestamp to JSON message */
+
+void JSONaddProgramTimestamp (
+	char	*JSONbuf)
+{
+	time_t rawtime;
+
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"program\":{\"name\":\"Prime95\", \"version\":\"%s\", \"build\":%s, \"port\":%d}",
+		 VERSION, BUILD_NUM, PORT);
+	time (&rawtime);
+	strftime (JSONbuf+strlen(JSONbuf), 80, ", \"timestamp\":\"%Y-%m-%d %H:%M:%S\"", gmtime (&rawtime));
+}
+
+/* Append user, computer, assignment ID to JSON message */
+
+void JSONaddUserComputerAID (
+	char	*JSONbuf,
+	struct work_unit *w)
+{
+	if (USERID[0]) sprintf (JSONbuf+strlen(JSONbuf), ", \"user\":\"%s\"", USERID);
+	if (COMPID[0]) sprintf (JSONbuf+strlen(JSONbuf), ", \"computer\":\"%s\"", COMPID);
+	if (w != NULL && w->assignment_uid[0]) sprintf (JSONbuf+strlen(JSONbuf), ", \"aid\":\"%s\"", w->assignment_uid);
 }
 
 /****************************************************************************/
@@ -2579,13 +2698,15 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 
 /* Handle PRP= lines.									*/
 /*	PRP=k,b,n,c[,how_far_factored,tests_saved[,base,residue_type]][,known_factors]	*/
+/*	PRPDC=k,b,n,c[,how_far_factored,tests_saved[,base,residue_type]][,known_factors]*/
 /* A tests_saved value of 0.0 will bypass any P-1 factoring				*/
 /* The PRP residue type is defined in primenet.h					*/
 
-	    else if (_stricmp (keyword, "PRP") == 0) {
+	    else if (_stricmp (keyword, "PRP") == 0 || _stricmp (keyword, "PRPDC") == 0) {
 		char	*q;
 
 		w->work_type = WORK_PRP;
+		w->prp_dblchk = (keyword[3] != 0);
 		w->k = atof (value);
 		if ((q = strchr (value, ',')) == NULL) goto illegal_line;
 		sscanf (q+1, "%lu,%lu,%ld", &w->b, &w->n, &w->c);
@@ -2645,7 +2766,7 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 /* should be a prime number, bounded by values we can handle, and we */
 /* should never be asked to factor a number more than we are capable of. */
 
-	    if (w->k == 1.0 && w->b == 2 && !isPrime (w->n) && w->c == -1 &&
+	    if (w->k == 1.0 && w->b == 2 && !isPrime (w->n) && w->c == -1 && w->known_factors == NULL &&
 		w->work_type != WORK_ECM && w->work_type != WORK_PMINUS1 &&
 		!(w->work_type == WORK_PRP && IniGetInt (INI_FILE, "PhiExtensions", 0))) {
 		char	buf[80];
@@ -2974,7 +3095,7 @@ int writeWorkToDoFile (
 			break;
 
 		case WORK_PRP:
-			sprintf (buf, "PRP=%s%.0f,%lu,%lu,%ld", idbuf, w->k, w->b, w->n, w->c);
+			sprintf (buf, "PRP%s=%s%.0f,%lu,%lu,%ld", w->prp_dblchk ? "DC" : "", idbuf, w->k, w->b, w->n, w->c);
 			if (w->tests_saved > 0.0 || w->prp_base || w->prp_residue_type) {
 				sprintf (buf + strlen (buf), ",%g,%g", w->sieve_depth, w->tests_saved);
 				if (w->prp_base || w->prp_residue_type)
@@ -3802,13 +3923,13 @@ void tempFileName (
 /* From now on, we will use k and c to generate the filename.  To reduce */
 /* upgrading problems, old save file names are renamed. */
 
-	if (w->k != 1.0 || abs(w->c) != 1) {
+	if (w->k != 1.0 || labs(w->c) != 1) {
 		char	v258_filename[32];
 		strcpy (v258_filename, buf);
 		buf[1] = 0;
 		if (w->k != 1.0) sprintf (buf+strlen(buf), "%g", fmod (w->k, 1000000.0));
 		sprintf (buf+strlen(buf), "_%ld", p);
-		if (abs(w->c) != 1) sprintf (buf+strlen(buf), "_%d", abs(w->c) % 1000);
+		if (labs(w->c) != 1) sprintf (buf+strlen(buf), "_%ld", labs(w->c) % 1000);
 		rename (v258_filename, buf);
 		if (buf[0] == 'p') {
 			v258_filename[0] = buf[0] = 'q';
@@ -3922,16 +4043,18 @@ int write_gwnum (
 
 	tmp = popg (&gwdata->gdata, ((int) gwdata->bit_length >> 5) + 10);
 	if (tmp == NULL) return (FALSE);
-	gwtogiant (gwdata, g, tmp);
+	if (gwtogiant (gwdata, g, tmp)) goto err;
 	len = tmp->sign;
-	if (len == 0) return (FALSE);
-	if (!write_long (fd, len, sum)) return (FALSE);
+	if (len == 0) goto err;
+	if (!write_long (fd, len, sum)) goto err;
 	bytes = len * sizeof (uint32_t);
-	if (_write (fd, tmp->n, bytes) != bytes) return (FALSE);
+	if (_write (fd, tmp->n, bytes) != bytes) goto err;
 	*sum = (uint32_t) (*sum + len);
 	for (i = 0; i < len; i++) *sum = (uint32_t) (*sum + tmp->n[i]);
 	pushg (&gwdata->gdata, 1);
 	return (TRUE);
+err:	pushg (&gwdata->gdata, 1);
+	return (FALSE);
 }
 
 /* Routines to read and write values from and to a save file */
@@ -4204,15 +4327,20 @@ void formatMsgForResultsFile (
 	strcpy (buf, newbuf);
 }
 
-/* Open the results file and write a line to the end of it. */
+/* Open a results file and write a line to the end of it. */
 
-int writeResults (
+int writeResultsInternal (
+	int	which_results_file,	/* 0 = results.txt, 1 = results.bench.txt */
 	const char *msg)
 {
-static	time_t	last_time = 0;
+static	time_t	last_time[2] = {0};
 	time_t	this_time;
 	int	fd;
 	int	write_interval;
+
+/* Sanity check the input argument */
+
+	if (which_results_file < 0 || which_results_file > 2) which_results_file = 0;
 
 /* Get the interval user-settable parameter for seconds that must have elapsed since the last time the date was output */
 
@@ -4221,7 +4349,7 @@ static	time_t	last_time = 0;
 /* Open file, position to end */
 
 	gwmutex_lock (&OUTPUT_MUTEX);
-	fd = _open (RESFILE, _O_TEXT | _O_RDWR | _O_CREAT | _O_APPEND, CREATE_FILE_ACCESS);
+	fd = _open (RESFILES[which_results_file], _O_TEXT | _O_RDWR | _O_CREAT | _O_APPEND, CREATE_FILE_ACCESS);
 	if (fd < 0) {
 		gwmutex_unlock (&OUTPUT_MUTEX);
 		LogMsg ("Error opening results file to output this message:\n");
@@ -4233,9 +4361,9 @@ static	time_t	last_time = 0;
 /* was output, then output a new timestamp */
 
 	time (&this_time);
-	if (write_interval && this_time - last_time > (time_t) write_interval) {
+	if (write_interval && this_time - last_time[which_results_file] > (time_t) write_interval) {
 		char	buf[32];
-		last_time = this_time;
+		last_time[which_results_file] = this_time;
 		buf[0] = '[';
 		strcpy (buf+1, ctime (&this_time));
 		buf[25] = ']';
@@ -4257,6 +4385,30 @@ fail:	_close (fd);
 	LogMsg ("Error writing message to results file:\n");
 	LogMsg (msg);
 	return (FALSE);
+}
+
+/* Open the results file and write a line to the end of it. */
+
+int writeResults (
+	const char *msg)
+{
+	return (writeResultsInternal (0, msg));
+}
+
+/* Open the results.bench file and write a line to the end of it. */
+
+int writeResultsBench (
+	const char *msg)
+{
+	return (writeResultsInternal (1, msg));
+}
+
+/* Open the results.json file and write a line to the end of it. */
+
+int writeResultsJSON (
+	const char *msg)
+{
+	return (writeResultsInternal (2, msg));
 }
 
 
@@ -5386,8 +5538,10 @@ retry:
 
 		memset (&pkt, 0, sizeof (pkt));
 		strcpy (pkt.computer_guid, COMPUTER_GUID);
-		strcpy (pkt.hardware_guid, HARDWARE_GUID);
-		strcpy (pkt.windows_guid, WINDOWS_GUID);
+		if (!IniGetInt (INI_FILE, "FixedHardwareUID", 0)) {
+			strcpy (pkt.hardware_guid, HARDWARE_GUID);
+			strcpy (pkt.windows_guid, WINDOWS_GUID);
+		}
 		generate_application_string (pkt.application);
 		strcpy (pkt.cpu_model, CPU_BRAND);
 		pkt.cpu_features[0] = 0;
@@ -5793,6 +5947,7 @@ retry:
 			w.tests_saved = pkt1.tests_saved;
 			w.prp_base = pkt1.prp_base;
 			w.prp_residue_type = pkt1.prp_residue_type;
+			w.prp_dblchk = pkt1.prp_dblchk;
 			break;
 		default:
 			sprintf (buf, "Received unknown work type: %lu.\n", (unsigned long) pkt1.work_type);

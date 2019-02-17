@@ -1,4 +1,4 @@
-; Copyright 2011-2016 - Mersenne Research, Inc.  All rights reserved.
+; Copyright 2011-2018 - Mersenne Research, Inc.  All rights reserved.
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -2426,11 +2426,11 @@ const		vmovapd	ymm13, YMM_MULCONST
 ynorm_wpn MACRO ttp, base2, zero, echk, const
 IFDEF YIMPL_WPN1_FFTS
 no const	ynorm_wpn_noconst ttp, base2, zero, echk, r15
-const		ynorm_wpn_const ttp, base2, zero, echk, r15
+const		ynorm_wpn_const ttp, base2, echk, r15
 ENDIF
 IFDEF YIMPL_WPN4_FFTS
 no const	ynorm_wpn_noconst ttp, base2, zero, echk, r12
-const		ynorm_wpn_const ttp, base2, zero, echk, r12
+const		ynorm_wpn_const ttp, base2, echk, r12
 ENDIF
 	ENDM
 
@@ -2570,7 +2570,7 @@ ttp		movzx	rcx, WORD PTR [r14+2]		;; Load next 4 big vs. little & fudge flags
 	ENDM
 ENDIF
 
-ynorm_wpn_const MACRO ttp, base2, zero, echk, grpreg2
+ynorm_wpn_const MACRO ttp, base2, echk, grpreg2
 		L1prefetchw rsi+64, L1PREFETCH_ALL
 		L1prefetchw r13+64, L1PREFETCH_ALL
 
@@ -2602,8 +2602,7 @@ ttp		vmulpd	ymm7, ymm7, [grpreg2+0*YMM_GMD][r10] ;; Mul by fudged grp two-to-min
 ttp		vmulpd	ymm8, ymm8, [grpreg2+1*YMM_GMD][rcx*8] ;; Mul by fudged grp two-to-minus-phi
 
 ttp		vmulpd	ymm4, ymm4, [r12+0*YMM_GMD+YMM_GMD/2][r8] ;; value1 = rounded value * fudged grp two-to-phi
-ttp no zero	vmulpd	ymm5, ymm5, [r12+1*YMM_GMD+YMM_GMD/2][rbx*8] ;; value2 = rounded value * fudged grp two-to-phi
-zero		vxorpd	ymm5, ymm5, ymm5
+ttp		vmulpd	ymm5, ymm5, [r12+1*YMM_GMD+YMM_GMD/2][rbx*8] ;; value2 = rounded value * fudged grp two-to-phi
 ttp		movzx	rbx, WORD PTR [rdi+2]		;; Load next 4 big vs. little & fudge flags
 		ystore	[rsi+0*32], ymm4		;; Save new value1
 		ystore	[rsi+1*32], ymm5		;; Save new value2
@@ -2614,8 +2613,7 @@ no base2 ttp	ynorm_wpn_nobase2_const	echk, rdx*8, rdx*8+32, ymm9, ymm10
 no base2 no ttp	ynorm_wpn_nobase2_const	echk, 0, 0, ymm9, ymm10
 
 ttp		vmulpd	ymm4, ymm4, [grpreg2+0*YMM_GMD+YMM_GMD/2][r10] ;; value1 = rounded value * fudged grp two-to-phi
-ttp no zero	vmulpd	ymm5, ymm5, [grpreg2+1*YMM_GMD+YMM_GMD/2][rcx*8] ;; value2 = rounded value * fudged grp two-to-phi
-zero		vxorpd	ymm5, ymm5, ymm5
+ttp		vmulpd	ymm5, ymm5, [grpreg2+1*YMM_GMD+YMM_GMD/2][rcx*8] ;; value2 = rounded value * fudged grp two-to-phi
 ttp		movzx	rcx, WORD PTR [r14+2]		;; Load next 4 big vs. little & fudge flags
 		ystore	[r13+0*32], ymm4		;; Save new value1
 		ystore	[r13+1*32], ymm5		;; Save new value2
@@ -4138,7 +4136,7 @@ shuflp:	vmovsd	xmm4, Q [rsi+0*32]	;; Shift 3 carry words up
 	vmovsd	xmm1, Q [rsi+1*32+24]
 	vmovsd	Q [rsi+1*32+24], xmm6
 	bump	rsi, 64			;; Next carry cache line
-	dec	rax			;; Decement count of cache lines
+	dec	rax			;; Decrement count of cache lines
 	jnz	short shuflp
 base2	vsubsd	xmm1, xmm1, Q YMM_BIGVAL
 	vmulsd	xmm1, xmm1, Q YMM_MINUS_C ;; Negate the very last carry
@@ -4271,7 +4269,7 @@ shuflp:	vmovsd	xmm4, Q [rsi+0*32]	;; Shift 3 carry words up
 	vmovsd	xmm3, Q [rsi+1*32+24]
 	vmovsd	Q [rsi+1*32+24], xmm6
 	bump	rsi, 64			;; Next carry cache line
-	dec	rax			;; Decement count of cache lines
+	dec	rax			;; Decrement count of cache lines
 	jnz	short shuflp
 ;;	mov	rsi, carries		;; Reload carries array pointer
 ;;	vmovsd	Q [rsi+0*32], xmm3	;; Move last cache line's high carries into first cache line
@@ -5758,7 +5756,7 @@ ynorm_smallmul_1d_cleanup MACRO ttp, base2, destptr
 	mov	rsi, destptr			;; Address of FFT data
 	mov	rbp, norm_col_mults		;; Address of the multipliers
 	mov	rdi, norm_biglit_array		;; Addr of the big/little flags array
-	ynorm_top_carry_1d ttp, base2		;; No, do a very standard carry
+ttp	ynorm_top_carry_1d ttp, base2		;; No, do a very standard carry
 	ynorm_1d_cleanup ttp, base2, noexec
 	ENDM
 
@@ -7192,16 +7190,16 @@ base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Remove rounding constant
 
 ycopyzero MACRO
 	LOCAL	nz1,nz2,nz3,nz4
-	cmp	ecx, COPYZERO+3*4	;; Is this the first cache line where we copy 1 values?
+	cmp	ecx, COPYZERO[3*4]	;; Is this the first cache line where we copy 1 values?
 	jne	short nz1		;; No, jump
 	vmovapd	ymm1, YMM_TMP1		;; Yes, switch to the copy 1 values mask
-nz1:	cmp	ecx, COPYZERO+2*4	;; Is this the first cache line where we copy 2 values?
+nz1:	cmp	ecx, COPYZERO[2*4]	;; Is this the first cache line where we copy 2 values?
 	jne	short nz2		;; No, jump
 	vmovapd	ymm1, YMM_TMP2		;; Yes, switch to the copy 2 values mask
-nz2:	cmp	ecx, COPYZERO+1*4	;; Is this the first cache line where we copy 3 values?
+nz2:	cmp	ecx, COPYZERO[1*4]	;; Is this the first cache line where we copy 3 values?
 	jne	short nz3		;; No, jump
 	vmovapd	ymm1, YMM_TMP3		;; Yes, switch to the copy 3 values mask
-nz3:	cmp	ecx, COPYZERO+0*4	;; Is this the first cache line where we copy 4 values?
+nz3:	cmp	ecx, COPYZERO[0*4]	;; Is this the first cache line where we copy 4 values?
 	jne	short nz4		;; No, jump
 	vmovapd	ymm1, YMM_TMP4		;; Yes, switch to the copy 4 values mask
 nz4:	vmaskmovpd ymm0, ymm1, [rsi]	;; Conditionally load low doubles

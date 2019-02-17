@@ -16,7 +16,7 @@
 | threads IF AND ONLY IF each uses a different gwhandle structure
 | initialized by gwinit.
 | 
-|  Copyright 2002-2017 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2002-2019 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWNUM_H
@@ -60,31 +60,30 @@ typedef double *gwnum;
 /* gwsetup verifies that the version numbers match.  This prevents bugs */
 /* from accidentally linking in the wrong gwnum library. */
 
-#define GWNUM_VERSION		"29.4"
+#define GWNUM_VERSION		"29.6"
 #define GWNUM_MAJOR_VERSION	29
-#define GWNUM_MINOR_VERSION	4
+#define GWNUM_MINOR_VERSION	6
 
 /* Error codes returned by the three gwsetup routines */
 
-#define GWERROR_VERSION		1001	/* GWNUM.H and FFT assembly code */
-					/* version numbers do not match. */
-#define GWERROR_TOO_LARGE	1002	/* Number too large for the FFTs. */
+#define GWERROR_VERSION		1001	/* GWNUM.H and FFT assembly code version numbers do not match. */
+#define GWERROR_TOO_LARGE	1002	/* Number too large for the FFTs */
 #define GWERROR_K_TOO_SMALL	1003	/* k < 1 is not supported */
 #define GWERROR_K_TOO_LARGE	1004	/* k > 53 bits is not supported */
 #define GWERROR_MALLOC		1005	/* Insufficient memory available */
-#define GWERROR_VERSION_MISMATCH 1006	/* GWNUM_VERSION from gwinit call */
-					/* doesn't match GWNUM_VERSION when */
+#define GWERROR_VERSION_MISMATCH 1006	/* GWNUM_VERSION from gwinit call doesn't match GWNUM_VERSION when */
 					/* gwnum.c was compiled. */
-#define GWERROR_STRUCT_SIZE_MISMATCH 1007 /* Gwhandle structure size from */
-					/* gwinit call doesn't match size */
-					/* when gwnum.c was compiled.  Check */
-					/* compiler alignment switches. */
+#define GWERROR_STRUCT_SIZE_MISMATCH 1007 /* Gwhandle structure size from gwinit call doesn't match size */
+					/* when gwnum.c was compiled.  Check compiler alignment switches. */
 #define GWERROR_TOO_SMALL	1008	/* Gwsetup called on a number <= 1 */
+#define GWERROR_NO_INIT		1009	/* gwinit was not called prior to gwsetup */
 #define GWERROR_INTERNAL	2000	/* 2000 and up are "impossible" internal errors. */
 
-/* Error codes returned by gwtobinary, gwtogiant, gwiszero, gwequal, and get_fft_value */
+/* Error codes returned by gwtobinary, gwtogiant, and get_fft_value */
 
 #define GWERROR_BAD_FFT_DATA	-1	/* Nan or inf data encountered */
+#define GWERROR_PARTIAL_FFT	-1009	/* Attempt to convert a partially FFTed number to binary */
+#define GWERROR_FFT		-1010	/* Attempt to convert an FFTed number to binary */
 
 /* Prior to calling gwsetup, you MUST CALL gwinit. This initializes the */
 /* gwhandle structure. It gives us a place to set rarely used gwsetup */
@@ -145,10 +144,17 @@ void gwdone (
 +---------------------------------------------------------------------*/
 
 /* Prior to calling one of the gwsetup routines, you can tell the library */
-/* how many threads it can use to perform a multiply. */
+/* how many compute threads it can use to perform a multiply. */
 
 #define gwset_num_threads(h,n)		((h)->num_threads = n)
 #define gwget_num_threads(h)		((h)->num_threads)
+
+/* Prior to calling one of the gwsetup routines, you can tell the library to use a hyperthread for memory prefetching. */
+/* Only implemented for AVX-512 FFTs.  Caller must ensure the compute thread and prefetching hyperthread are set to use */
+/* the same physical CPU core.  At present there are no known CPUs where this provides a benefit. */
+
+#define gwset_hyperthread_prefetch(h)	((h)->hyperthread_prefetching = TRUE)
+#define gwclear_hyperthread_prefetch(h)	((h)->hyperthread_prefetching = FALSE)
 
 /* Specify a call back routine for the auxiliary threads to call when they */
 /* are created.  This lets the user of the gwnum library set the thread */
@@ -157,8 +163,9 @@ void gwdone (
 /* The callback routine must be declared as follows: */
 /*	void callback (int thread_num, int action, void *data) */
 /* If you tell gwnum to use 4 threads, it will create 3 auxiliary threads */
-/* and pass the callback routine with thread_num = 1, 2, and 3. */
+/* and invoke the callback routine with thread_num = 1, 2, and 3. */
 /* Action is 0 for thread starting and 1 for thread terminating. */
+/* Action is 10 for prefetching hyperthread starting and 11 for prefetching hyperthread terminating. */
 
 #define gwset_thread_callback(h,n)		((h)->thread_callback = n)
 #define gwset_thread_callback_data(h,d)		((h)->thread_callback_data = d)
@@ -375,27 +382,25 @@ void gw_random_number (
 /* gwswap	Quickly swaps two gw numbers */
 /* gwcopy(s,d)	Copies gwnum s to d */
 /* gwadd	Adds two numbers and normalizes result if necessary */
-/* gwsub	Subtracts first number from second number and normalizes */
-/*		result if necessary */
+/* gwsub	Subtracts first number from second number and normalizes result if necessary */
 /* gwadd3quick	Adds two numbers WITHOUT normalizing */
 /* gwsub3quick	Subtracts second number from first WITHOUT normalizing */
 /* gwadd3	Adds two numbers and normalizes them if necessary */
-/* gwsub3	Subtracts second number from first number and normalizes */
-/*		result if necessary */
-/* gwaddsub	Adds and subtracts 2 numbers (first+second and first-second) */
-/*		normalizes the results if necessary */
+/* gwsub3	Subtracts second number from first number and normalizes result if necessary */
+/* gwaddsub	Adds and subtracts 2 numbers (first+second and first-second) normalizes the results if necessary */
 /* gwaddsub4	Like, gwaddsub but can store results in separate variables */
 /* gwaddsub4quick Like, gwaddsub4 but will not do a normalize */
 /* gwfft	Perform the forward Fourier transform on a number */
 /* gwsquare	Multiplies a number by itself */
+/* gwsquare2	Multiplies a number by itself, takes a source and destination */
 /* gwsquare_carefully  Like gwsquare but uses a slower method that will */
 /*		have a lower roundoff error even if input is non-random data */
 /*		NOTE: Unlike gwsquare, input cannot have been partially FFTed */
+/* gwsquare2_carefully  Like gwsquare_carefully but takes a source and destination */
 /* gwmul(s,d)	Computes d=s*d.  NOTE: s is replaced by its FFT */
 /* gwsafemul(s,d) Like gwmul but s is not replaced with its FFT */
 /* gwfftmul(s,d) Computes d=s*d.  NOTE: s must have been previously FFTed */
-/* gwfftfftmul(s1,s2,d) Computes d=s1*s2.  Both s1 and s2 must have */
-/*		been previously FFTed */
+/* gwfftfftmul(s1,s2,d) Computes d=s1*s2.  Both s1 and s2 must have been previously FFTed */
 /* gwmul_carefully(s,d)  Like gwsafemul but uses a slower method that will */
 /*		have a lower roundoff error even if input is non-random data */
 /*		NOTE: Unlike gwsafemul, inputs cannot have been partially FFTed */
@@ -410,6 +415,8 @@ void gw_random_number (
 /* gwfftaddsub4	Like, gwfftaddsub but stores results in separate variables */
 
 #define gwswap(s,d)	{gwnum t; t = s; s = d; d = t;}
+#define gwsquare(h,s)	gwsquare2 (h,s,s)
+#define gwsquare_carefully(h,s)	gwsquare2_carefully (h,s,s)
 #define gwaddquick(h,s,d) gwadd3quick (h,s,d,d)
 #define gwsubquick(h,s,d) gwsub3quick (h,d,s,d)
 #define gwadd(h,s,d)	gwadd3 (h,s,d,d)
@@ -454,9 +461,10 @@ void gwfft (			/* Forward FFT */
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	gwnum	s,		/* Source number */
 	gwnum	d);		/* Destination (can overlap source) */
-void gwsquare (			/* Square a number */
+void gwsquare2 (		/* Square a number */
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
-	gwnum	s);		/* Source and destination */
+	gwnum	s,		/* Source */
+	gwnum	d);		/* Destination */
 void gwmul (			/* Multiply source with dest */
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	gwnum	s,		/* Source number (changed to FFTed source!) */
@@ -544,9 +552,10 @@ void gwset_square_carefully_count (
 /* round-off error on non-random input data.  Caller must make sure the */
 /* input number has not been partially (via gwstartnextfft) or fully FFTed. */
 
-void gwsquare_carefully (
+void gwsquare2_carefully (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
-	gwnum	s);		/* Source and destination */
+	gwnum	s,		/* Source */
+	gwnum	d);		/* Destination */
 
 void gwmul_carefully (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
@@ -559,6 +568,8 @@ void gwmul_carefully (
 /* do the -2 operation in a Lucas-Lehmer test.  NOTE:  There are some */
 /* number formats that cannot use these routines.  If abs(c) in k*b^n+c is 1, */
 /* then gwsetaddin can be used.  To use gwsetaddinatpowerofb, k must also be 1. */
+/* If you also use the mul-by-small-const normalization routine, the multiply */
+/* is done after the addition. */
 
 void gwsetaddin (gwhandle *, long);
 void gwsetaddinatpowerofb (gwhandle *, long, unsigned long);
@@ -566,7 +577,7 @@ void gwsetaddinatpowerofb (gwhandle *, long, unsigned long);
 /* This routine adds a small value to a gwnum.  This lets us apply some */
 /* optimizations that cannot be performed by general purpose gwadd */
 
-#define GWSMALLADD_MAX		2251799000000000.0	/* Almost 2^51 */
+#define GWSMALLADD_MAX		1125899906842624.0	/* 2^50 */
 void gwsmalladd (gwhandle *gwdata, double addin, gwnum g);
 
 /* This routine multiplies a gwnum by a small positive value.  This lets us apply some */
@@ -878,7 +889,9 @@ struct gwhandle_struct {
 					/* gwsetmulbyconst.  The default value is 3, commonly used */
 					/* in a base-3 Fermat PRP test. */
 	unsigned long minimum_fftlen;	/* Minimum fft length for gwsetup to use. */
-	unsigned long num_threads;	/* Number of threads to use in multiply routines.  Default is obviously one. */
+	unsigned long num_threads;	/* Number of compute threads to use in multiply routines.  Default is obviously one. */
+	char	hyperthread_prefetching; /* Set to true to launch a separate thread for prefetching.  Caller must set */
+					/* affinity to make sure hyperthread and compute thread share the same physical core */
 	char	larger_fftlen_count;	/* Force using larger FFT sizes.  This is a count of how many FFT sizes to "skip over". */
 	char	sum_inputs_checking;	/* If possible, pick an FFT implementation that */
 					/* supports the SUM(INPUTS) != SUM(OUTPUTS) error check. */
@@ -890,6 +903,7 @@ struct gwhandle_struct {
 	char	use_benchmarks;		/* Use benchmark data in gwnum.txt to select fastest FFT implementations */
 	char	will_hyperthread;	/* Set if FFTs will use hyperthreading (affects select fastest FFT implementation) */
 	char	will_error_check;	/* Set if FFTs will error check (affects select fastest FFT implementation) */
+	char	unused_setup_flags[3];
 	int	bench_num_cores;	/* Set to expected number of cores that will FFT (affects select fastest FFT implementation) */
 	int	bench_num_workers;	/* Set to expected number of workers that will FFT (affects select fastest FFT implementation) */
 	/* End of variables affecting gwsetup */
@@ -899,8 +913,9 @@ struct gwhandle_struct {
 	unsigned long n;		/* N in K*B^N+C */
 	signed long c;			/* C in K*B^N+C */
 	unsigned long FFTLEN;		/* The FFT size we are using */
+	unsigned long PASS1_SIZE;	/* Number of real values FFTed in pass 1. */
 	unsigned long PASS2_SIZE;	/* Number of complex values FFTed in pass 2. */
-	int	cpu_flags;		/* Copy of CPU_FLAGS at time gwsetup was called (just in case CPU_FLAGS changes) */
+	int	cpu_flags;		/* Copy of CPU_FLAGS at time gwinit was called (just in case CPU_FLAGS changes) */
 	char	ZERO_PADDED_FFT;	/* True if doing a zero pad FFT */
 	char	ALL_COMPLEX_FFT;	/* True if using all-complex FFTs */
 	char	RATIONAL_FFT;		/* True if bits per FFT word is integer */
@@ -937,7 +952,7 @@ struct gwhandle_struct {
 	int	GWERROR;		/* Set if an error is detected */
 	double	MAXDIFF;		/* Maximum allowable difference between sum of inputs and outputs */
 	double	fft_count;		/* Count of forward and inverse FFTs */
-	struct gwasm_jmptab *jmptab;	/* ASM jmptable pointer */
+	const struct gwasm_jmptab *jmptab; /* ASM jmptable pointer */
 	void	*asm_data;		/* Memory allocated for ASM global data */
 	void	*dd_data;		/* Memory allocated for gwdbldbl global data */
 	ghandle	gdata;			/* Structure that allows sharing giants and gwnum memory allocations */
@@ -963,14 +978,15 @@ struct gwhandle_struct {
 					/* main thread can resume.  That is, it is set if and only if num_active_threads==0 */
 	gwevent can_carry_into;		/* This event signals pass 1 sections that the block they are waiting on to carry */
 					/* into may now be ready. */
-	int	threads_must_exit;	/* Flag set to force all auxiliary threads to terminate */
+	short	threads_must_exit;	/* Flag set to force all auxiliary threads to terminate */
+	short	catch_straggler_threads;/* Flag set when auxiliary threads have finished their work */
 	int	pass1_state;		/* Mainly used to keep track of what we are doing in pass 1 of an FFT.  See */
 					/* pass1_get_next_block for details.  Also, 999 means we are in pass 2 of the FFT. */
-	void	*adjusted_pass1_premults; /* pass1_premults pointer adjusted for the fact the first block of real FFTs have */
-					/* no premultipliers */
+	void	*pass1_var_data;	/* pass1 variable sin/cos/premultiplier/fudge/biglit data */
 	void	*adjusted_pass2_premults; /* pass2_premults pointer adjusted for the fact the first block of real FFTs have */
 					/* no premultipliers */
-	unsigned long pass1_premult_block_size; /* Used to calculate address of pass 1 premultiplier data */
+	unsigned long biglit_data_offset; /* Offset of the big/lit data in the pass 1 variable data */
+	unsigned long pass1_var_data_size; /* Used to calculate address of pass 1 premultiplier data */
 	unsigned long pass2_premult_block_size; /* Used to calculate address of pass 2 premultiplier data */
 	unsigned long next_block;	/* Next block for threads to process */
 	unsigned long num_pass1_blocks; /* Number of data blocks in pass 1 for threads to process */
@@ -978,6 +994,7 @@ struct gwhandle_struct {
 	unsigned long num_postfft_blocks; /* Number of data blocks that must delay forward fft because POSTFFT is set. */
 	gwthread *thread_ids;		/* Array of auxiliary thread ids */
 	struct pass1_carry_sections *pass1_carry_sections; /* Array of pass1 sections for carry propagation */
+	void	*multithread_op_data;	/* Data shared amongst add/sub/addsub/smallmul compute threads */
 	uint32_t ASM_TIMERS[32];	/* Internal timers used by me to optimize code */
 	int	bench_pick_nth_fft;	/* DO NOT set this variable.  Internal hack to force the FFT selection code to */
 					/* pick the n-th possible implementation instead of the best one.  The prime95 */
@@ -1023,20 +1040,24 @@ struct gwhandle_struct {
 
 #define MAX_PRIME	79300000L	/* Maximum number of x87 bits */
 #define MAX_PRIME_SSE2	595800000L	/* SSE2 bit limit */
-#define MAX_PRIME_AVX	595800000L	/* AVX bit limit */
-#define MAX_PRIME_FMA3	921400000L	/* FMA3 bit limit */
+#define MAX_PRIME_AVX	595700000L	/* AVX bit limit */
+#define MAX_PRIME_FMA3	922600000L	/* FMA3 bit limit */
+#define MAX_PRIME_AVX512 1169000000L	/* AVX-512 bit limit */
 #define MAX_FFTLEN	4194304L	/* 4M FFT max for x87 */
 #define MAX_FFTLEN_SSE2	33554432L	/* 32M FFT max for SSE2 */
 #define MAX_FFTLEN_AVX	33554432L	/* 32M FFT max for AVX */
 #define MAX_FFTLEN_FMA3	52428800L	/* 50M FFT max for FMA3 */
+#define MAX_FFTLEN_AVX512 67108864L	/* 64M FFT max for AVX-512 */
 
 /* Informational routines that can be called prior to gwsetup */
 /* Many of these routines only work for k*b^n+c FFTs. */
 
 unsigned long gwmap_to_fftlen (double, unsigned long, unsigned long, signed long);
+unsigned long gwmap_with_cpu_flags_to_fftlen (int, double, unsigned long, unsigned long, signed long);
 double gwmap_to_timing (double, unsigned long, unsigned long, signed long);
 unsigned long gwmap_to_memused (double, unsigned long, unsigned long, signed long);
 unsigned long gwmap_fftlen_to_max_exponent (unsigned long fftlen);
+unsigned long gwmap_with_cpu_flags_fftlen_to_max_exponent (int, unsigned long fftlen);
 unsigned long gwmap_to_estimated_size (double, unsigned long, unsigned long, signed long);
 //int gwmap_to_fft_info (gwhandle *, double, unsigned long, unsigned long, signed long); /* DEPRECATED */
 

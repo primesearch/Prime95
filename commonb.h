@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2019 Mersenne Research, Inc.  All rights reserved
 +---------------------------------------------------------------------*/
 
 //#define SERVER_TESTING
@@ -51,6 +51,7 @@ struct PriorityInfo {
 	int	worker_num;		/* Worker number -- output informative messages to this worker's window */
 	int	verbose_flag;		/* Output affinity messages to the worker window */
 	int	aux_thread_num;		/* Set when gwnum launches auxiliary threads */
+	int	aux_hyperthread;	/* Set when gwnum launches auxiliary hyperthreads */
 	union {
 		struct {		/* Normal work info */
 			int	normal_work_hyperthreads;	/* Number of hyperthreads to be assigned to same core */
@@ -79,6 +80,7 @@ void create_worker_windows (int num_threads);
 void Launcher (void *arg);
 void LauncherDispatch (void *arg);
 int primeContinue (int);
+void tortureTestDefaultSizes (int torture_type, int num_threads, int *minfft, int *maxfft);
 int tortureTest (int, int);
 int selfTest (int, struct PriorityInfo *, struct work_unit *);
 int primeTime (int, unsigned long, unsigned long);
@@ -181,6 +183,7 @@ void read_pause_info (void);
 void checkPauseWhileRunning (void);
 void implement_pause (int thread_num);
 int is_LowMemWhileRunning_active (int thread_num);
+void isInPauseList (char *program_name);
 
 /* Load average routines */
 

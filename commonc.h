@@ -1,9 +1,9 @@
-/* Copyright 1995-2018 Mersenne Research, Inc.  All rights reserved */
+/* Copyright 1995-2019 Mersenne Research, Inc.  All rights reserved */
 
 /* Constants */
 
-#define VERSION		"29.4"
-#define BUILD_NUM	"7"
+#define VERSION		"29.6"
+#define BUILD_NUM	"1"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -19,8 +19,9 @@
 /* FreeBSD 64-bit  #12 */
 
 #define MIN_PRIME	5L		/* Smallest testable prime */
-#define MAX_FACTOR	2000000000	/* Largest factorable Mersenne number*/
-#define ERROR_RATE	0.018		/* Estimated error rate on clean run */
+#define MAX_FACTOR	2000000000	/* Largest factorable Mersenne number */
+#define ERROR_RATE	0.018		/* Estimated LL error rate on clean run */
+#define PRP_ERROR_RATE	0.0001		/* Estimated PRP error rate (assumes Gerbicz error-checking) */
 
 /* Hopefully, hwloc has no limitations regarding setting affinity.  Due to */
 /* limitations in our own old affinity code, we used to limit */
@@ -131,6 +132,7 @@ extern char INI_FILE[80];		/* Name of the prime INI file */
 extern char LOCALINI_FILE[80];		/* Name of the local INI file */
 extern char WORKTODO_FILE[80];		/* Name of the work-to-do INI file */
 extern char RESFILE[80];		/* Name of the results file */
+extern char RESFILEBENCH[80];		/* Name of the results.bench file */
 extern char SPOOL_FILE[80];		/* Name of the spool file */
 extern char LOGFILE[80];		/* Name of the server log file */
 
@@ -145,8 +147,7 @@ extern unsigned int WORK_PREFERENCE[MAX_NUM_WORKER_THREADS];
 					/* Type of work (factoring, testing, */
 					/* etc.) to get from the server. */
 extern unsigned int CORES_PER_TEST[MAX_NUM_WORKER_THREADS];
-					/* Number of threads gwnum can use */
-					/* in computations. */
+					/* Number of threads gwnum can use in computations. */
 extern int HYPERTHREAD_TF;		/* TRUE if trial factoring should use hyperthreads */
 extern int HYPERTHREAD_LL;		/* TRUE if FFTs (LL, P-1, ECM, PRP) should use hyperthreads */
 extern unsigned int DAYS_OF_WORK;	/* How much work to retrieve from */
@@ -236,6 +237,14 @@ extern gwevent AUTOBENCH_EVENT;		/* Event to wake up workers after an auto-bench
 /* Topology variables and routines */
 
 extern hwloc_topology_t hwloc_topology;	/* Hardware topology */
+extern uint32_t CPU_TOTAL_L1_CACHE_SIZE;/* Sum of all the L1 caches in KB as determined by hwloc */
+extern uint32_t CPU_TOTAL_L2_CACHE_SIZE;/* Sum of all the L2 caches in KB as determined by hwloc */
+extern uint32_t CPU_TOTAL_L3_CACHE_SIZE;/* Sum of all the L3 caches in KB as determined by hwloc */
+extern uint32_t CPU_TOTAL_L4_CACHE_SIZE;/* Sum of all the L4 caches in KB as determined by hwloc */
+extern uint32_t CPU_NUM_L1_CACHES;	/* Number of L1 caches as determined by hwloc */
+extern uint32_t CPU_NUM_L2_CACHES;	/* Number of L2 caches as determined by hwloc */
+extern uint32_t CPU_NUM_L3_CACHES;	/* Number of L3 caches as determined by hwloc */
+extern uint32_t CPU_NUM_L4_CACHES;	/* Number of L4 caches as determined by hwloc */
 extern unsigned int NUM_NUMA_NODES;	/* Number of NUMA nodes in the computer */
 extern unsigned int NUM_THREADING_NODES;/* Number of nodes where it might be beneficial to keep a worker's threads in the same node */
 extern int OS_CAN_SET_AFFINITY;		/* hwloc supports setting CPU affinity (known exception is Apple) */
@@ -297,6 +306,7 @@ void title (int, const char *);
 void ChangeIcon (int, int);
 void BlinkIcon (int, int);
 EXTERNC void OutputBoth (int, const char *);
+void OutputBothBench (int, const char *);
 void OutputStr (int, const char *);
 void OutputStrNoTimeStamp (int, const char *);
 void RealOutputStr (int, const char *);
@@ -339,6 +349,7 @@ struct work_unit {		/* One line from the worktodo file */
 	double	tests_saved;	/* Pfactor - primality tests saved if a factor is found */
 	unsigned int prp_base;	/* PRP base to use */	
 	int	prp_residue_type; /* PRP residue to output -- see primenet.h */
+	int	prp_dblchk;	/* True if this is a doublecheck of a previous PRP */
 	char	*known_factors;	/* ECM, P-1, PRP - list of known factors */
 	char	*comment;	/* Comment line in worktodo.ini */
 		/* Runtime variables */
@@ -409,6 +420,11 @@ int write_checksum (int fd, unsigned long sum);
 
 void formatMsgForResultsFile (char *, struct work_unit *);
 int writeResults (const char *);
+int writeResultsBench (const char *);
+int writeResultsJSON (const char *);
+void JSONaddExponent (char *JSONbuf, struct work_unit *w);
+void JSONaddProgramTimestamp (char *JSONbuf);
+void JSONaddUserComputerAID (char *JSONbuf, struct work_unit *w);
 
 /* Routines called by common routines */
 
