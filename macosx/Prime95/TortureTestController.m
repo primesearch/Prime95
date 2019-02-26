@@ -26,23 +26,20 @@
 {
 	int	mem, in_place_fft;
 
-	[self setTortureType:4];
-
 	[self setNumberOfThreads:NUM_CPUS * CPU_HYPERTHREADS];
 	[self setNumberOfThreadsMin:1];
 	[self setNumberOfThreadsMax:NUM_CPUS * CPU_HYPERTHREADS];
 	[self setNumberOfThreadsEnabled:(NUM_CPUS * CPU_HYPERTHREADS > 1)];
+	[self setTortureType:4];
 	[self setSmallFFTsEnabled:(CPU_TOTAL_L3_CACHE_SIZE > 0)];
 	[self setMediumFFTsEnabled:(CPU_TOTAL_L4_CACHE_SIZE > 0)];
 	[self setCustomSettingsEnabled:NO];
 	[self setCustomMemoryEnabled:NO];
 	[self setMinFFTSize:4];
 	[self setMaxFFTSize:(CPU_TOTAL_L4_CACHE_SIZE ? 32768 : 8192)];
-	[self setDisableAVX512:NO];
-	[self setDisableFMA3:NO];
-	[self setDisableAVX:NO];
-	[self setDisableAVX512Enabled:(CPU_FLAGS & CPU_AVX512F)];
-	[self setDisableFMA3Enabled:(CPU_FLAGS & CPU_FMA3)];
+	[self setDisableAVX512:!(CPU_FLAGS & CPU_AVX512F)];
+	[self setDisableFMA3:!(CPU_FLAGS & CPU_FMA3)];
+	[self setDisableAVX:!(CPU_FLAGS & CPU_AVX)];
 
 	mem = physical_memory ();
 	// New in 29.5 default to all but 2.5GB
@@ -123,6 +120,45 @@
 	runFFTsInPlace = _value;
 }
 
+- (int)disableAVX512
+{
+	return disableAVX512;
+}
+
+- (void)setDisableAVX512:(int) _value
+{
+	disableAVX512 = _value;
+	[self setDisableAVX512Enabled:(CPU_FLAGS & CPU_AVX512F) && !disableFMA3];
+	[self setDisableFMA3Enabled:(CPU_FLAGS & CPU_FMA3) && disableAVX512 && !disableAVX];
+	[self setDisableAVXEnabled:(CPU_FLAGS & CPU_AVX) && disableFMA3];
+}
+
+- (int)disableFMA3
+{
+	return disableFMA3;
+}
+
+- (void)setDisableFMA3:(int) _value
+{
+	disableFMA3 = _value;
+	[self setDisableAVX512Enabled:(CPU_FLAGS & CPU_AVX512F) && !disableFMA3];
+	[self setDisableFMA3Enabled:(CPU_FLAGS & CPU_FMA3) && disableAVX512 && !disableAVX];
+	[self setDisableAVXEnabled:(CPU_FLAGS & CPU_AVX) && disableFMA3];
+}
+
+- (int)disableAVX
+{
+	return disableAVX;
+}
+
+- (void)setDisableAVX:(int) _value
+{
+	disableAVX = _value;
+	[self setDisableAVX512Enabled:(CPU_FLAGS & CPU_AVX512F) && !disableFMA3];
+	[self setDisableFMA3Enabled:(CPU_FLAGS & CPU_FMA3) && disableAVX512 && !disableAVX];
+	[self setDisableAVXEnabled:(CPU_FLAGS & CPU_AVX) && disableFMA3];
+}
+
 @synthesize numberOfThreadsMin;
 @synthesize numberOfThreadsMax;
 @synthesize numberOfThreadsEnabled;
@@ -134,11 +170,9 @@
 @synthesize maxFFTSize;
 @synthesize memoryToUse;
 @synthesize timeToRunEachFFT;
-@synthesize disableAVX512;
-@synthesize disableFMA3;
-@synthesize disableAVX;
 @synthesize disableAVX512Enabled;
 @synthesize disableFMA3Enabled;
+@synthesize disableAVXEnabled;
 
 - (IBAction)ok:(id)sender
 {

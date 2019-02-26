@@ -1165,6 +1165,7 @@ int ecm_modinv (
 /* Use the faster GMP library to do an extended GCD which gives us 1/v mod N */
 
 #else
+	{
 	mpz_t	__v, __N, __gcd, __inv;
 
 /* Do the extended GCD */
@@ -1200,6 +1201,7 @@ int ecm_modinv (
 	mpz_clear (__gcd);
 	mpz_clear (__inv);
 	mpz_clear (__N);
+	}
 #endif
 
 /* Clean up */

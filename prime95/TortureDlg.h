@@ -5,7 +5,6 @@
 #pragma once
 #include "afxwin.h"
 
-
 // CTortureDlg dialog
 
 class CTortureDlg : public CDialog
@@ -63,4 +62,12 @@ public:
 	afx_msg void OnBnClickedBlend();
 	afx_msg void OnBnClickedCustom();
 	afx_msg void OnBnClickedInPlaceFFT();
+#ifdef X86_64
+	afx_msg void OnBnClickedAVX512();
+	afx_msg void OnBnClickedFMA3();
+#endif
+	afx_msg void OnBnClickedAVX();
+#ifndef X86_64
+	afx_msg void OnBnClickedSSE2();
+#endif
 };

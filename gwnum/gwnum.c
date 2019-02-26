@@ -688,8 +688,13 @@ int calculate_bif (
 	case CPU_ARCHITECTURE_AMD_K10:
 		retval = BIF_K10;		/* Look for FFTs optimized for K10 */
 		break;
-	case CPU_ARCHITECTURE_AMD_BULLDOZER:	/* Bulldozer CPUs are horrible at AVX.  Go back to K10 optimized. */
-		retval = BIF_K10;		/* Look for FFTs optimized for K10 */
+	case CPU_ARCHITECTURE_AMD_BULLDOZER:	/* Bulldozer is horrible at AVX.  Gwinit turns off AVX & FMA3 to get K10 optimized. */
+		if (gwdata->cpu_flags & CPU_FMA3)  /* Should only happen during torture test */
+			retval = BIF_FMA3;	/* FMA3 FFTs */
+		else if (gwdata->cpu_flags & CPU_AVX)  /* Should only happen during torture test */
+			retval = BIF_I7;	/* AVX without FMA3 FFTs */
+		else
+			retval = BIF_K10;	/* Look for FFTs optimized for K10 */
 		break;
 	case CPU_ARCHITECTURE_AMD_ZEN:		/* Look for FFTs optimized for Ryzen */
 		if (! (gwdata->cpu_flags & CPU_FMA3))
@@ -1020,6 +1025,12 @@ int gwinfo (			/* Return zero-padded fft flag or error code */
 	log2b = log2 (b);
 	log2c = log2 (labs (c));
 	log2maxmulbyconst = log2 (gwdata->maxmulbyconst);
+
+/* The smallest AVX-512F FFT is length 1K.  Limited testing has indicated that less than 5 bits per FFT word */
+/* can result in carry propagation errors.  For small k*b^n+c values switch to not using AVX-512 instructions. */
+
+	if (log2b * (double) n < 5.0 * 1024.0)
+		gwdata->cpu_flags &= ~CPU_AVX512F;
 
 /* First, see what FFT length we would get if we emulate the k*b^n+c modulo */
 /* with a zero padded FFT.  If k is 1 and abs (c) is 1 then we can skip this */
@@ -2057,10 +2068,10 @@ void gwinit2 (
 	}
 	gwdata->cpu_flags = CPU_FLAGS;
 
-/* We have not and will not write AVX-512 FFTs for 32-bit OSes */
+/* We have not and will not write FMA3 or AVX-512 FFTs for 32-bit OSes */
 
 #ifndef X86_64
-	gwdata->cpu_flags &= ~CPU_AVX512F;
+	gwdata->cpu_flags &= ~(CPU_AVX512F | CPU_FMA3);
 #endif
 
 /* FMA3 FFTs require both AVX and FMA3 instructions.  This will always be the case when CPUID */
@@ -2152,12 +2163,6 @@ int gwsetup (
 		gcdg (kg, cg);
 		gcd = cg->n[0];
 	}
-
-/* The smallest AVX-512F FFT is length 1K.  Limited testing has indicated that less than 5 bits per FFT word */
-/* can result in carry propagation errors.  For small k*b^n+c values switch do not use AVX-512 instructions. */
-
-	if (log2(b) * (double) n < 5.0 * 1024.0)
-		gwdata->cpu_flags &= ~CPU_AVX512F;
 
 /* Call the internal setup routine when we can.  Gcd (k, c) must be 1, */
 /* k * mulbyconst and c * mulbyconst cannot be too large.  Also, the FFT */

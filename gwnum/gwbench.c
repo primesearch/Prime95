@@ -228,6 +228,7 @@ void gwbench_read_data (void)
 
 /* Create a view to examine the best 3 throughput numbers for each FFT implementation */
 
+empty_the_db:
 	errcode = sqlite3_exec (BENCH_DB,
 				"CREATE VIEW best3 AS \
 					SELECT * FROM bench_data x WHERE rowid IN ( \
@@ -263,7 +264,6 @@ stmt_error:
 db_error:
 	sqlite3_close_v2 (BENCH_DB);
 	BENCH_DB = NULL;
-empty_the_db:
 	gwmutex_unlock (&SQL_MUTEX);
 }
 
@@ -542,7 +542,7 @@ void gwbench_get_max_throughput (
 	int	*impl,				/* Implementation ID of best FFT implementation */
 	double	*throughput)			/* Throughput of best FFT implementation (or -1 if cannot be determined) */
 {
-	int	errcode, impl_bits, exclude_fft_type;
+	int	errcode, impl_bits, exclude_fft_type, min_arch, max_arch;
 
 /* Assume we will fail to get throughput data */
 
@@ -575,7 +575,37 @@ void gwbench_get_max_throughput (
 		exclude_fft_type = FFT_TYPE_RADIX_4_DWPN << 24;		/* Exclude r4dwpn FFT type */
 	else
 		exclude_fft_type = -1;					/* Do not exclude any FFT types */
-	arch = arch << 12;
+
+/* We really made a mess here.  What we really want is the best implementation for the jmptable we are using. */
+/* Unfortunately, we decided to write the architecture value to the benchmark data in gwnum.txt.  In version 29.5 */
+/* and earlier we searched for the matching architecture I believe in an effort to protect us from a user copying */
+/* benchmark data from an incompatible machine or running benchmarks with CPU_FLAGS overridden.  This was a poor solution */
+/* as one of our Pentium 4 users found the arch=1, arch=2, or arch=3 could be the best implementation.  One possible remedy is */
+/* to eliminate the arch= check.  This fails in the case of an AVX-512 user upgrading to version 29.6.  The user could have */
+/* a gwnum.txt file full of benchmark data for AVX FFTs (yjmptable) but we are searching the zjmptable.  The other possible */
+/* remedy is to map the incoming arch value into all the possible arch values that are valid for that jmptable.  Alas, */
+/* arch=3 (CORE) is used for both the xjmptable and yjmptable.  So, we're going with a hybrid approach and if arch=3 we'll */
+/* just hope that gwnum.txt is only populated with valid benchmark data for this machine. */
+
+	min_arch = 0, max_arch = 15;	// This should always get overwritten
+
+	//BUG - we should pass in the jmptable we are using (and AMD flag) rather than an architecture value.
+	// If we did that we would not have the arch=3 problem below.
+
+	// From mult.asm 0=BLEND, 1=Pentium-4 w/ TLB prefetch, 2=Pentium-4, 3=CORE are valid xjmptable architectures
+	if (arch >= 0 && arch <= 2) min_arch = 0, max_arch = 3;
+	// From mult.asm 5=K8, 6=K10 are valid xjmptable architectures for AMD
+	// Accept arch=0 to 6 benchmarks and hope no FMA3 (arch=4) values for yjmptable are erroneously in gwnum.txt
+	if (arch >= 5 && arch <= 6) min_arch = 0, max_arch = 6;
+	// From mult.asm 3=CORE, 4=FMA3 are valid yjmptable architectures, but since arch=3
+	// input value could be xjmptable, select a wide range of arch values from gwnum.txt
+	if (arch == 3) min_arch = 0, max_arch = 4;
+	if (arch == 4) min_arch = 3, max_arch = 4;
+	// From mult.asm 8=SKX is the only valid zjmptable architecture
+	if (arch == 8) min_arch = 8, max_arch = 8;
+
+	min_arch = min_arch << 12;
+	max_arch = max_arch << 12;
 
 /* Prepare a SQL statement to get benchmark data */
 
@@ -584,7 +614,7 @@ void gwbench_get_max_throughput (
 							 WHERE fftlen = ?1 AND num_cores = ?2 AND num_workers = ?3 AND \
 								num_hyperthreads = ?4 AND (impl & 0x8010008) = ?5 AND \
 								(impl & 0x7000000) <> ?6 AND \
-								(impl & 0xF000) = ?7 \
+								(impl & 0xF000) BETWEEN ?7 AND ?8 \
 							 ORDER BY avg_throughput DESC LIMIT 1", -1, &get_max_sql_stmt, NULL);
 		if (errcode != SQLITE_OK) goto stmt_error;
 		get_max_sql_stmt_prepared = TRUE;
@@ -610,7 +640,10 @@ void gwbench_get_max_throughput (
 	errcode = sqlite3_bind_int (get_max_sql_stmt, 6, exclude_fft_type);
 	if (errcode != SQLITE_OK) goto stmt_error;
 
-	errcode = sqlite3_bind_int (get_max_sql_stmt, 7, arch);
+	errcode = sqlite3_bind_int (get_max_sql_stmt, 7, min_arch);
+	if (errcode != SQLITE_OK) goto stmt_error;
+
+	errcode = sqlite3_bind_int (get_max_sql_stmt, 8, max_arch);
 	if (errcode != SQLITE_OK) goto stmt_error;
 
 	errcode = sqlite3_step (get_max_sql_stmt);

@@ -7702,7 +7702,14 @@ int selfTestInternal (
 /* systems, enable SUM(INPUTS) != SUM(OUTPUTS) checking on the first test. */
 /* For a better variety of tests, enable SUM(INPUTS) != SUM(OUTPUTS) checking half the time. */
 
-		gwinit (&lldata.gwdata);
+		// Gwinit normally does not allow Bulldozer to run AVX or FMA3 FFTs.  For torture
+		// testing purposes we will allow running these FFTs.
+		if (CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_BULLDOZER) {
+			CPU_ARCHITECTURE = CPU_ARCHITECTURE_AMD_ZEN;
+			gwinit (&lldata.gwdata);
+			CPU_ARCHITECTURE = CPU_ARCHITECTURE_AMD_BULLDOZER;
+		} else
+			gwinit (&lldata.gwdata);
 		lldata.gwdata.cpu_flags &= ~disabled_cpu_flags;
 		gwclear_use_benchmarks (&lldata.gwdata);
 		gwset_sum_inputs_checking (&lldata.gwdata, iter & 1);
@@ -11044,9 +11051,11 @@ rotateg (t1, w->n, ps.units_bit, &gwdata.gdata);
 				ps.state = PRP_STATE_DCHK_PASS1;
 				ps.start_counter = ps.counter;
 				ps.end_counter = final_counter;
-				gwadd3 (&gwdata, ps.alt_x, ps.alt_x, ps.alt_x);
-				ps.alt_units_bit = ps.units_bit + 1;
-				if (ps.alt_units_bit >= w->n) ps.alt_units_bit -= w->n;
+				if (ps.alt_units_bit) {		// Only Mersennes support shift counts
+					gwadd3 (&gwdata, ps.alt_x, ps.alt_x, ps.alt_x);
+					ps.alt_units_bit = ps.alt_units_bit + 1;
+					if (ps.alt_units_bit >= w->n) ps.alt_units_bit -= w->n;
+				}
 			} else {
 				int	gerbicz_block_size;
 				double	adjustment;

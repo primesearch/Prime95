@@ -497,7 +497,11 @@ BEGIN
     LTEXT           "Use this only if you are sure you will not be finishing this exponent.  The exponent will be assigned to someone else.  It is not fair to them if you subsequently finish testing the exponent.",IDC_STATIC,7,7,165,37
 END
 
+#ifdef X86_64
 IDD_TORTURE DIALOGEX 0, 0, 352, 213
+#else
+IDD_TORTURE DIALOGEX 0, 0, 352, 199
+#endif
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Run a Torture Test"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
@@ -524,12 +528,15 @@ BEGIN
     EDITTEXT        IDC_MEMORY,208,128,29,12
     LTEXT           "&Time to run each FFT size (in minutes):",IDC_TIMEFFT_TEXT,15,145,122,8
     EDITTEXT        IDC_TIMEFFT,146,143,29,12
+#ifdef X86_64
     GROUPBOX        "Run a Weaker Torture Test (not recommended)",IDC_WEAKTORTUREGROUP,7,165,251,42,WS_GROUP
     CONTROL         "Disable AVX-&512",IDC_AVX512,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,15,177,100,10
     CONTROL         "Disable AVX2 (&fused multiply-add)",IDC_FMA3,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,119,177,136,10
     CONTROL         "Disable AV&X",IDC_AVX,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,15,191,100,10
-#ifndef X86_64
-    CONTROL         "&Disable SSE2",IDC_SSE2,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,119,191,100,10
+#else
+    GROUPBOX        "Run a Weaker Torture Test (not recommended)",IDC_WEAKTORTUREGROUP,7,165,251,28,WS_GROUP
+    CONTROL         "Disable AV&X",IDC_AVX,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,15,177,100,10
+    CONTROL         "&Disable SSE2",IDC_SSE2,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,119,177,100,10
 #endif
     DEFPUSHBUTTON   "OK",IDOK,295,6,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,295,24,50,14

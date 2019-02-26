@@ -29,6 +29,7 @@
 	int	disableAVX;
 	int	disableAVX512Enabled;
 	int	disableFMA3Enabled;
+	int	disableAVXEnabled;
 }
 
 @property(readwrite, assign) int tortureType;
@@ -50,6 +51,7 @@
 @property(readwrite, assign) int disableAVX;
 @property(readwrite, assign) int disableAVX512Enabled;
 @property(readwrite, assign) int disableFMA3Enabled;
+@property(readwrite, assign) int disableAVXEnabled;
 
 - (void)reInit;
 - (IBAction)ok:(id)sender;

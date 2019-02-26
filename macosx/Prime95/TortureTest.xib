@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="14313.18" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none">
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="14460.31" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none">
     <dependencies>
         <deployment identifier="macosx"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="14313.18"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="14460.31"/>
         <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
     </dependencies>
     <objects>
@@ -276,6 +276,7 @@
                                         <font key="font" metaFont="system"/>
                                     </buttonCell>
                                     <connections>
+                                        <binding destination="-2" name="enabled" keyPath="self.disableAVXEnabled" id="XAT-43-esN"/>
                                         <binding destination="-2" name="value" keyPath="self.disableAVX" id="Rn1-fR-EIu"/>
                                         <outlet property="nextKeyView" destination="4" id="NlV-FK-yfY"/>
                                     </connections>

@@ -21,10 +21,10 @@ CTortureDlg::CTortureDlg(CWnd* pParent /*=NULL*/)
 	, m_memory(0)
 	, m_timefft(0)
 	, m_blendmemory(0)
-	, m_avx512(0)
-	, m_fma3(0)
-	, m_avx(0)
-	, m_sse2(0)
+	, m_avx512(!(CPU_FLAGS & CPU_AVX512F))
+	, m_fma3(!(CPU_FLAGS & CPU_FMA3))
+	, m_avx(!(CPU_FLAGS & CPU_AVX))
+	, m_sse2(!(CPU_FLAGS & CPU_SSE2))
 {
 }
 
@@ -53,8 +53,10 @@ void CTortureDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Check(pDX, IDC_IN_PLACE_FFT, m_in_place);
 	DDX_Text(pDX, IDC_MEMORY, m_memory);
 	DDX_Text(pDX, IDC_TIMEFFT, m_timefft);
+#ifdef X86_64
 	DDX_Check(pDX, IDC_AVX512, m_avx512);
 	DDX_Check(pDX, IDC_FMA3, m_fma3);
+#endif
 	DDX_Check(pDX, IDC_AVX, m_avx);
 #ifndef X86_64
 	DDX_Check(pDX, IDC_SSE2, m_sse2);
@@ -73,8 +75,10 @@ void CTortureDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_MEMORY, c_memory);
 	DDX_Control(pDX, IDC_TIMEFFT_TEXT, c_timefft_text);
 	DDX_Control(pDX, IDC_TIMEFFT, c_timefft);
+#ifdef X86_64
 	DDX_Control(pDX, IDC_AVX512, c_avx512);
 	DDX_Control(pDX, IDC_FMA3, c_fma3);
+#endif
 	DDX_Control(pDX, IDC_AVX, c_avx);
 #ifndef X86_64
 	DDX_Control(pDX, IDC_SSE2, c_sse2);
@@ -105,11 +109,13 @@ void CTortureDlg::DoDataExchange(CDataExchange* pDX)
 	c_memory.EnableWindow (m_torture_type == 5 && !m_in_place);
 	c_timefft_text.EnableWindow (m_torture_type == 5);
 	c_timefft.EnableWindow (m_torture_type == 5);
-	c_avx512.EnableWindow (CPU_FLAGS & CPU_AVX512F);
-	c_fma3.EnableWindow (CPU_FLAGS & CPU_FMA3);
-	c_avx.EnableWindow (CPU_FLAGS & CPU_AVX);
-#ifndef X86_64
-	c_sse2.EnableWindow (CPU_FLAGS & CPU_SSE2);
+#ifdef X86_64
+	c_avx512.EnableWindow (CPU_FLAGS & CPU_AVX512F && !m_fma3);
+	c_fma3.EnableWindow (CPU_FLAGS & CPU_FMA3 && m_avx512 && !m_avx);
+	c_avx.EnableWindow (CPU_FLAGS & CPU_AVX && m_fma3);
+#else
+	c_avx.EnableWindow (CPU_FLAGS & CPU_AVX && !m_sse2);
+	c_sse2.EnableWindow (CPU_FLAGS & CPU_SSE2 && m_avx);
 #endif
 }
 
@@ -123,6 +129,14 @@ BEGIN_MESSAGE_MAP(CTortureDlg, CDialog)
 	ON_BN_CLICKED(IDC_BLEND, OnBnClickedBlend)
 	ON_BN_CLICKED(IDC_CUSTOM, OnBnClickedCustom)
 	ON_BN_CLICKED(IDC_IN_PLACE_FFT, OnBnClickedInPlaceFFT)
+#ifdef X86_64
+	ON_BN_CLICKED(IDC_AVX512, OnBnClickedAVX512)
+	ON_BN_CLICKED(IDC_FMA3, OnBnClickedFMA3)
+#endif
+	ON_BN_CLICKED(IDC_AVX, OnBnClickedAVX)
+#ifndef X86_64
+	ON_BN_CLICKED(IDC_SSE2, OnBnClickedSSE2)
+#endif
 END_MESSAGE_MAP()
 
 
@@ -174,4 +188,28 @@ void CTortureDlg::OnBnClickedInPlaceFFT()
 {
 	UpdateData ();
 }
+
+#ifdef X86_64
+void CTortureDlg::OnBnClickedAVX512()
+{
+	UpdateData ();
+}
+
+void CTortureDlg::OnBnClickedFMA3()
+{
+	UpdateData ();
+}
+#endif
+
+void CTortureDlg::OnBnClickedAVX()
+{
+	UpdateData ();
+}
+
+#ifndef X86_64
+void CTortureDlg::OnBnClickedSSE2()
+{
+	UpdateData ();
+}
+#endif
 
