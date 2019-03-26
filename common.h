@@ -3,7 +3,7 @@
 |
 | This file contains handy #defines that I use in all my projects
 | 
-|  Copyright 2005-2017 Mersenne Research, Inc.
+|  Copyright 2005-2019 Mersenne Research, Inc.
 |  All Rights Reserved.
 +---------------------------------------------------------------------*/
 
@@ -53,6 +53,8 @@
 #define divide_rounding_down(a,b)	((a) / (b))
 #define round_up_to_multiple_of(a,b)	(divide_rounding_up (a, b) * (b))
 #define round_down_to_multiple_of(a,b)	(divide_rounding_down (a, b) * (b))
+#define _intmin(a,b)			(((int)(a) < (int)(b)) ? (int)(a) : (int)(b))
+#define _intmax(a,b)			(((int)(a) > (int)(b)) ? (int)(a) : (int)(b))
 
 /* Define a "safe" strcpy.  The official C runtime library says that overlapping */
 /* buffers produce undefined results.  This safe strcpy allows overlapping */

@@ -567,12 +567,17 @@ void SetPriority (
 		if (obj == NULL) obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_PU, core);	/* Get proper core */
 		if (obj) {
 			if (hwloc_set_cpubind (hwloc_topology, obj->cpuset, HWLOC_CPUBIND_THREAD)) { /* Bind thread to all logical CPUs in the core */
-				char *str;
-				int error = errno;
-				hwloc_bitmap_asprintf (&str, obj->cpuset);
-				sprintf (buf, "Error setting affinity to cpuset %s: %s\n", str, strerror(error));
+				char	str[80];
+				int	error = errno;
+				hwloc_bitmap_snprintf (str, sizeof (str), obj->cpuset);
+				sprintf (buf, "Error setting affinity to cpuset %s: %s\n", str, strerror (error));
 				OutputStr (info->worker_num, buf);
-				free (str);
+			}
+			else if (info->verbose_flag >= 2) {
+				char	str[80];
+				hwloc_bitmap_snprintf (str, sizeof (str), obj->cpuset);
+				sprintf (buf, "Affinity set to cpuset %s\n", str);
+				OutputStr (info->worker_num, buf);
 			}
 		}
 	}
@@ -592,12 +597,17 @@ void SetPriority (
 		obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_PU, logical_CPU);	/* Get proper logical CPU */
 		if (obj) {
 			if (hwloc_set_cpubind (hwloc_topology, obj->cpuset, HWLOC_CPUBIND_THREAD)) { /* Bind thread to one logical CPU */
-				char *str;
-				int error = errno;
-				hwloc_bitmap_asprintf (&str, obj->cpuset);
-				sprintf (buf, "Error setting affinity to cpuset %s: %s\n", str, strerror(error));
+				char	str[80];
+				int	error = errno;
+				hwloc_bitmap_snprintf (str, sizeof (str), obj->cpuset);
+				sprintf (buf, "Error setting affinity to cpuset %s: %s\n", str, strerror (error));
 				OutputStr (info->worker_num, buf);
-				free (str);
+			}
+			else if (info->verbose_flag >= 2) {
+				char	str[80];
+				hwloc_bitmap_snprintf (str, sizeof (str), obj->cpuset);
+				sprintf (buf, "Affinity set to cpuset %s\n", str);
+				OutputStr (info->worker_num, buf);
 			}
 		}
 	}
@@ -625,12 +635,17 @@ void SetPriority (
 			if (comma == NULL) break;
 		}
 		if (hwloc_set_cpubind (hwloc_topology, cpuset, HWLOC_CPUBIND_THREAD)) {	/* Set affinity to specified logical CPUs */
-			char *str;
-			int error = errno;
-			hwloc_bitmap_asprintf (&str, cpuset);
-			sprintf (buf, "Error setting affinity to cpuset %s: %s\n", str, strerror(error));
+			char	str[80];
+			int	error = errno;
+			hwloc_bitmap_snprintf (str, sizeof (str), cpuset);
+			sprintf (buf, "Error setting affinity to cpuset %s: %s\n", str, strerror (error));
 			OutputStr (info->worker_num, buf);
-			free (str);
+		}
+		else if (info->verbose_flag >= 2) {
+			char	str[80];
+			hwloc_bitmap_snprintf (str, sizeof (str), cpuset);
+			sprintf (buf, "Affinity set to cpuset %s\n", str);
+			OutputStr (info->worker_num, buf);
 		}
 		hwloc_bitmap_free (cpuset);
 	}
@@ -1900,8 +1915,7 @@ void check_for_priority_work (void)
 /**************************************************************/
 
 void mark_workers_active (
-	int	thread_num)	/* Number of workers to mark active */
-				/* or (<= 0) the only worker to mark */
+	int	thread_num)	/* Number of workers to mark active or (<= 0) the only worker to mark */
 {
 	int	i;
 
@@ -1913,7 +1927,7 @@ void mark_workers_active (
 void start_one_worker (
 	int	thread_num)
 {
-	if (thread_num < 0 || thread_num > (int) NUM_WORKER_THREADS) {
+	if (thread_num < 0 || thread_num >= (int) WORKER_THREADS_ACTIVE) {
 		OutputStr (MAIN_THREAD_NUM, "Worker thread number out of range.\n");
 		return;
 	}
@@ -1930,7 +1944,7 @@ void start_one_worker (
 void stop_one_worker (
 	int	thread_num)
 {
-	if (thread_num < 0 || thread_num > (int) NUM_WORKER_THREADS) {
+	if (thread_num < 0 || thread_num >= (int) WORKER_THREADS_ACTIVE) {
 		OutputStr (MAIN_THREAD_NUM, "Worker thread number out of range.\n");
 		return;
 	}
@@ -2696,6 +2710,7 @@ void formatETA (
 struct LaunchData {
 	int	thread_num;		/* This thread number */
 	unsigned int num_threads;	/* Num threads to run */
+	int	num_to_mark_active;	/* Number of threads to mark active in a call to mark_workers_active call */
 	unsigned long p;		/* Exponent to time */
 	unsigned long iters;		/* Iterations to time */
 	int	bench_type;		/* Type of benchmark */
@@ -2735,12 +2750,11 @@ int LaunchWorkerThreads (
 	struct LaunchData *ld;
 	gwthread thread_handle;
 
-/* If workers are already active, then call routine that restarts */
-/* individual workers. */
+/* If workers are already active, then call routine that restarts individual workers. */
 
 	if (WORKER_THREADS_ACTIVE && (LAUNCH_TYPE == LD_CONTINUE || LAUNCH_TYPE == LD_TORTURE)) {
 		if (thread_num == ALL_WORKERS) {
-			for (thread_num = 0; thread_num < (int) NUM_WORKER_THREADS; thread_num++)
+			for (thread_num = 0; thread_num < (int) WORKER_THREADS_ACTIVE; thread_num++)
 				if (! ACTIVE_WORKERS[thread_num])
 					start_one_worker (thread_num);
 		} else
@@ -2755,7 +2769,7 @@ int LaunchWorkerThreads (
 	ld->num_threads = NUM_WORKER_THREADS;
 	LAUNCH_TYPE = LD_CONTINUE;
 	create_worker_windows (NUM_WORKER_THREADS);
-	mark_workers_active (thread_num == ALL_WORKERS ? NUM_WORKER_THREADS : -thread_num);
+	ld->num_to_mark_active = (thread_num == ALL_WORKERS ? NUM_WORKER_THREADS : -thread_num);
 	if (wait_flag) {
 		gwthread_create_waitable (&thread_handle, &Launcher, ld);
 		gwthread_wait_for_exit (&thread_handle);
@@ -2779,7 +2793,7 @@ int LaunchTortureTest (
 	ld->num_threads = num_threads;
 	LAUNCH_TYPE = LD_TORTURE;
 	create_worker_windows (num_threads);
-	mark_workers_active (num_threads);
+	ld->num_to_mark_active = num_threads;
 	if (wait_flag) {
 		gwthread_create_waitable (&thread_handle, &Launcher, ld);
 		gwthread_wait_for_exit (&thread_handle);
@@ -2802,7 +2816,7 @@ int LaunchBench (
 	ld->bench_type = bench_type;
 	LAUNCH_TYPE = LD_BENCH;
 	create_worker_windows (1);
-	mark_workers_active (1);
+	ld->num_to_mark_active = 1;
 	gwthread_create (&thread_handle, &Launcher, ld);
 	return (0);
 }
@@ -2825,7 +2839,7 @@ int LaunchAdvancedTime (
 	ld->iters = iters;
 	LAUNCH_TYPE = LD_TIME;
 	create_worker_windows (ld->num_threads);
-	mark_workers_active (ld->num_threads);
+	ld->num_to_mark_active = ld->num_threads;
 	gwthread_create (&thread_handle, &Launcher, ld);
 	return (0);
 }
@@ -2859,6 +2873,7 @@ void Launcher (void *arg)
 
 	WORKER_THREADS_ACTIVE = ld->num_threads;
 	WORKER_THREADS_STOPPING = FALSE;
+	mark_workers_active (ld->num_to_mark_active);
 
 /* Output a starting worker threads message */
 
@@ -5650,14 +5665,14 @@ begin:	factor_found = 0;
 			writeResults (buf);
 
 /* Format a JSON version of the result.  An example follows: */
-/* {"status":"F", "exponent":45581713, "worktype":"TF", "factors":"430639100587696027847", */
+/* {"status":"F", "exponent":45581713, "worktype":"TF", "factors":["430639100587696027847"], */
 /* "program":{"name":"prime95", "version":"29.5", "build":"8"}, "timestamp":"2019-01-15 23:28:16", */
 /* "user":"gw_2", "cpu":"office_computer", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
 
 			strcpy (JSONbuf, "{\"status\":\"F\"");
 			JSONaddExponent (JSONbuf, w);
 			strcat (JSONbuf, ", \"worktype\":\"TF\"");
-			sprintf (JSONbuf+strlen(JSONbuf), ", \"factors\":\"%s\"", str);
+			sprintf (JSONbuf+strlen(JSONbuf), ", \"factors\":[\"%s\"]", str);
 			JSONaddProgramTimestamp (JSONbuf);
 			JSONaddUserComputerAID (JSONbuf, w);
 			strcat (JSONbuf, "}\n");
@@ -7948,78 +7963,88 @@ void tortureTestDefaultSizes (
 	int	*minfft,		// Minimum FFT size to run
 	int	*maxfft)		// Maximum FFT size to run
 {
-	int	affinity;		// Set if affinity settings will ensure all workers are assigned different cores
 	int	min_adjusted_L2_cache_size, min_adjusted_L3_cache_size, min_adjusted_L4_cache_size;
 	int	max_adjusted_L2_cache_size, max_adjusted_L3_cache_size, max_adjusted_L4_cache_size;
 
-	// Determine if the threads can be evenly distributed across cores using affinity
-	if (OS_CAN_SET_AFFINITY && num_threads % NUM_CPUS == 0) affinity = num_threads / NUM_CPUS;
-	else affinity = 0;
+/* BUG/FEATURE - we should change torture test affinity to predictably distribute torture threads amongst the caches. */
+/* This would let us test larger FFT sizes when user changes the default setting of torture threads to a non-multiple of NUM_CPUS. */
 
-	// Determine how much cache torture test workers will have access to.  This is predictable when affinity is
-	// used to uniformly distribute torture threads amongst cores.  If affinity cannot do that we need to compute
-	// the best case and worst case scenarios.
+/* Determine how much cache each torture test worker should access.  This is tricky in the case where the number of threads is */
+/* not a multiple of NUM_CPUS.  This is because we do not know how the OS will distribute threads amongst the cores.  For example, */
+/* picture a 18-core CPU with two L3 caches.  If there are 9 torture threads the OS could put all of the torture threads on one L3 */
+/* cache leaving the other L3 cache idle, or it could put 4 threads on one L3 cache and 5 on the other. */
+
 	min_adjusted_L2_cache_size = max_adjusted_L2_cache_size = 0;
 	min_adjusted_L3_cache_size = max_adjusted_L3_cache_size = 0;
 	min_adjusted_L4_cache_size = max_adjusted_L4_cache_size = 0;
+
 	if (CPU_NUM_L2_CACHES) {
-		int	min_workers_per_L2_cache, max_workers_per_L2_cache;
-		if (affinity)
-			min_workers_per_L2_cache = max_workers_per_L2_cache = affinity;
-		else {
-			max_workers_per_L2_cache = NUM_CPUS * CPU_HYPERTHREADS / CPU_NUM_L2_CACHES;
-			min_workers_per_L2_cache = num_threads / CPU_NUM_L2_CACHES;
-			if (num_threads < max_workers_per_L2_cache) max_workers_per_L2_cache = num_threads;
-			if (min_workers_per_L2_cache < 1) min_workers_per_L2_cache = 1;
-		}
+		int	cores_per_L2_cache, min_workers_per_L2_cache, max_workers_per_L2_cache;
+
+		cores_per_L2_cache = NUM_CPUS / CPU_NUM_L2_CACHES;
+
+		min_workers_per_L2_cache = divide_rounding_up (num_threads, CPU_NUM_L2_CACHES);
+		max_workers_per_L2_cache = num_threads / NUM_CPUS * cores_per_L2_cache + _intmin (num_threads % NUM_CPUS, cores_per_L2_cache);
+
 		max_adjusted_L2_cache_size = CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES / min_workers_per_L2_cache;
 		min_adjusted_L2_cache_size = CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES / max_workers_per_L2_cache;
-	}
-	if (CPU_NUM_L3_CACHES) {
-		int	min_workers_per_L3_cache, max_workers_per_L3_cache;
-		if (affinity)
-			min_workers_per_L3_cache = max_workers_per_L3_cache = affinity;
-		else {
-			max_workers_per_L3_cache = NUM_CPUS * CPU_HYPERTHREADS / CPU_NUM_L3_CACHES;
-			min_workers_per_L3_cache = num_threads / CPU_NUM_L3_CACHES;
-			if (num_threads < max_workers_per_L3_cache) max_workers_per_L3_cache = num_threads;
-			if (min_workers_per_L3_cache < 1) min_workers_per_L3_cache = 1;
+
+		if (CPU_L2_CACHE_INCLUSIVE == 0 && CPU_NUM_L1_CACHES) {
+			max_adjusted_L2_cache_size += CPU_TOTAL_L1_CACHE_SIZE / CPU_NUM_L1_CACHES;
+			min_adjusted_L2_cache_size += CPU_TOTAL_L1_CACHE_SIZE / CPU_NUM_L1_CACHES;
 		}
+	}
+
+	if (CPU_NUM_L3_CACHES) {
+		int	cores_per_L3_cache, min_workers_per_L3_cache, max_workers_per_L3_cache;
+
+		cores_per_L3_cache = NUM_CPUS / CPU_NUM_L3_CACHES;
+		min_workers_per_L3_cache = divide_rounding_up (num_threads, CPU_NUM_L3_CACHES);
+		max_workers_per_L3_cache = num_threads / NUM_CPUS * cores_per_L3_cache + _intmin (num_threads % NUM_CPUS, cores_per_L3_cache);
+
 		max_adjusted_L3_cache_size = CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES / min_workers_per_L3_cache;
 		min_adjusted_L3_cache_size = CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES / max_workers_per_L3_cache;
-	}
-	if (CPU_NUM_L4_CACHES) {
-		int	min_workers_per_L4_cache, max_workers_per_L4_cache;
-		if (affinity)
-			min_workers_per_L4_cache = max_workers_per_L4_cache = affinity;
-		else {
-			max_workers_per_L4_cache = NUM_CPUS * CPU_HYPERTHREADS / CPU_NUM_L4_CACHES;
-			min_workers_per_L4_cache = num_threads / CPU_NUM_L4_CACHES;
-			if (num_threads < max_workers_per_L4_cache) max_workers_per_L4_cache = num_threads;
-			if (min_workers_per_L4_cache < 1) min_workers_per_L4_cache = 1;
+
+		if (CPU_L3_CACHE_INCLUSIVE == 0) {
+			max_adjusted_L3_cache_size += max_adjusted_L2_cache_size;
+			min_adjusted_L3_cache_size += min_adjusted_L2_cache_size;
 		}
+	}
+
+	if (CPU_NUM_L4_CACHES) {
+		int	cores_per_L4_cache, min_workers_per_L4_cache, max_workers_per_L4_cache;
+
+		cores_per_L4_cache = NUM_CPUS / CPU_NUM_L4_CACHES;
+		min_workers_per_L4_cache = divide_rounding_up (num_threads, CPU_NUM_L4_CACHES);
+		max_workers_per_L4_cache = num_threads / NUM_CPUS * cores_per_L4_cache + _intmin (num_threads % NUM_CPUS, cores_per_L4_cache);
+
 		max_adjusted_L4_cache_size = CPU_TOTAL_L4_CACHE_SIZE / CPU_NUM_L4_CACHES / min_workers_per_L4_cache;
 		min_adjusted_L4_cache_size = CPU_TOTAL_L4_CACHE_SIZE / CPU_NUM_L4_CACHES / max_workers_per_L4_cache;
+
+		if (CPU_L4_CACHE_INCLUSIVE == 0) {
+			max_adjusted_L4_cache_size += max_adjusted_L3_cache_size;
+			min_adjusted_L4_cache_size += min_adjusted_L3_cache_size;
+		}
 	}
 
 
 /* Select FFT sizes that will overflow smaller caches and fit within the requested larger cache */
-	
+
 	if (torture_type == 0) {		// L2 cache
 		*minfft = 4;
 		*maxfft = min_adjusted_L2_cache_size / 12;
 	}
 	if (torture_type == 1) {		// L3 cache
-		*minfft = max_adjusted_L2_cache_size / 6;
+		*minfft = max_adjusted_L2_cache_size / 7;
 		*maxfft = min_adjusted_L3_cache_size / 12;
 	}
 	if (torture_type == 2) {		// L4 cache
-		*minfft = max_adjusted_L3_cache_size / 6;
+		*minfft = max_adjusted_L3_cache_size / 7;
 		*maxfft = min_adjusted_L4_cache_size / 12;
 	}
 	if (torture_type == 3) {		// Large FFT
 		*minfft = (max_adjusted_L4_cache_size ? max_adjusted_L4_cache_size :
-			   max_adjusted_L3_cache_size ? max_adjusted_L3_cache_size : max_adjusted_L2_cache_size) / 6;
+			   max_adjusted_L3_cache_size ? max_adjusted_L3_cache_size : max_adjusted_L2_cache_size) / 7;
 		*maxfft = (CPU_TOTAL_L4_CACHE_SIZE ? 32768 : 8192);
 	}
 	if (torture_type == 4) {		// Blend
@@ -8202,10 +8227,10 @@ loop:	run_indefinitely = TRUE;
 /* Clean up */
 
 	aligned_free (bigbuf);
+	bigbuf = NULL;
 
 /* If this was a user requested stop, then wait for a restart */
 
-//BUG??? - what is this???
 	while (stop_reason == STOP_WORKER) {
 		implement_stop_one_worker (thread_num);
 		stop_reason = stopCheck (thread_num);
@@ -8223,14 +8248,13 @@ loop:	run_indefinitely = TRUE;
 
 /* Read a file of exponents to run LL iterations on as part of a QA process */
 /* The format of this file is: */
-/*	exponent,optional fft length,num iters,optional shift count,residue */
-/* An Advanced/Time 9999 corresponds to type 0, Advanced/Time 9998 */
-/* corresponds to type 1, etc. */
-/* Type 0 executes much like an LL test, error checking and doing a */
-/* careful iteration occasionally */
-/* Type 1 does roundoff checking every iteration and accumulates */
-/* statistics on the round off data. */
-/* Type 2 and higher have not been used much and may not work */
+/*	exponent,optional fft length,num iters,optional shift count,residue (if fftlen odd, test 2^exponent+1) */
+/* OR	k,b,n,c,optional fft length,num iters,optional shift count,residue (type 5) */
+/* Advanced/Time 9999 corresponds to type 0, Advanced/Time 9998 corresponds to type 1, etc. */
+/* Type 0 compares/prints res64 values useful for simple QA or generating torture test data */
+/* Type 4 prints average roundoff error critical for calculating FFT crossovers */
+/* Type 5 prints average roundoff error for k*b^n+c critical for formulating algorithms in gwinfo */
+/* Type 1, 2, 3 were deprecated as gwtest.c does better QA. */
 
 int lucas_QA (
 	int	thread_num,
@@ -8256,37 +8280,36 @@ int lucas_QA (
 /* Loop until the entire file is processed */
 
 	for ( ; ; ) {
-		unsigned long p, p_limit, fftlen, iters;
+		unsigned long k, b, p, fftlen, iters;
+		int	c;
 		char	buf[500], res[80];
-		unsigned long reshi, reslo, units_bit;
-		unsigned long i, maxerrcnt;
+		unsigned long units_bit, i, maxerrcnt;
 		double	maxsumdiff, maxerr, toterr, M, S;
 		unsigned long ge_300, ge_325, ge_350, ge_375, ge_400;
-		gwnum	t1, t2;
 		unsigned int iters_unchecked, M_count;
 
 /* Read a line from the file */
 
 		p = 0;
-		(void) fscanf (fd, "%lu,%lu,%lu,%lu,%s\n", &p, &fftlen, &iters, &units_bit, res);
+		if (type != 5) {
+			(void) fscanf (fd, "%lu,%lu,%lu,%lu,%s\n", &p, &fftlen, &iters, &units_bit, res);
+			k = 1; b = 2;
+			c = (fftlen & 1) ? 1 : -1;
+			fftlen &= ~1;
+		} else
+			(void) fscanf (fd, "%lu,%lu,%lu,%d,%lu,%lu,%lu,%s\n", &k, &b, &p, &c, &fftlen, &iters, &units_bit, res);
 		if (p == 0) break;
 
-		maxsumdiff = 0.0;
-		ge_300 = ge_325 = ge_350 = ge_375 = ge_400 = 0;
-		maxerr = 0.0; maxerrcnt = 0; toterr = 0.0;
-		iters_unchecked = (type > 3) ? 2 : 40;
-		M = 0.0;  S = 0.0;  M_count = 0;
-
-/* Now run Lucas setup */
-
-		if (type == 4) iters /= 10, p_limit = p - 20;
-		else p_limit = p;
-		for ( ; p >= p_limit; p -= 2) {
+/* Now run a replica of lucasSetup but able to handle any k,b,n,c */
 
 		gwinit (&lldata.gwdata);
 		gwset_sum_inputs_checking (&lldata.gwdata, SUM_INPUTS_ERRCHK);
-		stop_reason = lucasSetup (thread_num, p, fftlen, &lldata);
-		if (stop_reason) { stop_reason = 0; goto not_impl; }
+		gwset_minimum_fftlen (&lldata.gwdata, fftlen);
+		if (gwsetup (&lldata.gwdata, (double) k, b, p, c)) goto not_impl;
+
+/* Allocate memory for the Lucas-Lehmer data (the number to square) */
+
+		lldata.lldata = gwalloc (&lldata.gwdata);
 		lldata.units_bit = units_bit;
 
 /* Check for a randomized units bit */
@@ -8301,9 +8324,9 @@ int lucas_QA (
 			lldata.units_bit = lldata.units_bit % p;
 		}
 
-/* Init data area with a pre-determined value */
+/* Init data area with LL starting value or a random value */
 
-		if (type == 3 || type == 4)
+		if (type >= 4)
 			gw_random_number (&lldata.gwdata, lldata.lldata);
 		else {
 			unsigned long word, bit_in_word;
@@ -8312,67 +8335,22 @@ int lucas_QA (
 				set_fft_value (&lldata.gwdata, lldata.lldata, i, (i == word) ? (1L << bit_in_word) : 0);
 		}
 
-/* The thorough, P-1, and ECM tests use more than one number */
+/* Do Lucas-Lehmer iterations maintaining roundoff stats */
 
-		if (type == 2 || type == 3) {
-			t1 = gwalloc (&lldata.gwdata);
-			dbltogw (&lldata.gwdata, 234872639921.0, t1);
-			gwfft (&lldata.gwdata, t1, t1);
-			t2 = gwalloc (&lldata.gwdata);
-			dbltogw (&lldata.gwdata, 1982387192367.0, t2);
-			gwfft (&lldata.gwdata, t2, t2);
-			lldata.gwdata.MAXDIFF *= 16;
-		}
-
-/* Do Lucas-Lehmer iterations */
+		maxsumdiff = 0.0;
+		ge_300 = ge_325 = ge_350 = ge_375 = ge_400 = 0;
+		maxerr = 0.0; maxerrcnt = 0; toterr = 0.0;
+		iters_unchecked = (type > 3) ? 2 : 40;
+		M = 0.0;  S = 0.0;  M_count = 0;
 
 		for (i = 0; i < iters; i++) {
 
 /* One Lucas-Lehmer iteration with error checking */
 
-			if (type == 0) {		/* Typical LL test */
-				gwsetnormroutine (&lldata.gwdata, 0, (i & 63) == 37, 0);
-				gwstartnextfft (&lldata.gwdata, i < iters / 2);
-				lucas_fixup (&lldata, p);
-				gwsquare (&lldata.gwdata, lldata.lldata);
-			} else if (type == 1 || type == 4) { /* Gather stats */
-				gwsetnormroutine (&lldata.gwdata, 0, 1, 0);
-				gwstartnextfft (&lldata.gwdata, i < iters / 2);
-				lucas_fixup (&lldata, p);
-				gwsquare (&lldata.gwdata, lldata.lldata);
-			} else if (type == 2) {		/* Thorough test */
-				unsigned long j;
-				for (j = 0; j < (i & 7); j++) {
-					gwadd (&lldata.gwdata, lldata.lldata, lldata.lldata);
-					lldata.units_bit = (lldata.units_bit+1) % p;
-				}
-				if ((i & 15) == 13) {
-					gwadd3quick (&lldata.gwdata, lldata.lldata, lldata.lldata, t1);
-					gwsub3quick (&lldata.gwdata, t1, lldata.lldata, lldata.lldata);
-					gwadd3 (&lldata.gwdata, lldata.lldata, lldata.lldata, t1);
-					gwsub3 (&lldata.gwdata, t1, lldata.lldata, lldata.lldata);
-					gwaddsub4 (&lldata.gwdata, lldata.lldata, lldata.lldata, t1, t2);
-					gwaddsub (&lldata.gwdata, t1, lldata.lldata);
-					gwadd (&lldata.gwdata, t2, lldata.lldata);
-				}
-				lucas_fixup (&lldata, p);
-				if ((i & 3) == 0) {
-					gwsquare (&lldata.gwdata, lldata.lldata);
-				} else if ((i & 3) == 1) {
-					gwfft (&lldata.gwdata, lldata.lldata, lldata.lldata);
-					gwfftfftmul (&lldata.gwdata, lldata.lldata, lldata.lldata, lldata.lldata);
-				} else {
-					gwfft (&lldata.gwdata, lldata.lldata, t1);
-					gwfftmul (&lldata.gwdata, t1, lldata.lldata);
-				}
-			} else if (type == 3) {		/* Typical ECM run */
-				lucas_fixup (&lldata, p);
-				gwfftsub3 (&lldata.gwdata, t1, t2, t2);
-				gwfft (&lldata.gwdata, lldata.lldata, lldata.lldata);
-				gwfftfftmul (&lldata.gwdata, t2, lldata.lldata, t2);
-				gwswap (t1, lldata.lldata);
-				gwswap (t2, lldata.lldata);
-			}
+			gwsetnormroutine (&lldata.gwdata, 0, 1, 0);
+			gwstartnextfft (&lldata.gwdata, i < iters / 2);
+			lucas_fixup (&lldata, p);
+			gwsquare (&lldata.gwdata, lldata.lldata);
 
 /* Keep track of the standard deviation - see Knuth vol 2 */
 
@@ -8401,10 +8379,8 @@ int lucas_QA (
 
 /* Maintain maximum suminp/sumout difference */
 
-			if (fabs (gwsuminp (&lldata.gwdata, lldata.lldata) -
-				  gwsumout (&lldata.gwdata, lldata.lldata)) > maxsumdiff) {
-				maxsumdiff = fabs (gwsuminp (&lldata.gwdata, lldata.lldata) -
-						   gwsumout (&lldata.gwdata, lldata.lldata));
+			if (fabs (gwsuminp (&lldata.gwdata, lldata.lldata) - gwsumout (&lldata.gwdata, lldata.lldata)) > maxsumdiff) {
+				maxsumdiff = fabs (gwsuminp (&lldata.gwdata, lldata.lldata) - gwsumout (&lldata.gwdata, lldata.lldata));
 			}
 
 /* If the sum of the output values is an error (such as infinity) */
@@ -8436,40 +8412,32 @@ int lucas_QA (
 			}
 		}
 
-/* Generate residue and cleanup */
+/* Compare residue with (presumed) correct residue from the input file */
 
-		generateResidue64 (&lldata, p, &reshi, &reslo);
-		lucasDone (&lldata);
+		if (type == 0) {
+			unsigned long reshi, reslo;
+			generateResidue64 (&lldata, p, &reshi, &reslo);
+			sprintf (buf, "%08lX%08lX", reshi, reslo);
+			if (_stricmp (res, buf)) {
+				sprintf (buf, "Warning: Residue mismatch. Was %08lX%08lX, expected %s\n", reshi, reslo, res);
+				OutputBoth (thread_num, buf);
+			}
 		}
-
-		if (type == 4) iters *= 10, iters_unchecked *= 10, p = p_limit + 20;
-		else p = p_limit;
 
 /* Output array of distributions of MAXERR */
 
-		if (type == 1 || type == 3 || type == 4) {
-			S = sqrt (S / (M_count - 1));
-			toterr /= M_count;
-			sprintf (buf, "avg: %6.6f, stddev: %6.6f, #stdev to 0.5: %6.6f\n",
-				 toterr, S, (0.50 - toterr) / S);
-			OutputBoth (thread_num, buf);
-		}
-
-/* Compare residue with correct residue from the input file */
-
-		sprintf (buf, "%08lX%08lX", reshi, reslo);
-		if (type <= 2 && _stricmp (res, buf)) {
-			sprintf (buf, "Warning: Residue mismatch. Expected %s\n", res);
-			OutputBoth (thread_num, buf);
-		}
-
-/* Output message */
-
-		sprintf (buf, "Exp/iters: %lu/%lu, res: %08lX%08lX, maxerr: %6.6f/%lu, %lu/%lu/%lu/%lu/%lu, maxdiff: %9.9f/%9.9f\n",
-			 p, iters, reshi, reslo, maxerr, maxerrcnt,
-			 ge_300, ge_325, ge_350, ge_375, ge_400,
-			 maxsumdiff, lldata.gwdata.MAXDIFF);
+		S = sqrt (S / (M_count - 1));
+		toterr /= M_count;
+		sprintf (buf, "avg: %6.6f, stddev: %6.6f, #stdev to 0.5: %6.6f\n", toterr, S, (0.50 - toterr) / S);
 		OutputBoth (thread_num, buf);
+
+		sprintf (buf, "Exp/iters: %lu/%lu, maxerr: %6.6f/%lu, %lu/%lu/%lu/%lu/%lu, maxdiff: %9.9f/%9.9f\n",
+			 p, iters, maxerr, maxerrcnt, ge_300, ge_325, ge_350, ge_375, ge_400, maxsumdiff, lldata.gwdata.MAXDIFF);
+		OutputBoth (thread_num, buf);
+
+/* Cleanup */
+
+		lucasDone (&lldata);
 not_impl:	;
 	}
 	fclose (fd);
@@ -11072,7 +11040,7 @@ rotateg (t1, w->n, ps.units_bit, &gwdata.gdata);
 				gwswap (ps.alt_x, ps.u0);		// Set u0 to a copy of x
 				gwcopy (&gwdata, ps.x, ps.d);		// Set d[0] to a copy of x
 				if (IniGetInt (INI_FILE, "GerbiczVerbosity", 1) > 1) {
-					sprintf (buf, "Start Gerbicz block of size %ld at iteration %ld.\n", ps.L * ps.L, ps.start_counter);
+					sprintf (buf, "Start Gerbicz block of size %ld at iteration %ld.\n", ps.L * ps.L, ps.start_counter+1);
 					OutputBoth (thread_num, buf);
 				}
 			}

@@ -895,6 +895,7 @@ again:		gwinit (&gwdata);
 		if ((rand () & 7) == 1 && !SPECIFIC_N && !gwdata.RATIONAL_FFT) {
 			n = n / gwdata.FFTLEN * gwdata.FFTLEN;		// Make n a multiple of the FFT length
 			gwdone (&gwdata);
+			if (n == 0) continue;
 			goto again;
 		}
 

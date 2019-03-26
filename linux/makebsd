@@ -6,14 +6,14 @@
 # Configure hwloc with --enable-static --disable-shared --disable-pci --disable-cuda --disable-gl
 #
 
-CC = gcc
-CFLAGS = -I.. -I../gwnum -I$(LOCALBASE)/include -O2 -march=i486 -malign-double
+CC ?= cc
+CFLAGS += -I.. -I../gwnum -I$(LOCALBASE)/include -O2 -march=i486 -malign-double
 
-CPP = g++
-CPPFLAGS = -I.. -I../gwnum -I$(LOCALBASE)/include -O2 -march=i486 -malign-double
+CXX ?= cc
+CXXFLAGS += -I.. -I../gwnum -I$(LOCALBASE)/include -O2 -march=i486 -malign-double
 
-LFLAGS = -fpie -Wl,-M -L$(LOCALBASE)/lib
-LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -Wl,-Bstatic -lhwloc -Wl,-Bstatic -lcurl -lz -lcompat -lstdc++ -Wl,-Bdynamic -lssl -lgmp
+LDFLAGS += -fpie -Wl,-M -L$(LOCALBASE)/lib
+LIBS += ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -Wl,-Bstatic -lhwloc -Wl,-Bstatic -lcurl -lz -lcompat -lstdc++ -Wl,-Bdynamic -lssl -lgmp
 
 FACTOROBJ = factor32.o
 OBJS = prime.o menu.o
@@ -22,7 +22,7 @@ EXE      = mprime
 #########################################################################
 
 $(EXE): security $(OBJS) $(FACTOROBJ)
-	$(CC) $(LFLAGS) -o $(EXE) $(OBJS) $(FACTOROBJ) $(LIBS)
+	$(CC) $(LDFLAGS) -o $(EXE) $(OBJS) $(FACTOROBJ) $(LIBS)
 
 security:
 	[ ! -e ../security.h ] && touch ../security.h || true
@@ -36,4 +36,4 @@ clean:
 	$(CC) $(CFLAGS) -c $<
 
 .cpp.o:
-	$(CPP) $(CPPFLAGS) -c $<
+	$(CXX) $(CXXFLAGS) -c $<

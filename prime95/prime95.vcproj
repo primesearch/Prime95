@@ -610,6 +610,22 @@
 			<File
 				RelativePath=".\Prime95.rc"
 				>
+				<FileConfiguration
+					Name="Release|x64"
+					>
+					<Tool
+						Name="VCResourceCompilerTool"
+						AdditionalOptions="/d X86_64"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Debug|x64"
+					>
+					<Tool
+						Name="VCResourceCompilerTool"
+						AdditionalOptions="/d X86_64"
+					/>
+				</FileConfiguration>
 			</File>
 			<File
 				RelativePath=".\Prime95Doc.cpp"

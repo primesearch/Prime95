@@ -1,4 +1,4 @@
-; Copyright 2018 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2018-2019 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -745,9 +745,7 @@ zr9_18r_fft_cmn MACRO srcreg,srcoff,srcinc,d1,screg1,scinc1,screg2,scinc2,maxrpt
 	zstore	[srcreg+6*d1+64], zmm1		;; I7
 
 	bump	srcreg, srcinc
-	IF scinc1 NE 0
 	bump	screg1, scinc1
-	ENDIF
 	bump	screg2, scinc2
 	ENDM
 

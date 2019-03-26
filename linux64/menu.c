@@ -591,7 +591,7 @@ void test_continue (void)
 	int	thread_num;
 
 	worker = 0;
-	askNum ("Worker to start, 0=all", &worker, 0, NUM_WORKER_THREADS);
+	askNum ("Worker to start, 0=all", &worker, 0, WORKER_THREADS_ACTIVE > NUM_WORKER_THREADS ? WORKER_THREADS_ACTIVE : NUM_WORKER_THREADS);
 	if (worker == 0) thread_num = ALL_WORKERS;
 	else thread_num = worker - 1;
 	linuxContinue ("Another mprime is running.\n", thread_num, FALSE);
@@ -604,7 +604,7 @@ void test_stop (void)
 	unsigned long worker;
 
 	worker = 0;
-	askNum ("Worker to stop, 0=all", &worker, 0, NUM_WORKER_THREADS);
+	askNum ("Worker to stop, 0=all", &worker, 0, WORKER_THREADS_ACTIVE);
 	if (worker == 0) stop_workers_for_escape ();
 	else stop_one_worker (worker - 1);
 }

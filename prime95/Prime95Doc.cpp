@@ -426,18 +426,16 @@ void CPrime95Doc::OnRangeStatus()
 
 void CPrime95Doc::OnUpdateContinueSwitcher(CCmdUI* pCmdUI) 
 {
-	pCmdUI->SetText (NUM_WORKER_THREADS > 1 &&
-			 active_workers_count () != WORKER_THREADS_ACTIVE - 1 ?
-				 "&Continue..." : "&Continue");
-	pCmdUI->Enable ((!WORKER_THREADS_ACTIVE ||
-			 active_workers_count () != WORKER_THREADS_ACTIVE) &&
-			(USE_PRIMENET || WORKTODO_COUNT));
+	pCmdUI->SetText (((!WORKER_THREADS_ACTIVE && NUM_WORKER_THREADS > 1) ||
+			  (WORKER_THREADS_ACTIVE && active_workers_count () != WORKER_THREADS_ACTIVE - 1)) ? "&Continue..." : "&Continue");
+	pCmdUI->Enable ((!WORKER_THREADS_ACTIVE && (USE_PRIMENET || WORKTODO_COUNT)) ||
+			(WORKER_THREADS_ACTIVE && active_workers_count () != WORKER_THREADS_ACTIVE));
 }
 
 void CPrime95Doc::OnContinueSwitcher() 
 {
-	if (NUM_WORKER_THREADS > 1 &&
-	    active_workers_count () != WORKER_THREADS_ACTIVE - 1) {
+	if ((!WORKER_THREADS_ACTIVE && NUM_WORKER_THREADS > 1) ||
+	    (WORKER_THREADS_ACTIVE && active_workers_count () != WORKER_THREADS_ACTIVE - 1)) {
 		// Start the dialog box
 		CStartDlg dlg;
 
@@ -461,13 +459,14 @@ void CPrime95Doc::OnContinue()
 
 void CPrime95Doc::OnUpdateStopSwitcher(CCmdUI* pCmdUI) 
 {
-	pCmdUI->SetText (NUM_WORKER_THREADS > 1 && active_workers_count () != 1 ? "St&op..." : "St&op");
+	// Set text to "Stop..." if multiple workers or torture threads are running
+	pCmdUI->SetText (active_workers_count () > 1 ? "St&op..." : "St&op");
 	pCmdUI->Enable (WORKER_THREADS_ACTIVE && !WORKER_THREADS_STOPPING);
 }
 
 void CPrime95Doc::OnStopSwitcher() 
 {
-	if (NUM_WORKER_THREADS > 1 && active_workers_count () != 1) {
+	if (active_workers_count () > 1) {
 		// Start the dialog box
 		CStopDlg dlg;
 
@@ -478,7 +477,7 @@ void CPrime95Doc::OnStopSwitcher()
 				stop_one_worker (dlg.m_thread-1);
 		}
 	} else {
-		// Stop the thread
+		// Stop the one active thread
 		OnStop ();
 	}
 }
@@ -517,7 +516,7 @@ void CPrime95Doc::OnTest()
 
 void CPrime95Doc::OnUpdateTime(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (TRUE);
+	pCmdUI->Enable (!WORKER_THREADS_STOPPING);
 }
 
 void CPrime95Doc::OnTime() 
@@ -766,7 +765,7 @@ void CPrime95Doc::OnPreferences()
 
 void CPrime95Doc::OnUpdateBenchmark(CCmdUI* pCmdUI) 
 {
-	pCmdUI->Enable (TRUE);
+	pCmdUI->Enable (!WORKER_THREADS_STOPPING);
 }
 
 void CPrime95Doc::OnBenchmark() 
@@ -825,7 +824,7 @@ void CPrime95Doc::OnBenchmark()
 
 void CPrime95Doc::OnUpdateTorture(CCmdUI* pCmdUI)
 {
-	pCmdUI->Enable (TRUE);
+	pCmdUI->Enable (!WORKER_THREADS_STOPPING);
 }
 
 void CPrime95Doc::OnTorture() 
@@ -837,11 +836,11 @@ void CPrime95Doc::OnTorture()
 	dlg.m_maxfft = (CPU_TOTAL_L4_CACHE_SIZE ? 32768 : 8192);
 	dlg.m_thread = NUM_CPUS * CPU_HYPERTHREADS;
 	mem = physical_memory ();
-	// New in 29.5, raise the default memory used to all but 2.5GB on 64-bit machines.  Almost all machines today have
-	// more than 4.5GB of memory installed.  If memory serves me, there may be issues in Win32 allocating more than 2GB.
+	// New in 29.5, raise the default memory used to all but 3GB on 64-bit machines.  Almost all machines today have
+	// more than 5GB of memory installed.  If memory serves me, there may be issues in Win32 allocating more than 2GB.
 #ifdef X86_64
-	if (mem >= 4500) {
-		dlg.m_blendmemory = GetSuggestedMemory (mem - 2500);
+	if (mem >= 5000) {
+		dlg.m_blendmemory = GetSuggestedMemory (mem - 3000);
 		dlg.m_in_place = FALSE;
 	} else
 #endif
@@ -925,8 +924,7 @@ void CPrime95Doc::OnHide()
 
 void CPrime95Doc::OnUpdateService(CCmdUI* pCmdUI)
 {
-	pCmdUI->SetText (canModifyServices () ?
-				"Start at Bootup" : "Start at Logon");
+	pCmdUI->SetText (canModifyServices () ? "Start at Bootup" : "Start at Logon");
 	pCmdUI->Enable (!NTSERVICENAME[0] || WINDOWS95_SERVICE);
 	pCmdUI->SetCheck (WINDOWS95_SERVICE);
 }

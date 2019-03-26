@@ -1028,8 +1028,9 @@ int gwinfo (			/* Return zero-padded fft flag or error code */
 
 /* The smallest AVX-512F FFT is length 1K.  Limited testing has indicated that less than 5 bits per FFT word */
 /* can result in carry propagation errors.  For small k*b^n+c values switch to not using AVX-512 instructions. */
+/* Don't catch the n==0 case from gwmap_with_cpu_flags_fftlen_to_max_exponent. */
 
-	if (log2b * (double) n < 5.0 * 1024.0)
+	if (n && log2b * (double) n < 5.0 * 1024.0)
 		gwdata->cpu_flags &= ~CPU_AVX512F;
 
 /* First, see what FFT length we would get if we emulate the k*b^n+c modulo */
@@ -1070,8 +1071,7 @@ again:	zpad_jmptab = NULL;
 
 /* Don't bother looking at this FFT length if the generic reduction would be faster */
 
-			if (generic_jmptab != NULL && zpad_jmptab->timing > 3.0 * generic_jmptab->timing)
-				goto next1;
+			if (generic_jmptab != NULL && zpad_jmptab->timing > 3.0 * generic_jmptab->timing) goto next1;
 
 /* Make sure this FFT length is implemented and benchmarking does not show that a larger FFT will be faster */
 
@@ -1125,7 +1125,9 @@ again:	zpad_jmptab = NULL;
 				2.0 * (num_b_in_big_word * log2b - 1.0) +
 				0.6 * log2 (num_big_words + num_small_words / pow (2.0, log2b / 0.6));
 
-/* And compute the weighted values as per the formulas described later */
+/* And compute the weighted values as per the formulas described later.  In 29.7 we added the log2b < 12.5 case (to match */
+/* the non-zero-padded code) as 27904^53415-7 was choosing a zero-padded 200K AVX-512 FFT and getting roundoffs frequently */
+/* above 0.4 and rarely above 0.5.  We need to do a careful analysis using average round error to fine tune this adjustment further. */
 
 			max_weighted_bits_per_output_word =
 				2.0 * max_bits_per_input_word + 0.6 * log2 (zpad_jmptab->fftlen / 2 + 4);
@@ -1138,7 +1140,7 @@ again:	zpad_jmptab = NULL;
 				weighted_bits_per_output_word -=
 					((log2b <= 3.0) ? (log2b - 1.0) / 2.0 :
 					 (log2b <= 6.0) ? 1.0 + (log2b - 3.0) / 3.0 :
-							  2.0 + (log2b - 6.0) / 6.0);
+					 (log2b <= 12.5) ? 2.0 + (log2b - 6.0) / 6.5 : 3.0);
 
 /* See if this FFT length might work */
 
@@ -1148,17 +1150,13 @@ again:	zpad_jmptab = NULL;
 /* Thus, the multiplied FFT result word cannot be more than 7 times bits-per-input-word */
 /* (bits-per-input-word are stored in the current word and the 6 words we propagate carries to). */
 
-			    bits_per_output_word + log2k + log2maxmulbyconst <=
-						    floor (7.0 * b_per_input_word) * log2b &&
+			    bits_per_output_word + log2k + log2maxmulbyconst <= floor (7.0 * b_per_input_word) * log2b &&
 
-/* The high part of upper result words are multiplied by c and the mul-by-const.  This must */
-/* not exceed 51 bits. */
+/* The high part of upper result words are multiplied by c and the mul-by-const.  This must not exceed 51 bits. */
 
-			    bits_per_output_word - floor (b_per_input_word) * log2b +
-						    log2c + log2maxmulbyconst <= 51.0) {
+			    bits_per_output_word - floor (b_per_input_word) * log2b + log2c + log2maxmulbyconst <= 51.0) {
 
-/* We can use this FFT. */
-/* Look for a non-zero-padded FFT that might be even faster. */
+/* We can use this FFT.  Look for a non-zero-padded FFT that might be even faster. */
 
 				break;
 			}
@@ -1166,6 +1164,15 @@ again:	zpad_jmptab = NULL;
 /* Move past procedure entries and counts to next jmptable entry */
 
 next1:			zpad_jmptab = NEXT_SET_OF_JMPTABS (zpad_jmptab);
+		}
+
+/* Some k/b/n/c values can't be handled by AVX-512 FFTs because there are relatively few small FFT sizes available. */
+/* In these cases, we'll retry using FMA3 FFTs.  One example is 15312853462553*2^5257+1.  NOTE:  There may be non-base2 cases */
+/* where we could use a zero-padded FMA3 FFT, but instead we'll end up selecting a generic reduction AVX-512 FFT. */
+
+		if (zpad_jmptab->max_exp == 0 && gwdata->cpu_flags & CPU_AVX512F && b == 2 && n < 100000) {
+			gwdata->cpu_flags &= ~CPU_AVX512F;
+			goto again;
 		}
 	}
 
@@ -1329,9 +1336,16 @@ next1:			zpad_jmptab = NEXT_SET_OF_JMPTABS (zpad_jmptab);
 /* the weighted_bits_per_output_word for irrational FFTs as using another log2b bits. */
 
 		max_weighted_bits_per_output_word = 2.0 * max_bits_per_input_word + 0.6 * log2 (jmptab->fftlen);
-		if (k == 1.0 && n % jmptab->fftlen == 0)
-			weighted_bits_per_output_word =	bits_per_output_word;
-		else {
+		if (k == 1.0 && n % jmptab->fftlen == 0) {
+			/* New in 29.7: 1889^20480+1 was generating too large a roundoff using a 10K AVX-512 FFT. */
+			/* Testing shows that an irrational FFT has about twice the average roundoff error as a */
+			/* rational FFT (equals one bit in the output word).  But comparing 2^204800+1 and 2^204801+1 */
+			/* in a 10K FFT, our code calculates a two bit difference between weighted_bits_per_output_word */
+			/* and max_weighted_bits_per_output_word.  The proper solution is to correct the calculation of */
+			/* max_weighted_bits_per_output_word and irrational weighted_bits_per_output_word.  However, */
+			/* I'm a little leery of changing that working code so I'm just adding one to the rational case here. */
+			weighted_bits_per_output_word =	bits_per_output_word + 1.0;
+		} else {
 			weighted_bits_per_output_word =
 				2.0 * ((b_per_input_word + 1.0) * log2b - 1.0) +
 				0.6 * log2 (jmptab->fftlen) + log2k + 1.7 * log2c;
@@ -2117,6 +2131,8 @@ int gwsetup (
 	if (gwdata->minimum_fftlen == 0) {
 		if (gwdata->cpu_flags & CPU_AVX512F) {
 			if (log2(b) * (double) n > MAX_PRIME_AVX512) return (GWERROR_TOO_LARGE);
+		} else if (gwdata->cpu_flags & CPU_FMA3) {
+			if (log2(b) * (double) n > MAX_PRIME_FMA3) return (GWERROR_TOO_LARGE);
 		} else if (gwdata->cpu_flags & CPU_AVX) {
 			if (log2(b) * (double) n > MAX_PRIME_AVX) return (GWERROR_TOO_LARGE);
 		} else if (gwdata->cpu_flags & CPU_SSE2) {
@@ -2806,9 +2822,8 @@ int internal_gwsetup (
 	gwdata->RATIONAL_FFT = asm_data->RATIONAL_FFT =
 		((double) gwdata->NUM_B_PER_SMALL_WORD == gwdata->avg_num_b_per_word) && (gwdata->ZERO_PADDED_FFT || labs (c) == 1);
 
-/* Remember the maximum number of bits per word that this FFT length */
-/* supports.  We this in gwnear_fft_limit.  Note that zero padded FFTs */
-/* can support an extra 0.3 bits per word because of the all the zeroes. */
+/* Remember the maximum number of bits per word that this FFT length supports.  We use this in gwnear_fft_limit. */
+/* Note that zero padded FFTs can support an extra 0.3 bits per word because of the all the zeroes. */
 
 	gwdata->fft_max_bits_per_word = (double) adjusted_max_exponent (gwdata, info) / (double) gwdata->FFTLEN;
 	if (gwdata->ZERO_PADDED_FFT) gwdata->fft_max_bits_per_word += 0.3;
@@ -2830,6 +2845,7 @@ int internal_gwsetup (
 /* Initialize tables for r4dwpn AVX-512 FFT code */
 
 	if (gwdata->cpu_flags & CPU_AVX512F) {
+		double	rndval_base;
 		int	cnt;
 
 /* Compute the normalization constants.  The rounding constant, a value larger than 3*2^51, is chosen such that */
@@ -2859,10 +2875,14 @@ int internal_gwsetup (
 		asm_data->u.zmm.ZMM_SMALL_BASE = small_word;				/* Lower limit */
 		asm_data->u.zmm.ZMM_SMALL_BASE_INVERSE = 1.0 / small_word;		/* Lower limit inverse */
 
-		cnt = (int) log2 (big_word) + 1;
+		// Use small_word for FFTs where there are no big words (and big_word might exceed fatal 2^26)
+		// This is more than just RATIONAL_FFTs (e.g. 117^3072-5).
+		rndval_base = ((double) gwdata->NUM_B_PER_SMALL_WORD == gwdata->avg_num_b_per_word ? small_word : big_word);
+		ASSERTG (rndval_base < 67108864.0);
+		cnt = (int) log2 (rndval_base) + 1;
 		asm_data->u.zmm.ZMM_RNDVAL = 3.0 * 131072.0 * 131072.0 * 131072.0;	/* Rounding value */
 		asm_data->u.zmm.ZMM_RNDVAL /= pow (2.0, cnt);
-		asm_data->u.zmm.ZMM_RNDVAL += fltmod (big_word - fltmod (asm_data->u.zmm.ZMM_RNDVAL, big_word), big_word);
+		asm_data->u.zmm.ZMM_RNDVAL += fltmod (rndval_base - fltmod (asm_data->u.zmm.ZMM_RNDVAL, rndval_base), rndval_base);
 		asm_data->u.zmm.ZMM_RNDVAL *= pow (2.0, cnt);
 
 		asm_data->u.zmm.ZMM_RNDVAL_TIMES_LARGE_BASE = asm_data->u.zmm.ZMM_RNDVAL * big_word - asm_data->u.zmm.ZMM_RNDVAL;
@@ -7793,15 +7813,14 @@ void gwsetmulbyconst (
 /* to split k*mulconst if k*mulconst * big_word exceeds what a floating point register can hold. */
 /* 2^49 should give us enough room to handle a carry and still round properly. */	
 
-		if (fabs (ktimesval) * big_word < 562949953421312.0) {
+		if (fabs (ktimesval) * big_word < 562949953421312.0)
 			asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_LARGE_BASE = 0.0;
-			asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_SMALL_BASE = 0.0;
-			asm_data->u.zmm.ZMM_K_TIMES_MULCONST_LO = ktimesval;
-		} else {
+		else if (ktimesval > 0.0)
 			asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_LARGE_BASE = floor (ktimesval / big_word);
-			asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_SMALL_BASE = asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_LARGE_BASE * (double) gwdata->b;
-			asm_data->u.zmm.ZMM_K_TIMES_MULCONST_LO = ktimesval - asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_LARGE_BASE * big_word;
-		}
+		else
+			asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_LARGE_BASE = -floor (-ktimesval / big_word);
+		asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_SMALL_BASE = asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_LARGE_BASE * (double) gwdata->b;
+		asm_data->u.zmm.ZMM_K_TIMES_MULCONST_LO = ktimesval - asm_data->u.zmm.ZMM_K_TIMES_MULCONST_HI_OVER_LARGE_BASE * big_word;
 	}
 
 /* Adjust the AVX assembly language constants affected by mulbyconst */
@@ -7819,19 +7838,20 @@ void gwsetmulbyconst (
 /* to split k*mulconst if k*mulconst * big_word exceeds what a floating point register can hold. */
 /* 2^49 should give us enough room to handle a carry and still round properly. */	
 
-		if (fabs (ktimesval) * big_word < 562949953421312.0) {
+		if (fabs (ktimesval) * big_word < 562949953421312.0)
 			asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI[0] = asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI[1] =
 			asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI[2] = asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI[3] = 0.0;
-			asm_data->u.ymm.YMM_K_TIMES_MULCONST_LO[0] = asm_data->u.ymm.YMM_K_TIMES_MULCONST_LO[1] =
-			asm_data->u.ymm.YMM_K_TIMES_MULCONST_LO[2] = asm_data->u.ymm.YMM_K_TIMES_MULCONST_LO[3] = ktimesval;
-		} else {
+		else if (ktimesval > 0.0)
 			asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI[0] = asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI[1] =
 			asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI[2] = asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI[3] =
 				floor (ktimesval / big_word) * big_word;
-			asm_data->u.ymm.YMM_K_TIMES_MULCONST_LO[0] = asm_data->u.ymm.YMM_K_TIMES_MULCONST_LO[1] =
-			asm_data->u.ymm.YMM_K_TIMES_MULCONST_LO[2] = asm_data->u.ymm.YMM_K_TIMES_MULCONST_LO[3] =
-				ktimesval - asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI[0];
-		}
+		else
+			asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI[0] = asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI[1] =
+			asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI[2] = asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI[3] =
+				-floor (-ktimesval / big_word) * big_word;
+		asm_data->u.ymm.YMM_K_TIMES_MULCONST_LO[0] = asm_data->u.ymm.YMM_K_TIMES_MULCONST_LO[1] =
+		asm_data->u.ymm.YMM_K_TIMES_MULCONST_LO[2] = asm_data->u.ymm.YMM_K_TIMES_MULCONST_LO[3] =
+			ktimesval - asm_data->u.ymm.YMM_K_TIMES_MULCONST_HI[0];
 	}
 
 /* Adjust the SSE2 assembly language constants affected by mulbyconst */
@@ -7847,15 +7867,16 @@ void gwsetmulbyconst (
 /* to split k*mulconst if k*mulconst * big_word exceeds what a floating point register can hold. */
 /* 2^49 should give us enough room to handle a carry and still round properly. */	
 
-		if (fabs (ktimesval) * big_word < 562949953421312.0) {
+		if (fabs (ktimesval) * big_word < 562949953421312.0)
 			asm_data->u.xmm.XMM_K_TIMES_MULCONST_HI[0] = asm_data->u.xmm.XMM_K_TIMES_MULCONST_HI[1] = 0.0;
-			asm_data->u.xmm.XMM_K_TIMES_MULCONST_LO[0] = asm_data->u.xmm.XMM_K_TIMES_MULCONST_LO[1] = ktimesval;
-		} else {
-			asm_data->u.xmm.XMM_K_TIMES_MULCONST_HI[0] =
-			asm_data->u.xmm.XMM_K_TIMES_MULCONST_HI[1] = floor (ktimesval / big_word) * big_word;
-			asm_data->u.xmm.XMM_K_TIMES_MULCONST_LO[0] =
-			asm_data->u.xmm.XMM_K_TIMES_MULCONST_LO[1] = ktimesval - asm_data->u.xmm.XMM_K_TIMES_MULCONST_HI[0];
-		}
+		else if (ktimesval > 0.0)
+			asm_data->u.xmm.XMM_K_TIMES_MULCONST_HI[0] = asm_data->u.xmm.XMM_K_TIMES_MULCONST_HI[1] =
+				floor (ktimesval / big_word) * big_word;
+		else
+			asm_data->u.xmm.XMM_K_TIMES_MULCONST_HI[0] = asm_data->u.xmm.XMM_K_TIMES_MULCONST_HI[1] =
+				-floor (-ktimesval / big_word) * big_word;
+		asm_data->u.xmm.XMM_K_TIMES_MULCONST_LO[0] =
+		asm_data->u.xmm.XMM_K_TIMES_MULCONST_LO[1] = ktimesval - asm_data->u.xmm.XMM_K_TIMES_MULCONST_HI[0];
 	}
 
 /* Adjust the x87 assembly language constants affected by mulbyconst */
@@ -8393,6 +8414,7 @@ void gianttogw (
 
 		limit = (unsigned long) ceil ((double) bitlen (a) / (gwdata->avg_num_b_per_word * log2 (gwdata->b)));
 		if (limit > gwdata->FFTLEN) limit = gwdata->FFTLEN;
+		if (gwdata->ZERO_PADDED_FFT && limit > gwdata->FFTLEN / 2 +4) limit = gwdata->FFTLEN / 2 + 4;
 
 /* Now convert the giant to FFT format.  For base 2 we simply copy bits.  */
 
@@ -8421,7 +8443,7 @@ void gianttogw (
 				if (i == limit - 1) value = binval;
 				else value = binval & mask;
 				value = value + carry;
-				if (value > (mask >> 1) && bits > 1 && i != gwdata->FFTLEN - 1) {
+				if (value > (mask >> 1) && bits > 1 && i != limit - 1) {
 					value = value - (mask + 1);
 					carry = 1;
 				} else {
@@ -8442,6 +8464,9 @@ void gianttogw (
 					binval |= (*e1 >> (32 - bits_in_next_binval)) << (32 - bits);
 					bits_in_next_binval -= bits;
 				}
+			}
+			for ( ; i < gwdata->FFTLEN; i++) {
+				set_fft_value (gwdata, g, i, 0);
 			}
 		}
 

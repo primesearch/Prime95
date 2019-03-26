@@ -3,7 +3,7 @@
 //  Prime95
 //
 //  Created by George Woltman on 4/19/09.
-//  Copyright 2009-2010 Mersenne Research, Inc. All rights reserved.
+//  Copyright 2009-2019 Mersenne Research, Inc. All rights reserved.
 //
 
 #import "StopController.h"
@@ -26,7 +26,7 @@
 {
 	[self setStopAllWorkers:YES];
 	[self setWorkerNumber:1];
-	[self setWorkerNumberMax:NUM_WORKER_THREADS];
+	[self setWorkerNumberMax:WORKER_THREADS_ACTIVE];
 }
 
 @synthesize stopAllWorkers;

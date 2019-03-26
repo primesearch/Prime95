@@ -2,8 +2,8 @@
 
 /* Constants */
 
-#define VERSION		"29.6"
-#define BUILD_NUM	"3"
+#define VERSION		"29.7"
+#define BUILD_NUM	"1"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -245,6 +245,9 @@ extern uint32_t CPU_NUM_L1_CACHES;	/* Number of L1 caches as determined by hwloc
 extern uint32_t CPU_NUM_L2_CACHES;	/* Number of L2 caches as determined by hwloc */
 extern uint32_t CPU_NUM_L3_CACHES;	/* Number of L3 caches as determined by hwloc */
 extern uint32_t CPU_NUM_L4_CACHES;	/* Number of L4 caches as determined by hwloc */
+extern int	CPU_L2_CACHE_INCLUSIVE;	/* 1 if inclusive, 0 if exclusive, -1 if not known */
+extern int	CPU_L3_CACHE_INCLUSIVE;	/* 1 if inclusive, 0 if exclusive, -1 if not known */
+extern int	CPU_L4_CACHE_INCLUSIVE;	/* 1 if inclusive, 0 if exclusive, -1 if not known */
 extern unsigned int NUM_NUMA_NODES;	/* Number of NUMA nodes in the computer */
 extern unsigned int NUM_THREADING_NODES;/* Number of nodes where it might be beneficial to keep a worker's threads in the same node */
 extern int OS_CAN_SET_AFFINITY;		/* hwloc supports setting CPU affinity (known exception is Apple) */

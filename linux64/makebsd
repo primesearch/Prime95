@@ -1,4 +1,4 @@
-# Makefile for FreeBSD 10.0 64-bit mprime
+# Makefile for FreeBSD 11.0 64-bit mprime
 #
 # Install the curl package.  This will be installed to $(LOCALBASE) by default.
 #
@@ -6,14 +6,14 @@
 # Configure hwloc with --enable-static --disable-shared --disable-pci --disable-cuda --disable-gl
 #
 
-CC = cc
-CFLAGS = -I.. -I../gwnum -I$(LOCALBASE)/include -DX86_64 -O2
+CC ?= cc
+CFLAGS += -I.. -I../gwnum -I$(LOCALBASE)/include -DX86_64 -O2
 
-CPP = cc
-CPPFLAGS = -I.. -I../gwnum -DX86_64 -O2
+CXX ?= cc
+CXXFLAGS += -I.. -I../gwnum -DX86_64 -O2
 
-LFLAGS = -fpie -L$(LOCALBASE)/lib -Wl,-M
-LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -lhwloc -lcurl -lstdc++ -lcompat -lgmp
+LDFLAGS += -fpie -L$(LOCALBASE)/lib -Wl,-M
+LIBS += ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -lhwloc -lcurl -lstdc++ -lcompat -lgmp
 
 FACTOROBJ = factor64.o
 OBJS = prime.o menu.o
@@ -22,7 +22,7 @@ EXE      = mprime
 #########################################################################
 
 $(EXE): security $(OBJS) $(FACTOROBJ)
-	$(CC) $(LFLAGS) -o $(EXE) $(OBJS) $(FACTOROBJ) $(LIBS)
+	$(CC) $(LDFLAGS) -o $(EXE) $(OBJS) $(FACTOROBJ) $(LIBS)
 
 security:
 	[ ! -e ../security.h ] && touch ../security.h || true
@@ -36,4 +36,4 @@ clean:
 	$(CC) $(CFLAGS) -c $<
 
 .cpp.o:
-	$(CPP) $(CPPFLAGS) -c $<
+	$(CXX) $(CXXFLAGS) -c $<

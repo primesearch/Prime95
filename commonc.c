@@ -105,6 +105,9 @@ uint32_t CPU_NUM_L1_CACHES = 0;		/* Number of L1 caches as determined by hwloc *
 uint32_t CPU_NUM_L2_CACHES = 0;		/* Number of L2 caches as determined by hwloc */
 uint32_t CPU_NUM_L3_CACHES = 0;		/* Number of L3 caches as determined by hwloc */
 uint32_t CPU_NUM_L4_CACHES = 0;		/* Number of L4 caches as determined by hwloc */
+int	CPU_L2_CACHE_INCLUSIVE = -1;	/* 1 if inclusive, 0 if exclusive, -1 if not known */
+int	CPU_L3_CACHE_INCLUSIVE = -1;	/* 1 if inclusive, 0 if exclusive, -1 if not known */
+int	CPU_L4_CACHE_INCLUSIVE = -1;	/* 1 if inclusive, 0 if exclusive, -1 if not known */
 unsigned int NUM_NUMA_NODES = 1;	/* Number of NUMA nodes in the computer */
 unsigned int NUM_THREADING_NODES = 1;	/* Number of nodes where it might be beneficial to keep a worker's threads in the same node */
 int	OS_CAN_SET_AFFINITY = 1;	/* hwloc supports setting CPU affinity (known exception is Apple) */
@@ -356,8 +359,7 @@ void getCpuSpeed (void)
 void getCpuInfo (void)
 {
 	int	depth, i, temp;
-	hwloc_obj_t obj;
-
+			
 /* Get the CPU info using CPUID instruction */	
 
 	guessCpuType ();
@@ -381,8 +383,14 @@ void getCpuInfo (void)
 	CPU_TOTAL_L2_CACHE_SIZE = CPU_NUM_L2_CACHES = 0;
 	CPU_TOTAL_L3_CACHE_SIZE = CPU_NUM_L3_CACHES = 0;
 	CPU_TOTAL_L4_CACHE_SIZE = CPU_NUM_L4_CACHES = 0;
+	CPU_L2_CACHE_INCLUSIVE = -1;
+	CPU_L3_CACHE_INCLUSIVE = -1;
+	CPU_L4_CACHE_INCLUSIVE = -1;
 	for (depth = 0; depth < hwloc_topology_get_depth (hwloc_topology); depth++) {
 		for (i = 0; i < (int) hwloc_get_nbobjs_by_depth (hwloc_topology, depth); i++) {
+			hwloc_obj_t obj;
+			const char *inclusive;
+
 			obj = hwloc_get_obj_by_depth (hwloc_topology, depth, i);
 			if (obj == NULL || obj->attr == NULL) break; // can't happen
 			if (obj->type == HWLOC_OBJ_L1CACHE) {
@@ -396,16 +404,22 @@ void getCpuInfo (void)
 				CPU_NUM_L2_CACHES++;
 				if (obj->attr->cache.linesize > 0) CPU_L2_CACHE_LINE_SIZE = obj->attr->cache.linesize;
 				if (obj->attr->cache.associativity > 0) CPU_L2_SET_ASSOCIATIVE = obj->attr->cache.associativity;
+				inclusive = hwloc_obj_get_info_by_name (obj, "Inclusive");
+				if (inclusive != NULL) CPU_L2_CACHE_INCLUSIVE = atoi (inclusive);
 			}
 			else if (obj->type == HWLOC_OBJ_L3CACHE) {
 				CPU_TOTAL_L3_CACHE_SIZE += (uint32_t) (obj->attr->cache.size >> 10);
 				CPU_NUM_L3_CACHES++;
 				if (obj->attr->cache.linesize > 0) CPU_L3_CACHE_LINE_SIZE = obj->attr->cache.linesize;
 				if (obj->attr->cache.associativity > 0) CPU_L3_SET_ASSOCIATIVE = obj->attr->cache.associativity;
+				inclusive = hwloc_obj_get_info_by_name (obj, "Inclusive");
+				if (inclusive != NULL) CPU_L3_CACHE_INCLUSIVE = atoi (inclusive);
 			}
 			else if (obj->type == HWLOC_OBJ_L4CACHE) {
 				CPU_TOTAL_L4_CACHE_SIZE += (uint32_t) (obj->attr->cache.size >> 10);
 				CPU_NUM_L4_CACHES++;
+				inclusive = hwloc_obj_get_info_by_name (obj, "Inclusive");
+				if (inclusive != NULL) CPU_L4_CACHE_INCLUSIVE = atoi (inclusive);
 			}
 		}
 	}
@@ -421,9 +435,9 @@ void getCpuInfo (void)
 /* Note that the CPUID code in gwnum is not good at determining the number of L2 and L3 caches. */
 /* Fortunately, it should be rare that we rely on the CPUID code. */
 
-	if (CPU_NUM_L1_CACHES == 0 && CPU_L1_CACHE_SIZE) CPU_TOTAL_L1_CACHE_SIZE = CPU_L1_CACHE_SIZE * NUM_CPUS, CPU_NUM_L1_CACHES = NUM_CPUS;
-	if (CPU_NUM_L2_CACHES == 0 && CPU_L2_CACHE_SIZE) CPU_TOTAL_L2_CACHE_SIZE = CPU_L2_CACHE_SIZE, CPU_NUM_L2_CACHES = 1;
-	if (CPU_NUM_L3_CACHES == 0 && CPU_L3_CACHE_SIZE) CPU_TOTAL_L3_CACHE_SIZE = CPU_L3_CACHE_SIZE, CPU_NUM_L3_CACHES = 1;
+	if (CPU_NUM_L1_CACHES == 0 && CPU_L1_CACHE_SIZE > 0) CPU_TOTAL_L1_CACHE_SIZE = CPU_L1_CACHE_SIZE * NUM_CPUS, CPU_NUM_L1_CACHES = NUM_CPUS;
+	if (CPU_NUM_L2_CACHES == 0 && CPU_L2_CACHE_SIZE > 0) CPU_TOTAL_L2_CACHE_SIZE = CPU_L2_CACHE_SIZE, CPU_NUM_L2_CACHES = 1;
+	if (CPU_NUM_L3_CACHES == 0 && CPU_L3_CACHE_SIZE > 0) CPU_TOTAL_L3_CACHE_SIZE = CPU_L3_CACHE_SIZE, CPU_NUM_L3_CACHES = 1;
 
 /* Calculate hardware GUID (global unique identifier) using the CPUID info. */
 /* Well, it isn't unique but it is about as good as we can do and still have */
@@ -487,15 +501,18 @@ void getCpuInfo (void)
 	CPU_L2_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL2CacheSize", CPU_L2_CACHE_SIZE);
 	CPU_L2_CACHE_LINE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL2CacheLineSize", CPU_L2_CACHE_LINE_SIZE);
 	CPU_L2_SET_ASSOCIATIVE = IniGetInt (LOCALINI_FILE, "CpuL2SetAssociative", CPU_L2_SET_ASSOCIATIVE);
+	CPU_L2_CACHE_INCLUSIVE = IniGetInt (LOCALINI_FILE, "CpuL2CacheInclusive", CPU_L2_CACHE_INCLUSIVE);
 
 	CPU_TOTAL_L3_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL3TotalCacheSize", CPU_TOTAL_L3_CACHE_SIZE);
 	CPU_NUM_L3_CACHES = IniGetInt (LOCALINI_FILE, "CpuL3NumCaches", CPU_NUM_L3_CACHES);
 	CPU_L3_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL3CacheSize", CPU_L3_CACHE_SIZE);
 	CPU_L3_CACHE_LINE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL3CacheLineSize", CPU_L3_CACHE_LINE_SIZE);
 	CPU_L3_SET_ASSOCIATIVE = IniGetInt (LOCALINI_FILE, "CpuL3SetAssociative", CPU_L3_SET_ASSOCIATIVE);
+	CPU_L3_CACHE_INCLUSIVE = IniGetInt (LOCALINI_FILE, "CpuL3CacheInclusive", CPU_L3_CACHE_INCLUSIVE);
 
 	CPU_TOTAL_L4_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL4TotalCacheSize", CPU_TOTAL_L4_CACHE_SIZE);
 	CPU_NUM_L4_CACHES = IniGetInt (LOCALINI_FILE, "CpuL4NumCaches", CPU_NUM_L4_CACHES);
+	CPU_L4_CACHE_INCLUSIVE = IniGetInt (LOCALINI_FILE, "CpuL4CacheInclusive", CPU_L4_CACHE_INCLUSIVE);
 
 /* Let the user override the CPUID brand string.  It should never be necessary. */
 /* However, one Athlon owner's brand string became corrupted with illegal characters. */
@@ -611,6 +628,7 @@ void getCpuDescription (
 	strcat (buf, ", L2 cache line size: ");
 	if (CPU_L2_CACHE_LINE_SIZE < 0) strcat (buf, "unknown");
 	else sprintf (buf+strlen(buf), "%d bytes", CPU_L2_CACHE_LINE_SIZE);
+	strcat (buf, "\n");
 }
 
 /* Print the machine topology as discovered by hwloc library */

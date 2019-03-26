@@ -2462,10 +2462,8 @@ return 0;
 
 /* Optionally do a probable prime test */
 
-	if (IniGetInt (INI_FILE, "ProbablePrimeTest", 0) &&
-	    isProbablePrime (&ecmdata.gwdata, N)) {
-		sprintf (buf, "%s is a probable prime\n",
-			 gwmodulo_as_string (&ecmdata.gwdata));
+	if (IniGetInt (INI_FILE, "ProbablePrimeTest", 0) && isProbablePrime (&ecmdata.gwdata, N)) {
+		sprintf (buf, "%s is a probable prime\n", gwmodulo_as_string (&ecmdata.gwdata));
 		OutputStr (thread_num, buf);
 	}
 
@@ -2654,7 +2652,7 @@ restart0:
 		if (CPU_FLAGS & CPU_RDTSC) rdtsc (&hi, &lo);
 		sigma += lo ^ hi ^ ((unsigned long) rand () << 16);
 	} while (sigma <= 5.0);
-	if (w->curve > 5.0) sigma = w->curve;
+	if (w->curve > 5.0 && w->curve < 9007199254740992.0) sigma = w->curve;
 	curve_start_msg (&ecmdata, thread_num, curve, sigma, B, C);
 	stop_reason = choose12 (&ecmdata, w, x, z, sigma, &Ad4, N, &factor);
 	if (stop_reason) goto exit;
@@ -5630,7 +5628,7 @@ bingo:	if (stage == 1)
 	writeResults (msg);
 
 /* Format a JSON version of the result.  An example follows: */
-/* {"status":"F", "exponent":45581713, "worktype":"P-1", "factors":"430639100587696027847", */
+/* {"status":"F", "exponent":45581713, "worktype":"P-1", "factors":["430639100587696027847"], */
 /* "b1":50000, "b2":5000000, "brent-suyama":6, */
 /* "fft-length":5120, "security-code":"39AB1238", */
 /* "program":{"name":"prime95", "version":"29.5", "build":"8"}, "timestamp":"2019-01-15 23:28:16", */
@@ -5639,7 +5637,7 @@ bingo:	if (stage == 1)
 	strcpy (JSONbuf, "{\"status\":\"F\"");
 	JSONaddExponent (JSONbuf, w);
 	strcat (JSONbuf, ", \"worktype\":\"P-1\"");
-	sprintf (JSONbuf+strlen(JSONbuf), ", \"factors\":\"%s\"", str);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"factors\":[\"%s\"]", str);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%.0f", (double) B);
 	if (stage > 1) {
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"b2\":%.0f", (double) C);
