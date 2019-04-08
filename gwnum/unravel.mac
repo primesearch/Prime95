@@ -1478,14 +1478,15 @@ c_call MACRO routine
 	;; that the called routine expects the stack aligned 8 mod 16.
 	;; Prolog code should have aligned stack properly.
 	IFDEF WINDOWS64
-	mov	rcx, r11		;; Load offset of asm_data
+	sub	rsp, 32			;; Allocate 32 bytes of "shadow space" for C routine to use
+	mov	rcx, r11		;; Pass asm_data pointer argument in rcx
 	mov	rbx, r11		;; And save a copy for later restore
 	ENDIF
 	;; See Agner Fog's document on calling conventions.  It states
 	;; that the called routine expects the stack aligned 8 mod 16.
 	;; Prolog code should have aligned stack properly.
 	IFDEF LINUX64
-	mov	rdi, r11		;; Load offset of asm_data
+	mov	rdi, r11		;; Pass asm_data pointer argument in rdi
 	mov	rbx, r11		;; And save a copy for later restore
 	ENDIF
 
@@ -1500,6 +1501,9 @@ c_call MACRO routine
 	push_amt=push_amt-16
 	ELSE
 	mov	r11, rbx		;; Restore asm_data pointer
+	IFDEF WINDOWS64
+	add	rsp, 32			;; Free 32 bytes of "shadow space" allocated for C routine to use
+	ENDIF
 	ENDIF
 
 	ENDM

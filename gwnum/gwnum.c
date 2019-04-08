@@ -2031,7 +2031,7 @@ void unshare_sincos_data (
 void gwinit2 (
 	gwhandle *gwdata,	/* Placeholder for gwnum global data */
 	int	struct_size,	/* Size of the gwdata structure */
-	char	*version_string)
+	const char *version_string)
 {
 
 /* See if caller is using the same gwnum.h file that was used when */

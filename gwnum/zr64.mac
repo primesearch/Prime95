@@ -3219,7 +3219,10 @@ zr64f_hundredtwentyeight_real_with_mult_preload MACRO
 	zr64_128r_mult_cmn_preload
 	ENDM
 zr64f_hundredtwentyeight_real_with_mult MACRO srcreg,srcinc,d1,d2,d4,screg1,scinc1,screg2,scinc2,maxrpt,L1pt,L1pd
-	zr64_128r_mult_cmn srcreg,rbx,srcinc,d1,d2,d4,screg1,scinc1,screg2,scinc2,maxrpt,L1pt,L1pd
+	;; Presently, gwnum does not support a with_mult (gwfftmul) interface with two sources and one destination.
+	;; Thus, rbx is always zero.
+	;; zr64_128r_mult_cmn srcreg,rbx,srcinc,d1,d2,d4,screg1,scinc1,screg2,scinc2,maxrpt,L1pt,L1pd
+	zr64_128r_mult_cmn srcreg,0,srcinc,d1,d2,d4,screg1,scinc1,screg2,scinc2,maxrpt,L1pt,L1pd
 	ENDM
 
 zr64_128r_mult_cmn_preload MACRO
@@ -3228,7 +3231,7 @@ zr64_128r_mult_cmn_preload MACRO
 zr64_128r_mult_cmn MACRO srcreg,srcoff,srcinc,d1,d2,d4,screg1,scinc1,screg2,scinc2,maxrpt,L1pt,L1pd
 
 	;; For zero pad
-	zmult7	srcreg, srcreg+rbp
+	zmult7	srcreg+srcoff, srcreg+rbp
 
 	vmovapd	zmm1, [srcreg+srcoff+d1]	;; r2+r10
 	vmovapd	zmm3, [srcreg+srcoff+d4+d2+d1]	;; r8+r16

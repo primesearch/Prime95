@@ -60,9 +60,9 @@ typedef double *gwnum;
 /* gwsetup verifies that the version numbers match.  This prevents bugs */
 /* from accidentally linking in the wrong gwnum library. */
 
-#define GWNUM_VERSION		"29.7"
+#define GWNUM_VERSION		"29.8"
 #define GWNUM_MAJOR_VERSION	29
-#define GWNUM_MINOR_VERSION	7
+#define GWNUM_MINOR_VERSION	8
 
 /* Error codes returned by the three gwsetup routines */
 
@@ -98,7 +98,7 @@ typedef double *gwnum;
 void gwinit2 (
 	gwhandle *gwdata,	/* Placeholder for gwnum global data */
 	int	struct_size,	/* Size of the gwdata structure */
-	char	*version_string);
+	const char *version_string);
 
 /* There are three different setup routines.  The first, gwsetup, is for */
 /* gwnum's primary use - support for fast operations modulo K*B^N+C. */
