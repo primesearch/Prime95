@@ -3239,12 +3239,14 @@ int primeContinue (
 
 		set_default_memory_usage (thread_num);
 
-/* If the work unit completed remove it from the worktodo.ini file and */
-/* move on to the next entry */
+/* If the work unit completed, remove it from the worktodo.txt file and move on to the next entry. */
+/* NOTE:  We ignore errors writing the worktodo.txt file.  KEP had a computer that occasionally */
+/* had such a problem and the worker thread stopped computing his long list of PRP tests. */
 
 		if (stop_reason == STOP_WORK_UNIT_COMPLETE) {
 			rolling_average_work_unit_complete (thread_num, w);
-			stop_reason = deleteWorkToDoLine (thread_num, w, FALSE);
+			deleteWorkToDoLine (thread_num, w, FALSE);
+			stop_reason = 0;
 		}
 
 /* If a work unit could not be processed because there isn't enough memory, */

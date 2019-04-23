@@ -2931,7 +2931,7 @@ done:	gwmutex_unlock (&WORKTODO_MUTEX);
 /* If the worktodo file changed, write the changed worktodo file */
 
 	writeWorkToDoFile (FALSE);
-	
+
 /* Almost done.  Incorporate the optional worktodo.add file. */
 
 	return (incorporateWorkToDoAddFile ());
@@ -2984,6 +2984,7 @@ int writeWorkToDoFile (
 	fd = _open (WORKTODO_FILE, _O_CREAT | _O_TRUNC | _O_WRONLY | _O_TEXT, CREATE_FILE_ACCESS);
 	if (fd < 0) {
 		OutputBoth (MAIN_THREAD_NUM, "Error creating worktodo.txt file\n");
+		gwmutex_unlock (&WORKTODO_MUTEX);
 		return (STOP_FILE_IO_ERROR);
 	}
 
@@ -3021,13 +3022,13 @@ int writeWorkToDoFile (
 /* Do not output deleted lines */
 
 		if (w->work_type == WORK_DELETED) continue;
-		
+
 /* Do not output section header */
 
 		if (w == WORK_UNITS[tnum].first &&
 		    w->work_type == WORK_NONE &&
 		    w->comment[0] == '[') continue;
-		
+
 /* Format the optional assignment id */
 
 		idbuf[0] = 0;
@@ -3139,6 +3140,7 @@ int writeWorkToDoFile (
 		if (_write (fd, buf, len) != len) {
 write_error:		OutputBoth (MAIN_THREAD_NUM, "Error writing worktodo.txt file\n");
 			_close (fd);
+			gwmutex_unlock (&WORKTODO_MUTEX);
 			return (STOP_FILE_IO_ERROR);
 		}
 		last_line_was_blank = (len == 1);
@@ -3788,7 +3790,7 @@ void adjust_rolling_average (void)
 			if (w->work_type != WORK_NONE &&
 			    w->work_type != WORK_DELETED) break;
 		if (w == NULL) continue;
-	   
+
 /* Build the hash value */
 
 		hash += build_rolling_hash (w);
