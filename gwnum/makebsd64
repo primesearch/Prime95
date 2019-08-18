@@ -2,7 +2,7 @@
 #
 
 CC ?= cc
-CFLAGS += -I.. -I../sqlite-amalgamation-3180000 -DX86_64 -O2
+CFLAGS += -I.. -I../sqlite-amalgamation-3180000 -I$(LOCALBASE)/include -DX86_64 -O2
 
 CXX ?= cc
 CXXFLAGS += -I.. -I../qd -DX86_64 -O2

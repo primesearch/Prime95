@@ -386,6 +386,7 @@ void getCpuInfo (void)
 	CPU_L2_CACHE_INCLUSIVE = -1;
 	CPU_L3_CACHE_INCLUSIVE = -1;
 	CPU_L4_CACHE_INCLUSIVE = -1;
+#if HWLOC_API_VERSION >= 0x00020000
 	for (depth = 0; depth < hwloc_topology_get_depth (hwloc_topology); depth++) {
 		for (i = 0; i < (int) hwloc_get_nbobjs_by_depth (hwloc_topology, depth); i++) {
 			hwloc_obj_t obj;
@@ -423,6 +424,7 @@ void getCpuInfo (void)
 			}
 		}
 	}
+#endif
 
 /* Overwrite the cache info calculated via CPUID as hwloc's info is more detailed and I believe more reliable. */
 /* We are transitioning away from using the cache size global variables computed by the CPUID code. */
@@ -476,11 +478,11 @@ void getCpuInfo (void)
 	if (temp == 0) CPU_FLAGS &= ~(CPU_3DNOW + CPU_3DNOW_PREFETCH);
 	if (temp == 1) CPU_FLAGS |= (CPU_3DNOW + CPU_3DNOW_PREFETCH);
 	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsAVX", 99);
-	if (temp == 0) CPU_FLAGS &= ~CPU_AVX;
+	if (temp == 0) CPU_FLAGS &= ~(CPU_AVX | CPU_FMA3);
 	if (temp == 1) CPU_FLAGS |= CPU_AVX;
 	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsFMA3", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_FMA3;
-	if (temp == 1) CPU_FLAGS |= CPU_FMA3;
+	if (temp == 1) CPU_FLAGS |= (CPU_AVX | CPU_FMA3);
 	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsFMA4", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_FMA4;
 	if (temp == 1) CPU_FLAGS |= CPU_FMA4;
@@ -527,6 +529,14 @@ void getCpuInfo (void)
 	if (CPU_HYPERTHREADS == 0) CPU_HYPERTHREADS = 1;
 	NUM_NUMA_NODES = IniGetInt (LOCALINI_FILE, "NumNUMANodes", NUM_NUMA_NODES);
 	if (NUM_NUMA_NODES == 0) NUM_NUMA_NODES = 1;
+
+/* Apply sane corrections if NUM_CPUs was reduced significantly) */
+
+	if (CPU_NUM_L1_CACHES > NUM_CPUS) CPU_NUM_L1_CACHES = NUM_CPUS;
+	if (CPU_NUM_L2_CACHES > NUM_CPUS) CPU_NUM_L2_CACHES = NUM_CPUS;
+	if (CPU_NUM_L3_CACHES > NUM_CPUS) CPU_NUM_L3_CACHES = NUM_CPUS;
+	if (CPU_NUM_L4_CACHES > NUM_CPUS) CPU_NUM_L4_CACHES = NUM_CPUS;
+	if (NUM_NUMA_NODES > NUM_CPUS) NUM_NUMA_NODES = NUM_CPUS;
 
 /* Let user override the CPU architecture */
 
@@ -3123,7 +3133,7 @@ int writeWorkToDoFile (
 
 		case WORK_PRP:
 			sprintf (buf, "PRP%s=%s%.0f,%lu,%lu,%ld", w->prp_dblchk ? "DC" : "", idbuf, w->k, w->b, w->n, w->c);
-			if (w->tests_saved > 0.0 || w->prp_base || w->prp_residue_type) {
+			if (w->sieve_depth || w->tests_saved > 0.0 || w->prp_base || w->prp_residue_type) {
 				sprintf (buf + strlen (buf), ",%g,%g", w->sieve_depth, w->tests_saved);
 				if (w->prp_base || w->prp_residue_type)
 					sprintf (buf + strlen (buf), ",%u,%d", w->prp_base, w->prp_residue_type);

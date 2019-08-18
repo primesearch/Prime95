@@ -1,6 +1,6 @@
 /* ECM stage 1 using GWNUM -- for use by GMP-ECM
 
-  Copyright 1996-2011 Mersenne Research, Inc.
+  Copyright 1996-2019 Mersenne Research, Inc.
 
   This program is free software; you can redistribute it and/or modify it
   under the terms of the GNU General Public License as published by the
@@ -33,6 +33,7 @@
 
 #include <stdlib.h>
 #include "cpuid.h"
+#include "gmp.h"		// GMP library
 #include "gwnum.h"
 #include "math.h"
 #include "memory.h"
@@ -719,12 +720,15 @@ int modinv (
 	gwnum b)
 {
 	giant	v;
-	int	stop_reason;
 
 /* Convert input number to binary */
 
 	v = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 5) + 5);
 	gwtogiant (&gwdata, b, v);
+
+#ifdef MODINV_USING_GIANTS
+
+	int	stop_reason;
 
 /* Let the invg code use gwnum b's memory. */
 /* Compute 1/v mod N */
@@ -750,6 +754,49 @@ int modinv (
 	else {
 		gianttogw (&gwdata, v, b);
 	}
+
+/* Use the faster GMP library to do an extended GCD which gives us 1/v mod N */
+
+#else
+	{
+	mpz_t	__v, __N, __gcd, __inv;
+
+/* Do the extended GCD */
+
+	mpz_init (__v);
+	mpz_init (__N);
+	mpz_init (__gcd);
+	mpz_init (__inv);
+	gtompz (v, __v);
+	gtompz (N, __N);
+	mpz_gcdext (__gcd, __inv, NULL, __v, __N);
+	mpz_clear (__v);
+
+/* If a factor was found (gcd != 1 && gcd != N), save it in FAC */
+
+	if (mpz_cmp_ui (__gcd, 1) && mpz_cmp (__gcd, __N)) {
+		FAC = allocgiant ((int) mpz_sizeinbase (__gcd, 32));
+		mpztog (__gcd, FAC);
+	}
+
+/* Otherwise, convert the inverse to FFT-ready form */
+
+	else {
+		if (mpz_sgn (__inv) < 0) mpz_add (__inv, __inv, __N);
+		mpztog (__inv, v);
+		gianttogw (&gwdata, v, b);
+	}
+
+/* Cleanup and return */
+
+	mpz_clear (__gcd);
+	mpz_clear (__inv);
+	mpz_clear (__N);
+	}
+#endif
+
+/* Clean up */
+
 	pushg (&gwdata.gdata, 1);
 
 /* Increment count and return */

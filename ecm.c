@@ -4805,7 +4805,8 @@ restart0:
 #ifndef SERVER_TESTING
 			gwstartnextfft (&pm1data.gwdata, !stop_reason && !saving && bit_number+1 != error_recovery_mode && bit_number+1 != len);
 			gwsetnormroutine (&pm1data.gwdata, 0, echk, mpz_tstbit (exp, len - bit_number - 1));
-			gwsquare (&pm1data.gwdata, x);
+			if (bit_number < 30) gwsquare_carefully (&pm1data.gwdata, x);
+			else gwsquare (&pm1data.gwdata, x);
 #endif
 		}
 

@@ -2,7 +2,7 @@
 #
 
 CC = gcc
-CFLAGS = -I.. -I../sqlite-amalgamation-3180000 -DX86_64 -Wno-unused-result -O2
+CFLAGS = -I.. -I../sqlite-amalgamation-3180000 -I/usr/local/include -DX86_64 -Wno-unused-result -O2
 
 CPP = g++
 CPPFLAGS = -I.. -I../qd -DX86_64 -O2

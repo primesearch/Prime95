@@ -191,10 +191,10 @@ amd64\debug\giants.obj: giants.c giants.h
     $(cl64do) /Foamd64\debug\giants.obj giants.c
 
 amd64\release\ecmstag1.obj: ecmstag1.c gwnum.h
-    $(cl64) /Foamd64\release\ecmstag1.obj ecmstag1.c
+    $(cl64) /Ic:\gmp64 /Foamd64\release\ecmstag1.obj ecmstag1.c
 
 amd64\debug\ecmstag1.obj: ecmstag1.c gwnum.h
-    $(cl64d) /Foamd64\debug\ecmstag1.obj ecmstag1.c
+    $(cl64d) /Ic:\gmp64 /Foamd64\debug\ecmstag1.obj ecmstag1.c
 
 # Create 64-bit object files
 

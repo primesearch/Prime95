@@ -179,10 +179,10 @@ debug\giants.obj: giants.c giants.h
     $(cldo) /Fodebug\giants.obj giants.c
 
 release\ecmstag1.obj: ecmstag1.c gwnum.h
-    $(cl) /Forelease\ecmstag1.obj ecmstag1.c
+    $(cl)  /Ic:\gmp /Forelease\ecmstag1.obj ecmstag1.c
 
 debug\ecmstag1.obj: ecmstag1.c gwnum.h
-    $(cld) /Fodebug\ecmstag1.obj ecmstag1.c
+    $(cld) /Ic:\gmp /Fodebug\ecmstag1.obj ecmstag1.c
 
 # Create 32-bit object files
 

@@ -1,5 +1,7 @@
 // EcmDlg.cpp : implementation file
 //
+//  Copyright 2000-2019 Mersenne Research, Inc. All rights reserved.
+//
 
 #include "stdafx.h"
 #include "Prime95.h"
@@ -24,9 +26,9 @@ CEcmDlg::CEcmDlg(CWnd* pParent /*=NULL*/)
 	m_b = 2;
 	m_n = 1277;
 	m_c = -1;
-	m_bound1 = 1000000.0;
+	m_bound1 = 850.0e6;
 	m_bound2 = 0.0;
-	m_num_curves = 100;
+	m_num_curves = 10;
 	//}}AFX_DATA_INIT
 }
 

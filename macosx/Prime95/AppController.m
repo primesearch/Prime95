@@ -618,7 +618,7 @@ AppController *myAppController;			// Global variable to allow access to this obj
 
 - (IBAction)helpMersenneWiki:(id)sender
 {
-	NSURL *url = [NSURL URLWithString:@"http://mersennewiki.org"];
+	NSURL *url = [NSURL URLWithString:@"https://rieselprime.de/ziki/Main_Page"];
 	[[NSWorkspace sharedWorkspace] openURL:url];
 }
 

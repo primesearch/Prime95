@@ -1050,7 +1050,7 @@ void CPrime95Doc::OnForum()
 void CPrime95Doc::OnWiki() 
 {
 	CHyperLink dummy;
-	dummy.GotoURL (_T("http://mersennewiki.org"), SW_SHOW);
+	dummy.GotoURL (_T("https://rieselprime.de/ziki/Main_Page"), SW_SHOW);
 }
 
 void CPrime95Doc::OnUpdateServer(CCmdUI* pCmdUI) 

@@ -1008,15 +1008,17 @@ void options_torture (void)
 		askNum ("Number of torture test threads to run", &m_thread, 1, NUM_CPUS * CPU_HYPERTHREADS);
 
 	// Ask which torture test to run
-	m_type = 4;
 	if (CPU_TOTAL_L4_CACHE_SIZE) {
+		m_type = 5;
 		outputLongLine ("Choose a type of torture test to run.\n  1 = Smallest FFTs (tests L1/L2 caches, high power/heat/CPU stress).\n  2 = Small FFTs (tests L1/L2/L3 caches, maximum power/heat/CPU stress).\n  3 = Medium FFTs (tests L1/L2/L3/L4 caches, high power/heat/CPU stress).\n  4 = Large FFTs (stresses memory controller and RAM).\n  5 = Blend (tests all of the above).\nBlend is the default.  NOTE: if you fail the blend test but pass the smaller FFT tests then your problem is likely bad memory or bad memory controller.\n");
 		askNum ("Type of torture test to run", &m_type, 1, 5);
 	} else if (CPU_TOTAL_L3_CACHE_SIZE) {
+		m_type = 4;
 		outputLongLine ("Choose a type of torture test to run.\n  1 = Smallest FFTs (tests L1/L2 caches, high power/heat/CPU stress).\n  2 = Small FFTs (tests L1/L2/L3 caches, maximum power/heat/CPU stress).\n  3 = Large FFTs (stresses memory controller and RAM).\n  4 = Blend (tests all of the above).\nBlend is the default.  NOTE: if you fail the blend test but pass the smaller FFT tests then your problem is likely bad memory or bad memory controller.\n");
 		askNum ("Type of torture test to run", &m_type, 1, 4);
 		if (m_type >= 3) m_type++;
 	} else {
+		m_type = 3;
 		outputLongLine ("Choose a type of torture test to run.\n  1 = Smallest FFTs (tests L1/L2 caches, maximum power/heat/CPU stress).\n  2 = Large FFTs (stresses memory controller and RAM).\n  3 = Blend (tests all of the above).\nBlend is the default.  NOTE: if you fail the blend test but pass the smaller FFT tests then your problem is likely bad memory or bad memory controller.\n");
 		askNum ("Type of torture test to run", &m_type, 1, 3);
 		if (m_type >= 2) m_type += 2;

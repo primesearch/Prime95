@@ -5769,7 +5769,7 @@ nextpass:	;
 /* the server with needless data, do not send small bit level */
 /* messages - that work has already been done. */
 
-		if (end_bits >= 50 || IniGetInt (INI_FILE, "SendAllFactorData", 0)) {
+		if (end_bits >= 60 || IniGetInt (INI_FILE, "SendAllFactorData", 0)) {
 			struct primenetAssignmentResult pkt;
 			memset (&pkt, 0, sizeof (pkt));
 			strcpy (pkt.computer_guid, COMPUTER_GUID);
@@ -8952,7 +8952,7 @@ void add_bench_data_to_pkt (
 
 /* Routine to benchmark the trial factoring code */
 
-static const char BENCH1[] = "Your timings will be written to the results.txt file.\n";
+static const char BENCH1[] = "Your timings will be written to the results.bench.txt file.\n";
 static const char BENCH2[] = "Compare your results to other computers at http://www.mersenne.org/report_benchmarks\n";
 
 int factorBench (
@@ -9126,7 +9126,11 @@ void primeBenchOneWorker (void *arg)
 
 	gwmutex_lock (&bench_workers_mutex);
 	num_bench_workers_initialized++;
-	if (num_bench_workers_initialized == num_bench_workers) gwevent_signal (&bench_workers_sync);
+	if (num_bench_workers_initialized == num_bench_workers) {
+		if (IniGetInt (INI_FILE, "BenchInitCompleteMessage", 0))
+			OutputStr (info->main_thread_num, "Benchmark initialization complete.\n");
+		gwevent_signal (&bench_workers_sync);
+	}
 	gwmutex_unlock (&bench_workers_mutex);
 	gwevent_wait (&bench_workers_sync, 0);
 
@@ -9324,11 +9328,11 @@ int primeBenchMultipleWorkersInternal (
 				    gwthread_create_waitable (&thread_id[worker_num], &primeBenchOneWorker, (void *) &info[worker_num]);
 				    core_num += cores_to_use;
 				    cores_this_node -= cores_to_use;
+				    cores_left -= cores_to_use;
 				    worker_num++;
 				    workers_left--; 
 				}
 				nodes_left -= nodes_to_use;
-				cores_left -= nodes_to_use * cores_per_node;
 			    }
 
 /* Wait for all the workers to finish */
@@ -9711,25 +9715,25 @@ void autoBench (void)
 // might mean gwbench_get_num_benchmarks SQL stmt needs tweaking
 
 		stop_reason = primeBenchMultipleWorkersInternal (
-			MAIN_THREAD_NUM,					/* Output messages to main window */
+			MAIN_THREAD_NUM,				/* Output messages to main window */
 			&pkt,
-			ffts_to_bench[i].min_fftlen / 1024,			/* Minimum FFT length (in K) to bench */
-			ffts_to_bench[i].max_fftlen / 1024,			/* Maximum FFT length (in K) to bench */
-			FALSE,							/* Do not limit FFT sizes benchmarked */
+			ffts_to_bench[i].min_fftlen / 1024,		/* Minimum FFT length (in K) to bench */
+			ffts_to_bench[i].max_fftlen / 1024,		/* Maximum FFT length (in K) to bench */
+			FALSE,						/* Do not limit FFT sizes benchmarked */
 			ffts_to_bench[i].all_complex,
-			TRUE,							/* Benchmark all FFT implementations */
+			TRUE,						/* Benchmark all FFT implementations */
 			bench_cores,
-			HYPERTHREAD_LL,						/* Benchmark hyperthreading if LL testing uses hyperthreads */
+			HYPERTHREAD_LL,					/* Benchmark hyperthreading if LL testing uses hyperthreads */
 			bench_workers,
-			0,							/* Do not limit CPU architectures benchmarked */
-			0,							/* Oddball worker/core combinations option does not apply */
-			ERRCHK,							/* Benchmark round-off checking */
-			num_cores,						/* Min cores */
-			num_cores,						/* Max cores */
-			1,							/* Core increment */
-			num_workers,						/* Min workers */
-			num_workers,						/* Max workers */
-			1);							/* Worker increment */
+			0,						/* Do not limit CPU architectures benchmarked */
+			1,						/* Oddball worker/core combos might help gwnum FFT selection */
+			ERRCHK,						/* Benchmark round-off checking */
+			num_cores,					/* Min cores */
+			num_cores,					/* Max cores */
+			1,						/* Core increment */
+			num_workers,					/* Min workers */
+			num_workers,					/* Max workers */
+			1);						/* Worker increment */
 
 /* If benchmark was stopped, run no more benchmarks */
 
@@ -11822,7 +11826,9 @@ pushg(&gwdata.gdata, 2);}
 
 /* Output good news to the screen in an infinite loop */
 
-	if (isProbablePrime && !SILENT_VICTORY_PRP && (w->k != 1.0 || w->b != 2 || !isKnownMersennePrime (w->n) || w->c != -1)) {
+	if (isProbablePrime &&
+	    ((!SILENT_VICTORY && w->k == 1.0 && w->b == 2 && w->c == -1 && !isKnownMersennePrime (w->n)) ||
+	     (!SILENT_VICTORY_PRP && (w->k != 1.0 || w->b != 2 || w->c != -1)))) {
 		gwthread thread_handle;
 		char	*arg;
 		arg = (char *) malloc (strlen (string_rep) + 1);

@@ -2249,7 +2249,6 @@ void onestep (		/* Do one step of the euclidean algorithm and modify
 	if (A != NULL) punch (gdata, q, A);
 	mulgi (gdata, *y, q);		/* Now set x = x - q * y */
 	subg (q, *x);
-
 	gswap (x, y);
 	pushg (gdata, 1);
 }
@@ -2598,13 +2597,12 @@ int hgcd (	/* hgcd(n,x,y,A) chops n words off x and y and computes the
 			a_length = abs (A->lr->sign);
 			if (A->lr->n[a_length-1] & 0x80000000) a_length++;
 			if (a_length + quot_length > half_size) break;
-		
+
 /* If the quotient will fit in one word, use the GCD helper */
 /* function which can do several GCD steps in single precision, */
 /* postponing multi-precision operations as long as possible. */
 
-			if (quot_length > 1 ||
-			    !gcdhlp_wrapper (gdata, x, y, A))
+			if (quot_length > 1 || !gcdhlp_wrapper (gdata, x, y, A))
 				onestep (gdata, &x, &y, A);
 		}
 	}
@@ -2626,8 +2624,7 @@ int hgcd (	/* hgcd(n,x,y,A) chops n words off x and y and computes the
 /* Do the first recursion */
 
 		a_size = half_size >> 1;
-		stop_reason = hgcd (gdata, y->sign - (a_size + a_size + 1),
-				    &x, &y, A, interruptable);
+		stop_reason = hgcd (gdata, y->sign - (a_size + a_size + 1), &x, &y, A, interruptable);
 		if (stop_reason) return (stop_reason);
 		a_size = abs (A->lr->sign);
 
@@ -2649,11 +2646,20 @@ int hgcd (	/* hgcd(n,x,y,A) chops n words off x and y and computes the
 		B.ll = &ll; setzero (&ll);
 		B.lr = &lr; setone (&lr);
 		if (b_size > ((y->sign - 1) >> 1)) b_size = (y->sign - 1) >> 1;
-		stop_reason = hgcd (gdata, y->sign - (b_size + b_size + 1),
-				    &x, &y, &B, interruptable);
-		if (stop_reason) return (stop_reason);
-		stop_reason = mulmMsp (gdata, &B, A, half_size);
-		if (stop_reason) return (stop_reason);
+
+/* It is a problem if x and y are nearly equal such that the returned y from a second hgcd call is smaller than half */
+/* the size of the orginal input.  I'm not exactly sure why, but the code below is designed to work around this. */
+/* The test case that triggered this error was GMP-ECM compiled with GWNUM's ECM stage 1 using giants for modular inverse. */
+/* echo "((2^10199-1)*(2^47-1)*(2^31-1)*(2^7-1)/((2-1)*(2^1457-1)*(2^329-1)*(2^217-1)))/(326369*1468657*20957557937*167308774088203301401)" | ./ecm -v -sigma 0:14166007541194524826 11e3 */
+/* NOTE: I've changed ECM stage 1 to use GMP's modular inverse function in the same way prime95 does.  Hopefully no one */
+/* uses the giants GCD code any more. */
+
+		if (x->sign >= 2 && (x->sign != y->sign || x->n[x->sign-1] != y->n[y->sign-1] || x->n[x->sign-2] != y->n[y->sign-2])) {
+			stop_reason = hgcd (gdata, y->sign - (b_size + b_size + 1), &x, &y, &B, interruptable);
+			if (stop_reason) return (stop_reason);
+			stop_reason = mulmMsp (gdata, &B, A, half_size);
+			if (stop_reason) return (stop_reason);
+		}
 	}
 
 /* Copy the x and y values, then undo the changes we made to the input */

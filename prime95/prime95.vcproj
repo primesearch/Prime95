@@ -53,7 +53,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				InlineFunctionExpansion="1"
-				AdditionalIncludeDirectories="..;..\gwnum;\libcurl;&quot;c:\hwloc-win32-build-2.0.3\include&quot;;c:\gmp"
+				AdditionalIncludeDirectories="..;..\gwnum;\libcurl;&quot;c:\hwloc-win32-build-2.0.4\include&quot;;c:\gmp"
 				PreprocessorDefinitions="WIN32;NDEBUG;_WINDOWS;_CRT_SECURE_NO_DEPRECATE"
 				StringPooling="true"
 				BasicRuntimeChecks="0"
@@ -83,7 +83,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="factor32.obj service.obj ..\gwnum\gwnum.lib wininet.lib ws2_32.lib nafxcw.lib \libcurl\curllib.lib c:\hwloc-win32-build-2.0.3\lib\libhwloc.lib c:\gmp\libgmp-10.lib winmm.lib libcmt.lib"
+				AdditionalDependencies="factor32.obj service.obj ..\gwnum\gwnum.lib wininet.lib ws2_32.lib nafxcw.lib \libcurl\curllib.lib c:\hwloc-win32-build-2.0.4\lib\libhwloc.lib c:\gmp\libgmp-10.lib winmm.lib libcmt.lib"
 				OutputFile=".\Release/prime95.exe"
 				LinkIncremental="1"
 				SuppressStartupBanner="true"
@@ -155,7 +155,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				InlineFunctionExpansion="1"
-				AdditionalIncludeDirectories="..;..\gwnum;\libcurl;&quot;c:\hwloc-win64-build-2.0.3\include&quot;;c:\gmp64"
+				AdditionalIncludeDirectories="..;..\gwnum;\libcurl;&quot;c:\hwloc-win64-build-2.0.4\include&quot;;c:\gmp64"
 				PreprocessorDefinitions="WIN64;NDEBUG;_WINDOWS;_CRT_SECURE_NO_DEPRECATE"
 				StringPooling="true"
 				BasicRuntimeChecks="0"
@@ -185,7 +185,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="amd64\factor64.obj amd64\service.obj ..\gwnum\gwnum64.lib wininet.lib nafxcw.lib libcmt.lib \libcurl\x64\curllib.lib c:\hwloc-win64-build-2.0.3\lib\libhwloc.lib c:\gmp64\libgmp-10.lib winmm.lib psapi.lib"
+				AdditionalDependencies="amd64\factor64.obj amd64\service.obj ..\gwnum\gwnum64.lib wininet.lib nafxcw.lib libcmt.lib \libcurl\x64\curllib.lib c:\hwloc-win64-build-2.0.4\lib\libhwloc.lib c:\gmp64\libgmp-10.lib winmm.lib psapi.lib"
 				OutputFile=".\x64\Release/prime95.exe"
 				LinkIncremental="1"
 				SuppressStartupBanner="true"
@@ -257,7 +257,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				Optimization="0"
-				AdditionalIncludeDirectories="..;..\gwnum;\libcurl;&quot;c:\hwloc-win32-build-2.0.3\include&quot;;c:\gmp"
+				AdditionalIncludeDirectories="..;..\gwnum;\libcurl;&quot;c:\hwloc-win32-build-2.0.4\include&quot;;c:\gmp"
 				PreprocessorDefinitions="WIN32;_DEBUG;_WINDOWS;GDEBUG;_CRT_SECURE_NO_DEPRECATE"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="1"
@@ -287,7 +287,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="factor32.obj service.obj ..\gwnum\gwnumd.lib ws2_32.lib wininet.lib \libcurl\curllib.lib c:\hwloc-win32-build-2.0.3\lib\libhwloc.lib c:\gmp\libgmp-10.lib winmm.lib"
+				AdditionalDependencies="factor32.obj service.obj ..\gwnum\gwnumd.lib ws2_32.lib wininet.lib \libcurl\curllib.lib c:\hwloc-win32-build-2.0.4\lib\libhwloc.lib c:\gmp\libgmp-10.lib winmm.lib"
 				OutputFile=".\Debug\prime95.exe"
 				LinkIncremental="2"
 				SuppressStartupBanner="true"
@@ -359,7 +359,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				Optimization="0"
-				AdditionalIncludeDirectories="..;..\gwnum;\libcurl;&quot;c:\hwloc-win64-build-2.0.3\include&quot;;c:\gmp64"
+				AdditionalIncludeDirectories="..;..\gwnum;\libcurl;&quot;c:\hwloc-win64-build-2.0.4\include&quot;;c:\gmp64"
 				PreprocessorDefinitions="WIN64;_DEBUG;_WINDOWS;GDEBUG;_CRT_SECURE_NO_DEPRECATE"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="1"
@@ -389,7 +389,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="amd64\factor64.obj amd64\service.obj ..\gwnum\gwnum64d.lib wininet.lib \libcurl\x64\curllib.lib c:\hwloc-win64-build-2.0.3\lib\libhwloc.lib c:\gmp64\libgmp-10.lib winmm.lib psapi.lib"
+				AdditionalDependencies="amd64\factor64.obj amd64\service.obj ..\gwnum\gwnum64d.lib wininet.lib \libcurl\x64\curllib.lib c:\hwloc-win64-build-2.0.4\lib\libhwloc.lib c:\gmp64\libgmp-10.lib winmm.lib psapi.lib"
 				OutputFile=".\x64\Debug/prime95.exe"
 				LinkIncremental="2"
 				SuppressStartupBanner="true"

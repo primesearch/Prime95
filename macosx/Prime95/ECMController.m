@@ -3,7 +3,7 @@
 //  Prime95
 //
 //  Created by George Woltman on 4/24/09.
-//  Copyright 2009-2010 Mersenne Research, Inc. All rights reserved.
+//  Copyright 2009-2019 Mersenne Research, Inc. All rights reserved.
 //
 
 #import "ECMController.h"
@@ -16,12 +16,12 @@
 	if (![super initWithWindowNibName:@"ECM"]) return nil;
 	k = 1.0;
 	b = 2;
-	n = 1061;
+	n = 1277;
 	nMax = MAX_PRIME_SSE2;
 	c = -1;
-	bound1 = 1000000.0;
+	bound1 = 850.0e6;
 	bound2 = 0.0;
-	numberOfCurves = 100;
+	numberOfCurves = 10;
 
 	return self;
 }
