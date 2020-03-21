@@ -3345,6 +3345,18 @@ check_stop_code:
 //bug? - only do this if two attempts are made at executing work?  Because
 // work might have been added to the front of the file???
 
+/* Added November 2019.  Check if user wants to exit when the workers run out of work. */
+
+#if defined (__linux__) || defined (__FreeBSD__)
+	{
+		int	exit_wait_time = IniGetInt (INI_FILE, "ExitWhenOutOfWork", 0);
+		if (exit_wait_time) {
+			Sleep (exit_wait_time * 1000);
+			return (0);
+		}
+	}
+#endif
+
 /* Output a message saying this worker thread is waiting for work */
 
 	title (thread_num, "Waiting for work");

@@ -8,7 +8,7 @@
 #	ldd mprime
 #
 # Hwloc can be downloaded from https://www.open-mpi.org/projects/hwloc/
-# Configure hwloc with --enable-static --disable-shared --disable-pci --disable-cuda --disable-gl
+# Configure hwloc with --enable-static --disable-shared --disable-pci --disable-cuda --disable-gl --disable-opencl
 #
 #  Ugh, different linux variants require different makefiles.
 #  The current makefile is for CentOS 5.10.  We prefer to link against

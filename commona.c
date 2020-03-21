@@ -8,7 +8,7 @@
 | Commonb contains information used only during execution
 | Commonc contains information used during setup and execution
 |
-| Copyright 1995-2019 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved
 +---------------------------------------------------------------------*/
 
 /* Routine to eliminate odd puctuation characters from user ID */
@@ -162,7 +162,7 @@ void rangeStatusMessage (
 				     w->work_type == WORK_TEST ||
 				     w->work_type == WORK_ADVANCEDTEST ? "Lucas-Lehmer test" :
 				     w->work_type == WORK_DBLCHK ? "Double-check" :
-				     /* w->work_type == WORK_PRP */ "PRP");
+				     w->prp_dblchk ? "PRPDC" : "PRP");
 		buf += strlen (buf);
 
 		time (&this_time);
