@@ -1,4 +1,4 @@
-/* Copyright 1995-2019 Mersenne Research, Inc. */
+/* Copyright 1995-2020 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 #include "prime.h"
 
 /* Forward declarations */
@@ -424,13 +425,12 @@ unsigned int max_num_workers (void)
 
 void test_worker_threads (void)
 {
-	unsigned long m_num_thread, m_priority;
+	unsigned long m_num_thread;
 	unsigned long m_work_pref[MAX_NUM_WORKER_THREADS];
 	unsigned long m_numcpus[MAX_NUM_WORKER_THREADS];
-	int	i, m_hyper_tf, m_hyper_ll, cores_assigned;
+	int	i, cores_assigned;
 
 	m_num_thread = NUM_WORKER_THREADS;
-	m_priority = PRIORITY;
 	for (i = 0; i < NUM_WORKER_THREADS; i++) {
 		m_work_pref[i] = WORK_PREFERENCE[i];
 		m_numcpus[i] = CORES_PER_TEST[i];
@@ -439,17 +439,12 @@ void test_worker_threads (void)
 		m_work_pref[i] = WORK_PREFERENCE[i];
 		m_numcpus[i] = 0;
 	}
-	m_hyper_tf = HYPERTHREAD_TF;
-	m_hyper_ll = HYPERTHREAD_LL;
 
 again:	if (max_num_workers () > 1)
 		askNum ("Number of workers to run", &m_num_thread, 1, max_num_workers ());
 
-	outputLongLine ("\nPick a priority between 1 and 10 where 1 is the lowest priority and 10 is the highest.  It is strongly recommended that you use the default priority of 1.  Your throughput will probably not improve by using a higher priority.  The only time you should raise the priority is when another process, such as a screen saver, is stealing CPU cycles from this program.\n");
-	askNum ("Priority", &m_priority, 1, 10);
-
 	if (USE_PRIMENET) {
-		outputLongLine ("\nUse the following values to select a work type:\n  0 - Whatever makes the most sense\n  100 - First time LL tests\n  102 - World record LL tests\n  101 - Double-check LL tests\n  150 - First time PRP tests\n  152 - World record PRP tests\n  151 - Double-check PRP tests\n  2 - Trial factoring\n  4 - P-1 factoring\n  153 - 100 million digit PRP tests\n  104 - 100 million digit LL tests (not recommended)\n  160 - First time PRP on Mersenne cofactors\n  161 - Double-check PRP on Mersenne cofactors\n  5 - ECM for first factors of Mersenne numbers\n  8 - ECM on Mersenne cofactors\n  6 - ECM on Fermat numbers\n  1 - Trial factoring to low limits\n");
+		outputLongLine ("\nUse the following values to select a work type:\n  0 - Whatever makes the most sense\n 150 - First time prime tests\n  152 - World record sized numbers to prime test\n  151 - Double-check prime tests\n  2 - Trial factoring\n  4 - P-1 factoring\n  153 - 100 million digit numbers to prime test\n  160 - First time PRP on Mersenne cofactors\n  161 - Double-check PRP on Mersenne cofactors\n  5 - ECM for first factors of Mersenne numbers\n  8 - ECM on Mersenne cofactors\n  6 - ECM on Fermat numbers\n  1 - Trial factoring to low limits\n");
 	}
 
 	if (USE_PRIMENET || NUM_CPUS > 1) {
@@ -482,17 +477,43 @@ again:	if (max_num_workers () > 1)
 	    }
 	}
 
-	if (CPU_HYPERTHREADS > 1 && OS_CAN_SET_AFFINITY) {
-		askYN ("Use hyperthreading for trial factoring (recommended)", &m_hyper_tf);
-		askYN ("Use hyperthreading for LL, P-1, ECM (not recommended)", &m_hyper_ll);
-	}
-
 /* Ask user if they are happy with their answers */
 
 	if (askOkCancel ()) {
 		int	restart = FALSE;
 		int	new_options = FALSE;
 		unsigned long i, total_num_cores;
+
+/* If the user has selected 100M tests and per-worker temp disk is not enough for a power=8 proof, then do not permit it. */
+
+		if (CPU_WORKER_DISK_SPACE < 12.0) {
+			int	changed = FALSE;
+			for (i = 0; i < m_num_thread; i++) {
+				if (m_work_pref[i] == PRIMENET_WP_PRP_100M) {
+					m_work_pref[i] = PRIMENET_WP_PRP_FIRST;
+					changed = TRUE;
+				}
+			}
+			if (changed) {
+				OutputLongLine (MSG_100M);
+				AskOK ();
+			}
+		}
+
+/* If the user has selected first-time tests and per-worker temp disk is not enough for a power=6 proof, then warn the user. */
+
+		if (CPU_WORKER_DISK_SPACE < 1.5) {
+			int	warn = FALSE;
+			for (i = 0; i < m_num_thread; i++) {
+				if (m_work_pref[i] == PRIMENET_WP_PRP_FIRST || m_work_pref[i] == PRIMENET_WP_PRP_WORLD_RECORD) {
+					warn = TRUE;
+				}
+			}
+			if (warn) {
+				OutputLongLine (MSG_FIRST);
+				AskOK ();
+			}
+		}
 
 /* If the user has allocated too many cores then raise a severe warning. */
 
@@ -510,17 +531,6 @@ again:	if (max_num_workers () > 1)
 		if (m_num_thread != NUM_WORKER_THREADS) {
 			NUM_WORKER_THREADS = m_num_thread;
 			IniWriteInt (LOCALINI_FILE, "WorkerThreads", NUM_WORKER_THREADS);
-			new_options = TRUE;
-			restart = TRUE;
-		}
-
-/* If user changed the priority of worker threads, then change */
-/* the INI file.  Restart worker threads so that they are running at */
-/* the new priority. */
-
-		if (PRIORITY != m_priority) {
-			PRIORITY = m_priority;
-			IniWriteInt (INI_FILE, "Priority", PRIORITY);
 			new_options = TRUE;
 			restart = TRUE;
 		}
@@ -547,19 +557,6 @@ again:	if (max_num_workers () > 1)
 			PTOSetAll (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, m_numcpus[0]);
 		else for (i = 0; i < (int) NUM_WORKER_THREADS; i++)
 			PTOSetOne (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, m_numcpus[i]);
-
-/* If user changed the hyperthreading options, then save the options to the INI file */
-
-		if (m_hyper_tf != HYPERTHREAD_TF) {
-			HYPERTHREAD_TF = m_hyper_tf;
-			IniWriteInt (LOCALINI_FILE, "HyperthreadTF", HYPERTHREAD_TF);
-			restart = TRUE;
-		}
-		if (m_hyper_ll != HYPERTHREAD_LL) {
-			HYPERTHREAD_LL = m_hyper_ll;
-			IniWriteInt (LOCALINI_FILE, "HyperthreadLL", HYPERTHREAD_LL);
-			restart = TRUE;
-		}
 
 /* Send new settings to the server */
 
@@ -840,43 +837,17 @@ void advanced_quit (void)
 
 void options_cpu (void)
 {
-	unsigned int day_memory, night_memory, day_start_time, day_end_time;
-	unsigned long m_hours, m_day_memory, m_night_memory, max_mem;
-	int	m_memory_editable;
-	char m_start_time[13];
-	char m_end_time[13];
+	unsigned long m_hours;
 	char buf[512];
 
-	m_memory_editable = read_memory_settings (&day_memory, &night_memory, &day_start_time, &day_end_time);
-//again:
 	m_hours = CPU_HOURS;
-	m_day_memory = day_memory;
-	m_night_memory = night_memory;
-	minutesToStr (day_start_time, m_start_time);
-	minutesToStr (day_end_time, m_end_time);
 
 	askNum ("Hours per day this program will run", &m_hours, 1, 24);
-
-	printf ("\nPlease see the readme.txt file for important\n");
-	printf ("information on the P-1/ECM stage 2 memory settings.\n\n");
-
-	if (m_memory_editable) {
-		max_mem = physical_memory () - 8;
-		if (max_mem < 8) max_mem = 8;
-		askNum ("Daytime P-1/ECM stage 2 memory in MB", &m_day_memory, 8, max_mem);
-		askNum ("Nighttime P-1/ECM stage 2 memory in MB", &m_night_memory, 8, max_mem);
-		if (m_day_memory != m_night_memory) {
-			askStr ("Daytime begins at", m_start_time, 12);
-			askStr ("Daytime ends at", m_end_time, 12);
-		}
-	}
 
 	getCpuDescription (buf, 0);
 	printf ("\nCPU Information:\n%s\n", buf);
 
 	if (askOkCancel ()) {
-		unsigned int new_day_start_time, new_day_end_time;
-
 		if (CPU_HOURS != m_hours) {
 			CPU_HOURS = m_hours;
 			IniWriteInt (LOCALINI_FILE, "CPUHours", CPU_HOURS);
@@ -887,30 +858,142 @@ void options_cpu (void)
 			delete_timed_event (TE_COMM_SERVER);
 			UpdateEndDates ();
 		}
-		new_day_start_time = strToMinutes (m_start_time);
-		new_day_end_time = strToMinutes (m_end_time);
-		if (m_memory_editable &&
-		    (day_memory != m_day_memory ||
-		     night_memory != m_night_memory ||
-		     day_start_time != new_day_start_time ||
-		     day_end_time != new_day_end_time)) {
-			write_memory_settings (m_day_memory, m_night_memory,
-					       new_day_start_time, new_day_end_time);
-			mem_settings_have_changed ();
-		}
-		spoolMessage (PRIMENET_PROGRAM_OPTIONS, NULL);
-
-// Now that Primenet almost always hands out LL assignments that are P-1'ed,
-// there is little reason to prompt user into allowing us to use more memory.
-//		if (!IniGetInt (INI_FILE, "AskedAboutMemory", 0)) {
-//			IniWriteInt (INI_FILE, "AskedAboutMemory", 1);
-//			if (m_day_memory == 8 && m_night_memory == 8) {
-//				outputLongLine (MSG_MEMORY);
-//				if (askYesNo ('Y')) goto again;
-//			}
-//		}
 	} else
 		STARTUP_IN_PROGRESS = 0;
+}
+
+/* Options/Preferences dialog */
+
+#define round_to_tenth(a)	((round((a) * 10.0)) / 10.0)
+
+void options_resources (void)
+{
+	unsigned long m_download_mb, m_priority, m_cert_cpu;
+	float	m_disk, m_upload_bandwidth, m_day_memory, m_night_memory, m_emergency_mem;
+	char	m_upload_start[20], m_upload_end[20], m_temp_dir[512], m_archive_dir[512];
+	char	m_start_time[13], m_end_time[13];
+	int	can_upload, m_hyper_tf, m_hyper_ll, m_memory_editable;
+	unsigned int day_memory, night_memory, day_start_time, day_end_time;
+
+	outputLongLine ("Consult readme.txt prior to changing any of these settings.\n\n");
+
+	m_disk = CPU_WORKER_DISK_SPACE;
+	m_upload_bandwidth = IniSectionGetFloat (INI_FILE, "PrimeNet", "UploadRateLimit", 0.25);
+	if (m_upload_bandwidth <= 0.0 || m_upload_bandwidth > 10000.0) m_upload_bandwidth = 10000.0;
+	IniSectionGetString (INI_FILE, "PrimeNet", "UploadStartTime", m_upload_start, sizeof (m_upload_start), "00:00");
+	if (strcmp (m_upload_start, "00:00") != 0) minutesToStr (strToMinutes (m_upload_start), m_upload_start);
+	IniSectionGetString (INI_FILE, "PrimeNet", "UploadEndTime", m_upload_end, sizeof (m_upload_end), "24:00");
+	if (strcmp (m_upload_end, "24:00") != 0) minutesToStr (strToMinutes (m_upload_end), m_upload_end);
+	m_download_mb = IniSectionGetInt (INI_FILE, "PrimeNet", "DownloadDailyLimit", 40);
+	IniGetString (LOCALINI_FILE, "ProofResiduesDir", m_temp_dir, sizeof (m_temp_dir), NULL);
+	IniGetString (LOCALINI_FILE, "ProofArchiveDir", m_archive_dir, sizeof (m_archive_dir), NULL);
+	m_memory_editable = read_memory_settings (&day_memory, &night_memory, &day_start_time, &day_end_time);
+	m_day_memory = (float) round_to_tenth (day_memory / 1024.0);
+	m_night_memory = (float) round_to_tenth (night_memory / 1024.0);
+	minutesToStr (day_start_time, m_start_time);
+	minutesToStr (day_end_time, m_end_time);
+	m_emergency_mem = (float) round_to_tenth (IniGetInt (LOCALINI_FILE, "MaxEmergencyMemory", 1024) / 1024.0);
+	m_priority = PRIORITY;
+	m_cert_cpu = IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10);
+	m_hyper_tf = HYPERTHREAD_TF;
+	m_hyper_ll = HYPERTHREAD_LL;
+	can_upload = IniSectionGetInt (INI_FILE, "PrimeNet", "ProofUploads", 1);
+
+	askFloat ("Temporary disk space limit in GB/worker", &m_disk, 0.0, 1000.0);
+	if (can_upload) {
+		askFloat ("Upload bandwidth limit in Mbps", &m_upload_bandwidth, 0.05, 10000.0);
+		askStr ("Upload large files time period start", m_upload_start, 8);
+		askStr ("Upload large files time period end", m_upload_end, 8);
+	}
+	askNum ("Download limit for certification work in MB/day", &m_download_mb, 0, 999999);
+
+	outputLongLine ("Skip advanced resource settings");
+	if (!askYesNo ('Y')) {
+		askStr ("Optional directory to hold large temporary files", m_temp_dir, 511);
+		askStr ("Optional directory to hold archived proofs", m_archive_dir, 511);
+		if (m_memory_editable) {
+			float	max_mem;
+			max_mem = (float) (0.9 * physical_memory () / 1024.0);
+			askFloat ("Daytime P-1/ECM stage 2 memory in GB", &m_day_memory, 0.0, max_mem);
+			askFloat ("Nighttime P-1/ECM stage 2 memory in GB", &m_night_memory, 0.0, max_mem);
+			if (m_day_memory != m_night_memory) {
+				askStr ("Daytime begins at", m_start_time, 12);
+				askStr ("Daytime ends at", m_end_time, 12);
+			}
+		}
+		askFloat ("Max emergency memory in GB/worker", &m_emergency_mem, 0.0, (float) (0.25 * physical_memory () / 1024.0));
+		askNum ("Priority -- 1 is highly recommended, see readme.txt", &m_priority, 1, 10);
+		if (m_download_mb) {
+			askNum ("Certification work limit in % of CPU time", &m_cert_cpu, 1, 100);
+		}
+		if (CPU_HYPERTHREADS > 1 && OS_CAN_SET_AFFINITY) {
+			askYN ("Use hyperthreading for trial factoring (recommended)", &m_hyper_tf);
+			askYN ("Use hyperthreading for PRP, LL, P-1, ECM (not recommended)", &m_hyper_ll);
+		}
+	}
+
+	if (askOkCancel ()) {
+		int	restart = FALSE;
+		unsigned int new_day_start_time, new_day_end_time;
+
+		// Raise a warning if uesr drops the temp disk space below the threshold for first time work.
+		if (CPU_WORKER_DISK_SPACE >= 1.5 && m_disk < 1.5) {
+			OutputLongLine (MSG_DISK);
+			askOK ();
+		}
+		CPU_WORKER_DISK_SPACE = m_disk;
+		IniWriteFloat (LOCALINI_FILE, "WorkerDiskSpace", CPU_WORKER_DISK_SPACE);
+		IniSectionWriteFloat (INI_FILE, "PrimeNet", "UploadRateLimit", m_upload_bandwidth);
+		IniSectionWriteString (INI_FILE, "PrimeNet", "UploadStartTime", m_upload_start);
+		IniSectionWriteString (INI_FILE, "PrimeNet", "UploadEndTime", m_upload_end);
+		IniSectionWriteInt (INI_FILE, "PrimeNet", "DownloadDailyLimit", m_download_mb);
+		IniWriteString (LOCALINI_FILE, "ProofResiduesDir", m_temp_dir);
+		IniWriteString (LOCALINI_FILE, "ProofArchiveDir", m_archive_dir);
+
+/* Save the new memory settings */
+
+		new_day_start_time = strToMinutes (m_start_time);
+		new_day_end_time = strToMinutes (m_end_time);
+		if (day_memory != (int) (m_day_memory * 1024.0)  ||
+		    night_memory != (int) (m_night_memory * 1024.0) ||
+		    day_start_time != new_day_start_time ||
+		    day_end_time != new_day_end_time) {
+			write_memory_settings ((int) (m_day_memory * 1024.0), (int) (m_night_memory * 1024.0), new_day_start_time, new_day_end_time);
+			mem_settings_have_changed ();
+			spoolMessage (PRIMENET_PROGRAM_OPTIONS, NULL);
+		}
+		IniWriteInt (LOCALINI_FILE, "MaxEmergencyMemory", (long) (m_emergency_mem * 1024.0));
+
+/* If user changed the priority of worker threads, then change the INI file. */
+/* Restart worker threads so that they are running at the new priority. */
+
+		if (PRIORITY != m_priority) {
+			PRIORITY = m_priority;
+			IniWriteInt (INI_FILE, "Priority", PRIORITY);
+			restart = TRUE;
+		}
+
+/* Handle cert work CPU limit */
+
+		IniWriteInt (LOCALINI_FILE, "CertDailyCPULimit", m_cert_cpu);
+
+/* If user changed the hyperthreading options, then save the options to the INI file */
+
+		if (m_hyper_tf != HYPERTHREAD_TF) {
+			HYPERTHREAD_TF = m_hyper_tf;
+			IniWriteInt (LOCALINI_FILE, "HyperthreadTF", HYPERTHREAD_TF);
+			restart = TRUE;
+		}
+		if (m_hyper_ll != HYPERTHREAD_LL) {
+			HYPERTHREAD_LL = m_hyper_ll;
+			IniWriteInt (LOCALINI_FILE, "HyperthreadLL", HYPERTHREAD_LL);
+			restart = TRUE;
+		}
+
+/* Restart worker threads with new options */
+
+		if (restart) stop_workers_for_restart ();
+	}
 }
 
 /* Options/Preferences dialog */
@@ -1172,7 +1255,7 @@ void help_about (void)
 	printf ("GIMPS: Mersenne Prime Search\n");
 	printf ("Web site: http://mersenne.org\n");
 	printf ("%s\n", app_string);
-	printf ("Copyright 1996-2019 Mersenne Research, Inc.\n");
+	printf ("Copyright 1996-2020 Mersenne Research, Inc.\n");
 	printf ("Author: George Woltman\n");
 	printf ("Email:  woltman@alum.mit.edu\n");
 	askOK ();
@@ -1260,14 +1343,15 @@ void main_menu (void)
 	printf ("\t11.  Advanced/Unreserve Exponent\n");
 	printf ("\t12.  Advanced/Quit Gimps\n");
 	printf ("\t13.  Options/CPU\n");
-	printf ("\t14.  Options/Preferences\n");
-	printf ("\t15.  Options/Torture Test\n");
-	printf ("\t16.  Options/Benchmark\n");
-	printf ("\t17.  Help/About\n");
-	printf ("\t18.  Help/About PrimeNet Server\n");
+	printf ("\t14.  Options/Resource Limits\n");
+	printf ("\t15.  Options/Preferences\n");
+	printf ("\t16.  Options/Torture Test\n");
+	printf ("\t17.  Options/Benchmark\n");
+	printf ("\t18.  Help/About\n");
+	printf ("\t19.  Help/About PrimeNet Server\n");
 	printf ("Your choice: ");
 	choice = get_number (0);
-	if (choice <= 0 || choice >= 19) {
+	if (choice <= 0 || choice >= 20) {
 		printf ("\n\t     Invalid choice\n\n");
 		continue;
 	}
@@ -1374,34 +1458,40 @@ void main_menu (void)
 		options_cpu ();
 		break;
 
-/* Options/Preferences dialog */
+/* Options/Resource limits dialog */
 
 	case 14:
+		options_resources ();
+		break;
+
+/* Options/Preferences dialog */
+
+	case 15:
 		options_preferences ();
 		break;
 
 /* Options/Torture Test */
 
-	case 15:
+	case 16:
 		options_torture ();
 		askOK ();
 		break;
 
 /* Options/Benchmark Test */
 
-	case 16:
+	case 17:
 		options_benchmark ();
 		break;
 
 /* Help/About */
 
-	case 17:
+	case 18:
 		help_about ();
 		break;
 
 /* Help/About PrimeNet Server */
 
-	case 18:
+	case 19:
 		help_about_server ();
 		break;
 	}

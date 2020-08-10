@@ -10,23 +10,16 @@
  *	Other important ideas courtesy of Peter Montgomery.
  *
  *	c. 1997 Perfectly Scientific, Inc.
- *	c. 1998-2019 Mersenne Research, Inc.
+ *	c. 1998-2020 Mersenne Research, Inc.
  *	All Rights Reserved.
  *
  *************************************************************/
 
 /* IDEAS:
-   is sieve tuned optimally?  use assembly?
-	One idea: make sieve bytes correspond to the 8 possible values mod 30
-	(this will cut the number of sieve bits nearly in half)
-	have sieve return true primes for numbers above 2^32 (right now
-	it only eliminates those divisible by factors < 2^16).
    The P-1 stage 2 bit array could also use a mod 30 scheme to cut the
 	number of bits in the array nearly in half)
    We could allocate a bit array half the size and do the pairings as we fill
 	the bit array.
-   Use memcpy to copy bits from the sieve array into the stage 2 P-1 bit array
-   Implement an FFT stage 2 (why? gmp-ecm does it better)
    Have 16 PRAC values, and/or 16 PRAC values and +/-8 offset.  Then keep one
 	   precomputed 4-bit or 8-bit value per B1 prime that points to
 	   a precomputed optimal PRAC initial value.  There are 5.7 million
@@ -3556,10 +3549,9 @@ typedef struct {
 	gwnum	*nQx;		/* Array of data used in stage 2 */
 	gwnum	*eQx;		/* Array of data used in stage 2 of P-1 */
 	void	*sieve_info;	/* Prime number sieve */
-	uint64_t B_done;	/* We have completed calculating 3^e */
-				/* to this bound #1 */
-	uint64_t B;		/* We are trying to increase bound #1 */
-				/* to this value */
+	unsigned long max_stage_0_prime; /* Maximum small prime that can be used in stage 0 exponent calculation. */
+	uint64_t B_done;	/* We have completed calculating 3^e to this bound #1 */
+	uint64_t B;		/* We are trying to increase bound #1 to this value */
 	uint64_t C_done;	/* Bound #2 has been computed to this value */
 	uint64_t C_start;	/* We are trying to increase bound #2 */
 				/* from this starting point.  This is the */
@@ -3757,7 +3749,8 @@ void fd_term (
 /* Routines to create and read save files for a P-1 factoring job */
 
 #define PM1_MAGICNUM	0x317a394b
-#define PM1_VERSION	2				/* Changed in 29.4 build 7 -- corrected calc_exp bug */
+//#define PM1_VERSION	2				/* Changed in 29.4 build 7 -- corrected calc_exp bug */
+#define PM1_VERSION	3				/* Changed in 29.8 build 8.  Configurable calc_exp max exponent */
 
 void pm1_save (
 	pm1handle *pm1data,
@@ -3782,6 +3775,7 @@ void pm1_save (
 /* Write the file data */
 
 	if (! write_long (fd, pm1data->stage, &sum)) goto writeerr;
+	if (! write_long (fd, pm1data->max_stage_0_prime, &sum)) goto writeerr;
 	if (! write_longlong (fd, pm1data->B_done, &sum)) goto writeerr;
 	if (! write_longlong (fd, pm1data->B, &sum)) goto writeerr;
 	if (! write_longlong (fd, pm1data->C_done, &sum)) goto writeerr;
@@ -3847,11 +3841,13 @@ int pm1_restore (			/* For version 25 and later save files */
 
 	if (! read_magicnum (fd, PM1_MAGICNUM)) goto readerr;
 	if (! read_header (fd, &version, w, &filesum)) goto readerr;
-	if (version != 1 && version != 2) goto readerr;
+	if (version < 1 || version > PM1_VERSION) goto readerr;
 
 /* Read the file data */
 
 	if (! read_long (fd, &pm1data->stage, &sum)) goto readerr;
+	if (version == 2) pm1data->max_stage_0_prime = 13333333;	// The hardwired value prior to version 29.8 build 8
+	else if (! read_long (fd, &pm1data->max_stage_0_prime, &sum)) goto readerr;
 	if (! read_longlong (fd, &pm1data->B_done, &sum)) goto readerr;
 	if (! read_longlong (fd, &pm1data->B, &sum)) goto readerr;
 	if (! read_longlong (fd, &pm1data->C_done, &sum)) goto readerr;
@@ -4752,9 +4748,13 @@ restart:
 	pm1data.B_done = 0;
 	pm1data.B = B;
 
-/* First restart point.  Compute the big exponent (a multiple of small */
-/* primes).  Then compute 3^exponent.  The exponent always contains 2*p. */
-/* We only compute 1.5 * B bits (up to about 20 million bits).  The rest of the */
+/* Stage 0 pre-calculates an exponent that is the product of small primes.  Our default uses only small */
+/* primes below 40,000,000 (roughly 60 million bits).  This is configurable starting in version 29.8 build 8. */
+
+	pm1data.max_stage_0_prime = IniGetInt (INI_FILE, "MaxStage0Prime", 40000000);
+
+/* First restart point.  Compute the big exponent (product of small primes).  Then compute 3^exponent. */
+/* The exponent always contains 2*p.  We only use primes below max_stage_0_prime.  The rest of the */
 /* exponentiation will be done one prime at a time in the second part of stage 1. */
 /* This stage uses 2 transforms per exponent bit. */
 
@@ -4767,7 +4767,7 @@ restart0:
 	stop_reason = start_sieve (thread_num, 2, &pm1data.sieve_info);
 	if (stop_reason) goto exit;
 	prime = sieve (pm1data.sieve_info);
-	stage_0_limit = (pm1data.B > 13333333) ? 13333333 : pm1data.B;
+	stage_0_limit = (pm1data.B > pm1data.max_stage_0_prime) ? pm1data.max_stage_0_prime : pm1data.B;
 	mpz_init (exp);  exp_initialized = TRUE;
 	calc_exp (&pm1data, w->k, w->b, w->n, w->c, exp, pm1data.B, &prime, 0, (unsigned long) (stage_0_limit * 1.5));
 

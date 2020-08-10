@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2019 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved
 +---------------------------------------------------------------------*/
 
 //#define SERVER_TESTING
@@ -88,6 +88,7 @@ int primeBench (int, int);
 int primeFactor (int, struct PriorityInfo *, struct work_unit *, unsigned int);
 int prime (int, struct PriorityInfo *, struct work_unit *, int);
 int prp (int, struct PriorityInfo *, struct work_unit *, int);
+int cert (int, struct PriorityInfo *, struct work_unit *, int);
 int ecm (int, struct PriorityInfo *, struct work_unit *);
 int pminus1 (int, struct PriorityInfo *, struct work_unit *);
 int pfactor (int, struct PriorityInfo *, struct work_unit *);

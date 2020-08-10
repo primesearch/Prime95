@@ -18,7 +18,6 @@ public:
 	CStatic	c_num_thread_text;
 	CEdit	c_num_thread;
 	UINT	m_num_thread;
-	UINT	m_priority;
 	CButton	c_workgroup;
 	CStatic	c_threadnum_text;
 	CComboBox c_threadnum;
@@ -28,13 +27,6 @@ public:
 	CStatic	c_numcpus_text;
 	CEdit	c_numcpus;
 	int	m_numcpus[MAX_NUM_WORKER_THREADS];
-	CButton c_hyper_tf;
-	BOOL	m_hyper_tf;
-	CButton c_hyper_ll;
-	BOOL	m_hyper_ll;
-	CStatic c_warn1_text;
-	CStatic c_warn2_text;
-	CStatic c_warn3_text;
 	//}}AFX_DATA
 
 private:
@@ -57,8 +49,6 @@ protected:
 	//{{AFX_MSG(CWorkerDlg)
 	virtual BOOL OnInitDialog();
 	afx_msg void OnEnKillfocusNumThread();
-	afx_msg void OnEnSetfocusPriority();
-	afx_msg void OnEnKillfocusPriority();
 	afx_msg void OnCbnKillfocusThreadNum();
 	afx_msg void OnCbnKillfocusWorkType();
 	afx_msg void OnEnKillfocusNumCpus();

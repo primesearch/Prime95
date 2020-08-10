@@ -148,26 +148,23 @@ void rangeStatusMessage (
 		buf += strlen (buf);
 
 		if (w->work_type == WORK_ECM)
-			sprintf (buf, "ECM %d curve%s B1=%.0f",
-				 w->curves_to_do,
-				 w->curves_to_do == 1 ? "" : "s",
-				 w->B1);
+			sprintf (buf, "ECM %d curve%s B1=%.0f", w->curves_to_do, w->curves_to_do == 1 ? "" : "s", w->B1);
 		else if (w->work_type == WORK_PMINUS1)
 			sprintf (buf, "P-1 B1=%.0f", w->B1);
 		else if (w->work_type == WORK_FACTOR)
-			sprintf (buf, "factor from 2^%d to 2^%d",
-				 (int) w->sieve_depth, (int) w->factor_to);
+			sprintf (buf, "factor from 2^%d to 2^%d", (int) w->sieve_depth, (int) w->factor_to);
 		else
 			strcpy (buf, w->work_type == WORK_PFACTOR ? "P-1" :
 				     w->work_type == WORK_TEST ||
 				     w->work_type == WORK_ADVANCEDTEST ? "Lucas-Lehmer test" :
 				     w->work_type == WORK_DBLCHK ? "Double-check" :
+				     w->work_type == WORK_CERT ? "Certify" :
 				     w->prp_dblchk ? "PRPDC" : "PRP");
 		buf += strlen (buf);
 
 		time (&this_time);
 		if (est + (double) this_time < 2147483640.0) {
-			this_time += (long) est;
+			this_time += (long) ((w->work_type == WORK_CERT) ? 43200.0 : est);
 			strcpy (timebuf, ctime (&this_time));
 			safe_strcpy (timebuf+16, timebuf+19);
 		} else
