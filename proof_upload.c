@@ -112,7 +112,7 @@ void ProofUpload (char *filename)
 {
 	FILE	*fd = NULL;
 	int	exponent, version, power, power_mult, prp_base, hashlen;
-	char	number[30], newline[2], fileMD5[33], buf[4096];
+	char	number[2048], newline[2], fileMD5[33], buf[4096];
 	uint64_t filesize;
 	float	max_chunk_size_flt = 5.0;
 	float	bandwidth_rate_limit_flt = 0.25;
@@ -180,7 +180,7 @@ void ProofUpload (char *filename)
 	}
 	if (fscanf (fd, "x%d\n", &power_mult) != 1) power_mult = 1;		// Power multiplier is an optional prime95-only feature
 	if (fscanf (fd, "BASE=%d\n", &prp_base) != 1) prp_base = 3;		// BASE is an optional prime95-only construct
-	if (fscanf (fd, "NUMBER=%29[^\n]%1[\n]", number, newline) != 2 || number[0] != 'M') {
+	if (fscanf (fd, "NUMBER=%2047[^\n]%1[\n]", number, newline) != 2 || number[0] != 'M') {
 		OutputBoth (COMM_THREAD_NUM, "Error getting number from proof header\n");
 		goto end;
 	}

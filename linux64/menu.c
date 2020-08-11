@@ -440,6 +440,12 @@ void test_worker_threads (void)
 		m_numcpus[i] = 0;
 	}
 
+	if (max_num_workers () <= 1 && !USE_PRIMENET) {
+		outputLongLine ("This menu choice only makes sense if you've elected to use PrimeNet to get work and report results.\n");
+		askOK ();
+		return;
+	}
+
 again:	if (max_num_workers () > 1)
 		askNum ("Number of workers to run", &m_num_thread, 1, max_num_workers ());
 
@@ -495,8 +501,8 @@ again:	if (max_num_workers () > 1)
 				}
 			}
 			if (changed) {
-				OutputLongLine (MSG_100M);
-				AskOK ();
+				outputLongLine (MSG_100M);
+				askOK ();
 			}
 		}
 
@@ -510,8 +516,8 @@ again:	if (max_num_workers () > 1)
 				}
 			}
 			if (warn) {
-				OutputLongLine (MSG_FIRST);
-				AskOK ();
+				outputLongLine (MSG_FIRST);
+				askOK ();
 			}
 		}
 
@@ -938,7 +944,7 @@ void options_resources (void)
 
 		// Raise a warning if uesr drops the temp disk space below the threshold for first time work.
 		if (CPU_WORKER_DISK_SPACE >= 1.5 && m_disk < 1.5) {
-			OutputLongLine (MSG_DISK);
+			outputLongLine (MSG_DISK);
 			askOK ();
 		}
 		CPU_WORKER_DISK_SPACE = m_disk;

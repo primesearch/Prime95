@@ -1,6 +1,8 @@
-/**********************/
-/* Certify Proof code */
-/**********************/
+/*----------------------------------------------------------------------
+| Copyright 2020 Mersenne Research, Inc.  All rights reserved
+|
+| This file contains routines to certify a PRP proof.
++---------------------------------------------------------------------*/
 
 /* Cert state to be written to / read from certify save files */
 
@@ -295,16 +297,16 @@ int cert (
 /* Contact PrimeNet for the starting residue */
 
 		if (ProofGetData (w->assignment_uid, array, residue_size, md5) != PRIMENET_NO_ERROR) {
-			OutputBoth (thread_num, "Error getting CERT starting value.  Will try again later.\n");
+			OutputBoth (thread_num, "Error getting CERT starting value.\n");
 			free (array);
-			stop_reason = STOP_ABORT;
+			stop_reason = STOP_RETRY_LATER;
 			goto exit;
 		}
 		md5_hexdigest_buffer (residue_md5, array, residue_size);
 		if (strcmp (md5, residue_md5) != 0) {
-			OutputBoth (thread_num, "MD5 of downloaded starting value does not match.  Will try again later.\n");
+			OutputBoth (thread_num, "MD5 of downloaded starting value does not match.\n");
 			free (array);
-			stop_reason = STOP_ABORT;
+			stop_reason = STOP_RETRY_LATER;
 			goto exit;
 		}
 
@@ -477,11 +479,10 @@ int cert (
 
 /* Undo the shift count, generate the 256-bit SHA-3 hash */
 
-	if (!gwrotate_right (&cs.gwdata, cs.x, cs.units_bit) ||
-	    !sha3_gwnum (&cs.gwdata, cs.x, &hash)) {
+	if (!gwrotate_right (&cs.gwdata, cs.x, cs.units_bit) || !sha3_gwnum (&cs.gwdata, cs.x, &hash)) {
 		OutputBoth (thread_num, ERRMSG8);
 		inc_error_count (2, &cs.error_count);
-		stop_reason = STOP_ABORT;			// This will restart from last save file
+		stop_reason = STOP_RETRY_LATER;			// This will restart from last save file
 		goto exit;
 	}
 

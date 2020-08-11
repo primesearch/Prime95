@@ -103,23 +103,19 @@ void makestr (unsigned long, unsigned long, unsigned long, char *);
 /* Stop routines */
 
 /* Reasons returned for why we stopped processing a work unit */
-#define STOP_ESCAPE		1	/* User hit escape key. */
-					/* Stopping all worker threads. */
+#define STOP_ESCAPE		1	/* User hit escape key.  Stopping all worker threads. */
 #define STOP_OUT_OF_MEM		2	/* Fatal out-of-memory error */
 #define STOP_FILE_IO_ERROR	3	/* Fatal file I/O error */
 #define STOP_FATAL_ERROR	4	/* Other fatal error */
 #define STOP_ABORT		5	/* Abort current work unit */
-#define STOP_WORKER		6	/* This worker thread was stopped */
-					/* or was never started */
-#define STOP_PAUSE		7	/* This worker must pause because */
-					/* a program in the PauseWhileRunning */
-					/* is running. */
+#define STOP_WORKER		6	/* This worker thread was stopped or was never started */
+#define STOP_PAUSE		7	/* This worker must pause because a program in the PauseWhileRunning is running. */
+#define STOP_RETRY_LATER	8	/* Abort work unit, but try again later */
 #define STOP_WORK_UNIT_COMPLETE	50	/* Work unit is done! */
 #define STOP_PRIORITY_WORK	51	/* Priority work, restart thread */
 #define STOP_BATTERY		52	/* On battery - pause */
 #define STOP_AUTOBENCH		53	/* Stop worker for a little while to run auto-benchmarks */
-#define STOP_REREAD_INI		100	/* Reread prime.ini because a */
-					/* during/else time period has changed */
+#define STOP_REREAD_INI		100	/* Reread prime.ini because a during/else time period has changed */
 #define STOP_RESTART		101	/* Important INI option changed */
 #define STOP_MEM_CHANGED	102	/* Day/night memory change */
 #define STOP_NOT_ENOUGH_MEM	103	/* Not enough memory for P-1 stage 2 */

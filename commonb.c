@@ -1873,7 +1873,7 @@ int isPriorityWork (
 	if (w->work_type == WORK_CERT) return (TRUE);
 	if (w->work_type == WORK_ADVANCEDTEST) return (TRUE);
 	if (SEQUENTIAL_WORK == 0) {
-		if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) &&
+		if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK || w->work_type == WORK_PRP) &&
 		    (w->sieve_depth < w->factor_to || !w->pminus1ed))
 			return (TRUE);
 		if (w->work_type == WORK_PRP && w->tests_saved > 0.0)
@@ -3153,17 +3153,13 @@ int primeContinue (
 
 	clear_memory_restart_flags (thread_num);
 
-/* Make three passes over the worktodo.ini file looking for the ideal */
-/* piece of work to do.  In pass 1, we look for high-priority work.  This */
-/* includes trial and P-1 factoring prior to an LL test.  If a factor is */
-/* found, it can reduce the amount of work we have queued up, requiring */
-/* us to ask the server for more.  We also do AdvancedTest= lines in */
-/* pass 1.  In pass 2, we process the file in order (except for LL tests */
-/* that are not yet ready because the P-1 factoring has not completed). */
-/* In pass 3, as a last resort we start P-1 stage 2 even if they will share */
-/* memory with another P-1 in stage 2 and we start LL tests where P-1 */
-/* factoring is stalled because of low memory. */
-/* Skip first pass on large well-behaved work files. */
+/* Make three passes over the worktodo.txt file looking for the ideal piece of work to do.  In pass 1, we look */
+/* for high-priority work.  This includes certification assignments as well as trial and P-1 factoring prior to */
+/* an LL/PRP test.  If a factor is found, it can reduce the amount of work we have queued up, requiring us to ask */
+/* the server for more.  We also do AdvancedTest= lines in pass 1.  In pass 2, we process the file in order (except */
+/* for LL tests that are not yet ready because the P-1 factoring has not completed).  In pass 3, as a last resort we */
+/* start P-1 stage 2 even if they will share memory with another P-1 in stage 2 and we start LL/PRP tests where P-1 */
+/* factoring is stalled because of low memory.  Skip first pass on large well-behaved work files. */
 
 	for (pass = (WELL_BEHAVED_WORK || SEQUENTIAL_WORK == 1) ? 2 : 1;
 	     pass <= 3;
@@ -3234,7 +3230,7 @@ int primeContinue (
 
 /* Do proof certification work */
 
-		if (w->work_type == WORK_CERT) {
+		if (w->work_type == WORK_CERT && pass == 1) {
 			stop_reason = cert (thread_num, &sp_info, w, pass);
 		}
 
@@ -3260,6 +3256,14 @@ int primeContinue (
 			stop_reason = 0;
 		}
 
+/* If a work unit is stopping but will retry later (such as an error downloading CERT start value) */
+/* then continue processing the next worktodo entry. */
+
+		if (stop_reason == STOP_RETRY_LATER) {
+			OutputStr (thread_num, "Aborting processing of this work unit -- will try again later.\n");
+			stop_reason = 0;
+		}
+
 /* If we are aborting this work unit (probably because it is being deleted) */
 /* then print a message. */
 
@@ -3279,7 +3283,7 @@ int primeContinue (
 
 	    }
 
-/* Make another pass over the worktodo.ini file */
+/* Make another pass over the worktodo.txt file */
 
 	}
 
@@ -5287,7 +5291,7 @@ begin:	factor_found = 0;
 
 /* Is exponent already factored enough? This should never happen with */
 /* WORK_FACTOR work units.  However, I suppose the user could have */
-/* manually changed the line in worktodo.ini.  So send a message to */
+/* manually changed the line in worktodo.txt.  So send a message to */
 /* server saying we didn't do any factoring but we are done with */
 /* this work unit.  Then delete the work unit. */
 
@@ -6591,7 +6595,7 @@ int prime (
 	double	reallyminerr = 1.0;
 	double	reallymaxerr = 0.0;
 	double	*addr1;
-	int	Jacobi_testing_enabled;
+	int	Jacobi_testing_enabled, pass_to_factor;
 	int	first_iter_msg, near_fft_limit, sleep5;
 	unsigned long high32, low32;
 	int	rc, isPrime, stop_reason;
@@ -6625,8 +6629,10 @@ int prime (
 /* to find a factor.  The P-1 test will probably be needed anyway and */
 /* may find a factor thus saving us from doing the last bit level. */
 
-	if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) &&
-	    ! IniGetInt (INI_FILE, "SkipTrialFactoring", 0)) {
+	pass_to_factor = (WELL_BEHAVED_WORK || SEQUENTIAL_WORK != 0) ? 2 : 1;
+	if (pass < pass_to_factor) return (0);
+
+	if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) && ! IniGetInt (INI_FILE, "SkipTrialFactoring", 0)) {
 		struct PriorityInfo sp_info_copy;
 		memcpy (&sp_info_copy, sp_info, sizeof (struct PriorityInfo));
 		stop_reason = primeFactor (thread_num, &sp_info_copy, w, 1);
@@ -6641,28 +6647,21 @@ int prime (
 /* In that case, skip onto doing the LL test until more memory becomes */
 /* available. */
 
-	if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) &&
-	    ! w->pminus1ed && pass != 3) {
-		int	pass_to_pfactor;
-
-		pass_to_pfactor = (WELL_BEHAVED_WORK || SEQUENTIAL_WORK) ? 2 : 1;
-		if (pass != pass_to_pfactor) return (0);
-
+	if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) && ! w->pminus1ed && pass != 3) {
 		stop_reason = pfactor (thread_num, sp_info, w);
 		if (stop_reason) return (stop_reason);
 	}
 
 /* Do the rest of the trial factoring. */
 
-	if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) &&
-	    ! IniGetInt (INI_FILE, "SkipTrialFactoring", 0)) {
+	if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) && ! IniGetInt (INI_FILE, "SkipTrialFactoring", 0)) {
 		struct PriorityInfo sp_info_copy;
 		memcpy (&sp_info_copy, sp_info, sizeof (struct PriorityInfo));
 		stop_reason = primeFactor (thread_num, &sp_info_copy, w, 0);
 		if (stop_reason) return (stop_reason);
 	}
 
-/* Done with pass 1 priority work.  Return to do more priority work. */
+/* Done with pass 1 priority work.  Return to do other priority work. */
 
 	if (pass == 1 && w->work_type != WORK_ADVANCEDTEST) return (0);
 
@@ -11375,7 +11374,7 @@ int prp (
 	struct prp_state ps;
 	gwhandle gwdata;
 	giant	N, exp, tmp;
-	int	first_iter_msg, i, res, stop_reason;
+	int	pass_to_factor, first_iter_msg, i, res, stop_reason;
 	int	echk, near_fft_limit, sleep5;
 	int	interim_counter_off_one, interim_mul, mul_final;
 	unsigned long explen, final_counter, iters;
@@ -11411,25 +11410,41 @@ int prp (
 	memset (&ps, 0, sizeof (ps));
 	ps.thread_num = thread_num;
 
-/* See if this number needs P-1 factoring.  We treat P-1 factoring */
-/* that is part of a PRP test as priority work done in pass 1 or as */
-/* regular work done in pass 2 if WellBehavedWork or SequentialWorkTodo */
-/* is set.  The only way we can get to pass 3 and P-1 still needs to be */
-/* done is if pfactor returned STOP_NOT_ENOUGH_MEM on an earlier pass. */
-/* In that case, skip onto doing the PRP test until more memory becomes */
-/* available. */
+/* Do some of the trial factoring on Mersenne numbers.  We treat factoring that is part of a PRP test as priority */
+/* work (done in pass 1).  We don't do all the trial factoring as the last bit level takes a lot of time and is */
+/* unlikely to find a factor.  The P-1 test will probably be needed anyway and may find a factor thus saving us */
+/* from doing the last bit level. */
+
+	pass_to_factor = (WELL_BEHAVED_WORK || SEQUENTIAL_WORK != 0) ? 2 : 1;
+	if (pass < pass_to_factor) return (0);
+
+	if (w->work_type == WORK_PRP && w->k == 1.0 && w->b == 2 && w->c == -1 && ! IniGetInt (INI_FILE, "SkipTrialFactoring", 0)) {
+		struct PriorityInfo sp_info_copy;
+		memcpy (&sp_info_copy, sp_info, sizeof (struct PriorityInfo));
+		stop_reason = primeFactor (thread_num, &sp_info_copy, w, 1);
+		if (stop_reason) return (stop_reason);
+	}
+
+/* See if this number needs P-1 factoring.  We treat P-1 factoring that is part of a PRP test as priority work done in pass 1 or as */
+/* regular work done in pass 2 if WellBehavedWork or SequentialWorkTodo is set.  The only way we can get to pass 3 and P-1 still needs */
+/* to be done is if pfactor returned STOP_NOT_ENOUGH_MEM on an earlier pass.  In that case, skip onto doing the PRP test until more */
+/* memory becomes available. */
 
 	if (w->work_type == WORK_PRP && w->tests_saved > 0.0 && pass != 3) {
-		int	pass_to_pfactor;
-
-		pass_to_pfactor = (WELL_BEHAVED_WORK || SEQUENTIAL_WORK) ? 2 : 1;
-		if (pass != pass_to_pfactor) return (0);
-
 		stop_reason = pfactor (thread_num, sp_info, w);
 		if (stop_reason) return (stop_reason);
 	}
 
-/* Done with pass 1 priority work.  Return to do more priority work. */
+/* Do the rest of the trial factoring. */
+
+	if (w->work_type == WORK_PRP && w->k == 1.0 && w->b == 2 && w->c == -1 && ! IniGetInt (INI_FILE, "SkipTrialFactoring", 0)) {
+		struct PriorityInfo sp_info_copy;
+		memcpy (&sp_info_copy, sp_info, sizeof (struct PriorityInfo));
+		stop_reason = primeFactor (thread_num, &sp_info_copy, w, 0);
+		if (stop_reason) return (stop_reason);
+	}
+
+/* Done with pass 1 priority work.  Return to do other priority work. */
 
 	if (pass == 1) return (0);
 
@@ -12625,7 +12640,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 /* If we just verified the last iteration in a partial proof, then output the partial proof */
 
 		if ((ps.state == PRP_STATE_NORMAL || ps.state == PRP_STATE_DCHK_PASS1 || ps.state == PRP_STATE_GERB_START_BLOCK) &&
-		    ps.counter != final_counter &&
+		    ps.proof_power && ps.counter != final_counter &&
 		    (final_counter - ps.counter) % (proof_residue_frequency << ps.proof_power) == 0) {
 			int proof_number = (ps.counter - initial_log2k_iters) / (proof_residue_frequency << ps.proof_power);
 			stop_reason = generateProofFile (&gwdata, &ps, w, proof_number, proof_residue_frequency, proof_hash);

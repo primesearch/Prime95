@@ -2172,10 +2172,7 @@ void auxiliaryWorkUnitInit (
 
 /* Compute factor_to if not set already */
 
-	if ((w->work_type == WORK_FACTOR ||
-	     w->work_type == WORK_TEST ||
-	     w->work_type == WORK_DBLCHK) &&
-	    w->factor_to == 0.0)
+	if ((w->work_type == WORK_FACTOR || w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK || w->work_type == WORK_PRP) && w->factor_to == 0.0)
 		w->factor_to = factorLimit (w);
 
 /* Initialize the number of LL tests saved */
@@ -2637,8 +2634,7 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		w->work_type = WORK_FACTOR;
 		sieve_depth = 0.0;
 		factor_to = 0.0;
-		sscanf (value, "%lu,%f,%f",
-				&w->n, &sieve_depth, &factor_to);
+		sscanf (value, "%lu,%f,%f", &w->n, &sieve_depth, &factor_to);
 		w->sieve_depth = sieve_depth;
 		w->factor_to = factor_to;
 	    }

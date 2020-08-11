@@ -3,7 +3,7 @@
 /* Constants */
 
 #define VERSION		"30.3"
-#define BUILD_NUM	"1"
+#define BUILD_NUM	"2"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -69,7 +69,7 @@
 	      facbench * (1 + LOG2 (maxp/35000000) / 19) / lltime / 1.02) = p
 */
 
-/* These breakeven points we're calculated on a 2.5 GHz Core 2 using 64-bit prime95 v26.6: */
+/* These breakeven points were calculated on a 2.5 GHz Core 2 using 64-bit prime95 v26.6: */
 /* These should be recalculated for version 29 which now supports multithreaded TF and AVX-512 support */
 /* However, GPUs make all these numbers somewhat obsolete. */
 
