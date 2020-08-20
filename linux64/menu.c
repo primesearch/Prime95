@@ -341,7 +341,7 @@ void test_primenet (void)
 		m_proxy_host[0] = 0;
 	}
  
-	askNum ("Output debug info to prime.log (0=none, 1=some, 2=lots)", &m_debug, 0, 2);
+	askNum ("Output debug info to prime.log (0=none, 1=some, 2=too much)", &m_debug, 0, 2);
 
 done:	if (askOkCancel ()) {
 		DIAL_UP = m_dialup;
@@ -428,7 +428,7 @@ void test_worker_threads (void)
 	unsigned long m_num_thread;
 	unsigned long m_work_pref[MAX_NUM_WORKER_THREADS];
 	unsigned long m_numcpus[MAX_NUM_WORKER_THREADS];
-	int	i, cores_assigned;
+	int	i, cores_assigned, m_cert_work;
 
 	m_num_thread = NUM_WORKER_THREADS;
 	for (i = 0; i < NUM_WORKER_THREADS; i++) {
@@ -439,6 +439,7 @@ void test_worker_threads (void)
 		m_work_pref[i] = WORK_PREFERENCE[i];
 		m_numcpus[i] = 0;
 	}
+	m_cert_work = IniGetInt (LOCALINI_FILE, "CertWork", 1);
 
 	if (max_num_workers () <= 1 && !USE_PRIMENET) {
 		outputLongLine ("This menu choice only makes sense if you've elected to use PrimeNet to get work and report results.\n");
@@ -481,6 +482,10 @@ again:	if (max_num_workers () > 1)
 
 		cores_assigned += m_numcpus[i];
 	    }
+	}
+
+	if (USE_PRIMENET) {
+		askYN ("Get occasional proof certification work", &m_cert_work);
 	}
 
 /* Ask user if they are happy with their answers */
@@ -563,6 +568,10 @@ again:	if (max_num_workers () > 1)
 			PTOSetAll (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, m_numcpus[0]);
 		else for (i = 0; i < (int) NUM_WORKER_THREADS; i++)
 			PTOSetOne (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, m_numcpus[i]);
+
+/* Write the new CertWork setting */
+
+		IniWriteInt (LOCALINI_FILE, "CertWork", m_cert_work);
 
 /* Send new settings to the server */
 
@@ -654,7 +663,7 @@ loop:	m_p = 0;
 		if (WORKER_THREADS_ACTIVE)
 			stop_worker_for_advanced_test (m_thread - 1);
 		else
-			linuxContinue ("\nWork added to worktodo.ini file.  Another mprime is running.\n", ALL_WORKERS, FALSE);
+			linuxContinue ("\nWork added to worktodo.txt file.  Another mprime is running.\n", ALL_WORKERS, FALSE);
 	}
 }
 
@@ -715,7 +724,7 @@ void advanced_pminus1 (void)
 		w.B2 = m_bound2;
 		addWorkToDoLine (m_thread - 1, &w);
 		if (!WORKER_THREADS_ACTIVE)
-			linuxContinue ("\nWork added to worktodo.ini file.  Another mprime is running.\n", ALL_WORKERS, FALSE);
+			linuxContinue ("\nWork added to worktodo.txt file.  Another mprime is running.\n", ALL_WORKERS, FALSE);
 		askOK ();
 	}
 }
@@ -763,7 +772,7 @@ void advanced_ecm (void)
 		w.curve = 0.0;
 		addWorkToDoLine (m_thread - 1, &w);
 		if (!WORKER_THREADS_ACTIVE)
-			linuxContinue ("\nWork added to worktodo.ini file.  Another mprime is running.\n", ALL_WORKERS, FALSE);
+			linuxContinue ("\nWork added to worktodo.txt file.  Another mprime is running.\n", ALL_WORKERS, FALSE);
 		askOK ();
 	}
 }

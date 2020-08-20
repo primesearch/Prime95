@@ -139,6 +139,7 @@ int cert (
 
 	memset (&cs, 0, sizeof (cs));
 	cs.thread_num = thread_num;
+	gwinit (&cs.gwdata);
 
 /* We only expect certifications on Mersenne numbers from the primenet server */
 
@@ -146,14 +147,13 @@ int cert (
 		// If primenet ever supports non-Mersennes, we need to disable the units_bit shift and probably
 		// use a safety margin of 0.25 as we do not have any error recovery from a roundoff error
 		OutputStr (thread_num, "Certification of non-Mersenne numbers not supported\n");
-		stop_reason = STOP_WORK_UNIT_COMPLETE;
-		goto exit;
+		goto abandon_work;
 	}
 
 /* Figure out which FFT size we should use */
 
 	stop_reason = pick_fft_size (thread_num, w);
-	if (stop_reason) return (stop_reason);
+	if (stop_reason) goto exit;
 
 /* Init the write save file state */
 
@@ -162,7 +162,6 @@ int cert (
 
 /* Init the FFT code for squaring modulo k*b^n+c */
 
-	gwinit (&cs.gwdata);
 	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&cs.gwdata);
 	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&cs.gwdata);
 	if (HYPERTHREAD_LL) {
@@ -190,8 +189,7 @@ int cert (
 		gwerror_text (&cs.gwdata, res, buf, sizeof (buf) - 1);
 		strcat (buf, "\n");
 		OutputBoth (thread_num, buf);
-		if (res == GWERROR_TOO_SMALL) return (STOP_WORK_UNIT_COMPLETE);
-		return (STOP_FATAL_ERROR);
+		goto abandon_work;
 	}
 
 /* Record the amount of memory being used by this thread. */
@@ -299,15 +297,13 @@ int cert (
 		if (ProofGetData (w->assignment_uid, array, residue_size, md5) != PRIMENET_NO_ERROR) {
 			OutputBoth (thread_num, "Error getting CERT starting value.\n");
 			free (array);
-			stop_reason = STOP_RETRY_LATER;
-			goto exit;
+			goto retry_work;
 		}
 		md5_hexdigest_buffer (residue_md5, array, residue_size);
 		if (strcmp (md5, residue_md5) != 0) {
 			OutputBoth (thread_num, "MD5 of downloaded starting value does not match.\n");
 			free (array);
-			stop_reason = STOP_RETRY_LATER;
-			goto exit;
+			goto retry_work;
 		}
 
 // BUG - find a way to commonize this code?? -- used in verifier, server_proof, proof_hash, read/write residue in prime95, etc
@@ -482,8 +478,7 @@ int cert (
 	if (!gwrotate_right (&cs.gwdata, cs.x, cs.units_bit) || !sha3_gwnum (&cs.gwdata, cs.x, &hash)) {
 		OutputBoth (thread_num, ERRMSG8);
 		inc_error_count (2, &cs.error_count);
-		stop_reason = STOP_RETRY_LATER;			// This will restart from last save file
-		goto exit;
+		goto retry_work;
 	}
 
 /* Free up some memory */
@@ -545,17 +540,38 @@ int cert (
 		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 	}
 
-/* Delete the save files. */
+/* Delete the save files and report work is done */
 
 	unlinkSaveFiles (&write_save_file_state);
+	goto work_complete;
 
-/* Return work unit completed stop reason */
+/* Retry up to 8 times.  Output retry work later message and return. */
 
+retry_work:
+	echk = IniGetInt (LOCALINI_FILE, "CertErrorCount", 0) + 1;
+	IniWriteInt (LOCALINI_FILE, "CertErrorCount", echk);
+	if (echk >= 8) goto abandon_work;
+	OutputStr (thread_num, "Will retry certification later.\n");
+	stop_reason = STOP_RETRY_LATER;
+	goto exit;
+
+/* Abandon work and exit */
+
+abandon_work:
+	sprintf (buf, "Abandoning certification of M%lu.\n", w->n);
+	OutputBoth (thread_num, buf);
+	unreserve (w->n);
+	goto work_complete;
+
+/* Return work unit complete "error" code */
+			
+work_complete:
+	IniWriteString (LOCALINI_FILE, "CertErrorCount", NULL);
 	stop_reason = STOP_WORK_UNIT_COMPLETE;
+	goto exit;
 
 /* Cleanup and exit */
 
 exit:	gwdone (&cs.gwdata);
-
 	return (stop_reason);
 }

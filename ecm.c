@@ -5810,185 +5810,31 @@ print out each test case (all relevant data)*/
 /* Routines to compute optimal and test to optimal P-1 bounds */
 /**************************************************************/
 
-/* This table gives the values of Dickman's function given an input */
-/* between 0.000 and 0.500.  These values came from a different program */
-/* that did a numerical integration. */
-
-static double savedF[501] = {
-	0, 0, 0, 0, 0, 0, 3.3513e-215, 5.63754e-208, 4.00865e-201,
-	1.65407e-194, 4.53598e-188, 8.93587e-182, 1.33115e-175,
-	1.55557e-169, 1.46609e-163, 1.13896e-157, 7.42296e-152,
-	3.80812e-146, 1.56963e-140, 5.32886e-135, 1.51923e-129,
-	3.69424e-124, 7.76066e-119, 1.42371e-113, 2.30187e-108,
-	3.30619e-103, 4.24793e-098, 4.80671e-093, 4.78516e-088,
-	4.22768e-083, 3.33979e-078, 2.37455e-073, 1.52822e-068,
-	8.94846e-064, 4.78909e-059, 4.65696e-057, 4.49802e-055, 4.31695e-053,
-	4.07311e-051, 3.81596e-049, 3.61043e-047, 1.73046e-045, 8.26375e-044,
-	3.9325e-042, 1.86471e-040, 8.8102e-039, 4.14402e-037, 1.99497e-035,
-	1.83001e-034, 1.59023e-033, 1.45505e-032, 1.24603e-031, 1.15674e-030,
-	9.70832e-030, 9.23876e-029, 4.20763e-028, 4.24611e-027, 1.61371e-026,
-	6.59556e-026, 3.17069e-025, 1.12205e-024, 4.65874e-024, 2.01267e-023,
-	6.2941e-023, 3.02604e-022, 7.84622e-022, 2.3526e-021, 6.7049e-021,
-	1.88634e-020, 4.59378e-020, 1.37233e-019, 4.00682e-019, 8.34209e-019,
-	2.21612e-018, 4.84252e-018, 1.02457e-017, 2.03289e-017, 4.07704e-017,
-	1.33778e-016, 2.4263e-016, 4.14981e-016, 7.0383e-016, 1.20511e-015,
-	3.85644e-015, 6.52861e-015, 1.06563e-014, 1.67897e-014, 2.79916e-014,
-	4.54319e-014, 9.83296e-014, 1.66278e-013, 2.61858e-013, 4.03872e-013,
-	5.98967e-013, 1.09674e-012, 1.70553e-012, 2.56573e-012, 3.72723e-012,
-	6.14029e-012, 9.33636e-012, 1.36469e-011, 1.89881e-011, 2.68391e-011,
-	4.12016e-011, 5.94394e-011, 8.43746e-011, 1.12903e-010, 1.66987e-010,
-	2.36959e-010, 3.11726e-010, 4.28713e-010, 5.90781e-010, 7.79892e-010,
-	1.05264e-009, 1.4016e-009, 1.87506e-009, 2.42521e-009, 3.14508e-009,
-	4.38605e-009, 5.43307e-009, 6.96737e-009, 8.84136e-009, 1.16286e-008,
-	1.42343e-008, 1.79697e-008, 2.30867e-008, 2.88832e-008, 3.52583e-008,
-	4.31032e-008, 5.46444e-008, 6.66625e-008, 8.06132e-008, 1.00085e-007,
-	1.20952e-007, 1.4816e-007, 1.80608e-007, 2.13125e-007, 2.5324e-007,
-	3.094e-007, 3.64545e-007, 4.31692e-007, 5.19078e-007, 6.03409e-007,
-	7.21811e-007, 8.53856e-007, 9.71749e-007, 1.13949e-006, 1.37042e-006,
-	1.53831e-006, 1.79066e-006, 2.15143e-006, 2.40216e-006, 2.76872e-006,
-	3.20825e-006, 3.61263e-006, 4.21315e-006, 4.76404e-006, 5.43261e-006,
-	6.2041e-006, 6.96243e-006, 7.94979e-006, 8.89079e-006, 1.01387e-005,
-	1.13376e-005, 1.2901e-005, 1.44183e-005, 1.59912e-005, 1.79752e-005,
-	1.99171e-005, 2.22665e-005, 2.47802e-005, 2.7678e-005, 3.0492e-005,
-	3.34189e-005, 3.71902e-005, 4.12605e-005, 4.54706e-005, 4.98411e-005,
-	5.48979e-005, 6.06015e-005, 6.61278e-005, 7.22258e-005, 7.97193e-005,
-	8.66574e-005, 9.48075e-005, 0.00010321, 0.000112479, 0.000121776,
-	0.000133344, 0.000144023, 0.000156667, 0.000168318, 0.000183192,
-	0.000196527, 0.00021395, 0.000228389, 0.000249223, 0.000264372,
-	0.000289384, 0.000305707, 0.000333992, 0.000353287, 0.000379868,
-	0.000408274, 0.00043638, 0.000465319, 0.000496504, 0.000530376,
-	0.000566008, 0.000602621, 0.000642286, 0.000684543, 0.000723853,
-	0.000772655, 0.000819418, 0.000868533, 0.000920399, 0.000975529,
-	0.00103188, 0.00109478, 0.00115777, 0.00122087, 0.00128857,
-	0.00136288, 0.00143557, 0.00151714, 0.00159747, 0.00167572,
-	0.00176556, 0.00186199, 0.00195063, 0.00205239, 0.00216102,
-	0.00225698, 0.00236962, 0.00249145, 0.00259636, 0.00272455,
-	0.00287006, 0.00297545, 0.00312346, 0.0032634, 0.00340298,
-	0.00355827, 0.00371195, 0.00387288, 0.00404725, 0.00420016,
-	0.00439746, 0.00456332, 0.00475936, 0.00495702, 0.00514683,
-	0.00535284, 0.00557904, 0.00578084, 0.00601028, 0.00623082,
-	0.00647765, 0.00673499, 0.00696553, 0.00722529, 0.00748878,
-	0.00775537, 0.00803271, 0.00832199, 0.00861612, 0.00889863,
-	0.00919876, 0.00953343, 0.00985465, 0.0101993, 0.0105042, 0.0108325,
-	0.0112019, 0.0115901, 0.0119295, 0.0123009, 0.0127191, 0.0130652,
-	0.0134855, 0.0139187, 0.0142929, 0.0147541, 0.0151354, 0.0156087,
-	0.0160572, 0.0165382, 0.0169669, 0.0174693, 0.017946, 0.0184202,
-	0.0189555, 0.0194336, 0.0200107, 0.0204863, 0.0210242, 0.0216053,
-	0.0221361, 0.0226858, 0.0232693, 0.0239027, 0.0244779, 0.025081,
-	0.0257169, 0.0263059, 0.0269213, 0.0275533, 0.0282065, 0.0289028,
-	0.029567, 0.0302268, 0.0309193, 0.0316619, 0.0323147, 0.0330398,
-	0.0338124, 0.0345267, 0.0353038, 0.0360947, 0.0368288, 0.0376202,
-	0.0383784, 0.0391894, 0.0399684, 0.0408148, 0.0416403, 0.042545,
-	0.0433662, 0.0442498, 0.0451003, 0.046035, 0.0468801, 0.0478059,
-	0.0487442, 0.0496647, 0.0505752, 0.0515123, 0.0524792, 0.0534474,
-	0.0544682, 0.0554579, 0.0565024, 0.0574619, 0.0584757, 0.0595123,
-	0.0605988, 0.0615874, 0.062719, 0.0637876, 0.064883, 0.0659551,
-	0.0670567, 0.0681256, 0.0692764, 0.0704584, 0.0715399, 0.0727237,
-	0.0738803, 0.0750377, 0.0762275, 0.0773855, 0.0785934, 0.0797802,
-	0.0810061, 0.0822205, 0.0834827, 0.084714, 0.0858734, 0.0871999,
-	0.0884137, 0.0896948, 0.090982, 0.0922797, 0.093635, 0.0948243,
-	0.0961283, 0.0974718, 0.0988291, 0.100097, 0.101433, 0.102847,
-	0.104222, 0.105492, 0.106885, 0.10833, 0.109672, 0.111048, 0.112438,
-	0.113857, 0.115311, 0.11673, 0.118133, 0.119519, 0.12099, 0.122452,
-	0.123905, 0.125445, 0.126852, 0.128326, 0.129793, 0.131277, 0.132817,
-	0.134305, 0.135772, 0.137284, 0.138882, 0.140372, 0.14192, 0.143445,
-	0.14494, 0.146515, 0.148145, 0.149653, 0.151199, 0.152879, 0.154368,
-	0.155958, 0.157674, 0.159211, 0.160787, 0.16241, 0.164043, 0.165693,
-	0.167281, 0.168956, 0.170589, 0.172252, 0.173884, 0.175575, 0.177208,
-	0.178873, 0.180599, 0.18224, 0.183975, 0.185654, 0.187363, 0.189106,
-	0.190729, 0.19252, 0.194158, 0.195879, 0.197697, 0.199391, 0.201164,
-	0.202879, 0.204602, 0.206413, 0.20818, 0.209911, 0.211753, 0.213484,
-	0.215263, 0.21705, 0.218869, 0.220677, 0.222384, 0.224253, 0.226071,
-	0.227886, 0.229726, 0.231529, 0.233373, 0.235234, 0.237081, 0.238853,
-	0.240735, 0.242606, 0.244465, 0.246371, 0.248218, 0.250135, 0.251944,
-	0.253836, 0.255708, 0.257578, 0.259568, 0.261424, 0.263308, 0.265313,
-	0.26716, 0.269073, 0.271046, 0.272921, 0.274841, 0.276819, 0.278735,
-	0.280616, 0.282653, 0.284613, 0.286558, 0.288478, 0.290472, 0.292474,
-	0.294459, 0.296379, 0.298382, 0.300357, 0.302378, 0.30434, 0.306853
+struct global_pm1_cost_data {
+	unsigned long n;				// Exponent being tested
+	int	isMersenne;
+	double	how_far_factored;			// How far the number has been trial factored
+	double	gcd_cost;				// Cost (in squarings) of running GCD
+	double	ll_testing_cost;			// Cost (in squarings) of running LL/PRP tests should we fail to find a factor
+	unsigned long vals;				// Number of temporaries we can allocate in pass 2
 };
 
-/* This evaluates Dickman's function for any value.  See Knuth vol. 2 */
-/* for a description of this function and its use. */
+struct cost_pm1_data {
+	unsigned long B1;
+	unsigned long B2;
+	double	prob;
+	double	pass1_squarings;
+	double	pass2_squarings;
+	double	savings;
+};
 
-double F (double x)
+/* For a given B1,B2 calculate the costs and savings */
+
+void cost_pm1 (
+	struct global_pm1_cost_data *g,
+	struct cost_pm1_data *c)
 {
-	int	i;
-
-	if (x >= 1.0) return (1.0);
-	if (x >= 0.5) return (1.0 + log (x));
-	i = (int) (x * 1000.0);
-	return (savedF[i] + (x * 1000.0 - i) * (savedF[i+1] - savedF[i]));
-}
-
-/* Analyze how well P-1 factoring will perform */
-
-void guess_pminus1_bounds (
-	int	thread_num,
-	double	k,		/* K in K*B^N+C. Must be a positive integer. */
-	unsigned long b,	/* B in K*B^N+C. Must be two. */
-	unsigned long n,	/* N in K*B^N+C. Exponent to test. */
-	signed long c,		/* C in K*B^N+C. */
-	double	how_far_factored,	/* Bit depth of trial factoring */
-	double	tests_saved,		/* 1 if doublecheck, 2 if first test */
-	unsigned long *bound1,
-	unsigned long *bound2,
-	unsigned long *squarings,
-	double	*success_rate)
-{
-	unsigned long B1, B2, vals;
-	double	h, pass1_squarings, pass2_squarings;
-	double	logB1, logB2, kk, logkk, temp, logtemp, log2;
-	double	prob, gcd_cost, ll_tests, numprimes;
-	struct {
-		unsigned long B1;
-		unsigned long B2;
-		double	prob;
-		double	pass1_squarings;
-		double	pass2_squarings;
-	} best[2];
-
-/* Guard against wild tests_saved values.  Huge values will cause this routine */
-/* to run for a very long time.  This shouldn't happen as auxiliaryWorkUnitInit */
-/* now has the exact same test. */
-
-	if (tests_saved > 10) tests_saved = 10;
-
-/* Balance P-1 against 1 or 2 LL tests (actually more since we get a */
-/* corrupt result reported some of the time). */
-
-	ll_tests = tests_saved + 2 * ERROR_RATE;
-
-/* Precompute the cost of a GCD.  We used Excel to come up with the */
-/* formula GCD is equivalent to 861 * Ln (p) - 7775 transforms. */
-/* Since one squaring equals two transforms we get the formula below. */
-/* NOTE: In version 22, the GCD speed has approximately doubled.  I've */
-/* adjusted the formula accordingly. */
-
-	gcd_cost = (430.5 * log ((double) n) - 3887.5) / 2.0;
-	if (gcd_cost < 50.0) gcd_cost = 50.0;
-
-/* Compute how many temporaries we can use given our memory constraints. */
-/* Allow 1MB for code and data structures. */
-
-	vals = cvt_mem_to_estimated_gwnums (max_mem (thread_num), k, b, n, c);
-	if (vals < 1) vals = 1;
-
-/* Find the best B1 */
-
-	log2 = log ((double) 2.0);
-	for (B1 = 10000; ; B1 += 5000) {
-
-/* Constants */
-
-	logB1 = log ((double) B1);
-
-/* Compute how many squarings will be required in pass 1 */
-
-	pass1_squarings = ceil (1.44 * B1);
-
-/* Try a lot of B2 values */
-
-	for (B2 = B1; B2 <= B1 * 100; B2 += B1 >> 2) {
+	double	logB1, logB2, numprimes;
 
 /* Compute how many squarings will be required in pass 2.  In the */
 /* low-memory cases, assume choose_pminus1_plan will pick D = 210, E = 1 */
@@ -5997,135 +5843,265 @@ void guess_pminus1_bounds (
 /* purposes even if different D and E values are picked.  See */
 /* choose_pminus1_plan for a description of the costs of P-1 stage 2. */
 
-	logB2 = log ((double) B2);
-	numprimes = (unsigned long) (B2 / (logB2 - 1.0) - B1 / (logB1 - 1.0));
-	if (B2 <= B1) {
-		pass2_squarings = 0.0;
-	} else if (vals <= 8) {		/* D = 210, E = 1, passes = 48/temps */
-		unsigned long num_passes;
-		num_passes = (unsigned long) ceil (48.0 / (vals - 3));
-		pass2_squarings = ceil ((B2 - B1) / 210.0) * num_passes;
-		pass2_squarings += numprimes * 1.1;
+	logB1 = log ((double) c->B1);
+	logB2 = log ((double) c->B2);
+	numprimes = (unsigned long) (c->B2 / (logB2 - 1.0) - c->B1 / (logB1 - 1.0));
+	if (c->B2 <= c->B1) {
+		c->pass2_squarings = 0.0;
+	} else if (g->vals <= 8) {		/* D = 210, E = 1, passes = 48/temps */
+		unsigned long num_passes = (unsigned long) ceil (48.0 / (g->vals - 3));
+		c->pass2_squarings = ceil ((c->B2 - c->B1) / 210.0) * num_passes;
+		c->pass2_squarings += numprimes * 1.1;
 	} else {
-		unsigned long num_passes;
-		double	numpairings;
-		num_passes = (unsigned long) ceil (480.0 / (vals - 5));
-		numpairings = (unsigned long)
-			(numprimes / 2.0 * numprimes / ((B2-B1) * 480.0/2310.0));
-		pass2_squarings = 2400.0 + num_passes * 90.0; /* setup costs */
-		pass2_squarings += ceil ((B2-B1) / 4620.0) * 2.0 * num_passes;
-		pass2_squarings += numprimes - numpairings;
+		unsigned long num_passes = (unsigned long) ceil (480.0 / (g->vals - 5));
+		double	numpairings = (unsigned long) (numprimes / 2.0 * numprimes / ((c->B2 - c->B1) * 480.0/2310.0));
+		c->pass2_squarings = 2400.0 + num_passes * 90.0; /* setup costs */
+		c->pass2_squarings += ceil ((c->B2 - c->B1) / 4620.0) * 2.0 * num_passes;
+		c->pass2_squarings += numprimes - numpairings;
 	}
 
 /* Pass 2 FFT multiplications seem to be at least 20% slower than */
 /* the squarings in pass 1.  This is probably due to several factors. */
 /* These include: better L2 cache usage and no calls to the faster */
 /* gwsquare routine.  Nov, 2009:  On my Macbook Pro, with exponents */
-/* around 45M and using 800MB memory, pass2 squarings are 40% slower. */	
+/* around 45M and using 800MB memory, pass2 squarings are 40% slower. */
 
-	pass2_squarings *= 1.35;
+	c->pass2_squarings *= 1.35;
 
-/* What is the "average" value that must be smooth for P-1 to succeed? */
-/* Ordinarily this is 1.5 * 2^how_far_factored.  However, for Mersenne */
-/* numbers the factor must be of the form 2kp+1.  Consequently, the */
-/* value that must be smooth (k) is much smaller. */
+/* Calculate probability of finding a factor (courtesy of Mihai Preda) */
 
-	kk = 1.5 * pow (2.0, how_far_factored);
-	if (k == 1.0 && b == 2 && c == -1) kk = kk / 2.0 / n;
-	logkk = log (kk);
+	c->prob = pm1prob (g->n, g->isMersenne, (unsigned int) g->how_far_factored, c->B1, c->B2);
 
-/* Set temp to the number that will need B1 smooth if k has an */
-/* average-sized factor found in stage 2 */
+/* Calculate our savings using this B1/B2.  Savings is success_probability * cost_of_LL_tests - cost_of_Pminus1. */
 
-	temp = kk / ((B1 + B2) / 2);
-	logtemp = log (temp);
+	c->savings =  c->prob * g->ll_testing_cost - (c->pass1_squarings + c->pass2_squarings + g->gcd_cost);
+}
 
-/* Loop over increasing bit lengths for the factor */
+/* For a given B1, find the best B2 */
 
-	prob = 0.0;
-	for (h = how_far_factored; ; ) {
-		double	prob1, prob2;
+void bestB2 (
+	struct global_pm1_cost_data *g,
+	struct cost_pm1_data *c)
+{
+	struct cost_pm1_data best[3];
 
-/* If kk < 1.0, then there are no factors to find in this bit level */
+/* Estimate how many squarings will be required in pass 1 */
 
-		if (logkk > 0.0) {
+	c->pass1_squarings = ceil (1.44 * c->B1);
 
-/* See how many smooth k's we should find using B1 */
-/* Using Dickman's function (see Knuth pg 382-383) we want k^a <= B1 */
+/* Look for the best B2 somewhere between 1*B1 and 100*B1 */
 
-			prob1 = F (logB1 / logkk);
+	best[0] = *c;
+	best[0].B2 = c->B1;
+	cost_pm1 (g, &best[0]);
+	best[1] = *c;
+	best[1].B2 = 50*c->B1;
+	cost_pm1 (g, &best[1]);
+	best[2] = *c;
+	best[2].B2 = 100*c->B1;
+	cost_pm1 (g, &best[2]);
 
-/* See how many smooth k's we should find using B2 (if temp < 1.0 then we should find them all) */
-/* Adjust this slightly to eliminate k's that have two primes > B1 and < B2 */
-/* Do this by assuming the largest factor is the average of B1 and B2 */
-/* and the remaining cofactor is B1 smooth */
+/* Handle case where midpoint has worse savings than the start point */
+/* The search code requires best[1] to be better than best[0] and best[2] */
 
-			if (logtemp <= 0.0) prob2 = 1.0;
-			else prob2 = prob1 + (F (logB2 / logkk) - prob1) *
-					     (F (logB1 / logtemp) / F (logB2 / logtemp));
-			if (prob2 < 0.0001) break;
+	while (best[0].savings > best[1].savings) {
+		best[2] = best[1];
+		best[1].B2 = (best[0].B1 + best[2].B1) / 2;
+		cost_pm1 (g, &best[1]);
+	}
 
-/* Add this data in to the total chance of finding a factor */
+/* Handle case where midpoint has worse savings than the end point */
+/* The search code requires best[1] to be better than best[0] and best[2] */
 
-			prob += (1.0 - prob) * prob2 / (h + 0.5);
+	while (best[2].savings > best[1].savings) {
+		best[0] = best[1];
+		best[1] = best[2];
+		best[2].B2 = best[1].B2 * 2;
+		cost_pm1 (g, &best[2]);
+	}
+
+/* Find the best B2.  We use a binary-like search to speed things up (new in version 30.3b3). */
+
+	while (best[0].B2 != best[2].B2) {
+		struct cost_pm1_data midpoint;
+
+		ASSERTG (best[1].savings >= best[0].savings);
+		ASSERTG (best[1].savings >= best[2].savings);
+
+/* Work on the bigger of the lower section and upper section */
+
+		if (best[1].B2 - best[0].B2 > best[2].B2 - best[1].B2) {	// Work on lower section
+			// If B2's are close together or the savings difference is real small, then we've searched this section enough
+			if (best[1].B2 - best[0].B2 < 1000 || best[1].savings - best[0].savings < 100.0) {
+				best[0] = best[1];
+				continue;
+			}
+			midpoint = *c;
+			midpoint.B2 = (best[0].B2 + best[1].B2) / 2;
+			cost_pm1 (g, &midpoint);
+			if (midpoint.savings > best[1].savings) {		// Make middle the new end point
+				best[2] = best[1];
+				best[1] = midpoint;
+			} else {						// Create new start point
+				best[0] = midpoint;
+			}
+		} else {							// Work on upper section
+			// If B2's are close together or the savings difference is real small, then we've searched this section enough
+			if (best[2].B2 - best[1].B2 < 1000 || best[1].savings - best[2].savings < 100.0) {
+				best[2] = best[1];
+				continue;
+			}
+			midpoint = *c;
+			midpoint.B2 = (best[1].B2 + best[2].B2) / 2;
+			cost_pm1 (g, &midpoint);
+			if (midpoint.savings > best[1].savings) {		// Make middle the new start point
+				best[0] = best[1];
+				best[1] = midpoint;
+			} else {						// Create new end point
+				best[2] = midpoint;
+			}
 		}
-
-/* Move to next bit level */
-
-		h += 1.0;
-		logkk += log2;
-		logtemp += log2;
 	}
 
-/* See if this is a new best case scenario */
+/* Return the best B2 we found */
 
-	if (B2 == B1 ||
-	    prob * ll_tests * n - pass2_squarings >
-			best[0].prob * ll_tests * n - best[0].pass2_squarings){
-		best[0].B2 = B2;
-		best[0].prob = prob;
-		best[0].pass2_squarings = pass2_squarings;
-		if (vals < 4) break;
-		continue;
+	c->B2 = best[1].B2;
+	c->prob = best[1].prob;
+	c->pass2_squarings = best[1].pass2_squarings;
+	c->savings = best[1].savings;
+}
+
+/* Analyze how well P-1 factoring will perform */
+
+void guess_pminus1_bounds (
+	int	thread_num,
+	double	k,			/* K in K*B^N+C. Must be a positive integer. */
+	unsigned long b,		/* B in K*B^N+C. Must be two. */
+	unsigned long n,		/* N in K*B^N+C. Exponent to test. */
+	signed long c,			/* C in K*B^N+C. */
+	double	how_far_factored,	/* Bit depth of trial factoring */
+	double	tests_saved,		/* 1 if doublecheck, 2 if first test */
+	unsigned long *bound1,
+	unsigned long *bound2,
+	unsigned long *squarings,
+	double	*success_rate)
+{
+	struct global_pm1_cost_data g;
+	struct cost_pm1_data best[3];
+
+/* Copy exponent, how_far_factored to global costing data */
+
+	g.n = n;
+	g.isMersenne = (k == 1.0 && b == 2 && c == -1);
+	g.how_far_factored = how_far_factored;
+
+/* Guard against wild tests_saved values.  Huge values will cause this routine */
+/* to run for a very long time.  This shouldn't happen as auxiliaryWorkUnitInit */
+/* now has the exact same test. */
+
+	if (tests_saved > 10) tests_saved = 10;
+
+/* Balance P-1 against 1 or 2 LL/PRP tests (actually more since we get a */
+/* corrupt result reported some of the time). */
+
+	g.ll_testing_cost = (tests_saved + 2 * ERROR_RATE) * n;
+
+/* Precompute the cost of a GCD.  We used Excel to come up with the */
+/* formula GCD is equivalent to 861 * Ln (p) - 7775 transforms. */
+/* Since one squaring equals two transforms we get the formula below. */
+/* NOTE: In version 22, the GCD speed has approximately doubled.  I've */
+/* adjusted the formula accordingly. */
+
+	g.gcd_cost = (430.5 * log ((double) n) - 3887.5) / 2.0;
+	if (g.gcd_cost < 50.0) g.gcd_cost = 50.0;
+
+/* Compute how many temporaries we can use given our memory constraints. */
+/* Allow 1MB for code and data structures. */
+
+	g.vals = cvt_mem_to_estimated_gwnums (max_mem (thread_num), k, b, n, c);
+	if (g.vals < 1) g.vals = 1;
+
+/* Find the best B1 somewhere between n/3300 and 250*(n/3300). */
+
+	best[0].B1 = n / 3300;
+	bestB2 (&g, &best[0]);
+	best[1].B1 = 125 * best[0].B1;
+	bestB2 (&g, &best[1]);
+	best[2].B1 = 250 * best[0].B1;
+	bestB2 (&g, &best[2]);
+
+/* Handle case where midpoint has worse savings than the start point */
+/* The search code requires best[1] to be better than best[0] and best[2] */
+
+	while (best[0].savings > best[1].savings) {
+		best[2] = best[1];
+		best[1].B1 = (best[0].B1 + best[2].B1) / 2;
+		bestB2 (&g, &best[1]);
 	}
 
-	if (prob * ll_tests * n - pass2_squarings <
-		0.9 * (best[0].prob * ll_tests * n - best[0].pass2_squarings))
-		break;
-	continue;
+/* Handle case where midpoint has worse savings than the end point */
+/* The search code requires best[1] to be better than best[0] and best[2] */
+
+	while (best[2].savings > best[1].savings) {
+		best[0] = best[1];
+		best[1] = best[2];
+		best[2].B1 = best[1].B1 * 2;
+		bestB2 (&g, &best[2]);
 	}
 
-/* Is this the best B1 thusfar? */
+/* Find the best B1.  We use a binary-like search to speed things up (new in version 30.3b3). */
 
-	if (B1 == 10000 ||
-	    best[0].prob * ll_tests * n -
-			(pass1_squarings + best[0].pass2_squarings) >
-		best[1].prob * ll_tests * n -
-			(best[1].pass1_squarings + best[1].pass2_squarings)) {
-		best[1].B1 = B1;
-		best[1].B2 = best[0].B2;
-		best[1].prob = best[0].prob;
-		best[1].pass1_squarings = pass1_squarings;
-		best[1].pass2_squarings = best[0].pass2_squarings;
-		continue;
-	}
-	if (best[0].prob * ll_tests * n -
-			(pass1_squarings + best[0].pass2_squarings) <
-	    0.9 * (best[1].prob * ll_tests * n -
-			(best[1].pass1_squarings + best[1].pass2_squarings)))
-		break;
-	continue;
+	while (best[0].B1 != best[2].B1) {
+		struct cost_pm1_data midpoint;
+
+		ASSERTG (best[1].savings >= best[0].savings);
+		ASSERTG (best[1].savings >= best[2].savings);
+
+/* Work on the bigger of the lower section and upper section */
+
+		if (best[1].B1 - best[0].B1 > best[2].B1 - best[1].B1) {	// Work on lower section
+			// If B1's are close together or the savings difference is real small, then we've searched this section enough
+			if (best[1].B1 - best[0].B1 < 1000 || best[1].savings - best[0].savings < 100.0) {
+				best[0] = best[1];
+				continue;
+			}
+			midpoint.B1 = (best[0].B1 + best[1].B1) / 2;
+			bestB2 (&g, &midpoint);
+			if (midpoint.savings > best[1].savings) {		// Make middle the new end point
+				best[2] = best[1];
+				best[1] = midpoint;
+			} else {						// Create new start point
+				best[0] = midpoint;
+			}
+		} else {							// Work on upper section
+			// If B1's are close together or the savings difference is real small, then we've searched this section enough
+			if (best[2].B1 - best[1].B1 < 1000 || best[1].savings - best[2].savings < 100.0) {
+				best[2] = best[1];
+				continue;
+			}
+			midpoint.B1 = (best[1].B1 + best[2].B1) / 2;
+			bestB2 (&g, &midpoint);
+			if (midpoint.savings > best[1].savings) {		// Make middle the new start point
+				best[0] = best[1];
+				best[1] = midpoint;
+			} else {						// Create new end point
+				best[2] = midpoint;
+			}
+		}
 	}
 
+/* Round up B1 and B2 to nearest 1000 -- just to look pretty */
+
+	best[1].B1 = round_up_to_multiple_of (best[1].B1, 1000);
+	best[1].B2 = round_up_to_multiple_of (best[1].B2, 1000);
+	cost_pm1 (&g, &best[1]);
+	
 /* Return the final best choice */
 
-	if (best[1].prob * ll_tests * n >
-		best[1].pass1_squarings + best[1].pass2_squarings + gcd_cost) {
+	if (best[1].savings > 0.0) {
 		*bound1 = best[1].B1;
 		*bound2 = best[1].B2;
-		*squarings = (unsigned long)
-			(best[1].pass1_squarings +
-			 best[1].pass2_squarings + gcd_cost);
+		*squarings = (unsigned long) (best[1].pass1_squarings + best[1].pass2_squarings + g.gcd_cost);
 		*success_rate = best[1].prob;
 	} else {
 		*bound1 = 0;
@@ -6136,74 +6112,14 @@ void guess_pminus1_bounds (
 }
 
 /* Determine the probability of P-1 finding a factor */
-/* This code was pulled from guess_pminus1_bounds */
 
 double guess_pminus1_probability (
 	struct work_unit *w)
 {
-	double	log2, logB1, logB2, h, kk, logkk, temp, logtemp, prob;
 
-/* Constants */
+/* Return the Mihai estimated P-1 success probability */
 
-	log2 = log ((double) 2.0);
-	logB1 = log (w->B1);
-	logB2 = log (w->B2);
-
-/* What is the "average" value that must be smooth for P-1 to succeed? */
-/* Ordinarily this is 1.5 * 2^how_far_factored.  However, for Mersenne */
-/* numbers the factor must be of the form 2kp+1.  Consequently, the */
-/* value that must be smooth (k) is much smaller. */
-
-	kk = 1.5 * pow (2.0, w->sieve_depth);
-	if (w->k == 1.0 && w->b == 2 && w->c == -1) kk = kk / 2.0 / w->n;
-	logkk = log (kk);
-
-/* Set temp to the number that will need B1 smooth if k has an */
-/* average-sized factor found in stage 2 */
-
-	temp = kk / ((w->B1 + w->B2) / 2);
-	logtemp = log (temp);
-
-/* Loop over increasing bit lengths for the factor */
-
-	prob = 0.0;
-	for (h = w->sieve_depth; ; ) {
-		double	prob1, prob2;
-
-/* If kk < 1.0, then there are no factors to find in this bit level */
-
-		if (logkk > 0.0) {
-
-/* See how many smooth k's we should find using B1 */
-/* Using Dickman's function (see Knuth pg 382-383) we want k^a <= B1 */
-
-			prob1 = F (logB1 / logkk);
-
-/* See how many smooth k's we should find using B2 (if temp < 1.0 then we should find them all) */
-/* Adjust this slightly to eliminate k's that have two primes > B1 and < B2 */
-/* Do this by assuming the largest factor is the average of B1 and B2 */
-/* and the remaining cofactor is B1 smooth */
-
-			if (logtemp <= 0.0) prob2 = 1.0;
-			else prob2 = prob1 + (F (logB2 / logkk) - prob1) *
-					     (F (logB1 / logtemp) / F (logB2 / logtemp));
-			if (prob2 < 0.0001) break;
-
-/* Add this data in to the total chance of finding a factor */
-
-			prob += (1.0 - prob) * prob2 / (h + 0.5);
-		}
-
-/* Move to next bit level */
-
-		h += 1.0;
-		logkk += log2;
-		logtemp += log2;
-	}
-
-/* Return the final probability */
-
-	return (prob);
+	return (pm1prob (w->n, w->k == 1.0 && w->b == 2 && w->c == -1, (unsigned int) w->sieve_depth, w->B1, w->B2));
 }
 
 /* Do the P-1 factoring step prior to a Lucas-Lehmer test */
@@ -6279,8 +6195,7 @@ int pfactor (
 
 	sprintf (buf, "Optimal bounds are B1=%ld, B2=%ld\n", bound1, bound2);
 	OutputStr (thread_num, buf);
-	sprintf (buf, "Chance of finding a factor is an estimated %.3g%%\n",
-		 prob * 100.0);
+	sprintf (buf, "Chance of finding a factor is an estimated %.3g%%\n", prob * 100.0);
 	OutputStr (thread_num, buf);
 
 /* Call the P-1 factoring code */

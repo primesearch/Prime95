@@ -43,6 +43,7 @@
 #define IDD_PREFERENCES                 135
 #define IDC_CURSOR2                     135
 #define IDC_AVX512                      136
+#define IDC_CERT			136
 #define IDC_FMA3                        137
 #define IDC_AVX                         138
 #define IDC_SSE2                        139

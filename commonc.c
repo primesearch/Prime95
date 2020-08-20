@@ -997,12 +997,12 @@ int read_memory_settings (
 
 /* Set up some default values */
 
-	*day_memory = 8;
-	*night_memory = 8;
+	*day_memory = 256;
+	*night_memory = 256;
 	*day_start_time = 450;
 	*day_end_time = 1410;
 
-/* Get the memory settings.  If not found, return some defaults */
+/* Get the memory settings.  If not found, return the defaults */
 
 	p = IniSectionGetStringRaw (LOCALINI_FILE, NULL, "Memory");
 	if (p == NULL) return (TRUE);
@@ -2596,22 +2596,23 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 /* Handle Test= and DoubleCheck= lines.					*/
 /*	Test=exponent,how_far_factored,has_been_pminus1ed		*/
 /*	DoubleCheck=exponent,how_far_factored,has_been_pminus1ed	*/
+/* New in 30.4, for consistency with PRP worktodo lines assume no TF or P-1 needed if those fields are left out */
 
 	    if (_stricmp (keyword, "Test") == 0) {
 		float	sieve_depth;
 		w->work_type = WORK_TEST;
-		sieve_depth = 0.0;
-		sscanf (value, "%lu,%f,%d",
-				&w->n, &sieve_depth, &w->pminus1ed);
+		sieve_depth = 99.0;
+		w->pminus1ed = 1;
+		sscanf (value, "%lu,%f,%d", &w->n, &sieve_depth, &w->pminus1ed);
 		w->sieve_depth = sieve_depth;
 		w->tests_saved = 2.0;
 	    }
 	    else if (_stricmp (keyword, "DoubleCheck") == 0) {
 		float	sieve_depth;
 		w->work_type = WORK_DBLCHK;
-		sieve_depth = 0.0;
-		sscanf (value, "%lu,%f,%d",
-				&w->n, &sieve_depth, &w->pminus1ed);
+		sieve_depth = 99.0;
+		w->pminus1ed = 1;
+		sscanf (value, "%lu,%f,%d", &w->n, &sieve_depth, &w->pminus1ed);
 		w->sieve_depth = sieve_depth;
 		w->tests_saved = 1.0;
 	    }
@@ -2812,8 +2813,8 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 			if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
 		q = strchr (q+1, ',');
 
-		w->sieve_depth = 0.0;
-		w->tests_saved = 0.0;
+		w->sieve_depth = 99.0;		// Default to "no TF needed"
+		w->tests_saved = 0.0;		// Default to "no P-1 needed"
 		w->prp_base = 0;
 		w->prp_residue_type = 0;
 		if (q != NULL && q[1] != '"') {
@@ -3153,11 +3154,17 @@ int writeWorkToDoFile (
 			break;
 
 		case WORK_TEST:
-			sprintf (buf, "Test=%s%lu,%.0f,%d", idbuf, w->n, w->sieve_depth, w->pminus1ed);
+			if (w->sieve_depth != 99.0 || w->pminus1ed != 1)
+				sprintf (buf, "Test=%s%lu,%.0f,%d", idbuf, w->n, w->sieve_depth, w->pminus1ed);
+			else
+				sprintf (buf, "Test=%s%lu", idbuf, w->n);
 			break;
 
 		case WORK_DBLCHK:
-			sprintf (buf, "DoubleCheck=%s%lu,%.0f,%d", idbuf, w->n, w->sieve_depth, w->pminus1ed);
+			if (w->sieve_depth != 99.0 || w->pminus1ed != 1)
+				sprintf (buf, "DoubleCheck=%s%lu,%.0f,%d", idbuf, w->n, w->sieve_depth, w->pminus1ed);
+			else
+				sprintf (buf, "DoubleCheck=%s%lu", idbuf, w->n);
 			break;
 
 		case WORK_ADVANCEDTEST:
@@ -3194,7 +3201,7 @@ int writeWorkToDoFile (
 
 		case WORK_PRP:
 			sprintf (buf, "PRP%s=%s%.0f,%lu,%lu,%ld", w->prp_dblchk ? "DC" : "", idbuf, w->k, w->b, w->n, w->c);
-			if (w->sieve_depth || w->tests_saved > 0.0 || w->prp_base || w->prp_residue_type) {
+			if (w->sieve_depth != 99.0 || w->tests_saved > 0.0 || w->prp_base || w->prp_residue_type) {
 				sprintf (buf + strlen (buf), ",%g,%g", w->sieve_depth, w->tests_saved);
 				if (w->prp_base || w->prp_residue_type)
 					sprintf (buf + strlen (buf), ",%u,%d", w->prp_base, w->prp_residue_type);
@@ -5877,7 +5884,7 @@ retry:
 /* Thus, it is priority work.  Some options turn off priority work which precludes getting certification work. */
 /* We are only allowed one certification assignment at a time (part of our spread the load amongst many users philosophy). */
 
-	can_get_cert_work = TRUE;
+	can_get_cert_work = IniGetInt (LOCALINI_FILE, "CertWork", 1);
 	if (WELL_BEHAVED_WORK || SEQUENTIAL_WORK == 1) can_get_cert_work = FALSE;
 	for (tnum = 0; tnum < NUM_WORKER_THREADS; tnum++) {
 		struct work_unit *w;
@@ -6081,11 +6088,11 @@ retry:
 		!USE_PRIMENET)
 		    continue;
 
-/* Occasionally get certification work from the server.  P-1 and ECM stage 2 may have significant costs */
-/* with an interruption to do priority work.  Also, lots of work_units is not a typical setup -- may indicate */
-/* a large worktodo.txt file with high costs reading and writing it. */
+/* Occasionally get certification work from the server.  P-1 and ECM stage 2 may have significant costs with an interruption */
+/* to do priority work.  Also, lots of work_units is not a typical setup -- may indicate a large worktodo.txt file with high */
+/* costs reading and writing it.  Also, provide a method of limiting CERT work to one specific worker. */
 
-	    if (can_get_cert_work && first_work_unit_interruptable && num_work_units < 10) {
+	    if (can_get_cert_work && first_work_unit_interruptable && num_work_units < 10 && IniGetInt (LOCALINI_FILE, "CertWorker", tnum+1) == tnum+1) {
 		struct primenetGetAssignment pkt1;
 		struct work_unit w;
 
@@ -6097,6 +6104,8 @@ retry:
 		strcpy (pkt1.computer_guid, COMPUTER_GUID);
 		pkt1.cpu_num = tnum;
 		pkt1.get_cert_work = IniGetFloat (LOCALINI_FILE, "CertDailyCPULimit", 10.0); // Helps server decide cert exponent size
+		pkt1.min_exp = IniGetInt (LOCALINI_FILE, "CertMinExponent", 0);
+		pkt1.max_exp = IniGetInt (LOCALINI_FILE, "CertMaxExponent", 0);
 		LOCKED_WORK_UNIT = NULL;
 		rc = sendMessage (PRIMENET_GET_ASSIGNMENT, &pkt1);
 		// Ignore errors, we expect this work to only be available sometimes
@@ -6157,6 +6166,8 @@ retry:
 		strcpy (pkt1.computer_guid, COMPUTER_GUID);
 		pkt1.cpu_num = tnum;
 		pkt1.temp_disk_space = CPU_WORKER_DISK_SPACE;
+		pkt1.min_exp = IniGetInt (LOCALINI_FILE, "GetMinExponent", 0);
+		pkt1.max_exp = IniGetInt (LOCALINI_FILE, "GetMaxExponent", 0);
 		LOCKED_WORK_UNIT = NULL;
 		rc = sendMessage (PRIMENET_GET_ASSIGNMENT, &pkt1);
 		if (rc) goto error_exit;

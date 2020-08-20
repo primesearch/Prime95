@@ -21,6 +21,8 @@
 #include "gwutil.h"
 #include "cJSON.h"
 #include "cJSON.c"
+#include "pm1prob.h"
+#include "pm1prob.c"
 #include "md5.c"
 #include "commona.c"
 #include "commonb.c"

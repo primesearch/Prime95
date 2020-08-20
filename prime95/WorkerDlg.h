@@ -1,6 +1,6 @@
 // WorkerDlg.h : header file
 //
-// Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved
 //
 
 /////////////////////////////////////////////////////////////////////////////
@@ -27,6 +27,8 @@ public:
 	CStatic	c_numcpus_text;
 	CEdit	c_numcpus;
 	int	m_numcpus[MAX_NUM_WORKER_THREADS];
+	CButton	c_cert_work;
+	int	m_cert_work;
 	//}}AFX_DATA
 
 private:

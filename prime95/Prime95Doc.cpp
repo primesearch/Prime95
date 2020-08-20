@@ -232,21 +232,15 @@ void CPrime95Doc::OnPrimenet()
 		IniWriteInt (INI_FILE, "DialUp", DIAL_UP);
 		strcpy (szProxyHost, (const char *) dlg.m_proxyhost);
 		if (szProxyHost[0] && dlg.m_proxyport != 8080)
-			sprintf (szProxyHost + strlen (szProxyHost), ":%d",
-				 dlg.m_proxyport);
-		IniSectionWriteString (INI_FILE, "PrimeNet",
-				       "ProxyHost", szProxyHost);
-		IniSectionWriteString (INI_FILE, "PrimeNet",
-				       "ProxyUser", dlg.m_proxyuser);
+			sprintf (szProxyHost + strlen (szProxyHost), ":%d", dlg.m_proxyport);
+		IniSectionWriteString (INI_FILE, "PrimeNet", "ProxyHost", szProxyHost);
+		IniSectionWriteString (INI_FILE, "PrimeNet", "ProxyUser", dlg.m_proxyuser);
 		if (strcmp (szProxyPassword, dlg.m_proxypassword)) {
-			IniSectionWriteString (INI_FILE, "PrimeNet",
-					"ProxyPass", dlg.m_proxypassword);
-			IniSectionWriteInt (INI_FILE, "PrimeNet",
-					"ProxyMask", 0);
+			IniSectionWriteString (INI_FILE, "PrimeNet", "ProxyPass", dlg.m_proxypassword);
+			IniSectionWriteInt (INI_FILE, "PrimeNet", "ProxyMask", 0);
 		}
 		if (!dlg.m_debug != !primenet_debug) {
-			IniSectionWriteInt (INI_FILE, "PrimeNet", "Debug",
-					    dlg.m_debug ? 2 : 0);
+			IniSectionWriteInt (INI_FILE, "PrimeNet", "Debug", dlg.m_debug ? 1 : 0);
 		}
 
 		if (dlg.m_userid[0] == 0)
@@ -330,6 +324,7 @@ void CPrime95Doc::OnWorkerThreads()
 		dlg.m_work_pref[i] = WORK_PREFERENCE[i];
 		dlg.m_numcpus[i] = CORES_PER_TEST[i];
 	}
+	dlg.m_cert_work = IniGetInt (LOCALINI_FILE, "CertWork", 1);
 
 again:	if (dlg.DoModal () == IDOK) {
 		int	restart = FALSE;
@@ -404,6 +399,10 @@ again:	if (dlg.DoModal () == IDOK) {
 			PTOSetAll (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, dlg.m_numcpus[0]);
 		else for (i = 0; i < (int) NUM_WORKER_THREADS; i++)
 			PTOSetOne (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, dlg.m_numcpus[i]);
+
+/* Write the new CertWork setting */
+
+		IniWriteInt (LOCALINI_FILE, "CertWork", dlg.m_cert_work);
 
 /* Send new settings to the server */
 
@@ -1176,6 +1175,8 @@ void flashWindowAndBeep ()
 #endif
 #include "cJSON.h"
 #include "cJSON.c"
+#include "pm1prob.h"
+#include "pm1prob.c"
 #include "md5.c"
 #include "comm95b.c"
 #include "comm95c.c"

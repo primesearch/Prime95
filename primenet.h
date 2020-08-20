@@ -157,6 +157,8 @@ struct primenetGetAssignment {
 					/* so server can steer bigger cert jobs to clients willing to do them. */
 	float	temp_disk_space;	/* If we are trying to get some first-time / double-check work, this is set to the */
 					/* available temp disk space so server can make sure client will be using an adequate proof power */
+	uint32_t min_exp;		/* Optional minimum exponent */
+	uint32_t max_exp;		/* Optional minimum exponent */
 
 	/* Returned by the server */
 

@@ -218,7 +218,7 @@ void ProofUpload (char *filename)
 
 /* Give curl library the HTTP string to send */
 
-	sprintf (url, "http://mersenne.org/proof_upload/?UserID=%s&Exponent=%d&FileSize=%" PRIu64 "&FileMD5=%s", USERID, exponent, filesize, fileMD5);
+	sprintf (url, "http://www.mersenne.org/proof_upload/?UserID=%s&Exponent=%d&FileSize=%" PRIu64 "&FileMD5=%s", USERID, exponent, filesize, fileMD5);
 	curl_easy_setopt (curl, CURLOPT_URL, url);
 	curl_easy_setopt (curl, CURLOPT_SSL_VERIFYPEER, FALSE);
 	if (debug) {
@@ -281,13 +281,13 @@ void ProofUpload (char *filename)
 		int error_code = (int) cJSON_GetNumberValue (item);
 
 		if (error_code == 409) {
-			sprintf (buf, "Proof already uploaded (%s)\n", curlbuf);
+			sprintf (buf, "Proof %s already uploaded (%s)\n", filename, curlbuf);
 			archiveOrDelete (&fd, filename, fileMD5);
 			OutputBoth (COMM_THREAD_NUM, buf);
 			goto end;
 		}
 
-		sprintf (buf, "Unexpected error during upload: %s\n", curlbuf);
+		sprintf (buf, "Unexpected error during %s upload: %s\n", filename, curlbuf);
 		OutputBoth (COMM_THREAD_NUM, buf);
 		goto end;
 	}
@@ -296,7 +296,7 @@ void ProofUpload (char *filename)
 
 	item = cJSON_GetObjectItem (json, "URLToUse");
 	if (item == NULL) {
-		sprintf (buf, "Server response missing URLToUse: %s\n", curlbuf);
+		sprintf (buf, "For proof %s, server response missing URLToUse: %s\n", filename, curlbuf);
 		OutputBoth (COMM_THREAD_NUM, buf);
 		goto end;
 	}
@@ -304,18 +304,18 @@ void ProofUpload (char *filename)
 
 	item = cJSON_GetObjectItem (json, "need");
 	if (item == NULL) {
-		sprintf (buf, "Server response missing need list: %s\n", curlbuf);
+		sprintf (buf, "For proof %s, server response missing need list: %s\n", filename, curlbuf);
 		OutputBoth (COMM_THREAD_NUM, buf);
 		goto end;
 	}
 	item = cJSON_GetArrayItem (item, 0);
 	if (sscanf (item->string, "%" PRIu64, &chunk_start) != 1) {
-		sprintf (buf, "Error parsing first need list entry: %s\n", curlbuf);
+		sprintf (buf, "For proof %s, error parsing first need list entry: %s\n", filename, curlbuf);
 		goto end;
 	}
 	chunk_end = (uint64_t) cJSON_GetNumberValue(item);
 	if (chunk_start > chunk_end || chunk_end >= filesize) {
-		printf ("Need list entry bad: %s\n", curlbuf);
+		printf ("For proof %s, need list entry bad: %s\n", filename, curlbuf);
 		OutputBoth (COMM_THREAD_NUM, buf);
 		goto end;
 	}
@@ -354,7 +354,8 @@ void ProofUpload (char *filename)
 		datasize = (int) fread (chunk, 1, datasize, fd);
 
 		if (datasize <= 0) {
-			OutputBoth (COMM_THREAD_NUM, "Error reading proof file\n");
+			sprintf (buf, "Error reading proof file %s\n", filename);
+			OutputBoth (COMM_THREAD_NUM, buf);
 			goto end;
 		}
 
@@ -433,7 +434,7 @@ void ProofUpload (char *filename)
 
 		item = cJSON_GetObjectItem (json, "error_status");
 		if (item != NULL) {
-			sprintf (buf, "Unexpected error during upload: %s\n", curlbuf);
+			sprintf (buf, "Unexpected error during %s upload: %s\n", filename, curlbuf);
 			OutputBoth (COMM_THREAD_NUM, buf);
 			goto end;
 		}
@@ -449,7 +450,7 @@ void ProofUpload (char *filename)
 
 		item = cJSON_GetObjectItem (json, "need");
 		if (item == NULL) {
-			sprintf (buf, "No entries in need list: %s\n", curlbuf);
+			sprintf (buf, "For proof %s, no entries in need list: %s\n", filename, curlbuf);
 			OutputBoth (COMM_THREAD_NUM, buf);
 			goto end;
 		}
@@ -457,12 +458,12 @@ void ProofUpload (char *filename)
 		{
 			uint64_t new_chunk_start;
 			if (sscanf (item->string, "%" PRIu64, &new_chunk_start) != 1) {
-				sprintf (buf, "Error parsing first need list entry: %s\n", curlbuf);
+				sprintf (buf, "For proof %s, error parsing first need list entry: %s\n", filename, curlbuf);
 				OutputBoth (COMM_THREAD_NUM, buf);
 				goto end;
 			}
 			if (new_chunk_start <= chunk_start) {
-				sprintf (buf, "Sending data did not advance need list: %s\n", curlbuf);
+				sprintf (buf, "For proof %s, sending data did not advance need list: %s\n", filename, curlbuf);
 				OutputBoth (COMM_THREAD_NUM, buf);
 				goto end;
 			}
@@ -470,7 +471,7 @@ void ProofUpload (char *filename)
 		}
 		chunk_end = (uint64_t) cJSON_GetNumberValue (item);
 		if (chunk_start > chunk_end || chunk_end >= filesize) {
-			sprintf (buf, "Need list entry bad: %s\n", curlbuf);
+			sprintf (buf, "For proof %s, need list entry bad: %s\n", filename, curlbuf);
 			OutputBoth (COMM_THREAD_NUM, buf);
 			goto end;
 		}

@@ -88,7 +88,7 @@ int ProofGetData (char *aid, void *pbuf, int bufsize, char *md5)
 
 /* Give curl library the HTTP string to send */
 
-		sprintf (url, "http://mersenne.org/proof_get_data/?aid=%s", aid);
+		sprintf (url, "http://www.mersenne.org/proof_get_data/?aid=%s", aid);
 		curl_easy_setopt (curl, CURLOPT_URL, url);
 		curl_easy_setopt (curl, CURLOPT_SSL_VERIFYPEER, FALSE);
 		if (debug) {
