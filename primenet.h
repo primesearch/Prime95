@@ -153,7 +153,7 @@ struct primenetGetAssignment {
 	char	computer_guid[33];
 	char	pad[3];
 	uint32_t cpu_num;		/* CPU number */
-	float	get_cert_work;		/* If we are trying to get some certification work, this is set to CertDailyCPULimit */
+	int	get_cert_work;		/* If we are trying to get some certification work, this is set to CertDailyCPULimit */
 					/* so server can steer bigger cert jobs to clients willing to do them. */
 	float	temp_disk_space;	/* If we are trying to get some first-time / double-check work, this is set to the */
 					/* available temp disk space so server can make sure client will be using an adequate proof power */

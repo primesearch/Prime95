@@ -1873,10 +1873,9 @@ int isPriorityWork (
 	if (w->work_type == WORK_CERT) return (TRUE);
 	if (w->work_type == WORK_ADVANCEDTEST) return (TRUE);
 	if (SEQUENTIAL_WORK == 0) {
-		if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK || w->work_type == WORK_PRP) &&
-		    (w->sieve_depth < w->factor_to || !w->pminus1ed))
+		if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK) && (w->sieve_depth < w->factor_to || !w->pminus1ed))
 			return (TRUE);
-		if (w->work_type == WORK_PRP && w->tests_saved > 0.0)
+		if (w->work_type == WORK_PRP && (w->sieve_depth < w->factor_to || w->tests_saved > 0.0))
 			return (TRUE);
 	}
 	return (FALSE);
@@ -9687,7 +9686,7 @@ void autoBench (void)
 
 		w = getNextWorkToDoLine (tnum, w, SHORT_TERM_USE);
 		if (w == NULL) break;
-		if (w->work_type == WORK_NONE) continue;
+		if (w->work_type == WORK_NONE || w->work_type == WORK_CERT) continue;
 
 /* Ignore any worktodo entries that will not begin within the next 7 days.  No particular reason for this. */
 /* This reduces the likelihood of an excessively long autobench.  The worktodo entry might be deleted before */
@@ -10429,7 +10428,7 @@ abort_proof:
 #include "proof_hash.c"
 
 // Read a residue from the big residues file or emergency memory
-int readResidue (			/* Returns TRUE if successful */
+int readResidue (			/* Returns TRUE if successful, FALSE for failure that might "get better", -1 for failures that won't "get better" */
 	struct prp_state *ps,
 	gwhandle *gwdata,
 	int	fd,
@@ -10480,7 +10479,7 @@ int readResidue (			/* Returns TRUE if successful */
 			if (memcmp (expected_MD5, actual_MD5, 16) != 0) {
 				OutputBoth (ps->thread_num, "MD5 error reading PRP proof interim residues file.\n");
 				free (array);
-				return (FALSE);
+				return (-1);
 			}
 		}
 	}
@@ -10560,7 +10559,7 @@ int writeResidue (			// Returns TRUE if successful
 
 #ifdef EASY_TO_READ_CODE
 
-int calc_middle (			// Returns TRUE is successful
+int calc_middle (			/* Returns TRUE if successful, FALSE for failure that might "get better", -1 for failures that won't "get better" */
 	struct prp_state *ps,
 	gwhandle *gwdata,
 	int	fd,			// File handle to array of residues
@@ -10570,24 +10569,32 @@ int calc_middle (			// Returns TRUE is successful
 	uint64_t *hash_array,		// Array of hashes
 	gwnum	result)			// Return result here
 {
-	gwnum	tmp;
+	gwnum	tmp = NULL;
+	int	rc;
+
 	if (i == 0) return (readResidue (ps, gwdata, fd, (base + end) / 2, result));	// Read and return the one residue
 	// Recurse on the first half
-	if (!calc_middle (ps, gwdata, fd, base, base + (end - base) / 2, i - 1, hash_array + 1, result)) return (FALSE);
+	rc = calc_middle (ps, gwdata, fd, base, base + (end - base) / 2, i - 1, hash_array + 1, result);
+	if (rc <= 0) goto done;
 	exponentiate (gwdata, result, *hash_array);
 	// Recurse on the second half
 	tmp = gwalloc (gwdata);
-	if (!calc_middle (ps, gwdata, fd, base + (end - base) / 2, end, i - 1, hash_array + 1, tmp)) return (FALSE);
+	rc = calc_middle (ps, gwdata, fd, base + (end - base) / 2, end, i - 1, hash_array + 1, tmp);
+	if (rc <= 0) goto done;
 	gwmul (gwdata, tmp, result);
-	gwfree (gwdata, tmp);
-	return (TRUE);
+	rc = TRUE;
+
+/* Cleanup and return */
+
+done:	gwfree (gwdata, tmp);
+	return (rc);
 }
 
 #else					// This version saves one memory allocation
 
 int calc_middle_mult (struct prp_state *, gwhandle *, int, int, int, int, uint64_t *, gwnum);
 
-int calc_middle (			// Returns TRUE is successful
+int calc_middle (			/* Returns TRUE if successful, FALSE for failure that might "get better", -1 for failures that won't "get better" */
 	struct prp_state *ps,
 	gwhandle *gwdata,
 	int	fd,			// File handle to array of residues
@@ -10597,16 +10604,18 @@ int calc_middle (			// Returns TRUE is successful
 	uint64_t *hash_array,		// Array of hashes
 	gwnum	result)			// Return result here
 {
+	int	rc;
+
 	if (i == 0) return (readResidue (ps, gwdata, fd, (base + end) / 2, result));	// Read and return the one residue
 	// Recurse on the first half
-	if (!calc_middle (ps, gwdata, fd, base, base + (end - base) / 2, i - 1, hash_array + 1, result)) return (FALSE);
+	rc = calc_middle (ps, gwdata, fd, base, base + (end - base) / 2, i - 1, hash_array + 1, result);
+	if (rc <= 0) return (rc);
 	exponentiate (gwdata, result, *hash_array);
 	// Recurse on the second half
-	if (!calc_middle_mult (ps, gwdata, fd, base + (end - base) / 2, end, i - 1, hash_array + 1, result)) return (FALSE);
-	return (TRUE);
+	return (calc_middle_mult (ps, gwdata, fd, base + (end - base) / 2, end, i - 1, hash_array + 1, result));
 }
 
-int calc_middle_mult (			// Returns TRUE is successful
+int calc_middle_mult (			/* Returns TRUE if successful, FALSE for failure that might "get better", -1 for failures that won't "get better" */
 	struct prp_state *ps,
 	gwhandle *gwdata,
 	int	fd,			// File handle to array of residues
@@ -10616,21 +10625,33 @@ int calc_middle_mult (			// Returns TRUE is successful
 	uint64_t *hash_array,		// Array of hashes
 	gwnum	result)			// Multiply result into here
 {
-	gwnum	tmp = gwalloc (gwdata);
-	if (i == 0) {
-		if (!readResidue (ps, gwdata, fd, (base + end) / 2, tmp)) return (FALSE);	// Read and multiply the one residue
+	gwnum	tmp;
+	int	rc;
+
+	tmp = gwalloc (gwdata);
+	if (tmp == NULL) {
+		OutputBoth (ps->thread_num, "Error allocating memory for proof hash multiplications.\n");
+		return (FALSE);
+	}
+	if (i == 0) {			// Read and multiply the one residue
+		rc = readResidue (ps, gwdata, fd, (base + end) / 2, tmp);
+		if (rc <= 0) goto err;
 		gwmul (gwdata, tmp, result);
 		gwfree (gwdata, tmp);
 		return (TRUE);
 	}
 	// Recurse on the first half
-	if (!calc_middle (ps, gwdata, fd, base, base + (end - base) / 2, i - 1, hash_array + 1, tmp)) return (FALSE);
+	rc = calc_middle (ps, gwdata, fd, base, base + (end - base) / 2, i - 1, hash_array + 1, tmp);
+	if (rc <= 0) goto err;
 	exponentiate (gwdata, tmp, *hash_array);
 	gwmul (gwdata, tmp, result);
 	gwfree (gwdata, tmp);
 	// Recurse on the second half
-	if (!calc_middle_mult (ps, gwdata, fd, base + (end - base) / 2, end, i - 1, hash_array + 1, result)) return (FALSE);
-	return (TRUE);
+	return (calc_middle_mult (ps, gwdata, fd, base + (end - base) / 2, end, i - 1, hash_array + 1, result));
+
+	// Cleanup on error
+err:	gwfree (gwdata, tmp);
+	return (rc);
 }
 
 #endif
@@ -10678,7 +10699,7 @@ int generateProofFile (
 // Loop until we successfully generate the proof file
 
 	for ( ; ; ) {
-		int	fd, fdout, i, stop_reason;
+		int	fd, fdout, rc, i, stop_reason;
 		int64_t	proof_file_start_offset;	
 		uint64_t h[20];
 		hash256_t rooth, *prevh, thish;
@@ -10788,19 +10809,23 @@ int generateProofFile (
 		}
 
 		// Output final residue
-		if (!readResidue (ps, gwdata, fd, (1 << ps->proof_power), M)) goto pfail;
+		rc = readResidue (ps, gwdata, fd, (1 << ps->proof_power), M);
+		if (rc < 0) goto pfail_wont_get_better;
+		if (!rc) goto pfail;
 		if (!writeResidue (ps, gwdata, fdout, M, &context)) goto pfail;
 
 		// Init root hash for computing middles
 		if (!roothash (gwdata, M, &rooth)) {
-			OutputBoth (ps->thread_num, "Error computing proof file hash.\n");
+			OutputBoth (ps->thread_num, "Error computing proof file root hash.\n");
 			goto pfail;
 		}
 		sprintf (buf, "Root hash = %s\n", hash_to_string (rooth));
 		OutputStr (ps->thread_num, buf);
 
 		// Write the middle residue, M0, unadulterated
-		if (!readResidue (ps, gwdata, fd, (1 << ps->proof_power) / 2, M)) goto pfail;
+		rc = readResidue (ps, gwdata, fd, (1 << ps->proof_power) / 2, M);
+		if (rc < 0) goto pfail_wont_get_better;
+		if (!rc) goto pfail;
 		if (!writeResidue (ps, gwdata, fdout, M, &context)) goto pfail;
 
 // Iteratively computes:
@@ -10818,7 +10843,9 @@ int generateProofFile (
 			h[i] = truncate_hash (thish, ps->hashlen);
 			sprintf (buf, "hash%d = %016" PRIX64 "\n", i, h[i]);
 			OutputStr (ps->thread_num, buf);
-			if (!calc_middle (ps, gwdata, fd, 0, 1 << ps->proof_power, i + 1, h, M)) goto pfail;
+			rc = calc_middle (ps, gwdata, fd, 0, 1 << ps->proof_power, i + 1, h, M);
+			if (rc < 0) goto pfail_wont_get_better;
+			if (!rc) goto pfail;
 			if (!writeResidue (ps, gwdata, fdout, M, &context)) goto pfail;
 		}
 		MD5Final (digest, &context);
@@ -10880,6 +10907,8 @@ int generateProofFile (
 
 // Cleanup after a proof failure, close and delete/truncate proof file
 
+pfail_wont_get_better:
+		if (proofgen_waits > 2) proofgen_waits = 2;
 pfail:		if (fd >= 0) _close (fd);
 		if (fdout >= 0) {
 			_close (fdout);

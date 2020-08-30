@@ -563,7 +563,7 @@ void gwsquare2_carefully (
 
 void gwmul_carefully (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
-	gwnum	s,		/* Source */
+	gwnum	s,		/* Source -- preserved */
 	gwnum	t);		/* Source and destination */
 
 

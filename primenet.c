@@ -231,7 +231,7 @@ int curl_trace (
 
 	// Is data all printable ascii?
 	binary_data = FALSE;
-	for (i = 0; i < size; i++) {
+	for (i = 0; i < (int) size; i++) {
 		if ((data[i] <= 0x1F && data[i] != '\t' && data[i] != '\r' && data[i] != '\n') || data[i] == (char) 0xFF)  {
 			binary_data = TRUE;
 			break;
@@ -579,7 +579,7 @@ int format_args (char* args, short operation, void* pkt)
 		p = armor (p + strlen (p), z->computer_guid);
 		sprintf (p, "&c=%d", z->cpu_num);
 		p += strlen (p);
-		if (z->get_cert_work != 0.0) sprintf (p, "&cert=%f", z->get_cert_work), p += strlen (p);
+		if (z->get_cert_work) sprintf (p, "&cert=%d", z->get_cert_work), p += strlen (p);
 		if (z->temp_disk_space != 0.0) sprintf (p, "&disk=%f", z->temp_disk_space), p += strlen (p);
 		if (z->min_exp) sprintf (p, "&min=%d", z->min_exp), p += strlen (p);
 		if (z->max_exp) sprintf (p, "&max=%d", z->max_exp), p += strlen (p);

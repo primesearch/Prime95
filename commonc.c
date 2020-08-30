@@ -922,6 +922,15 @@ void strupper (
 	for ( ; *p; p++) if (*p >= 'a' && *p <= 'z') *p = *p - 'a' + 'A';
 }
 
+/* Return true if string contains all hex characters */
+
+int isHex (
+	const char *p)
+{
+	for ( ; *p; p++) if (!(*p >= '0' && *p <= '9') && !(*p >= 'a' && *p <= 'f') && !(*p >= 'A' && *p <= 'F')) return (FALSE);
+	return (TRUE);
+}
+
 /* Convert a string (e.g "11:30 AM") to minutes since midnight */
 /* The result is from 0 to 1440 inclusive.  This allow specifying 00:00 - 24:00 to mean "all day" */
 
@@ -1970,7 +1979,7 @@ void OutputBothErrno (
 	int	thread_num)
 {
 	char	buf[1024];
-#if WIN32
+#ifdef WIN32
 	int	errnum;
 	unsigned long dos_errnum;
 	char	errtxt[512];
@@ -4661,9 +4670,8 @@ void set_comm_timers (void)
 					DAYS_BETWEEN_CHECKINS * 86400.0 -
 					current_time));
 
-/* Add the event that checks if the work queue has enough work every 6 */
-/* hours.  As a side effect, this will also start the comm thread in case */
-/* there is an old spool file hanging around. */
+/* Add the event that checks for CERT work and if the work queue has enough work.  As a side effect, this will */
+/* also start the comm thread in case there is an old spool file hanging around. */
 
 	add_timed_event (TE_WORK_QUEUE_CHECK, 5);  /* Start in 5 seconds */
 }
@@ -5593,7 +5601,7 @@ static	int	send_message_retry_count = 0;
 	double	est, work_to_get, unreserve_threshold;
 	int	rc, stop_reason;
 	int	talked_to_server = FALSE;
-	int	can_get_cert_work;
+	int	can_get_cert_work, can_get_small_cert_work;
 	int	server_options_counter, retry_count;
 	char	buf[1000];
 
@@ -5881,17 +5889,27 @@ retry:
 	}
 
 /* See if we can request certification work.  Certification work must be done ASAP to reduce disk space used by PrimeNet server. */
-/* Thus, it is priority work.  Some options turn off priority work which precludes getting certification work. */
-/* We are only allowed one certification assignment at a time (part of our spread the load amongst many users philosophy). */
+/* Thus, it is priority work.  Some options turn off priority work which precludes getting certification work.  Part-time computers */
+/* are spared certifications.  We are only allowed one certification assignment at a time (part of our spread the load amongst many */
+/* users philosophy).  Also, by default do not get PRP cofactor certs (it annoys some people to interrupt there first time or */
+/* double-checks to process quick work that they believe is not part of GIMPS main purpose).  If the user is doing cofactor work, */
+/* then by all means default to getting cert work on PRP cofactor proofs. */
 
-	can_get_cert_work = IniGetInt (LOCALINI_FILE, "CertWork", 1);
+	can_get_cert_work = (header_words[1] & HEADER_FLAG_WORK_QUEUE) && IniGetInt (LOCALINI_FILE, "CertWork", 1);
 	if (WELL_BEHAVED_WORK || SEQUENTIAL_WORK == 1) can_get_cert_work = FALSE;
-	for (tnum = 0; tnum < NUM_WORKER_THREADS; tnum++) {
-		struct work_unit *w;
-		for (w = NULL; ; ) {
-			w = getNextWorkToDoLine (tnum, w, SHORT_TERM_USE);
-			if (w == NULL) break;
-			if (w->work_type == WORK_CERT) can_get_cert_work = FALSE;
+	if (CPU_HOURS <= 12) can_get_cert_work = FALSE;
+	if (can_get_cert_work) {
+		int	max_cert_assignments;
+		can_get_small_cert_work = FALSE;
+		max_cert_assignments = (IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10) >= 50 ? 3 : 1);
+		for (tnum = 0; tnum < NUM_WORKER_THREADS; tnum++) {
+			struct work_unit *w;
+			for (w = NULL; ; ) {
+				w = getNextWorkToDoLine (tnum, w, SHORT_TERM_USE);
+				if (w == NULL) break;
+				if (w->work_type == WORK_CERT && --max_cert_assignments == 0) can_get_cert_work = FALSE;
+				if (w->n < 50000000) can_get_small_cert_work = TRUE;
+			}
 		}
 	}
 
@@ -5921,15 +5939,14 @@ retry:
 		daily_MB_limit_remaining += days_since_last_update * max_daily_MB_limit;
 		if (daily_MB_limit_remaining > max_daily_MB_limit) daily_MB_limit_remaining = max_daily_MB_limit;
 		daily_CPU_limit_remaining += days_since_last_update * max_daily_CPU_limit;
-		if (daily_CPU_limit_remaining > max_daily_MB_limit) daily_CPU_limit_remaining = max_daily_CPU_limit;
+		if (daily_CPU_limit_remaining > max_daily_CPU_limit) daily_CPU_limit_remaining = max_daily_CPU_limit;
 
 		// Save the updated quotas
 		IniWriteFloat (LOCALINI_FILE, "CertDailyMBRemaining", daily_MB_limit_remaining);
 		IniWriteFloat (LOCALINI_FILE, "CertDailyCPURemaining", daily_CPU_limit_remaining);
 
 		// Disable getting cert work if either quota exceeded
-		if (daily_MB_limit_remaining <= 0.0 || daily_CPU_limit_remaining <= 0.0)
-			can_get_cert_work = FALSE;
+		if (daily_MB_limit_remaining <= 0.0 || daily_CPU_limit_remaining <= 0.0) can_get_cert_work = FALSE;
 	}
 
 /* Loop over all worker threads to get enough work for each thread */
@@ -6052,8 +6069,7 @@ retry:
 /* If we get an invalid assignment key, then the user probably unreserved */
 /* the exponent using the web forms - delete it from our work to do file. */
 
-		if ((header_words[1] & HEADER_FLAG_END_DATES || registered_assignment) &&
-		    w->assignment_uid[0]) {
+		if ((header_words[1] & HEADER_FLAG_END_DATES || registered_assignment) && w->assignment_uid[0]) {
 			struct primenetAssignmentProgress pkt2;
 			memset (&pkt2, 0, sizeof (pkt2));
 			strcpy (pkt2.computer_guid, COMPUTER_GUID);
@@ -6067,8 +6083,7 @@ retry:
 			pkt2.fftlen = w->fftlen;
 			LOCKED_WORK_UNIT = w;
 			rc = sendMessage (PRIMENET_ASSIGNMENT_PROGRESS, &pkt2);
-			if (rc == PRIMENET_ERROR_INVALID_ASSIGNMENT_KEY ||
-			    rc == PRIMENET_ERROR_WORK_NO_LONGER_NEEDED) {
+			if (rc == PRIMENET_ERROR_INVALID_ASSIGNMENT_KEY || rc == PRIMENET_ERROR_WORK_NO_LONGER_NEEDED) {
 				est -= work_estimate (tnum, w);
 				rc = deleteWorkToDoLine (tnum, w, TRUE);
 			} else if (rc) {
@@ -6083,39 +6098,42 @@ retry:
 /* race condition when quitting gimps that makes it possible to get here */
 /* with a request to get exponents and USE_PRIMENET not set. */
 
-	    if (header_words[1] & HEADER_FLAG_QUIT_GIMPS ||
-		IniGetInt (INI_FILE, "NoMoreWork", 0) ||
-		!USE_PRIMENET)
-		    continue;
+	    if (header_words[1] & HEADER_FLAG_QUIT_GIMPS || IniGetInt (INI_FILE, "NoMoreWork", 0) || !USE_PRIMENET) continue;
 
 /* Occasionally get certification work from the server.  P-1 and ECM stage 2 may have significant costs with an interruption */
 /* to do priority work.  Also, lots of work_units is not a typical setup -- may indicate a large worktodo.txt file with high */
 /* costs reading and writing it.  Also, provide a method of limiting CERT work to one specific worker. */
 
-	    if (can_get_cert_work && first_work_unit_interruptable && num_work_units < 10 && IniGetInt (LOCALINI_FILE, "CertWorker", tnum+1) == tnum+1) {
-		struct primenetGetAssignment pkt1;
-		struct work_unit w;
+	    if (can_get_cert_work && first_work_unit_interruptable && num_work_units < 20 && IniGetInt (LOCALINI_FILE, "CertWorker", tnum+1) == tnum+1) {
+		int	num_certs = 0;
 
 		can_get_cert_work = FALSE;	// Only one worker can get certification work
 
+/* Get up to 5 certifications (but usually just one).  The limit of 5 is rather arbitrary. */
+
+		while (num_certs < 5) {
+			struct primenetGetAssignment pkt1;
+			struct work_unit w;
+
 /* Get a certification work unit to process */
 
-		memset (&pkt1, 0, sizeof (pkt1));
-		strcpy (pkt1.computer_guid, COMPUTER_GUID);
-		pkt1.cpu_num = tnum;
-		pkt1.get_cert_work = IniGetFloat (LOCALINI_FILE, "CertDailyCPULimit", 10.0); // Helps server decide cert exponent size
-		pkt1.min_exp = IniGetInt (LOCALINI_FILE, "CertMinExponent", 0);
-		pkt1.max_exp = IniGetInt (LOCALINI_FILE, "CertMaxExponent", 0);
-		LOCKED_WORK_UNIT = NULL;
-		rc = sendMessage (PRIMENET_GET_ASSIGNMENT, &pkt1);
-		// Ignore errors, we expect this work to only be available sometimes
-		if (rc == 0) {
+			memset (&pkt1, 0, sizeof (pkt1));
+			strcpy (pkt1.computer_guid, COMPUTER_GUID);
+			pkt1.cpu_num = tnum;
+			pkt1.get_cert_work = IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10); // Helps server decide cert exponent size
+			if (pkt1.get_cert_work <= 0) pkt1.get_cert_work = 1;
+			pkt1.min_exp = IniGetInt (LOCALINI_FILE, "CertMinExponent", can_get_small_cert_work ? 0 : 50000000);
+			pkt1.max_exp = IniGetInt (LOCALINI_FILE, "CertMaxExponent", NUM_CPUS / NUM_WORKER_THREADS < 4 ? 200000000 : 0);
+			LOCKED_WORK_UNIT = NULL;
+			rc = sendMessage (PRIMENET_GET_ASSIGNMENT, &pkt1);
+			// Ignore errors, we expect this work to only be available sometimes
+			if (rc) break;
 			talked_to_server = TRUE;
 
 /* Format the work_unit structure based on the work_type */
 
 			if (pkt1.work_type != PRIMENET_WORK_TYPE_CERT) {
-				sprintf (buf, "Received unknown work type: %lu.\n", (unsigned long) pkt1.work_type);
+				sprintf (buf, "Received unknown work type (expected 200): %lu.\n", (unsigned long) pkt1.work_type);
 				LogMsg (buf);
 				goto error_exit;
 			}
@@ -6127,6 +6145,7 @@ retry:
 			w.n = pkt1.n;
 			w.c = -1;
 			w.cert_squarings = pkt1.num_squarings;
+			num_certs++;
 
 /* Write the exponent to our worktodo file */
 
@@ -6141,7 +6160,7 @@ retry:
 
 			// Decrease remaining unused quotas based expected work required for this cert
 			// A daily CPU limit of 1.0 is equals 1% of the work a 2015 quad-core CPU can do in a day.
-			// My dream machine CPUs from then can do 111,000 squarings of 97.3M in 1/100th of a day.
+			// My dream machine CPUs from that era can do 110,000 squarings of 97.3M in 1/100th of a day.
 			daily_MB_limit_remaining -= (float) w.n / (float) 8388608.0;	// Expected MB to download
 			daily_CPU_quota_used = (float) w.cert_squarings / (float) 110000.0;	// Adjust for num_squarings 
 			daily_CPU_quota_used *= (float) pow (2.1, _log2 ((float) w.n / (float) 97300000.0));	// Adjust (roughly) for FFT timing difference
@@ -6150,6 +6169,21 @@ retry:
 			// Save the updated quotas
 			IniWriteFloat (LOCALINI_FILE, "CertDailyMBRemaining", daily_MB_limit_remaining);
 			IniWriteFloat (LOCALINI_FILE, "CertDailyCPURemaining", daily_CPU_limit_remaining);
+
+			// If quotas exceeded, get no more cert assignments
+			if (daily_MB_limit_remaining <= 0.0 || daily_CPU_limit_remaining <= 0.0) break;
+
+			// If the certification exponent is small the certification will be fast.  To avoid lots of priority work interrupts
+			// to do fast work, get several small certifications at one time (or several small and one big).
+			if (pkt1.n < 50000000) continue;
+
+			// Usually get one big cert at a time.  For users that want to lump their CERTs together (perhaps to reduce the number
+			// priority work interruptions), allow getting several certifications at a time.
+			if (num_certs < IniGetInt (LOCALINI_FILE, "CertQuantity", 1)) continue;
+
+			// Usually get one big cert at a time.  For the rare user that wants to do lots of certifications (they set cert CPU
+			// percentage above 50%) let them get several.
+			if (IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10) < 50) break;
 		}
 	    }
 
@@ -6662,6 +6696,7 @@ void timed_events_scheduler (void *arg)
 		time (&this_time);
 		for (i = 0; i < MAX_TIMED_EVENTS; i++) {
 			int	fire;
+			float	cert_freq;
 			gwmutex_lock (&TIMED_EVENTS_MUTEX);
 			fire = (timed_events[i].active && this_time >= timed_events[i].time_to_fire);
 			gwmutex_unlock (&TIMED_EVENTS_MUTEX);
@@ -6675,8 +6710,22 @@ void timed_events_scheduler (void *arg)
 				timed_events[i].active = FALSE;
 				checkPauseWhileRunning ();
 				break;
-			case TE_WORK_QUEUE_CHECK:	/* Check work queue event */
-				timed_events[i].time_to_fire = this_time + TE_WORK_QUEUE_CHECK_FREQ;
+			case TE_WORK_QUEUE_CHECK:	/* Check for CERT work (and regular work) event */
+				// Make more powerful computers check for CERT work more frequently (their fair share)
+				cert_freq = (float) (NUM_CPUS >= 20 ? 3.0 :		/* 20+ cores = 3 hours */
+						     NUM_CPUS >= 12 ? 4.0 :		/* 12-19 cores = 4 hours */
+						     NUM_CPUS >= 7 ? 6.0 :		/* 7-11 cores = 6 hours */
+						     NUM_CPUS >= 3 ? 8.0 :		/* 3-6 cores = 8 hours */
+						     NUM_CPUS >= 2 ? 12.0 : 24.0);	/* 2 cores = 12 hours, 1 core = 24 hours */
+				// Serious CERT volunteers check every half hour
+				if (IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10) >= 50) cert_freq = 0.5;
+				// Let user pick their own CERT frequency (in hours).  Minimum is 15 minutes.
+				cert_freq = IniGetFloat (LOCALINI_FILE, "CertGetFrequency", cert_freq);
+				if (cert_freq < 0.25) cert_freq = 0.25;
+				// If CERT work is disabled, check regular work queue every 8 hours
+				if (!IniGetInt (LOCALINI_FILE, "CertWork", 1)) cert_freq = 8.0;
+				// Set timer (convert frequency from hours to seconds)
+				timed_events[i].time_to_fire = this_time + (int) (cert_freq * 3600.0);
 				spoolMessage (MSG_CHECK_WORK_QUEUE, NULL);
 				break;
 			case TE_COMM_SERVER:	/* Retry communication with server event */

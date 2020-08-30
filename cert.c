@@ -294,12 +294,14 @@ int cert (
 
 /* Contact PrimeNet for the starting residue */
 
-		if (ProofGetData (w->assignment_uid, array, residue_size, md5) != PRIMENET_NO_ERROR) {
+		if (ProofGetData (w->assignment_uid, array, residue_size, md5) != PRIMENET_NO_ERROR || !isHex (md5)) {
 			OutputBoth (thread_num, "Error getting CERT starting value.\n");
 			free (array);
 			goto retry_work;
 		}
 		md5_hexdigest_buffer (residue_md5, array, residue_size);
+		strupper (md5);
+		strupper (residue_md5);
 		if (strcmp (md5, residue_md5) != 0) {
 			OutputBoth (thread_num, "MD5 of downloaded starting value does not match.\n");
 			free (array);

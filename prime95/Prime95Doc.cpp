@@ -1118,6 +1118,7 @@ void CPrime95Doc::OnWelcome()
 		IniWriteInt (INI_FILE, "UsePrimenet", 1);
 		OnPrimenet();
 		if (USE_PRIMENET && STARTUP_IN_PROGRESS) OnCpu ();
+		if (STARTUP_IN_PROGRESS) OnResources ();
 		if (USE_PRIMENET && STARTUP_IN_PROGRESS) OnWorkerThreads ();
 		if (USE_PRIMENET && STARTUP_IN_PROGRESS) {
 			STARTUP_IN_PROGRESS = 0;

@@ -11,7 +11,7 @@
 # Configure hwloc with --enable-static --disable-shared --disable-pci --disable-cuda --disable-gl --disable-opencl
 #
 #  Ugh, different linux variants require different makefiles.
-#  The current makefile is for CentOS 5.10.  We prefer to link against
+#  The current makefile is for CentOS 6.  We prefer to link against
 #  older Linux versions because linking on the latest, greatest version
 #  will create an mprime executable that will not run on older
 #  Linux versions because of glibc incompatibilites.
@@ -29,8 +29,8 @@ CPP = g++
 CPPFLAGS = -I.. -I../gwnum -Wno-unused-result -march=i486 -malign-double -O2
 
 LFLAGS = -Wl,-M -Wl,-L/usr/local/lib
-#LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -Wl,-Bstatic -lhwloc -Wl,-Bstatic -lcurl -Wl,-Bdynamic -lrt -lstdc++ -lz -lxml2 -ldl -lgmp
-LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -Wl,-Bstatic -lhwloc -Wl,-Bstatic -lcurl -Wl,-Bdynamic -lrt -lstdc++ -ldl -lgmp
+LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -Wl,-Bstatic -lhwloc -Wl,-Bstatic -lcurl -Wl,-Bdynamic -lrt -lstdc++ -lz -lxml2 -ldl -lgmp
+#LIBS = ../gwnum/gwnum.a ../gwnum/gwnum.ld -lm -lpthread -Wl,-Bstatic -lhwloc -Wl,-Bstatic -lcurl -Wl,-Bdynamic -lrt -lstdc++ -ldl -lgmp
 
 FACTOROBJ = factor32.o
 LINUXOBJS = prime.o menu.o

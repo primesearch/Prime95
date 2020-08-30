@@ -3,7 +3,7 @@
 /* Constants */
 
 #define VERSION		"30.3"
-#define BUILD_NUM	"3"
+#define BUILD_NUM	"4"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -401,6 +401,7 @@ void guess_pminus1_bounds (int, double, unsigned long, unsigned long, signed lon
 			   unsigned long *, unsigned long *, double *);
 
 void strupper (char *);
+int isHex (const char *);
 void tempFileName (struct work_unit *, char *);
 int fileExists (const char *);
 void DirPlusFilename (char *, const char *);
@@ -472,7 +473,7 @@ char getDirectorySeparator ();
 
 #define TE_MEM_CHANGE		0	/* Night/day memory change event */
 #define TE_PAUSE_WHILE		1	/* Check pause_while_running event */
-#define TE_WORK_QUEUE_CHECK	2	/* Check work queue event */
+#define TE_WORK_QUEUE_CHECK	2	/* Check for CERT work timer.  Also check regular work queue which also get checked for results sent, etc. */
 #define TE_COMM_SERVER		3	/* Retry communication with server event */
 #define TE_COMM_KILL		4	/* Kill hung communication thread event */
 #define TE_PRIORITY_WORK	5	/* Check for priority work event */
@@ -482,8 +483,7 @@ char getDirectorySeparator ();
 #define TE_BATTERY_CHECK	9	/* Check battery status frequently */
 #define TE_ROLLING_AVERAGE	10	/* Adjust rolling average */
 #define TE_READ_PAUSE_DATA	11	/* Reread PauseWhileRunning info */
-#define TE_READ_INI_FILE	12	/* Reread prime.txt settings because */
-					/* a during/else time period has ended */
+#define TE_READ_INI_FILE	12	/* Reread prime.txt settings because a during/else time period has ended */
 #define TE_LOAD_AVERAGE		13	/* Linux/FreeBSD/Apple load average check */
 #define TE_BENCH		14	/* Generate benchmark data for best FFT selection */
 #define TE_JACOBI		15	/* Trigger a Jacobi error check */
@@ -505,7 +505,6 @@ int is_timed_event_active (
 time_t timed_event_fire_time (
 	int	event_number);		/* Which event to get fire time of */
 
-#define TE_WORK_QUEUE_CHECK_FREQ 6*60*60 /* Check work queue every 6 hrs. */
 #define TE_PRIORITY_WORK_FREQ	 1*60*60 /* Check priority work every hour. */
 #define TE_BATTERY_CHECK_FREQ	 15	/* Check battery every 15 sec. */
 #define TE_THROTTLE_FREQ	 5	/* Throttle every 5 sec. */
