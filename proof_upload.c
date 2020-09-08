@@ -166,7 +166,7 @@ void ProofUpload (char *filename)
 		goto end;
 	}
 	fscanf (fd, "PRP PROOF\n");
-	if (fscanf (fd, "VERSION=%d\n", &version) != 1 || version != 1) {
+	if (fscanf (fd, "VERSION=%d\n", &version) != 1 || (version != 1 && version != 2)) {
 		OutputBoth (COMM_THREAD_NUM, "Error getting version number from proof header\n");
 		goto end;
 	}

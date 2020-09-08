@@ -1213,9 +1213,8 @@ int are_threads_using_lots_of_memory (
 
 	for (i = 0; i < (int) NUM_WORKER_THREADS; i++)
 		if (i != thread_num &&
-		    (MEM_FLAGS[i] & MEM_VARIABLE_USAGE ||
-		     MEM_FLAGS[i] & MEM_WILL_BE_VARIABLE_USAGE) &&
-		    MEM_IN_USE[i] >= 50) {
+		    (MEM_FLAGS[i] & MEM_VARIABLE_USAGE || MEM_FLAGS[i] & MEM_WILL_BE_VARIABLE_USAGE) &&
+		    MEM_IN_USE[i] >= (unsigned int) IniGetInt (LOCALINI_FILE, "HighMemThreshold", 50)) {
 			max_high_mem--;
 			if (max_high_mem == 0) return (TRUE);
 		}
@@ -10177,6 +10176,8 @@ struct prp_state {
 	unsigned long start_counter;	/* Counter at start of current Gerbicz or double-check block */
 	unsigned long next_mul_counter;	/* Counter when next Gerbicz multiply takes place */
 	unsigned long end_counter;	/* Counter when current Gerbicz or double-check block ends */
+	unsigned long proof_num_iters;	/* Number of squarings that make up a (could be partial) proof */
+	int	proof_version;		/* 1 = early v30 with excess squarings, 2 = later versions with no excess squarings */
 	int	proof_power;		/* PRP proof power (see Mihai's documents) */
 	int	proof_power_mult;	/* Run the proof power multiple times to simulate a higher power */
 	int	hashlen;		/* Size (in bits) of proof hashes.  Must be between 32 and 64 inclusive */
@@ -10292,6 +10293,22 @@ void createProofResiduesFile (
 // Close file and return
 
 	_close (fd);
+}
+
+/* Figure out which iteration should save an interim proof residue */
+
+unsigned long proofResidueIteration (
+	struct prp_state *ps,
+	int	residue_number)
+{
+	unsigned long result = 0;
+	unsigned long n = ps->proof_num_iters;
+	unsigned long bit;
+	for (bit = (1 << ps->proof_power); bit; bit >>= 1) {
+		if (residue_number & bit) result += n;
+		n = (n + 1) / 2;
+	}
+	return (result);
 }
 
 /* Output one of the PRP Proof intermediate residues */
@@ -10663,7 +10680,6 @@ int generateProofFile (
 	struct prp_state *ps,		/* PRP state */
 	struct work_unit *w,		/* Worktodo entry */
 	int	proof_number,		/* Which of the proof_power_mult proofs we're outputting (starting at 1) */
-	unsigned long proof_residue_frequency, /* Used to print informational message to user on proof completion */
 	char	proof_hash[33])		/* Returned MD5 hash of the entire proof file */
 {
 	int	proofgen_waits;
@@ -10776,7 +10792,7 @@ int generateProofFile (
 // NUMBER=M216091\n
 
 		if (proof_number == 1) {
-			sprintf (buf, "PRP PROOF\nVERSION=1\nHASHSIZE=%d\n", ps->hashlen);
+			sprintf (buf, "PRP PROOF\nVERSION=%d\nHASHSIZE=%d\n", ps->proof_version, ps->hashlen);
 			if (ps->proof_power_mult == 1)
 				sprintf (buf+strlen(buf), "POWER=%d\n", ps->proof_power);
 			else
@@ -10890,7 +10906,8 @@ int generateProofFile (
 		sprintf (buf, "Proof construction cost %d squarings\n", (int) ceil (gwdata->fft_count / 2.0));
 		OutputStr (ps->thread_num, buf);
 		if (proof_number == ps->proof_power_mult) {
-			sprintf (buf, "Proof verification will cost %lu squarings\n", proof_residue_frequency);
+			unsigned long verify_cost = divide_rounding_up (ps->proof_num_iters, 1 << ps->proof_power);
+			sprintf (buf, "Proof verification will cost %lu squarings\n", verify_cost);
 			OutputStr (ps->thread_num, buf);
 			_unlink (proof_filename);
 			if (rename (tmp_proof_filename, proof_filename)) {
@@ -10979,7 +10996,7 @@ pfail:		if (fd >= 0) _close (fd);
 /*	gwnum		FFT data for d (u32 len, array u32s) (version number >= 3) */
 
 #define PRP_MAGICNUM		0x87f2a91b
-#define PRP_VERSION		6
+#define PRP_VERSION		7
 
 int writePRPSaveFile (			// Returns TRUE if successful
 	gwhandle *gwdata,
@@ -11035,6 +11052,7 @@ int writePRPSaveFile (			// Returns TRUE if successful
 	if (!write_array (fd, ps->res64, 16, &sum)) goto writeerr;
 	if (!write_long (fd, ps->proof_power_mult, &sum)) goto writeerr;
 	if (!write_long (fd, ps->md5_residues, &sum)) goto writeerr;
+	if (!write_long (fd, ps->proof_version, &sum)) goto writeerr;
 	if (!write_gwnum (fd, gwdata, ps->x, &sum)) {
 		sprintf (buf, "Error writing FFT data named x, state %d, to PRP save file %s\n", ps->state, write_save_file_state->base_filename);
 		OutputBoth (ps->thread_num, buf);
@@ -11181,6 +11199,15 @@ int readPRPSaveFile (
 	} else {
 		ps->proof_power_mult = 1;
 		ps->md5_residues = 0;
+	}
+
+	// Read in fields introduced in version 7
+	if (version >= 7) {
+		unsigned long savefile_proof_version;
+		if (!read_long (fd, &savefile_proof_version, &sum)) goto err;
+		ps->proof_version = savefile_proof_version;
+	} else {
+		ps->proof_version = 1;
 	}
 
 	// In version 3, we did not delay the final multiply in calculation of checksum #1.
@@ -11429,8 +11456,9 @@ int prp (
 	unsigned long restart_error_count = 0;	/* On a restart, use this error count rather than the one from a save file */
 	long	restart_counter = -1;		/* On a restart, this specifies how far back to rollback save files */
 	unsigned long excess_squarings;		/* Number of extra squarings we are doing in order to generate a PRP proof */
-	unsigned long proof_residue_frequency;	/* Number of iterations in between writing each interim proof file residue */
-	unsigned long initial_log2k_iters, final_residue_counter;
+	int	proof_next_interim_residue;	/* The next interim residue to output */
+	unsigned long proof_next_interim_residue_iter; /* The iteration where the next interim residue occurs */
+	unsigned long initial_log2k_iters, initial_nonproof_iters, final_residue_counter;
 	int	proof_residue;			/* True if this iteration must output a PRP proof residue */
 	char	proof_hash[33];			/* 128-bit MD5 hash of the proof file */
 
@@ -11582,6 +11610,7 @@ int prp (
 /* Thus, we've decided to default to power=8 by defaulting the maximum disk space a worker can use to 5GB. */
 /* Users rarely change defaults. */
 
+	ps.proof_version = 2;
 	ps.proof_power = 0;
 	ps.proof_power_mult = 1;
 	// We have a way for the PrimeNet server to change (reduce) the default hashlen.  This would reduce server proof
@@ -11594,9 +11623,9 @@ int prp (
 
 	if (ps.two_power_opt && (ps.residue_type == PRIMENET_PRP_TYPE_FERMAT || ps.residue_type == PRIMENET_PRP_TYPE_COFACTOR)) {
 		double	hashlen_adjust = ps.hashlen / 64.0;
-		int	best_power = (double) w->n > hashlen_adjust * 427e6 ? 11 :
-				     (double) w->n > hashlen_adjust * 108e6 ? 10 :
-				     (double) w->n > hashlen_adjust * 27e6 ? 9 :
+		int	best_power = (double) w->n > hashlen_adjust * 414.2e6 ? 11 :
+				     (double) w->n > hashlen_adjust * 106.5e6 ? 10 :
+				     (double) w->n > hashlen_adjust * 26.6e6 ? 9 :
 				     (double) w->n > hashlen_adjust * 6.7e6 ? 8 :
 				     (double) w->n > hashlen_adjust * 1.7e6 ? 7 :
 				     (double) w->n > hashlen_adjust * 420e3 ? 6 :
@@ -11858,10 +11887,26 @@ begin:	N = exp = NULL;
 		if (ps.counter == 0)
 			createProofResiduesFile (&gwdata, &ps, IniGetInt (LOCALINI_FILE, "PreallocateDisk", 1));
 	}
-	/* Calculate how many extra squarings are needed because of the PRP proof */
-	excess_squarings = round_up_to_multiple_of (w->n, ps.proof_power_mult << ps.proof_power) - w->n;
-	/* Generate a residue for the PRP proof every (n+excess_squarings)/(proof_power_mult*2^proof_power) iterations */
-	proof_residue_frequency = (w->n + excess_squarings) / (ps.proof_power_mult << ps.proof_power);
+	/* Calculate how many extra squarings are needed because of a version 1 PRP proof */
+	if (ps.proof_version == 1)
+		excess_squarings = round_up_to_multiple_of (w->n, ps.proof_power_mult << ps.proof_power) - w->n;
+	else
+		excess_squarings = 0;
+	/* Calculate the number of squarings in a full or partial proof and number of squarings that are handled outside of the proof */
+	ps.proof_num_iters = (w->n + excess_squarings) / ps.proof_power_mult;
+	initial_nonproof_iters = initial_log2k_iters + (w->n + excess_squarings) % ps.proof_power_mult;
+	/* Map the current iteration (from the save file) into the next interim residue to output */
+	while (ps.counter >= initial_nonproof_iters + ps.proof_num_iters) initial_nonproof_iters += ps.proof_num_iters;
+	for (proof_next_interim_residue = 1; ; proof_next_interim_residue++) {
+		proof_next_interim_residue_iter = proofResidueIteration (&ps, proof_next_interim_residue);
+		if (ps.state == PRP_STATE_GERB_MID_BLOCK_MULT || ps.state == PRP_STATE_GERB_MID_BLOCK_MULT) {
+			if (ps.counter + 1 < initial_nonproof_iters + proof_next_interim_residue_iter) break;
+		} else if (ps.state == PRP_STATE_DCHK_PASS2) {
+			if (ps.end_counter < initial_nonproof_iters + proof_next_interim_residue_iter) break;
+		} else {
+			if (ps.counter < initial_nonproof_iters + proof_next_interim_residue_iter) break;
+		}
+	}
 
 /* Output a message detailing PRP proof resource usage */
 
@@ -11996,7 +12041,7 @@ begin:	N = exp = NULL;
 		if (ps.error_check_type == PRP_ERRCHK_DBLCHK) {
 			int	compare_interval = IniGetInt (INI_FILE, "PRPDoublecheckCompareInterval", 100000);
 			int	iters_left = final_counter;
-			iters_left = one_based_modulo (iters_left, proof_residue_frequency << ps.proof_power);	// End partial proofs on a DCHK verified iter
+			iters_left = one_based_modulo (iters_left, ps.proof_num_iters);	// End partial proofs on a DCHK verified iter
 			if (compare_interval > iters_left) compare_interval = iters_left;
 			ps.state = PRP_STATE_DCHK_PASS1;
 			ps.start_counter = 0;
@@ -12070,7 +12115,7 @@ rotateg (t1, w->n, ps.units_bit, &gwdata.gdata);
 
 		if (ps.state == PRP_STATE_GERB_START_BLOCK) {
 			int	iters_left = final_counter - ps.counter;
-			iters_left = one_based_modulo (iters_left, proof_residue_frequency << ps.proof_power);	// End partial proofs on a Gerbicz verified iter
+			iters_left = one_based_modulo (iters_left, ps.proof_num_iters);	// End partial proofs on a Gerbicz verified iter
 			if (iters_left < 49) {
 				ps.state = PRP_STATE_DCHK_PASS1;
 				ps.start_counter = ps.counter;
@@ -12120,12 +12165,12 @@ rotateg (t1, w->n, ps.units_bit, &gwdata.gdata);
 		       (ps.error_check_type == PRP_ERRCHK_NONE && (near_fft_limit || ((ps.counter & 127) == 0)));
 		gw_clear_maxerr (&gwdata);
 
-/* Generate a residue for the PRP proof every (n+excess_squarings)/(proof_power_mult*2^proof_power) iterations */
+/* Generate a residue for the PRP proof every approximately (n+excess_squarings)/(proof_power_mult*2^proof_power) iterations */
 
 		proof_residue = ps.proof_power &&
 				(ps.state == PRP_STATE_NORMAL || ps.state == PRP_STATE_DCHK_PASS1 || ps.state == PRP_STATE_GERB_MID_BLOCK) &&
-				ps.counter > initial_log2k_iters &&
-				is_multiple_of (ps.counter - initial_log2k_iters + 1, proof_residue_frequency);
+				ps.counter > initial_nonproof_iters &&
+				ps.counter - initial_nonproof_iters + 1 == proof_next_interim_residue_iter;
 
 /* Check if we should send residue to server, output residue to screen, or create an interediate save file */
 /* Beware that if we are PRPing a Mersenne number our iteration numbers are off by one compared to other */
@@ -12417,7 +12462,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 			writeResults (buf);
 		}
 
-/* Output a PRP proof residue every (n+excess_squarings)/(proof_power_mult*2^proof_power) iterations. */
+/* Output a PRP proof residue every approximately (n+excess_squarings)/(proof_power_mult*2^proof_power) iterations. */
 
 		if (proof_residue) {
 			tmp = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 5) + 5);
@@ -12431,7 +12476,9 @@ OutputStr (thread_num, "Iteration failed.\n");
 				goto restart;
 			}
 			rotateg (tmp, w->n, *units_bit, &gwdata.gdata);
-			outputProofResidue (&gwdata, &ps, (ps.counter - initial_log2k_iters) / proof_residue_frequency, tmp);
+			outputProofResidue (&gwdata, &ps, proof_next_interim_residue, tmp);
+			proof_next_interim_residue++;
+			proof_next_interim_residue_iter = proofResidueIteration (&ps, proof_next_interim_residue);
 			pushg (&gwdata.gdata, 1);
 		}
 
@@ -12531,7 +12578,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 				if (ps.error_check_type == PRP_ERRCHK_DBLCHK) {
 					int	compare_interval = IniGetInt (INI_FILE, "PRPDoublecheckCompareInterval", 100000);
 					int	iters_left = final_counter - ps.counter;
-					iters_left = one_based_modulo (iters_left, proof_residue_frequency << ps.proof_power);	// End partial proofs on a DCHK verified iter
+					iters_left = one_based_modulo (iters_left, ps.proof_num_iters);	// End partial proofs on a DCHK verified iter
 					if (compare_interval > iters_left) compare_interval = iters_left;
 					ps.state = PRP_STATE_DCHK_PASS1;
 					ps.start_counter = ps.counter;
@@ -12669,11 +12716,13 @@ OutputStr (thread_num, "Iteration failed.\n");
 /* If we just verified the last iteration in a partial proof, then output the partial proof */
 
 		if ((ps.state == PRP_STATE_NORMAL || ps.state == PRP_STATE_DCHK_PASS1 || ps.state == PRP_STATE_GERB_START_BLOCK) &&
-		    ps.proof_power && ps.counter != final_counter &&
-		    (final_counter - ps.counter) % (proof_residue_frequency << ps.proof_power) == 0) {
-			int proof_number = (ps.counter - initial_log2k_iters) / (proof_residue_frequency << ps.proof_power);
-			stop_reason = generateProofFile (&gwdata, &ps, w, proof_number, proof_residue_frequency, proof_hash);
+		    ps.proof_power && ps.counter != final_counter && ps.counter == initial_nonproof_iters + ps.proof_num_iters) {
+			int proof_number = (ps.counter - initial_log2k_iters) / ps.proof_num_iters;
+			stop_reason = generateProofFile (&gwdata, &ps, w, proof_number, proof_hash);
 			if (stop_reason) goto exit;
+			initial_nonproof_iters += ps.proof_num_iters;
+			proof_next_interim_residue = 1;
+			proof_next_interim_residue_iter = proofResidueIteration (&ps, proof_next_interim_residue);
 		}
 
 /* Write results to a file every DISK_WRITE_TIME minutes */
@@ -12809,7 +12858,7 @@ pushg(&gwdata.gdata, 2);}
 /* Generate the proof file */
 
 	if (ps.proof_power) {
-		stop_reason = generateProofFile (&gwdata, &ps, w, ps.proof_power_mult, proof_residue_frequency, proof_hash);
+		stop_reason = generateProofFile (&gwdata, &ps, w, ps.proof_power_mult, proof_hash);
 		if (stop_reason) goto exit;
 	}
 
@@ -12896,7 +12945,7 @@ pushg(&gwdata.gdata, 2);}
 	if (ps.error_check_type == PRP_ERRCHK_GERBICZ)
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"errors\":{\"gerbicz\":%lu}", (ps.error_count >> 20) & 0xF);
 	if (ps.proof_power) {
-		sprintf (JSONbuf+strlen(JSONbuf), ", \"proof\":{\"version\":1, \"power\":%d", ps.proof_power);
+		sprintf (JSONbuf+strlen(JSONbuf), ", \"proof\":{\"version\":%d, \"power\":%d", ps.proof_version, ps.proof_power);
 		if (ps.proof_power_mult > 1) sprintf (JSONbuf+strlen(JSONbuf), ", \"power-multiplier\":%d", ps.proof_power_mult);
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"hashsize\":%d, \"md5\":\"%s\"}", ps.hashlen, proof_hash);
 	}

@@ -6004,7 +6004,8 @@ retry:
 /* be completed ASAP to free up the temp disk space they are using.  Actually, any work that is near done, the user might */
 /* be watching with anticipation for its completion. */
 
-		if (est == 0.0 && (w->work_type == WORK_PMINUS1 || w->work_type == WORK_ECM || w->pct_complete > 0.85))
+		if (est == 0.0 && IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10) < 50 &&
+		    (w->work_type == WORK_PMINUS1 || w->work_type == WORK_PFACTOR || w->work_type == WORK_ECM || w->pct_complete > 0.85))
 			first_work_unit_interruptable = FALSE;
 
 /* Adjust our time estimate */
@@ -6840,6 +6841,13 @@ void proofUploader (void *arg)
 /* Loop forever */
 
 	for ( ; ; ) {
+
+/* If we are not using Primenet, wait one hour in case user changes settings from dialog box) */
+
+		if (!USE_PRIMENET) {
+			Sleep (60 * 60 * 1000);
+			continue;
+		}
 
 /* If we are not in the upload time window, pause until we are (or one hour, in case user changes time window from dialog box) */
 

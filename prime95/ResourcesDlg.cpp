@@ -178,6 +178,9 @@ CResourcesAdvancedDlg::CResourcesAdvancedDlg(CWnd* pParent /*=NULL*/)
 void CResourcesAdvancedDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialog::DoDataExchange(pDX);
+	float	max_emergency_mem = (float) (0.25 * physical_memory () / 1024.0);
+	if (max_emergency_mem < 1.0) max_emergency_mem = 1.0;
+
 	//{{AFX_DATA_MAP(PrimenetDlg)
 
 	DDX_Text(pDX, IDC_TEMP_DIR, m_temp_dir);
@@ -191,7 +194,7 @@ void CResourcesAdvancedDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Text(pDX, IDC_NIGHT_MEMORY, m_night_memory);
 	DDV_MinMaxFloat(pDX, m_night_memory, 0.0, (float) (0.9 * physical_memory () / 1024.0));
 	DDX_Text(pDX, IDC_EMERGENCY_MEM, m_emergency_mem);
-	DDV_MinMaxFloat(pDX, m_emergency_mem, 0.0, (float) (0.25 * physical_memory () / 1024.0));
+	DDV_MinMaxFloat(pDX, m_emergency_mem, 0.0, max_emergency_mem);
 	DDX_Text(pDX, IDC_PRIORITY, m_priority);
 	DDV_MinMaxUInt(pDX, m_priority, 1, 10);
 	DDX_Control(pDX, IDC_CERT_CPU_TEXT, c_cert_cpu_text);

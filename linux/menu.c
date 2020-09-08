@@ -48,6 +48,18 @@ unsigned long get_number (
 	return (atol (line));
 }
 
+unsigned long get_number_or_quit (
+	unsigned long dflt,
+	unsigned long quit_value)
+{
+	char	line[80];
+	unsigned long i;
+	get_line (line);
+	if (line[0] == 0) return (dflt);
+	if (_stricmp (line, "q") == 0 || _stricmp (line, "quit") == 0) return (quit_value);
+	return (atol (line));
+}
+
 /* Ask a Yes/No question */
 
 void askYN (
@@ -924,6 +936,8 @@ void options_resources (void)
 
 	outputLongLine ("Skip advanced resource settings");
 	if (!askYesNo ('Y')) {
+		float	max_emergency_mem = (float) (0.25 * physical_memory () / 1024.0);
+		if (max_emergency_mem < 1.0) max_emergency_mem = 1.0;
 		askStr ("Optional directory to hold large temporary files", m_temp_dir, 511);
 		askStr ("Optional directory to hold archived proofs", m_archive_dir, 511);
 		if (m_memory_editable) {
@@ -936,7 +950,7 @@ void options_resources (void)
 				askStr ("Daytime ends at", m_end_time, 12);
 			}
 		}
-		askFloat ("Max emergency memory in GB/worker", &m_emergency_mem, 0.0, (float) (0.25 * physical_memory () / 1024.0));
+		askFloat ("Max emergency memory in GB/worker", &m_emergency_mem, 0.0, max_emergency_mem);
 		askNum ("Priority -- 1 is highly recommended, see readme.txt", &m_priority, 1, 10);
 		if (m_download_mb) {
 			askNum ("Certification work limit in % of CPU time", &m_cert_cpu, 1, 100);
@@ -1366,7 +1380,7 @@ void main_menu (void)
 	printf ("\t18.  Help/About\n");
 	printf ("\t19.  Help/About PrimeNet Server\n");
 	printf ("Your choice: ");
-	choice = get_number (0);
+	choice = get_number_or_quit (0, 5);
 	if (choice <= 0 || choice >= 20) {
 		printf ("\n\t     Invalid choice\n\n");
 		continue;
