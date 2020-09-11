@@ -100,7 +100,7 @@
     <ClCompile>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <AdditionalIncludeDirectories>..;..\gwnum;\curl-7.70.0-win32-mingw\include\curl;\hwloc-win32-build-2.2.0\include;\gmp32;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;PSAPI_VERSION=1;NDEBUG;_WINDOWS;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <StringPooling>true</StringPooling>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
@@ -121,7 +121,7 @@
       <Culture>0x0409</Culture>
     </ResourceCompile>
     <Link>
-      <AdditionalDependencies>factor32.obj;..\gwnum\gwnum.lib;wininet.lib;ws2_32.lib;nafxcw.lib;\curl-7.70.0-win32-mingw\lib\libcurl.dll.a;c:\hwloc-win32-build-2.2.0\lib\libhwloc.lib;c:\gmp32\libgmp-gw1.lib;winmm.lib;libcmt.lib;kernel32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>factor32.obj;..\gwnum\gwnum.lib;wininet.lib;ws2_32.lib;nafxcw.lib;\curl-7.70.0-win32-mingw\lib\libcurl.dll.a;c:\hwloc-win32-build-2.2.0\lib\libhwloc.lib;c:\gmp32\libgmp-gw1.lib;winmm.lib;libcmt.lib;kernel32.lib;psapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>.\Release/prime95.exe</OutputFile>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <DelayLoadDLLs>oleacc.dll;ole32.dll;oleaut32.dll;advapi32.dll;wininet.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
@@ -146,7 +146,7 @@
     <ClCompile>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <AdditionalIncludeDirectories>..;..\gwnum;\gmp64;\curl-7.70.0-win64-mingw\include\curl;\hwloc-win64-build-2.2.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;ADD_UNDERSCORES;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;PSAPI_VERSION=1;NDEBUG;_WINDOWS;ADD_UNDERSCORES;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <StringPooling>true</StringPooling>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
@@ -168,7 +168,7 @@
       <Culture>0x0409</Culture>
     </ResourceCompile>
     <Link>
-      <AdditionalDependencies>amd64\factor64.obj;..\gwnum\gwnum64.lib;\hwloc-win64-build-2.2.0\lib\libhwloc.lib;\gmp64\libgmp-gw1.lib;\curl-7.70.0-win64-mingw\lib\libcurl.dll.a;wininet.lib;nafxcw.lib;libcmt.lib;kernel32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>amd64\factor64.obj;..\gwnum\gwnum64.lib;\hwloc-win64-build-2.2.0\lib\libhwloc.lib;\gmp64\libgmp-gw1.lib;\curl-7.70.0-win64-mingw\lib\libcurl.dll.a;wininet.lib;nafxcw.lib;libcmt.lib;kernel32.lib;psapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>.\x64\Release/prime95.exe</OutputFile>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <DelayLoadDLLs>wininet.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
@@ -193,7 +193,7 @@
     <ClCompile>
       <Optimization>Disabled</Optimization>
       <AdditionalIncludeDirectories>..;..\gwnum;\curl-7.70.0-win32-mingw\include\curl;\hwloc-win32-build-2.2.0\include;\gmp32;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;GDEBUG;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;PSAPI_VERSION=1;_DEBUG;_WINDOWS;GDEBUG;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <BufferSecurityCheck>true</BufferSecurityCheck>
@@ -213,7 +213,7 @@
       <Culture>0x0409</Culture>
     </ResourceCompile>
     <Link>
-      <AdditionalDependencies>factor32.obj;..\gwnum\gwnumd.lib;ws2_32.lib;wininet.lib;\curl-7.70.0-win32-mingw\lib\libcurl.dll.a;c:\hwloc-win32-build-2.2.0\lib\libhwloc.lib;c:\gmp32\libgmp-gw1.lib;winmm.lib;kernel32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>factor32.obj;..\gwnum\gwnumd.lib;ws2_32.lib;wininet.lib;\curl-7.70.0-win32-mingw\lib\libcurl.dll.a;c:\hwloc-win32-build-2.2.0\lib\libhwloc.lib;c:\gmp32\libgmp-gw1.lib;winmm.lib;kernel32.lib;psapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>.\Debug\prime95.exe</OutputFile>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <IgnoreSpecificDefaultLibraries>libcmt;msvcrt;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
@@ -238,7 +238,7 @@
     <ClCompile>
       <Optimization>Disabled</Optimization>
       <AdditionalIncludeDirectories>..;..\gwnum;\gmp64;\curl-7.70.0-win64-mingw\include\curl;\hwloc-win64-build-2.2.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;GDEBUG;ADD_UNDERSCORES;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;PSAPI_VERSION=1;_DEBUG;_WINDOWS;GDEBUG;ADD_UNDERSCORES;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <BufferSecurityCheck>true</BufferSecurityCheck>
@@ -258,7 +258,7 @@
       <Culture>0x0409</Culture>
     </ResourceCompile>
     <Link>
-      <AdditionalDependencies>amd64\factor64.obj;..\gwnum\gwnum64d.lib;\hwloc-win64-build-2.2.0\lib\libhwloc.lib;\gmp64\libgmp-gw1.lib;\curl-7.70.0-win64-mingw\lib\libcurl.dll.a;wininet.lib;kernel32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>amd64\factor64.obj;..\gwnum\gwnum64d.lib;\hwloc-win64-build-2.2.0\lib\libhwloc.lib;\gmp64\libgmp-gw1.lib;\curl-7.70.0-win64-mingw\lib\libcurl.dll.a;wininet.lib;kernel32.lib;psapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>.\x64\Debug/prime95.exe</OutputFile>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <IgnoreAllDefaultLibraries>false</IgnoreAllDefaultLibraries>

@@ -145,11 +145,11 @@ void ecm_partial_cleanup (
 
 int ell_dbl (
 	ecmhandle *ecmdata,
-	gwnum	x1,
-	gwnum	z1,
+	const gwnum x1,
+	const gwnum z1,
 	gwnum	x2,
 	gwnum	z2,
-	gwnum	Ad4)
+	const gwnum Ad4)
 {					/* 10 FFTs */
 	gwnum	t1, t3;
 	t1 = gwalloc (&ecmdata->gwdata);
@@ -275,12 +275,13 @@ oom:	return (OutOfMemory (ecmdata->thread_num));
 /* ALSO: Like ell_add_special except x3 is returned in zdiff and z3 is returned in xdiff */
 /* caller must then gwswap xdiff and zdiff.  This save two gwcopies. */
 
+#ifdef ELL_ADD_SPECIAL2_USED
 int ell_add_special2 (
 	ecmhandle *ecmdata,
-	gwnum 	x1,
-	gwnum 	z1,
-	gwnum 	x2,
-	gwnum 	z2,
+	const gwnum x1,
+	const gwnum z1,
+	const gwnum x2,
+	const gwnum z2,
 	gwnum	xdiff,
 	gwnum	zdiff)
 {				/* 10 FFTs */
@@ -311,6 +312,49 @@ int ell_add_special2 (
 
 oom:	return (OutOfMemory (ecmdata->thread_num));
 }
+#endif
+
+/* Like ell_add_special2 except that xdiff and zdiff will be freed and replaced with the new x3 and z3 values */
+/* NOTE: x2 and z2 represent the FFTs of (x2+z2) and (x2-z2) respectively. */
+
+int ell_add_special3 (
+	ecmhandle *ecmdata,
+	const gwnum x1,
+	const gwnum z1,
+	const gwnum x2,
+	const gwnum z2,
+	gwnum	*xdiff_and_returned_x3,
+	gwnum	*zdiff_and_returned_z3)
+{				/* 10 FFTs */
+	gwnum	xdiff = *xdiff_and_returned_x3;
+	gwnum	zdiff = *zdiff_and_returned_z3;
+	gwnum	t1, t2;
+	t1 = gwalloc (&ecmdata->gwdata);
+	if (t1 == NULL) goto oom;
+	t2 = gwalloc (&ecmdata->gwdata);
+	if (t2 == NULL) goto oom;
+	gwfftaddsub4 (&ecmdata->gwdata, x1, z1, t1, t2);/* Calc (x1 + z1) and (z1 - z1) */
+	gwfftfftmul (&ecmdata->gwdata, z2, t1, t1);	/* t1 = (x1 + z1)(x2 - z2) */
+	gwfftfftmul (&ecmdata->gwdata, x2, t2, t2);	/* t2 = (x1 - z1)(x2 + z2) */
+	gwaddsub (&ecmdata->gwdata, t2, t1);		/* Calc t2 + t1 and t2 - t1 */
+	gwstartnextfft (&ecmdata->gwdata, TRUE);	/* x3 = (t2 + t1)^2 * zdiff */
+	gwsquare (&ecmdata->gwdata, t2);
+	gwstartnextfft (&ecmdata->gwdata, FALSE);
+	gwfftmul (&ecmdata->gwdata, zdiff, t2);		/* Final x3 */
+	gwstartnextfft (&ecmdata->gwdata, TRUE);	/* z3 = (t2 - t1)^2 * xdiff */
+	gwsquare (&ecmdata->gwdata, t1);
+	gwstartnextfft (&ecmdata->gwdata, FALSE);
+	gwfftmul (&ecmdata->gwdata, xdiff, t1);		/* Final z3 */
+	gwfree (&ecmdata->gwdata, xdiff);
+	gwfree (&ecmdata->gwdata, zdiff);
+	*xdiff_and_returned_x3 = t2;
+	*zdiff_and_returned_z3 = t1;
+	return (0);
+
+/* Out of memory exit path */
+
+oom:	return (OutOfMemory (ecmdata->thread_num));
+}
 
 /* This routine is called prior to a series of many ell_add_fft and */
 /* ell_dbl_fft calls.  The sequence ends by calling ell_add_fft_last. */
@@ -324,13 +368,12 @@ oom:	return (OutOfMemory (ecmdata->thread_num));
 
 void ell_begin_fft (
 	ecmhandle *ecmdata,
-	gwnum	x1,
-	gwnum	z1,
+	const gwnum x1,
+	const gwnum z1,
 	gwnum	x2,
 	gwnum	z2)
 {
-	gwaddsub4 (&ecmdata->gwdata, x1, z1, x2, z2);
-					/* x2 = x1 + z1, z2 = x1 - z1 */
+	gwaddsub4 (&ecmdata->gwdata, x1, z1, x2, z2);	/* x2 = x1 + z1, z2 = x1 - z1 */
 	gwfft (&ecmdata->gwdata, x2, x2);
 	gwfft (&ecmdata->gwdata, z2, z2);
 }
@@ -340,11 +383,11 @@ void ell_begin_fft (
 
 int ell_dbl_fft (
 	ecmhandle *ecmdata,
-	gwnum	x1,
-	gwnum	z1,
+	const gwnum x1,
+	const gwnum z1,
 	gwnum	x2,
 	gwnum	z2,
-	gwnum	Ad4)
+	const gwnum Ad4)
 {					/* 10 FFTs, 4 adds */
 	gwnum	t1, t3;
 	t1 = gwalloc (&ecmdata->gwdata);
@@ -1697,10 +1740,9 @@ int mQ_next (
 /* by Q^2D to get the next Q^m value */
 
 	if (!ecmdata->TWO_FFT_STAGE2) {
-		stop_reason = ell_add_special2 (ecmdata, ecmdata->Qmx, ecmdata->Qmz,
+		stop_reason = ell_add_special3 (ecmdata, ecmdata->Qmx, ecmdata->Qmz,
 					        ecmdata->Q2Dxplus1, ecmdata->Q2Dxminus1,
-						ecmdata->Qprevmx, ecmdata->Qprevmz);
-		gwswap (ecmdata->Qprevmx, ecmdata->Qprevmz);
+						&ecmdata->Qprevmx, &ecmdata->Qprevmz);
 		if (stop_reason) return (stop_reason);
 		gwswap (ecmdata->Qmx, ecmdata->Qprevmx);
 		gwswap (ecmdata->Qmz, ecmdata->Qprevmz);
@@ -1717,10 +1759,9 @@ int mQ_next (
 
 	if (ecmdata->mQx_count == 0) {
 		for ( ; ecmdata->mQx_count < ecmdata->E; ecmdata->mQx_count++) {
-			stop_reason = ell_add_special2 (ecmdata, ecmdata->Qmx, ecmdata->Qmz,
+			stop_reason = ell_add_special3 (ecmdata, ecmdata->Qmx, ecmdata->Qmz,
 						        ecmdata->Q2Dxplus1, ecmdata->Q2Dxminus1,
-						        ecmdata->Qprevmx, ecmdata->Qprevmz);
-			gwswap (ecmdata->Qprevmx, ecmdata->Qprevmz);
+						        &ecmdata->Qprevmx, &ecmdata->Qprevmz);
 			if (stop_reason) return (stop_reason);
 			gwswap (ecmdata->Qmx, ecmdata->Qprevmx);
 			gwswap (ecmdata->Qmz, ecmdata->Qprevmz);
@@ -2920,8 +2961,7 @@ restart3:
 /* MEMPEAK: 8 + nQx-1 + 2 for ell_add temporaries */
 
 	for (i = 3; i < ecmdata.D; i = i + 2) {
-		ell_add_special2 (&ecmdata, Qiminus2x, Qiminus2z, Q2x, Q2z, Qdiffx, Qdiffz);
-		gwswap (Qdiffx, Qdiffz);
+		ell_add_special3 (&ecmdata, Qiminus2x, Qiminus2z, Q2x, Q2z, &Qdiffx, &Qdiffz);
 
 		if (gw_test_for_error (&ecmdata.gwdata)) goto err;
 
@@ -2954,12 +2994,10 @@ restart3:
 /* MEMUSED: 8 + nQx gwnums (AD4, 6 for computing nQx, nQx vals, modinv_val) */
 /* MEMPEAK: 8 + nQx + 2 for ell_add temporaries */
 
-	ell_add_special2 (&ecmdata, Qiminus2x, Qiminus2z, Q2x, Q2z, Qdiffx, Qdiffz);
-	gwswap (Qdiffx, Qdiffz);
+	ell_add_special3 (&ecmdata, Qiminus2x, Qiminus2z, Q2x, Q2z, &Qdiffx, &Qdiffz);
 	gwfftaddsub (&ecmdata.gwdata, Q2x, Q2z); /* Recompute fft of Q2x,Q2z */
 	ell_begin_fft (&ecmdata, Qdiffx, Qdiffz, Qdiffx, Qdiffz);
-	ell_add_special2 (&ecmdata, Qiminus2x, Qiminus2z, Qdiffx, Qdiffz, Q2x, Q2z);
-	gwswap (Q2x, Q2z);
+	ell_add_special3 (&ecmdata, Qiminus2x, Qiminus2z, Qdiffx, Qdiffz, &Q2x, &Q2z);
 	gwfft (&ecmdata.gwdata, Q2x, Q2x); gwfft (&ecmdata.gwdata, Q2z, Q2z);
 	stop_reason = add_to_normalize_pool (&ecmdata, Q2x, Q2z, 1);
 	if (stop_reason) goto exit;
@@ -3501,6 +3539,7 @@ print out each test case (all relevant data)*/
 /* Do the ECM */
 
 		if (B2_start < B1) B2_start = B1;
+		memset (&w, 0, sizeof (w));
 		w.work_type = WORK_ECM;
 		w.k = k;
 		w.b = b;
@@ -3515,7 +3554,7 @@ print out each test case (all relevant data)*/
 		stop_reason = ecm (0, sp_info, &w);
 		QA_IN_PROGRESS = FALSE;
 		free (QA_FACTOR);
-		if (stop_reason) {
+		if (stop_reason != STOP_WORK_UNIT_COMPLETE) {
 			fclose (fd);
 			return (stop_reason);
 		}

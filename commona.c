@@ -40,7 +40,7 @@ void rangeStatusMessage (
 {
 	unsigned int tnum, ll_and_prp_cnt, lines_per_worker;
 	int	mersennes;		/* TRUE if only testing Mersenne numbers */
-	double	prob, est;
+	double	prob, est, cert_est;
 	char	*orig_buf;
 
 /* Just in case the user hand added work to the worktodo file, reread it */
@@ -83,6 +83,7 @@ void rangeStatusMessage (
 
 	    w = NULL;
 	    est = 0.0;
+	    cert_est = 0.0;
 	    for ( ; ; ) {
 		time_t	this_time;
 		char	timebuf[80];
@@ -121,7 +122,8 @@ void rangeStatusMessage (
 
 /* Adjust our time estimate */
 
-		est += work_estimate (tnum, w);
+		if (w->work_type == WORK_CERT) cert_est += work_estimate (tnum, w);
+		else est += work_estimate (tnum, w);
 
 /* Stop adding worktodo lines if buffer is full.  We must still loop */
 /* through the worktodo lines to decrement the in-use counters. */
@@ -163,8 +165,9 @@ void rangeStatusMessage (
 		buf += strlen (buf);
 
 		time (&this_time);
-		if (est + (double) this_time < 2147483640.0) {
-			this_time += (long) ((w->work_type == WORK_CERT) ? 43200.0 : est);
+		if (w->work_type == WORK_CERT) this_time += (long) cert_est;
+		else this_time += (long) (cert_est + est);
+		if (this_time < 2147483640.0) {
 			strcpy (timebuf, ctime (&this_time));
 			safe_strcpy (timebuf+16, timebuf+19);
 		} else

@@ -10250,36 +10250,37 @@ void createProofResiduesFile (
 		// Write out the random bytes, randomize them some more each time
 		for (i = 0; i < (int) divide_rounding_up (total_size, sizeof (buf)); i++) {
 			if (_write (fd, buf, sizeof (buf)) != sizeof (buf)) {
-				int	new_power;
+				int	num_residues, new_power, new_power_mult;
 				sprintf (buf, "Error pre-allocating proof interim residues file\n");
 				OutputBoth (ps->thread_num, buf);
 				OutputBothErrno (ps->thread_num);
 
 				// Calculate a new proof power based on the size we were able to allocate
-				if (i <= 63) new_power = 0;	// We couldn't allocate enough disk space for a proof power of 6
-				else if (i <= 127) new_power = 6;
-				else if (i <= 255) new_power = 7;
-				else if (i <= 511) new_power = 8;
-				else if (i <= 1023) new_power = 9;
-				else new_power = 10;
+				num_residues = (int) ((uint64_t) i * (uint64_t) sizeof (buf) / (uint64_t) (ps->residue_size + 16));
+				if (num_residues <= 31) new_power = 0;	// We couldn't allocate enough disk space for a proof power of 5
+				else if (num_residues <= 63) new_power = 5, new_power_mult = 3;
+				else if (num_residues <= 127) new_power = 6, new_power_mult = 2;
+				else if (num_residues <= 255) new_power = 7, new_power_mult = 2;
+				else if (num_residues <= 511) new_power = 8, new_power_mult = 1;
+				else if (num_residues <= 1023) new_power = 9, new_power_mult = 1;
+				else new_power = 10, new_power_mult = 1;
 
 				// Truncate the file size to the requirements of the new proof power
 				if (new_power) {
-					if (_chsize_s (fd, (1ULL << new_power) * (uint64_t) (ps->residue_size + 16)) < 0) {
-						// Could not truncate the file, stick with the original proof power and
-						// use emergency memory in hopes the problem goes away (network disk offline).
-						new_power = 0;
-					}
+					if (_chsize_s (fd, (1ULL << new_power) * (uint64_t) (ps->residue_size + 16)) < 0) new_power = 0;
 				}
 
 				// Use the new proof power, output a message
 				if (new_power) {
 					sprintf (buf, "Will use proof power %d instead of %d.\n", new_power, ps->proof_power);
 					OutputBoth (ps->thread_num, buf);
-					ps->proof_power = new_power;
 				} else {
-					OutputBoth (ps->thread_num, "PRP test will use emergency memory to hold interim proof residues in hopes the problem resolves itself.\n");
+					OutputBoth (ps->thread_num, "Could not create decent sized interim proof residues file.  No PRP proof will be done.\n");
 				}
+
+				// Save new proof power
+				ps->proof_power = new_power;
+				ps->proof_power_mult = new_power_mult;
 				break;
 			}
 
@@ -10293,6 +10294,7 @@ void createProofResiduesFile (
 // Close file and return
 
 	_close (fd);
+	if (ps->proof_power == 0) _unlink (ps->residues_filename);
 }
 
 /* Figure out which iteration should save an interim proof residue */
@@ -11607,7 +11609,7 @@ int prp (
 /* and power 10 doubles that! */
 
 /* Comparing power=8 at 100Mbits to power=9, 170000 more squarings are needed.  That is just 0.17% of a full PRP test. */
-/* Thus, we've decided to default to power=8 by defaulting the maximum disk space a worker can use to 5GB. */
+/* Thus, we've decided to default to power=8 by defaulting the maximum disk space a worker can use to 6GB. */
 /* Users rarely change defaults. */
 
 	ps.proof_version = 2;
@@ -11866,11 +11868,17 @@ begin:	N = exp = NULL;
 	sprintf (buf+strlen(buf), "PRP test of %s using %s\n", string_rep, fft_desc);
 	OutputStr (thread_num, buf);
 
+// Set proof variables other than proof_power and proof_power_mult that are used even if not doing a proof
+
+	excess_squarings = 0;
+	ps.proof_num_iters = w->n;
+
 // Calculate the maximum number of proof residues we will keep in memory when unable to write
 // interim proof residues because the disk is full or network disk is offline.
 
 	if (ps.proof_power) {
 		int	max_emergency_memory;
+		double	disk_space, proof_file_size;
 
 		max_emergency_memory = IniGetInt (LOCALINI_FILE, "MaxEmergencyMemory", 1024);
 		ps.residue_size = divide_rounding_up ((int) ceil(gwdata.bit_length), 8);
@@ -11886,32 +11894,32 @@ begin:	N = exp = NULL;
 		strcat (ps.residues_filename, ".residues");
 		if (ps.counter == 0)
 			createProofResiduesFile (&gwdata, &ps, IniGetInt (LOCALINI_FILE, "PreallocateDisk", 1));
-	}
-	/* Calculate how many extra squarings are needed because of a version 1 PRP proof */
-	if (ps.proof_version == 1)
-		excess_squarings = round_up_to_multiple_of (w->n, ps.proof_power_mult << ps.proof_power) - w->n;
-	else
-		excess_squarings = 0;
-	/* Calculate the number of squarings in a full or partial proof and number of squarings that are handled outside of the proof */
-	ps.proof_num_iters = (w->n + excess_squarings) / ps.proof_power_mult;
-	initial_nonproof_iters = initial_log2k_iters + (w->n + excess_squarings) % ps.proof_power_mult;
-	/* Map the current iteration (from the save file) into the next interim residue to output */
-	while (ps.counter >= initial_nonproof_iters + ps.proof_num_iters) initial_nonproof_iters += ps.proof_num_iters;
-	for (proof_next_interim_residue = 1; ; proof_next_interim_residue++) {
-		proof_next_interim_residue_iter = proofResidueIteration (&ps, proof_next_interim_residue);
-		if (ps.state == PRP_STATE_GERB_MID_BLOCK_MULT || ps.state == PRP_STATE_GERB_MID_BLOCK_MULT) {
-			if (ps.counter + 1 < initial_nonproof_iters + proof_next_interim_residue_iter) break;
-		} else if (ps.state == PRP_STATE_DCHK_PASS2) {
-			if (ps.end_counter < initial_nonproof_iters + proof_next_interim_residue_iter) break;
-		} else {
-			if (ps.counter < initial_nonproof_iters + proof_next_interim_residue_iter) break;
+
+/* Calculate how many extra squarings are needed because of a version 1 PRP proof */
+
+		if (ps.proof_version == 1)
+			excess_squarings = round_up_to_multiple_of (w->n, ps.proof_power_mult << ps.proof_power) - w->n;
+
+/* Calculate the number of squarings in a full or partial proof and number of squarings that are handled outside of the proof */
+
+		ps.proof_num_iters = (w->n + excess_squarings) / ps.proof_power_mult;
+		initial_nonproof_iters = initial_log2k_iters + (w->n + excess_squarings) % ps.proof_power_mult;
+
+/* Map the current iteration (from the save file) into the next interim residue to output */
+
+		while (ps.counter >= initial_nonproof_iters + ps.proof_num_iters) initial_nonproof_iters += ps.proof_num_iters;
+		for (proof_next_interim_residue = 1; ; proof_next_interim_residue++) {
+			proof_next_interim_residue_iter = proofResidueIteration (&ps, proof_next_interim_residue);
+			if (ps.state == PRP_STATE_GERB_MID_BLOCK_MULT || ps.state == PRP_STATE_GERB_MID_BLOCK_MULT) {
+				if (ps.counter + 1 < initial_nonproof_iters + proof_next_interim_residue_iter) break;
+			} else if (ps.state == PRP_STATE_DCHK_PASS2) {
+				if (ps.end_counter < initial_nonproof_iters + proof_next_interim_residue_iter) break;
+			} else {
+				if (ps.counter < initial_nonproof_iters + proof_next_interim_residue_iter) break;
+			}
 		}
-	}
 
 /* Output a message detailing PRP proof resource usage */
-
-	if (ps.proof_power) {
-		double	disk_space, proof_file_size;
 
 		disk_space = (double) (1 << ps.proof_power) * (double) (ps.residue_size + 16);
 		proof_file_size = (double) (ps.proof_power + 1) * (double) ps.residue_size * (double) ps.proof_power_mult;
@@ -11927,7 +11935,7 @@ begin:	N = exp = NULL;
 
 /* Calculate the exponent we will use to do our left-to-right binary exponentiation */
 
-	exp = allocgiant (((unsigned long) (w->n * _log2 (w->b) + (ps.proof_power_mult << ps.proof_power)) >> 5) + 5);
+	exp = allocgiant (((unsigned long) (w->n * _log2 (w->b) + excess_squarings) >> 5) + 5);
 	if (exp == NULL) {
 		stop_reason = OutOfMemory (thread_num);
 		goto exit;
