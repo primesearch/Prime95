@@ -1,4 +1,4 @@
-; Copyright 1995-2019 Mersenne Research, Inc.  All rights reserved
+; Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -68,7 +68,8 @@ SPREAD_CARRY_OVER_EXTRA_WORDS EQU BPTR [AD_BASE+16*SZPTR+31]
 zero_fft		EQU	BPTR [AD_BASE+16*SZPTR+32]
 const_fft		EQU	BPTR [AD_BASE+16*SZPTR+33]
 add_sub_smallmul_op	EQU	BPTR [AD_BASE+16*SZPTR+34]
-;; UNUSED_CHARS[5]	EQU	BPTR [AD_BASE+16*SZPTR+35]
+mul4_opcode		EQU	BPTR [AD_BASE+16*SZPTR+35]
+;; UNUSED_CHARS[4]	EQU	BPTR [AD_BASE+16*SZPTR+36]
 ADDIN_ROW		EQU	DPTR [AD_BASE+16*SZPTR+40]
 ADDIN_OFFSET		EQU	DPTR [AD_BASE+16*SZPTR+44]
 ADDIN_VALUE		EQU	QPTR [AD_BASE+16*SZPTR+48]

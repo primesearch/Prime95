@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -11,7 +11,7 @@
 | Commonc contains information used during setup and execution
 +---------------------------------------------------------------------*/
 
-static const char JUNK[]="Copyright 1996-2020 Mersenne Research, Inc. All rights reserved";
+static const char JUNK[]="Copyright 1996-2021 Mersenne Research, Inc. All rights reserved";
 
 char	INI_FILE[80] = {0};
 char	LOCALINI_FILE[80] = {0};
@@ -683,13 +683,13 @@ int isPrime (
 /* Routines that use a simple sieve to find "may be prime" numbers.  That is, numbers without any small factors. */
 /* This is used by ECM and P-1.  Also, used by 64-bit trial factoring setup code. */
 
-#define MAX_PRIMES	6542		/* Num primes < 2^16 */
 typedef struct {
 	unsigned int *primes;
 	uint64_t first_number;
 	unsigned int bit_number;
 	unsigned int num_primes;
 	unsigned int num_elimination_primes;
+	unsigned int max_elimination;
 	uint64_t start;
 	char	array[4096];
 } sieve_info;
@@ -701,10 +701,9 @@ void fill_sieve (
 {
 	unsigned int i, fmax;
 
-/* Determine the first bit to clear */
+/* Determine the first sieve bit to clear for each small prime */
 
-	fmax = (unsigned int)
-		sqrt ((double) (si->first_number + sizeof (si->array) * 8 * 2));
+	fmax = (unsigned int) sqrt ((double) (si->first_number + sizeof (si->array) * 8 * 2));
 	for (i = si->num_primes; i < si->num_elimination_primes * 2; i += 2) {
 		unsigned long f, r, bit;
 		f = si->primes[i];
@@ -728,10 +727,7 @@ void fill_sieve (
 	for (i = 0; i < si->num_primes; i += 2) {
 		unsigned int f, bit;
 		f = si->primes[i];
-		for (bit = si->primes[i+1];
-		     bit < sizeof (si->array) * 8;
-		     bit += f)
-			bitclr (si->array, bit);
+		for (bit = si->primes[i+1]; bit < sizeof (si->array) * 8; bit += f) bitclr (si->array, bit);
 		si->primes[i+1] = bit - sizeof (si->array) * 8;
 	}
 	si->bit_number = 0;
@@ -775,11 +771,17 @@ int start_sieve_with_limit (
 	si->start = start;
 	start |= 1;
 
+/* Delete old small primes array if it is not big enough */
+
+	if (si->primes != NULL && max_elimination_factor > si->max_elimination) {
+		free (si->primes);
+		si->primes = NULL;
+		si->first_number = 0;
+	}
+
 /* See if we can just reuse the existing sieve */
 
-	if (si->first_number &&
-	    start >= si->first_number &&
-	    start < si->first_number + sizeof (si->array) * 8 * 2) {
+	if (si->first_number && start >= si->first_number && start < si->first_number + sizeof (si->array) * 8 * 2) {
 		si->bit_number = (unsigned int) (start - si->first_number) / 2;
 		return (0);
 	}
@@ -795,6 +797,7 @@ int start_sieve_with_limit (
 		for (i = 0, f = 3; f <= max_elimination_factor && i < estimated_num_primes; f += 2)
 			if (isPrime (f)) si->primes[i*2] = f, i++;
 		si->num_elimination_primes = i;
+		si->max_elimination = max_elimination_factor;
 	}
 
 	si->first_number = start;
@@ -843,21 +846,27 @@ void end_sieve (
 	free (si);
 }
 
+/* Return the GCD of two numbers */
+
+uint64_t _intgcd (
+	uint64_t a,
+	uint64_t b)
+{
+	while (b != 0) {
+		uint64_t temp = a % b;
+		a = b;
+		b = temp;
+	}
+	return a;
+}
+
 /* Simple routine to determine if two numbers are relatively prime */
 
 int relatively_prime (
-	unsigned long i,
-	unsigned long D)
+	uint64_t a,
+	uint64_t b)
 {
-	unsigned long f;
-	for (f = 3; f * f <= i; f += 2) {
-		if (i % f != 0) continue;
-		if (D % f == 0) return (FALSE);
-		do {
-			i = i / f;
-		} while (i % f == 0);
-	}
-	return (i == 1 || D % i != 0);
+	return (_intgcd (a, b) == 1);
 }
 
 /* Calculate the modular inverse - no error checking is performed */
@@ -4289,6 +4298,26 @@ int write_slong (
 		return (FALSE);
 	if (sum != NULL) *sum = (uint32_t) (*sum + (uint32_t) tmp);
 	return (TRUE);
+}
+
+int read_int (
+	int	fd,
+	int	*val,
+	unsigned long *sum)
+{
+	long	tmp;
+
+	if (! read_slong (fd, &tmp, sum)) return (FALSE);
+	*val = (int) tmp;
+	return (TRUE);
+}
+
+int write_int (
+	int	fd,
+	int	val,
+	unsigned long *sum)
+{
+	return (write_slong (fd, val, sum));
 }
 
 int read_longlong (

@@ -1,6 +1,6 @@
 // Prime95Doc.cpp : implementation of the CPrime95Doc class
 //
-// Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
 //
 
 #include "stdafx.h"
@@ -682,12 +682,22 @@ void CPrime95Doc::OnCpu()
 		STARTUP_IN_PROGRESS = 0;
 }
 
+#define round_to_tenth(a)	((round((a) * 10.0)) / 10.0)
+
 void CPrime95Doc::OnResources() 
 {
 	CResourcesDlg dlg;
+	unsigned int day_memory, night_memory, day_start_time, day_end_time;
 	char	timebuf[20];
 
 	dlg.m_disk = CPU_WORKER_DISK_SPACE;
+	read_memory_settings (&day_memory, &night_memory, &day_start_time, &day_end_time);
+	dlg.m_day_memory = (float) round_to_tenth (day_memory / 1024.0);
+	dlg.m_night_memory = (float) round_to_tenth (night_memory / 1024.0);
+	minutesToStr (day_start_time, timebuf);
+	dlg.m_start_time = timebuf;
+	minutesToStr (day_end_time, timebuf);
+	dlg.m_end_time = timebuf;
 	dlg.m_upload_bandwidth = IniSectionGetFloat (INI_FILE, "PrimeNet", "UploadRateLimit", 0.25);
 	if (dlg.m_upload_bandwidth <= 0.0 || dlg.m_upload_bandwidth > 10000.0) dlg.m_upload_bandwidth = 10000.0;
 	IniSectionGetString (INI_FILE, "PrimeNet", "UploadStartTime", timebuf, sizeof (timebuf), "00:00");
@@ -699,12 +709,30 @@ void CPrime95Doc::OnResources()
 	dlg.m_download_mb = IniSectionGetInt (INI_FILE, "PrimeNet", "DownloadDailyLimit", 40);
 	dlg.m_can_upload = IniSectionGetInt (INI_FILE, "PrimeNet", "ProofUploads", 1);
 	if (dlg.DoModal () == IDOK) {
+		unsigned int new_day_start_time, new_day_end_time;
+
 		// Raise a warning if uesr drops the temp disk space below the threshold for first time work.
 		if (CPU_WORKER_DISK_SPACE >= 1.5 && dlg.m_disk < 1.5) {
 			AfxMessageBox (MSG_DISK, MB_ICONEXCLAMATION | MB_OK);
 		}
 		CPU_WORKER_DISK_SPACE = dlg.m_disk;
 		IniWriteFloat (LOCALINI_FILE, "WorkerDiskSpace", CPU_WORKER_DISK_SPACE);
+
+/* Save the new memory settings */
+
+		new_day_start_time = strToMinutes ((const char *) dlg.m_start_time);
+		new_day_end_time = strToMinutes ((const char *) dlg.m_end_time);
+		if (day_memory != (int) (dlg.m_day_memory * 1024.0)  ||
+		    night_memory != (int) (dlg.m_night_memory * 1024.0) ||
+		    day_start_time != new_day_start_time ||
+		    day_end_time != new_day_end_time) {
+			write_memory_settings ((int) (dlg.m_day_memory * 1024.0), (int) (dlg.m_night_memory * 1024.0), new_day_start_time, new_day_end_time);
+			mem_settings_have_changed ();
+			spoolMessage (PRIMENET_PROGRAM_OPTIONS, NULL);
+		}
+
+/* Write bandwidth settings */
+
 		IniSectionWriteFloat (INI_FILE, "PrimeNet", "UploadRateLimit", dlg.m_upload_bandwidth);
 		IniSectionWriteString (INI_FILE, "PrimeNet", "UploadStartTime", (const char *) dlg.m_upload_start);
 		IniSectionWriteString (INI_FILE, "PrimeNet", "UploadEndTime", (const char *) dlg.m_upload_end);

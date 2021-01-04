@@ -1,4 +1,4 @@
-; Copyright 2011-2018 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2020 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -681,7 +681,7 @@ nozpad:
 	ENDM
 
 zmult7	MACRO	src1, src2
-	LOCAL	nozpad
+	LOCAL	nozpad, orig, notadd
 	cmp	ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
 	je	nozpad			;; No, skip 7 word multiply
 
@@ -701,7 +701,33 @@ zmult7	MACRO	src1, src2
 	vmovsd	xmm13, Q [src2-48]	;; Load copy of input FFT word at halfway + 2
 	vmovsd	xmm14, Q [src2-40]	;; Load copy of input FFT word at halfway + 3
 
-	vmulsd	xmm0, xmm1, xmm14	;; Result0 = word-3 * word3
+	mov	al, mul4_opcode		;; Load gwmul4 opcode
+	and	al, 7fh			;; Mask out the save FFT results flag
+	jz	orig			;; Jump if not doiing addmul or submul
+
+	cmp	al, 1			;; Are we doing an ADD or SUB
+	mov	rax, SRC2ARG		;; Distance to s2 arg from gwaddmul4 or gwsubmul4
+	jne	short notadd
+
+	vaddsd	xmm8, xmm8, Q [rsi+rax-88]	;; Add copy of input FFT word at halfway - 3
+	vaddsd	xmm9, xmm9, Q [rsi+rax-80]	;; Add copy of input FFT word at halfway - 2
+	vaddsd	xmm10, xmm10, Q [rsi+rax-72]	;; Add copy of input FFT word at halfway - 1
+	vaddsd	xmm11, xmm11, Q [rsi+rax-64]	;; Add copy of input FFT word at halfway + 0
+	vaddsd	xmm12, xmm12, Q [rsi+rax-56]	;; Add copy of input FFT word at halfway + 1
+	vaddsd	xmm13, xmm13, Q [rsi+rax-48]	;; Add copy of input FFT word at halfway + 2
+	vaddsd	xmm14, xmm14, Q [rsi+rax-40]	;; Add copy of input FFT word at halfway + 3
+	jmp	short orig
+
+notadd:
+	vsubsd	xmm8, xmm8, Q [rsi+rax-88]	;; Sub copy of input FFT word at halfway - 3
+	vsubsd	xmm9, xmm9, Q [rsi+rax-80]	;; Sub copy of input FFT word at halfway - 2
+	vsubsd	xmm10, xmm10, Q [rsi+rax-72]	;; Sub copy of input FFT word at halfway - 1
+	vsubsd	xmm11, xmm11, Q [rsi+rax-64]	;; Sub copy of input FFT word at halfway + 0
+	vsubsd	xmm12, xmm12, Q [rsi+rax-56]	;; Sub copy of input FFT word at halfway + 1
+	vsubsd	xmm13, xmm13, Q [rsi+rax-48]	;; Sub copy of input FFT word at halfway + 2
+	vsubsd	xmm14, xmm14, Q [rsi+rax-40]	;; Sub copy of input FFT word at halfway + 3
+
+orig:	vmulsd	xmm0, xmm1, xmm14	;; Result0 = word-3 * word3
 	zfmaddsd xmm0, xmm2, xmm13, xmm0 ;;	   + word-2 * word2
 	zfmaddsd xmm0, xmm3, xmm12, xmm0 ;;	   + word-1 * word1
 	zfmaddsd xmm0, xmm4, xmm11, xmm0 ;;	   + word0 * word0

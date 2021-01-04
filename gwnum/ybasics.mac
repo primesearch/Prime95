@@ -1,4 +1,4 @@
-; Copyright 2011-2018 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2020 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -270,6 +270,158 @@ yfnmsubpd MACRO dest, mulval1, mulval2, addval, which_arg_to_copy
 	ENDIF
 	ENDM
 
+yfmaddsd MACRO dest, mulval1, mulval2, addval
+	IFIDNI <&dest>, <&addval>
+		IF (OPATTR (mulval1)) AND 10000b
+			vfmadd231sd addval, mulval1, mulval2
+		ELSE
+			vfmadd231sd addval, mulval2, mulval1
+		ENDIF
+	ELSE
+	IFIDNI <&dest>, <&mulval1>
+		IF (OPATTR (mulval2)) AND 10000b
+			vfmadd213sd mulval1, mulval2, addval
+		ELSE
+			vfmadd132sd mulval1, addval, mulval2
+		ENDIF
+	ELSE
+	IFIDNI <&dest>, <&mulval2>
+		IF (OPATTR (mulval1)) AND 10000b
+			vfmadd213sd mulval2, mulval1, addval
+		ELSE
+			vfmadd132sd mulval2, addval, mulval1
+		ENDIF
+	ELSE
+	IF (OPATTR (mulval2)) AND 10000b
+		vmovsd	dest, mulval2, mulval2
+		IF (OPATTR (mulval1)) AND 10000b
+			vfmadd213sd dest, mulval1, addval
+		ELSE
+			vfmadd132sd dest, addval, mulval1
+		ENDIF
+	ELSE
+		vmovsd	dest, mulval1, mulval1
+		vfmadd132sd dest, addval, mulval2
+	ENDIF
+	ENDIF
+	ENDIF
+	ENDIF
+	ENDM
+
+yfmsubsd MACRO dest, mulval1, mulval2, addval
+	IFIDNI <&dest>, <&addval>
+		IF (OPATTR (mulval1)) AND 10000b
+			vfmsub231sd addval, mulval1, mulval2
+		ELSE
+			vfmsub231sd addval, mulval2, mulval1
+		ENDIF
+	ELSE
+	IFIDNI <&dest>, <&mulval1>
+		IF (OPATTR (mulval2)) AND 10000b
+			vfmsub213sd mulval1, mulval2, addval
+		ELSE
+			vfmsub132sd mulval1, addval, mulval2
+		ENDIF
+	ELSE
+	IFIDNI <&dest>, <&mulval2>
+		IF (OPATTR (mulval1)) AND 10000b
+			vfmsub213sd mulval2, mulval1, addval
+		ELSE
+			vfmsub132sd mulval2, addval, mulval1
+		ENDIF
+	ELSE
+	IF (OPATTR (mulval2)) AND 10000b
+		vmovsd	dest, mulval2, mulval2
+		IF (OPATTR (mulval1)) AND 10000b
+			vfmsub213sd dest, mulval1, addval
+		ELSE
+			vfmsub132sd dest, addval, mulval1
+		ENDIF
+	ELSE
+		vmovsd	dest, mulval1, mulval1
+		vfmsub132sd dest, addval, mulval2
+	ENDIF
+	ENDIF
+	ENDIF
+	ENDIF
+	ENDM
+
+yfnmaddsd MACRO dest, mulval1, mulval2, addval
+	IFIDNI <&dest>, <&addval>
+		IF (OPATTR (mulval1)) AND 10000b
+			vfnmadd231sd addval, mulval1, mulval2
+		ELSE
+			vfnmadd231sd addval, mulval2, mulval1
+		ENDIF
+	ELSE
+	IFIDNI <&dest>, <&mulval1>
+		IF (OPATTR (mulval2)) AND 10000b
+			vfnmadd213sd mulval1, mulval2, addval
+		ELSE
+			vfnmadd132sd mulval1, addval, mulval2
+		ENDIF
+	ELSE
+	IFIDNI <&dest>, <&mulval2>
+		IF (OPATTR (mulval1)) AND 10000b
+			vfnmadd213sd mulval2, mulval1, addval
+		ELSE
+			vfnmadd132sd mulval2, addval, mulval1
+		ENDIF
+	ELSE
+	IF (OPATTR (mulval2)) AND 10000b
+		vmovsd	dest, mulval2, mulval2
+		IF (OPATTR (mulval1)) AND 10000b
+			vfnmadd213sd dest, mulval1, addval
+		ELSE
+			vfnmadd132sd dest, addval, mulval1
+		ENDIF
+	ELSE
+		vmovsd	dest, mulval1, mulval1
+		vfnmadd132sd dest, addval, mulval2
+	ENDIF
+	ENDIF
+	ENDIF
+	ENDIF
+	ENDM
+
+yfnmsubsd MACRO dest, mulval1, mulval2, addval
+	IFIDNI <&dest>, <&addval>
+		IF (OPATTR (mulval1)) AND 10000b
+			vfnmsub231sd addval, mulval1, mulval2
+		ELSE
+			vfnmsub231sd addval, mulval2, mulval1
+		ENDIF
+	ELSE
+	IFIDNI <&dest>, <&mulval1>
+		IF (OPATTR (mulval2)) AND 10000b
+			vfnmsub213sd mulval1, mulval2, addval
+		ELSE
+			vfnmsub132sd mulval1, addval, mulval2
+		ENDIF
+	ELSE
+	IFIDNI <&dest>, <&mulval2>
+		IF (OPATTR (mulval1)) AND 10000b
+			vfnmsub213sd mulval2, mulval1, addval
+		ELSE
+			vfnmsub132sd mulval2, addval, mulval1
+		ENDIF
+	ELSE
+	IF (OPATTR (mulval2)) AND 10000b
+		vmovsd	dest, mulval2, mulval2
+		IF (OPATTR (mulval1)) AND 10000b
+			vfnmsub213sd dest, mulval1, addval
+		ELSE
+			vfnmsub132sd dest, addval, mulval1
+		ENDIF
+	ELSE
+		vmovsd	dest, mulval1, mulval1
+		vfnmsub132sd dest, addval, mulval2
+	ENDIF
+	ENDIF 
+	ENDIF 
+	ENDIF
+	ENDM
+
 ;; The Bulldozer version of yfmaddpd, yfmsubpd, yfnmaddpd, yfnmsubpd
 
 IF (@INSTR(,%yarch,<BULL>) NE 0)
@@ -284,6 +436,18 @@ yfnmaddpd MACRO dest, mulval1, mulval2, addval, which_arg_to_copy
 	ENDM
 yfnmsubpd MACRO dest, mulval1, mulval2, addval, which_arg_to_copy
 	vfnmsubpd dest, mulval1, mulval2, addval
+	ENDM
+yfmaddsd MACRO dest, mulval1, mulval2, addval, which_arg_to_copy
+	vfmaddsd dest, mulval1, mulval2, addval
+	ENDM
+yfmsubsd MACRO dest, mulval1, mulval2, addval, which_arg_to_copy
+	vfmsubsd dest, mulval1, mulval2, addval
+	ENDM
+yfnmaddsd MACRO dest, mulval1, mulval2, addval, which_arg_to_copy
+	vfnmaddsd dest, mulval1, mulval2, addval
+	ENDM
+yfnmsubsd MACRO dest, mulval1, mulval2, addval, which_arg_to_copy
+	vfnmsubsd dest, mulval1, mulval2, addval
 	ENDM
 ENDIF
 
@@ -602,3 +766,109 @@ ymult7	MACRO	src1, src2
 nozpad:
 	ENDM
 
+;; 64-bit implementation supporting gwmul4 opcodes
+
+IFDEF X86_64
+
+ym7fma	MACRO a, b, c		;; a = a + b * c
+IF (@INSTR(,%yarch,<FMA3>) NE 0)
+	yfmaddsd a, b, c, a
+ELSE
+	vmulsd	xmm15, b, c
+	vaddsd	a, a, xmm15
+ENDIF
+	ENDM
+
+ymult7	MACRO	src1, src2
+	LOCAL	nozpad, orig, notadd
+	cmp	ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
+	je	nozpad			;; No, skip 7 word multiply
+
+	vmovsd	xmm1, Q [src1-88]	;; Load copy of input FFT word at halfway - 3
+	vmovsd	xmm2, Q [src1-80]	;; Load copy of input FFT word at halfway - 2
+	vmovsd	xmm3, Q [src1-72]	;; Load copy of input FFT word at halfway - 1
+	vmovsd	xmm4, Q [src1-40]	;; Load copy of input FFT word at halfway + 0
+	vmovsd	xmm5, Q [src1-48]	;; Load copy of input FFT word at halfway + 1
+	vmovsd	xmm6, Q [src1-56]	;; Load copy of input FFT word at halfway + 2
+	vmovsd	xmm7, Q [src1-64]	;; Load copy of input FFT word at halfway + 3
+
+	vmovsd	xmm8, Q [src2-88]	;; Load copy of input FFT word at halfway - 3
+	vmovsd	xmm9, Q [src2-80]	;; Load copy of input FFT word at halfway - 2
+	vmovsd	xmm10, Q [src2-72]	;; Load copy of input FFT word at halfway - 1
+	vmovsd	xmm11, Q [src2-40]	;; Load copy of input FFT word at halfway + 0
+	vmovsd	xmm12, Q [src2-48]	;; Load copy of input FFT word at halfway + 1
+	vmovsd	xmm13, Q [src2-56]	;; Load copy of input FFT word at halfway + 2
+	vmovsd	xmm14, Q [src2-64]	;; Load copy of input FFT word at halfway + 3
+
+	mov	al, mul4_opcode		;; Load gwmul4 opcode
+	and	al, 7fh			;; Mask out the save FFT results flag
+	jz	orig			;; Jump if not doing addmul4 or submul4
+
+	cmp	al, 1			;; Are we doing an ADD or SUB
+	mov	rax, SRC2ARG		;; Distance to s2 arg from gwaddmul4 or gwsubmul4
+	jne	short notadd
+
+	vaddsd	xmm8, xmm8, Q [rsi+rax-88]	;; Add copy of input FFT word at halfway - 3
+	vaddsd	xmm9, xmm9, Q [rsi+rax-80]	;; Add copy of input FFT word at halfway - 2
+	vaddsd	xmm10, xmm10, Q [rsi+rax-72] ;; Add copy of input FFT word at halfway - 1
+	vaddsd	xmm11, xmm11, Q [rsi+rax-40] ;; Add copy of input FFT word at halfway + 0
+	vaddsd	xmm12, xmm12, Q [rsi+rax-48] ;; Add copy of input FFT word at halfway + 1
+	vaddsd	xmm13, xmm13, Q [rsi+rax-56] ;; Add copy of input FFT word at halfway + 2
+	vaddsd	xmm14, xmm14, Q [rsi+rax-64] ;; Add copy of input FFT word at halfway + 3
+	jmp	short orig
+
+notadd:
+	vsubsd	xmm8, xmm8, Q [rsi+rax-88]	;; Sub copy of input FFT word at halfway - 3
+	vsubsd	xmm9, xmm9, Q [rsi+rax-80]	;; Sub copy of input FFT word at halfway - 2
+	vsubsd	xmm10, xmm10, Q [rsi+rax-72] ;; Sub copy of input FFT word at halfway - 1
+	vsubsd	xmm11, xmm11, Q [rsi+rax-40] ;; Sub copy of input FFT word at halfway + 0
+	vsubsd	xmm12, xmm12, Q [rsi+rax-48] ;; Sub copy of input FFT word at halfway + 1
+	vsubsd	xmm13, xmm13, Q [rsi+rax-56] ;; Sub copy of input FFT word at halfway + 2
+	vsubsd	xmm14, xmm14, Q [rsi+rax-64] ;; Sub copy of input FFT word at halfway + 3
+
+orig:	vmulsd	xmm0, xmm1, xmm14	;; Result0 = word-3 * word3
+	ym7fma	xmm0, xmm2, xmm13	;;	   + word-2 * word2
+	ym7fma	xmm0, xmm3, xmm12	;;	   + word-1 * word1
+	ym7fma	xmm0, xmm4, xmm11	;;	   + word0 * word0
+	ym7fma	xmm0, xmm5, xmm10	;;	   + word1 * word-1
+	ym7fma	xmm0, xmm6, xmm9	;;	   + word2 * word-2
+	ym7fma	xmm0, xmm7, xmm8	;;	   + word3 * word-3
+	vmovsd	ZPAD0, xmm0
+
+	vmulsd	xmm0, xmm2, xmm14	;; Result1 = word-2 * word3
+	ym7fma	xmm0, xmm3, xmm13	;;	   + word-1 * word2
+	ym7fma	xmm0, xmm4, xmm12	;;	   + word0 * word1
+	ym7fma	xmm0, xmm5, xmm11	;;	   + word1 * word0
+	ym7fma	xmm0, xmm6, xmm10	;;	   + word2 * word-1
+	ym7fma	xmm0, xmm7, xmm9	;;	   + word3 * word-2
+	vmovsd	ZPAD1, xmm0
+
+	vmulsd	xmm0, xmm3, xmm14	;; Result2 = word-1 * word3
+	ym7fma	xmm0, xmm4, xmm13	;;	   + word0 * word2
+	ym7fma	xmm0, xmm5, xmm12	;;	   + word1 * word1
+	ym7fma	xmm0, xmm6, xmm11	;;	   + word2 * word0
+	ym7fma	xmm0, xmm7, xmm10	;;	   + word3 * word-1
+	vmovsd	ZPAD2, xmm0
+
+	vmulsd	xmm0, xmm4, xmm14	;; Result3 = word0 * word3
+	ym7fma	xmm0, xmm5, xmm13	;;	   + word1 * word2
+	ym7fma	xmm0, xmm6, xmm12	;;	   + word2 * word1
+	ym7fma	xmm0, xmm7, xmm11	;;	   + word3 * word0
+	vmovsd	ZPAD3, xmm0
+
+	vmulsd	xmm0, xmm5, xmm14	;; Result4 = word1 * word3
+	ym7fma	xmm0, xmm6, xmm13	;;	   + word2 * word2
+	ym7fma	xmm0, xmm7, xmm12	;;	   + word3 * word1
+	vmovsd	ZPAD4, xmm0
+
+	vmulsd	xmm0, xmm6, xmm14	;; Result5 = word2 * word3
+	ym7fma	xmm0, xmm7, xmm13	;;	   + word3 * word2
+	vmovsd	ZPAD5, xmm0
+
+	vmulsd	xmm0, xmm7, xmm14	;; Result6 = word3 * word3
+	vmovsd	ZPAD6, xmm0
+
+nozpad:
+	ENDM
+
+ENDIF

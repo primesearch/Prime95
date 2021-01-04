@@ -66,7 +66,7 @@ int writeCertSaveFile (			/* Returns TRUE if successful */
 	closeWriteSaveFile (write_save_file_state, fd);
 	return (TRUE);
 
-/* An error occured.  Delete the current file. */
+/* An error occurred.  Delete the current file. */
 
 writeerr:
 	sprintf (buf, WRITEFILEERR, write_save_file_state->base_filename);

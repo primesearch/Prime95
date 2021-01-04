@@ -1,9 +1,9 @@
-/* Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved */
+/* Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved */
 
 /* Constants */
 
-#define VERSION		"30.3"
-#define BUILD_NUM	"6"
+#define VERSION		"30.4"
+#define BUILD_NUM	"5"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -265,8 +265,9 @@ int start_sieve (int thread_num, uint64_t start, void **returned_si);		// Defaul
 int start_sieve_with_limit (int thread_num, uint64_t start, uint32_t max_elimination_factor, void **returned_si);
 uint64_t sieve (void *si);
 void end_sieve (void *si);
-uint64_t modinv (uint64_t x, uint64_t f);
-int relatively_prime (unsigned long, unsigned long);
+uint64_t _intgcd (uint64_t, uint64_t);
+uint64_t modinv (uint64_t, uint64_t);
+int relatively_prime (uint64_t, uint64_t);
 
 void sorted_add_unique (int *, int *, int);
 int is_number_in_list (int, const char *);
@@ -415,6 +416,8 @@ int read_long (int fd, unsigned long *val, unsigned long *sum);
 int write_long (int fd, unsigned long val, unsigned long *sum);
 int read_slong (int fd, long *val, unsigned long *sum);
 int write_slong (int fd, long val, unsigned long *sum);
+int read_int (int fd, int *val, unsigned long *sum);
+int write_int (int fd, int val, unsigned long *sum);
 int read_longlong (int fd, uint64_t *val, unsigned long *sum);
 int write_longlong (int fd, uint64_t val, unsigned long *sum);
 int read_double (int fd, double *val, unsigned long *sum);

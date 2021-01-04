@@ -204,7 +204,7 @@ void registerThreadTermination (void);
 void raiseAllWorkerThreadPriority (void);
 void flashWindowAndBeep (void);
 int primeSieveTest (int);
-int setN (gwhandle *, int, struct work_unit *, giant *);
+int setN (int, struct work_unit *, giant *);
 int ecm_QA (int, struct PriorityInfo *);
 int pminus1_QA (int, struct PriorityInfo *);
 int test_randomly (int, struct PriorityInfo *);

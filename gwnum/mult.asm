@@ -1,4 +1,4 @@
-; Copyright 1995-2019 Mersenne Research, Inc.  All rights reserved
+; Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -16,7 +16,7 @@ ENDIF
 
 INCLUDE	unravel.mac
 
-VERSION_NUMBER = 2908		;; Version 29.8
+VERSION_NUMBER = 3004		;; Version 30.4
 
 ;
 ; Global variables needed by FFT setup code
@@ -5578,7 +5578,7 @@ zjmptable DD	0
 	PRCSTRT	52420000, 2809856, 0.017883
 	ZPRCENTRY421		zfft_r4dwpn,2744K,,3136,3391872			;,,SKX
 	DD			0
-	PRCSTRT	53620000, 2867200, 0.019289
+	PRCSTRT	53490000, 2867200, 0.019289	;; Reduced from 53620000, see https://www.mersenneforum.org/showpost.php?p=557090&postcount=310
 	ZPRCENTRY421		zfft_r4dwpn,2800K,,4480,3643008
 	ZPRCENTRY421		zfft_r4dwpn,2800K,,3200,3461504
 	ZPRCENTRY421		zfft_r4dwpn,2800K,,2240,3608064			;,,SKX
@@ -7407,9 +7407,13 @@ PROCL	gwinfo1
 	mov	rax, OFFSET xjmptablep	; SSE2 2^N+1 mod FFTs
 	mov	[rcx+1*SZPTR], rax
 	IFNDEF X86_64
-	mov	rax, OFFSET jmptable	; x86 mersenne mod FFTs
+	mov	rax, OFFSET jmptable	; x87 mersenne mod FFTs
 	mov	[rcx+2*SZPTR], rax
-	mov	rax, OFFSET jmptablep	; x86 2^N+1 mod FFTs
+	mov	rax, OFFSET jmptablep	; x87 2^N+1 mod FFTs
+	mov	[rcx+3*SZPTR], rax
+	ELSE
+	sub	rax, rax
+	mov	[rcx+2*SZPTR], rax
 	mov	[rcx+3*SZPTR], rax
 	ENDIF
 	mov	rax, OFFSET yjmptable	; AVX mersenne mod FFTs
@@ -7420,6 +7424,10 @@ PROCL	gwinfo1
 	mov	rax, OFFSET zjmptable	; AVX-512 mersenne mod FFTs
 	mov	[rcx+6*SZPTR], rax
 	mov	rax, OFFSET zjmptablep	; AVX-512 2^N+1 mod FFTs
+	mov	[rcx+7*SZPTR], rax
+	ELSE
+	sub	rax, rax
+	mov	[rcx+6*SZPTR], rax
 	mov	[rcx+7*SZPTR], rax
 	ENDIF
 	mov	eax, VERSION_NUMBER

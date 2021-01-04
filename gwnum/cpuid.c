@@ -1320,10 +1320,10 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 
 		if (! (CPU_FLAGS & CPU_SSE2))
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_PRE_SSE2;
+		else if (family_code == 15 && (extended_family == 8 || extended_family == 10))
+			CPU_ARCHITECTURE = CPU_ARCHITECTURE_AMD_ZEN;
 		else if (family_code == 15 && extended_family >= 9)		// Future AMD processors
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_AMD_OTHER;
-		else if (family_code == 15 && extended_family == 8)
-			CPU_ARCHITECTURE = CPU_ARCHITECTURE_AMD_ZEN;
 // Do we need to check for Bobcat and Jaguar family codes here?
 // The code below will return K10 for Bobcat and Bulldozer for Jaguar
 // See https://en.wikipedia.org/wiki/List_of_AMD_CPU_microarchitectures

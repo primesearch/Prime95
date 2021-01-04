@@ -4,7 +4,7 @@
 | This file contains various utility routines that may be used by gwnum
 | routines, prime95, or other consumers of gwnum.
 | 
-|  Copyright 2004-2019 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2004-2020 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -94,7 +94,6 @@ void aligned_free (
 //*******************************************************
 
 #define TWO_MEGABYTES	2*1024*1024
-#define round_up_to_multiple_of(a,b)	(((a)+(b)-1) & ~(b-1))
 
 static int large_pages_are_supported = 0;
 #if defined (_WIN32)

@@ -165,8 +165,8 @@ void rangeStatusMessage (
 		buf += strlen (buf);
 
 		time (&this_time);
-		if (w->work_type == WORK_CERT) this_time += (long) cert_est;
-		else this_time += (long) (cert_est + est);
+		if (w->work_type == WORK_CERT) this_time += (time_t) cert_est;
+		else this_time += (time_t) (cert_est + est);
 		if (this_time < 2147483640.0) {
 			strcpy (timebuf, ctime (&this_time));
 			safe_strcpy (timebuf+16, timebuf+19);

@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -132,7 +132,7 @@ gwevent MEM_WAIT_OR_STOP[MAX_NUM_WORKER_THREADS] = {0};
 
 /* Globals for memory manager */
 
-#define DEFAULT_MEM_USAGE 24	/* 24MB default */
+#define DEFAULT_MEM_USAGE 48	/* 48MB default */
 unsigned long AVAIL_MEM = 0;	/* Memory available now */
 unsigned long MAX_MEM = 0;	/* Max memory available */
 unsigned long AVAIL_MEM_PER_WORKER[MAX_NUM_WORKER_THREADS] = {0};
@@ -1074,19 +1074,15 @@ void read_mem_info (void)
 		p = p + 6;
 	}
 
-/* Get the maximum number of workers that can use lots of memory */
-/* Default is AVAIL_MEM / 200MB rounded off. */
+/* Get the maximum number of workers that can use lots of memory.  Default is AVAIL_MEM / 1GB rounded off. */
 
-	MAX_HIGH_MEM_WORKERS = IniGetTimedInt (LOCALINI_FILE, "MaxHighMemWorkers",
-					       (AVAIL_MEM + 100) / 200, &seconds);
-	if (seconds && (seconds_until_reread == 0 || seconds < seconds_until_reread))
-		seconds_until_reread = seconds;
+	MAX_HIGH_MEM_WORKERS = IniGetTimedInt (LOCALINI_FILE, "MaxHighMemWorkers", (AVAIL_MEM + 500) / 1000, &seconds);
+	if (seconds && (seconds_until_reread == 0 || seconds < seconds_until_reread)) seconds_until_reread = seconds;
 	if (MAX_HIGH_MEM_WORKERS < 1) MAX_HIGH_MEM_WORKERS = 1;
 
 /* Add the event that fires when the memory settings expire. */
 
-	if (seconds_until_reread)
-		add_timed_event (TE_MEM_CHANGE, seconds_until_reread);
+	if (seconds_until_reread) add_timed_event (TE_MEM_CHANGE, seconds_until_reread);
 
 /* Unlock */
 
@@ -1119,8 +1115,7 @@ void clear_memory_restart_flags (
 	MEM_RESTART_FLAGS[thread_num] = 0;
 }
 
-/* Set thread to default memory usage.  For now, this is 24MB -- roughly */
-/* the amount of memory used by LL test using a 2.5M FFT. */
+/* Set thread to default memory usage.  For now, this is 48MB -- roughly the amount of memory used by LL test using a 5M FFT. */
 
 void set_default_memory_usage (
 	int	thread_num)
@@ -1452,12 +1447,8 @@ unsigned long max_mem (
 
 int avail_mem (
 	int	thread_num,
-	unsigned long minimum_memory,	/* If this much memory (in MB) */
-					/* can be returned without restarting other */
-					/* workers, then do so */
-	unsigned long desired_memory,	/* If this much memory (in MB) */
-					/* can be returned without restarting other */
-					/* workers, then do so */
+	unsigned long minimum_memory,	/* If this much memory (in MB) can be returned without restarting other workers, then do so */
+	unsigned long desired_memory,	/* If this much memory (in MB) can be returned without restarting other workers, then do so */
 	unsigned int *memory)		/* Returned available memory, in MB */
 {
 	int	i, fixed_threads[MAX_NUM_WORKER_THREADS];
@@ -1470,19 +1461,15 @@ int avail_mem (
 		return (STOP_NOT_ENOUGH_MEM);
 	}
 
-/* Check if we are only supposed to run high memory workers when the maximum */
-/* amount memory is available. */
+/* Check if we are only supposed to run high memory workers when the maximum amount memory is available. */
 
-	if (IniGetInt (INI_FILE, "OnlyRunStage2WithMaxMemory", 0) &&
-	    AVAIL_MEM != MAX_MEM) {
+	if (IniGetInt (INI_FILE, "OnlyRunStage2WithMaxMemory", 0) && AVAIL_MEM != MAX_MEM) {
 		OutputStr (thread_num, "Waiting for maximum available memory to run stage 2.\n");
 		MEM_RESTART_FLAGS[thread_num] |= MEM_RESTART_MAX_MEM_AVAILABLE;
 		return (STOP_NOT_ENOUGH_MEM);
 	}
 
-/* Check if we must wait for more memory to become available.  This */
-/* happens when we reach the maximum allowable number of threads using a lot */
-/* of memory. */
+/* Check if we must wait for more memory to become available.  This happens when we reach the maximum allowable number of threads using a lot of memory. */
 
 	if (are_threads_using_lots_of_memory (thread_num)) {
 		OutputStr (thread_num, "Exceeded limit on number of workers that can use lots of memory.\n");
@@ -1509,16 +1496,16 @@ int avail_mem (
 
 	for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
 		if (i == thread_num) continue;
-		if (MEM_FLAGS[i] & MEM_USAGE_NOT_SET ||
-		    MEM_FLAGS[i] & MEM_RESTARTING) {
+		if (MEM_FLAGS[i] & MEM_USAGE_NOT_SET || MEM_FLAGS[i] & MEM_RESTARTING) {
 			gwmutex_unlock (&MEM_MUTEX);
 			gwevent_init (&MEM_WAIT_OR_STOP[thread_num]);
 			gwevent_reset (&MEM_WAIT_OR_STOP[thread_num]);
 			MEM_WAIT_OR_STOP_INITIALIZED[thread_num] = 1;
-			gwevent_wait (&MEM_WAIT_OR_STOP[thread_num], 20 + thread_num);
+			gwevent_wait (&MEM_WAIT_OR_STOP[thread_num], 5 + thread_num);
 			MEM_WAIT_OR_STOP_INITIALIZED[thread_num] = 0;
 			gwevent_destroy (&MEM_WAIT_OR_STOP[thread_num]);
 			gwmutex_lock (&MEM_MUTEX);
+			break;
 		}
 	}
 
@@ -6014,7 +6001,7 @@ int writeLLSaveFile (
 	closeWriteSaveFile (write_save_file_state, fd);
 	return (TRUE);
 
-/* An error occured.  Delete the current file. */
+/* An error occurred.  Delete the current file. */
 
 err:	deleteWriteSaveFile (write_save_file_state, fd);
 	return (FALSE);
@@ -7319,7 +7306,7 @@ begin:	gwinit (&lldata.gwdata);
 
 	return (STOP_WORK_UNIT_COMPLETE);
 
-/* An error occured, output a message saying we are restarting, sleep, */
+/* An error occurred, output a message saying we are restarting, sleep, */
 /* then try restarting at last save point. */
 
 restart:if (sleep5) OutputBoth (thread_num, ERRMSG2);
@@ -7857,7 +7844,7 @@ restart_test:	dbltogw (&lldata.gwdata, 4.0, lldata.lldata);
 			gwsetnormroutine (&lldata.gwdata, 0, 1, 0);
 			gwstartnextfft (&lldata.gwdata, k != ll_iters - 1);
 			gwsetaddin (&lldata.gwdata, -2);
-			gwsquare2 (&lldata.gwdata, prev, g);
+			gwsquare2 (&lldata.gwdata, prev, g, 0);
 
 /* If the sum of the output values is an error (such as infinity) */
 /* then raise an error. */
@@ -8763,6 +8750,7 @@ static	int	time_all_complex = 0;	/* TRUE if we should time all-complex FFTs */
 		memset (&sp_info, 0, sizeof (sp_info));
 		sp_info.type = SET_PRIORITY_QA;
 		sp_info.worker_num = thread_num;
+		sp_info.normal_work_hyperthreads = 1;
 		sp_info.verbose_flag = IniGetInt (INI_FILE, "AffinityVerbosityQA", 0);
 		SetPriority (&sp_info);
 
@@ -10741,14 +10729,16 @@ int generateProofFile (
 		}
 		gwfree_internal_memory (gwdata);
 
-// Open the PRP residues file, create or open the PRP proof file
+// Open the PRP residues file unless all residues are in emergency memory, create or open the PRP proof file
 
-		fd = _open (ps->residues_filename, _O_BINARY | _O_RDONLY);
-		if (fd < 0) {
-			sprintf (buf, "Cannot open PRP proof interim residues file: %s\n", ps->residues_filename);
-			OutputBoth (ps->thread_num, buf);
-			OutputBothErrno (ps->thread_num);
-			goto pfail;
+		if (ps->num_emergency_allocs == 0 || ps->first_emergency_residue_number != 1) {
+			fd = _open (ps->residues_filename, _O_BINARY | _O_RDONLY);
+			if (fd < 0) {
+				sprintf (buf, "Cannot open PRP proof interim residues file: %s\n", ps->residues_filename);
+				OutputBoth (ps->thread_num, buf);
+				OutputBothErrno (ps->thread_num);
+				goto pfail;
+			}
 		}
 		tempFileName (w, filename);
 		sprintf (proof_filename, "%s.proof", filename);
@@ -10871,8 +10861,8 @@ int generateProofFile (
 
 // Close input and output files, free memory
 
-		_close (fd); fd = -1;
-		_close (fdout); fdout = -1;
+		if (fd >= 0) _close (fd), fd = -1;
+		if (fdout >= 0) _close (fdout), fdout = -1;
 		gwfree (gwdata, M); M = NULL;
 
 // Generate an MD5 hash of the bytes just written to the proof file.  This will be a unique identifier to thwart a bad actor from uploading a counterfeit proof file.
@@ -10922,6 +10912,8 @@ int generateProofFile (
 		else if (!IniGetInt (LOCALINI_FILE, "PreallocateDisk", 1)) {
 			_unlink (ps->residues_filename);
 		}
+		for (i = 0; i < ps->num_emergency_allocs; i++) free (ps->emergency_allocs[i]);
+		ps->num_emergency_allocs = 0;
 		break;
 
 // Cleanup after a proof failure, close and delete/truncate proof file
@@ -10943,6 +10935,8 @@ pfail:		if (fd >= 0) _close (fd);
 		if (proofgen_waits == 0) {		// We've run out of 5 minute waits.  Give up on trying to generate the proof file.
 			OutputBoth (ps->thread_num, "Proof generation failed.\n");
 			ps->proof_power = 0;		// Clear proof power so that JSON will report no proof file generated
+			for (i = 0; i < ps->num_emergency_allocs; i++) free (ps->emergency_allocs[i]);
+			ps->num_emergency_allocs = 0;
 			_unlink (ps->residues_filename);
 			break;
 		}
@@ -11099,7 +11093,7 @@ int writePRPSaveFile (			// Returns TRUE if successful
 	closeWriteSaveFile (write_save_file_state, fd);
 	return (TRUE);
 
-/* An error occured.  Delete the current file. */
+/* An error occurred.  Delete the current file. */
 
 writeerr:
 	sprintf (buf, WRITEFILEERR, write_save_file_state->base_filename);
@@ -11711,7 +11705,7 @@ begin:	N = exp = NULL;
 
 /* Compute the number we are testing. */
 
-	stop_reason = setN (&gwdata, thread_num, w, &N);
+	stop_reason = setN (thread_num, w, &N);
 	if (stop_reason) goto exit;
 
 /* If N is one, the number is already fully factored.  Print an error message. */
@@ -13020,7 +13014,7 @@ exit:	gwdone (&gwdata);
 	free (ps.emergency_allocs);
 	return (stop_reason);
 
-/* An error occured, output a message saying we are restarting, sleep, */
+/* An error occurred, output a message saying we are restarting, sleep, */
 /* then try restarting at last save point. */
 
 restart:if (sleep5) OutputBoth (thread_num, ERRMSG2);
