@@ -2686,40 +2686,10 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		}
 	    }
 
-/* Handle ECM= lines.  Old style is: */
-/*   ECM=exponent,B1,B2,curves_to_do,unused[,specific_sigma,plus1,B2_start] */
-/* New style is: */
-/*   ECM2=k,b,n,c,B1,B2,curves_to_do[,specific_sigma,B2_start][,"factors"] */
+/* Handle ECM= and ECM2= lines.  Note we've deprecated the old (2002ish) ECM= syntax and now treat ECM= and ECM2= the same. */
+/*	ECM2=k,b,n,c,B1,B2,curves_to_do[,specific_sigma,B2_start][,"factors"] */
 
-	    else if (_stricmp (keyword, "ECM") == 0) {
-		char	*q;
-		w->work_type = WORK_ECM;
-		sscanf (value, "%ld", &w->n);
-		if ((q = strchr (value, ',')) == NULL) goto illegal_line;
-		w->B1 = atof (q+1);
-		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-		w->B2 = atof (q+1);
-		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-		w->curves_to_do = atoi (q+1);
-		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-		q = strchr (q+1, ',');
-		w->curve = 0;
-		if (q != NULL) {
-			w->curve = atof (q+1);
-			q = strchr (q+1, ',');
-		}
-		if (q != NULL) {
-			w->c = atoi (q+1);
-			if (w->c == 0) w->c = -1; /* old plus1 arg */
-			q = strchr (q+1, ',');
-		}
-		w->B2_start = w->B1;
-		if (q != NULL) {
-			double j;
-			j = atof (q+1);
-			if (j > w->B1) w->B2_start = j;
-		}
-	    } else if (_stricmp (keyword, "ECM2") == 0) {
+	    else if (_stricmp (keyword, "ECM") == 0 || _stricmp (keyword, "ECM2") == 0) {
 		int	i;
 		char	*q;
 		w->work_type = WORK_ECM;
@@ -2753,63 +2723,40 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		}
 	    }
 
-/* Handle Pminus1 lines:  Old style:				*/
-/*	Pminus1=exponent,B1,B2,plus1[,B2_start]			*/
-/* New style is:						*/
+/* Handle Pminus1 lines:						*/
 /*	Pminus1=k,b,n,c,B1,B2[,how_far_factored][,B2_start][,"factors"] */
 
 	    else if (_stricmp (keyword, "Pminus1") == 0) {
 		char	*q;
 		w->work_type = WORK_PMINUS1;
-		if (countCommas (value) <= 4) {
-			sscanf (value, "%ld", &w->n);
-			if ((q = strchr (value, ',')) == NULL)
-				goto illegal_line;
-			w->B1 = atof (q+1);
-			if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-			w->B2 = atof (q+1);
-			if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-			sscanf (q+1, "%ld", &w->c);
-			q = strchr (q+1, ',');
-			if (w->c == 0) w->c = -1; /* old plus1 arg */
-			if (q != NULL) {
-				double j;
-				j = atof (q+1);
-				if (j > w->B1) w->B2_start = j;
-			}
-		} else {
-			w->k = atof (value);
-			if ((q = strchr (value, ',')) == NULL)
-				goto illegal_line;
-			sscanf (q+1, "%lu,%lu,%ld", &w->b, &w->n, &w->c);
-			for (i = 1; i <= 3; i++)
-				if ((q = strchr (q+1, ',')) == NULL)
-					goto illegal_line;
-			w->B1 = atof (q+1);
-			if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-			w->B2 = atof (q+1);
-			q = strchr (q+1, ',');
-			w->sieve_depth = 0.0;
-			if (q != NULL && q[1] != '"') {
-				double	j;
-				j = atof (q+1);
-				if (j < 100.0) {
-					w->sieve_depth = j;
-					q = strchr (q+1, ',');
-				}
-			}
-			w->B2_start = 0;
-			if (q != NULL && q[1] != '"') {
-				double	j;
-				j = atof (q+1);
-				if (j > w->B1) w->B2_start = j;
+		w->k = atof (value);
+		if ((q = strchr (value, ',')) == NULL) goto illegal_line;
+		sscanf (q+1, "%lu,%lu,%ld", &w->b, &w->n, &w->c);
+		for (i = 1; i <= 3; i++) if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+		w->B1 = atof (q+1);
+		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+		w->B2 = atof (q+1);
+		q = strchr (q+1, ',');
+		w->sieve_depth = 0.0;
+		if (q != NULL && q[1] != '"') {
+			double	j;
+			j = atof (q+1);
+			if (j < 100.0) {
+				w->sieve_depth = j;
 				q = strchr (q+1, ',');
 			}
-			if (q != NULL && q[1] == '"') {
-				w->known_factors = (char *) malloc (strlen (q));
-				if (w->known_factors == NULL) goto nomem;
-				strcpy (w->known_factors, q+2);
-			}
+		}
+		w->B2_start = 0;
+		if (q != NULL && q[1] != '"') {
+			double	j;
+			j = atof (q+1);
+			if (j > w->B1) w->B2_start = j;
+			q = strchr (q+1, ',');
+		}
+		if (q != NULL && q[1] == '"') {
+			w->known_factors = (char *) malloc (strlen (q));
+			if (w->known_factors == NULL) goto nomem;
+			strcpy (w->known_factors, q+2);
 		}
 	    }
 

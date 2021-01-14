@@ -2,7 +2,7 @@
 /* so that they can be included in both the command-line mprime version as */
 /* well as the Mac OS X GUI version. */
 
-/* Copyright 1995-2020 Mersenne Research, Inc. */
+/* Copyright 1995-2021 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -502,3 +502,10 @@ char getDirectorySeparator ()
 	return ('/');
 }
 
+/* Tell malloc to free memory back to the OS */
+
+void mallocFreeForOS () {
+#ifdef __linux__
+	malloc_trim (0);
+#endif
+}

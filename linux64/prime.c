@@ -1,4 +1,4 @@
-/* Copyright 1995-2020 Mersenne Research, Inc. */
+/* Copyright 1995-2021 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -18,6 +18,7 @@
 #ifdef __linux__
 #include <dirent.h>
 #include <unistd.h>
+#include <malloc.h>
 #include <linux/unistd.h>
 #include <asm/unistd.h>
 #define __USE_GNU

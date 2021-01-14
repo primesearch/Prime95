@@ -9192,13 +9192,13 @@ void emulate_mod (
 /* Subtract from the original number to get the remainder. */
 /* Callers of gwmul3 expect results to be fully normalized, especially if they are carefully counting unnormalized adds. */
 /* Thus, it might be prudent to always normalize this next subtraction.  Prior to doing this, our QA was getting asserts in gwaddmul4 */
-/* when all 3 input arguments had a normalization count of two.  However, Pavel Atnashev reports that the normalized subtract greatly slows */
-/* down multi-threaded multiplies.  Thus, I tried to eliminating the assert by decrementing the normalize count.  QA shows the roundoff error */
+/* when all 3 input arguments had a normalization count of two.  However, Pavel Atnashev reports that a normalized subtract greatly slows */
+/* down multi-threaded multiplies.  Next, I tried eliminating the assert by clearing the normalize count.  QA shows the roundoff error */
 /* does not get out of hand. */
 
 //	force_normalize(s);
 	gwsub (gwdata, tmp, s);
-	norm_count (s) = norm_count (s) - 1;
+	norm_count (s) = 1;
 	ASSERTG (* addr (gwdata, s, gwdata->FFTLEN-1) == 0.0);
 	if (* addr (gwdata, s, gwdata->FFTLEN-1) != 0.0) gwdata->GWERROR = GWERROR_INTERNAL + 12;
 	gwfree (gwdata, tmp);

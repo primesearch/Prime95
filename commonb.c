@@ -1276,13 +1276,11 @@ int set_memory_usage (
 			worst_thread = i;
 	}
 
-/* If we have allocated more than the maximum allowable, then stop a */
-/* thread to free up some memory.  We also make sure we are using significantly */
-/* more memory than we should be so that minor fluctuations in memory */
-/* usage by the fixed threads do not cause needless restarts.  The 32MB */
-/* threshold is arbitrary. */
+/* If we have allocated more than the maximum allowable, then stop a thread to free up some memory.  We also make sure we are using */
+/* significantly more memory than we should be so that minor fluctuations in memory usage by the fixed threads do not cause needless restarts. */
+/* The 64MB threshold is arbitrary. */
 
-	if (mem_usage > AVAIL_MEM + 32) {
+	if (mem_usage > AVAIL_MEM + 64) {
 
 /* If the current thread is the worst thread (should only happen if there has */
 /* been a wild change in other thread's memory usage between the call to */

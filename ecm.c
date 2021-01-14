@@ -171,7 +171,7 @@ double best_stage2_impl (
 
 	if (maxtotrels < 4) return (1.0e99);
 
-/* Determine the mamimum bit arraysize.  The costing functions must double (or more) the stage 2 setup costs if the bit array must be split in chunks. */
+/* Determine the maximum bit arraysize.  The costing functions must double (or more) the stage 2 setup costs if the bit array must be split in chunks. */
 
 	max_bitarray_size = IniGetInt (INI_FILE, "MaximumBitArraySize", 250);
 	if (max_bitarray_size > 2000) max_bitarray_size = 2000;
@@ -734,6 +734,8 @@ typedef struct {
 	struct xz Qm, Qprevm, QD; /* Value used to calculate successive D values */
 	gwnum	*mQx;		/* Array of calculated D values when modular inverse pooling is active */
 	int	mQx_count;	/* Count of values in the mQx array */
+
+	double	pct_mem_to_use;	/* If we get memory allocation errors, we progressively try using less and less. */
 } ecmhandle;
 
 /* Forward declarations */
@@ -748,11 +750,10 @@ void ecm_cleanup (
 {
 	normalize_pool_term (ecmdata);
 	mQ_term (ecmdata);
-	free (ecmdata->nQx);
-	free (ecmdata->bitarray);
+	free (ecmdata->nQx), ecmdata->nQx = NULL;
+	free (ecmdata->bitarray), ecmdata->bitarray = NULL;
 	gwdone (&ecmdata->gwdata);
-	end_sieve (ecmdata->sieve_info);	
-	memset (ecmdata, 0, sizeof (ecmhandle));
+	end_sieve (ecmdata->sieve_info), ecmdata->sieve_info = NULL;
 }
 
 /**************************************************************
@@ -2219,6 +2220,7 @@ int mQ_next (
 		stop_reason = normalize_pool (ecmdata, N, factor);
 		if (stop_reason) return (stop_reason);
 		if (*factor != NULL) return (0);
+		mallocFreeForOS ();
 	}
 	*retx = ecmdata->mQx[ecmdata->E - ecmdata->mQx_count];
 	ecmdata->mQx_count--;
@@ -2540,28 +2542,49 @@ int ecm_stage2_impl (
 	ecmhandle *ecmdata)
 {
 	unsigned int memory, min_memory, desired_memory;	/* Memory is in MB */
+	unsigned int bitarray_size, max_bitarray_size;		/* Bitarray memory in MB */
 	int	numvals;			/* Number of gwnums we can allocate */
 	struct ecm_stage2_cost_data cost_data;	/* Extra data passed returned from ECM costing function */
 	int	stop_reason;
+
+/* Calculate (roughly) the memory required for the bit-array.  A typical stage 2 implementation is D=210, B2_start=B2/11, numrels=24, totrels=7*24. */
+/* A typical optimal B2 is 130*B1.  This means bitarray memory = B2 * 10/11 / 210 * 24 * 7 / 8 bytes. */
+
+	bitarray_size = divide_rounding_up ((unsigned int) ((ecmdata->optimal_B2 ? 130 * ecmdata->B : ecmdata->C) * 1680 / 18480), 1 << 20);
+	max_bitarray_size = IniGetInt (INI_FILE, "MaximumBitArraySize", 250);
+	if (bitarray_size > max_bitarray_size) bitarray_size = max_bitarray_size;
 
 /* Get available memory.  We need 13 gwnums to do the smallest stage 2. */
 /* If continuing from a stage 2 save file then we desire as many temporaries as the save file used.  Otherwise, assume 120 temporaries will */
 /* allow us to do a reasonable efficient stage 2 implementation. */
 //gw: is 120 reasonable?
 
-	min_memory = cvt_gwnums_to_mem (&ecmdata->gwdata, 13);
-	desired_memory = cvt_gwnums_to_mem (&ecmdata->gwdata, ecmdata->state >= ECM_STATE_STAGE2 ? ecmdata->stage2_numvals : 120);
+	min_memory = bitarray_size + cvt_gwnums_to_mem (&ecmdata->gwdata, 13);
+	desired_memory = bitarray_size + cvt_gwnums_to_mem (&ecmdata->gwdata, ecmdata->state >= ECM_STATE_STAGE2 ? ecmdata->stage2_numvals : 120);
 	stop_reason = avail_mem (ecmdata->thread_num, min_memory, desired_memory, &memory);
 	if (stop_reason) return (stop_reason);
+
+/* Factor in the multiplier that we set to less than 1.0 when we get unexpected memory allocation errors. */
+/* Make sure we can still allocate 13 temporaries. */
+
+	memory = (unsigned int) (ecmdata->pct_mem_to_use * (double) memory);
+	if (memory < min_memory) return (avail_mem_not_sufficient (ecmdata->thread_num, min_memory, desired_memory));
 	if (memory < 8) memory = 8;
+
+/* Output a message telling us how much memory is available */
+
+	if (NUM_WORKER_THREADS > 1) {
+		char	buf[100];
+		sprintf (buf, "Available memory is %dMB.\n", memory);
+		OutputStr (ecmdata->thread_num, buf);
+	}
 
 /* Figure out how many gwnum values fit in our memory limit.  User nordi had over-allocating memory troubles on Linux testing M1277, presumably */
 /* because our estimate genum size was too low.  As a work-around limit numvals to 100,000 by default. */
 
 	numvals = cvt_mem_to_gwnums (&ecmdata->gwdata, memory);
+	if (numvals < 13) numvals = 13;
 	if (numvals > 100000) numvals = 100000;
-//GW: Return "no B2" rather than assert
-	ASSERTG (numvals >= 13);
 
 /* Set C_done for future best_stage2_impl calls. */
 /* Override B2 with optimal B2 based on amount of memory available. */
@@ -2902,13 +2925,13 @@ int ecm (
 	gwnum	gg;		/* The stage 2 accumulated value */
 	giant	N;		/* Number being factored */
 	giant	factor;		/* Factor found, if any */
+	struct xz *stage2_init_save_var; /* The xz value to write to the save file if an error occurs during stage 2 init */
 	int	msglen, continueECM, prpAfterEcmFactor;
 	char	*str, *msg;
 	double	timers[10];
 
 /* Clear pointers to allocated memory */
 
-restart:
 	N = NULL;
 	factor = NULL;
 	str = NULL;
@@ -2929,6 +2952,7 @@ restart:
 	}
 	if (ecmdata.C == 0) ecmdata.C = ecmdata.B * 100;
 	if (ecmdata.C <= ecmdata.B) ecmdata.C = ecmdata.B;
+	ecmdata.pct_mem_to_use = 1.0;				// Use as much memory as we can unless we get allocation errors
 
 /* Decide if we will calculate an optimal B2 when stage 2 begins */
 
@@ -2957,6 +2981,7 @@ restart:
 
 /* Clear all timers */
 
+restart:
 	clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
 
 /* Time the giants squaring and multiply code in order to select the */
@@ -3371,7 +3396,7 @@ if (w->n == 604) {
 
 restart0:
 	ecmdata.state = ECM_STATE_STAGE1_INIT;
-//GW:	ecmdata.mem_pct = 1.0;
+	ecmdata.pct_mem_to_use = 1.0;				// Use as much memory as we can unless we get allocation errors
 	ecm_stage1_memory_usage (thread_num, &ecmdata);
 	last_output = last_output_t = ecmdata.modinv_count = 0;
 	gw_clear_fft_count (&ecmdata.gwdata);
@@ -3589,28 +3614,31 @@ restart3:
 /* Make sure we will have enough memory to run stage 2 at some time.  We need at least 13 gwnums in stage 2 main loop. */
 /* 6 for mQ_next computations (Qm, Qprevm, QD), 4 for nQx, gg, 2 for ell_add_xz_noscr temps. */
 
-replan:	//GW: does replan work, it was not here before and does not have the percent-reduction feature of P-1
-	min_memory = cvt_gwnums_to_mem (&ecmdata.gwdata, 13);
+replan:	min_memory = cvt_gwnums_to_mem (&ecmdata.gwdata, 13);
 	if ((int) max_mem (thread_num) < min_memory) {
 		sprintf (buf, "Skipping stage 2 due to insufficient memory -- %dMB needed.\n", min_memory);
 		OutputStr (thread_num, buf);
 		goto skip_stage_2;
 	}
 
+/* Keep track of the variable we need to save if an error occurs during stage 2 init */
+
+	stage2_init_save_var = &xz;
+
 /* Choose the best plan implementation given the currently available memory.  This implementation could be "wait until we have more memory". */
 
 	stop_reason = ecm_stage2_impl (&ecmdata);
-	if (stop_reason) {
-		ASSERTG (!xz.added);
-		if (ecmdata.state == ECM_STATE_MIDSTAGE) ecm_save (&ecmdata, w, xz.x, xz.z);
-		goto exit;
-	}
+	if (stop_reason) goto possible_lowmem;
 
 /* Record the amount of memory this thread will be using in stage 2. */
 
 	memused = cvt_gwnums_to_mem (&ecmdata.gwdata, ecmdata.stage2_numvals);
-	memused += (_intmin (ecmdata.numDsections - ecmdata.bitarrayfirstDsection, ecmdata.bitarraymaxDsections) * ecmdata.totrels) >> 23;
-	if (set_memory_usage (thread_num, MEM_VARIABLE_USAGE, memused)) goto replan;
+	memused += (_intmin (ecmdata.numDsections - ecmdata.bitarrayfirstDsection, ecmdata.bitarraymaxDsections) * ecmdata.totrels) >> 23; 
+	// To dodge possible infinite loop if ecm_stage2_impl allocates too much memory (it shouldn't), decrease the percentage of memory we are allowed to use
+	if (set_memory_usage (thread_num, MEM_VARIABLE_USAGE, memused)) {
+		ecmdata.pct_mem_to_use *= 0.99;
+		goto replan;
+	}
 	gw_set_max_allocs (&ecmdata.gwdata, ecmdata.stage2_numvals);
 
 /* Output a useful message regarding memory usage and ECM stage 2 implementation */
@@ -3637,12 +3665,12 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 /* Allocate nQx array of pointers to relative prime gwnums */
 
 	ecmdata.nQx = (gwnum *) malloc (ecmdata.totrels * sizeof (gwnum));
-	if (ecmdata.nQx == NULL) goto oom;
+	if (ecmdata.nQx == NULL) goto lowmem;
 
 /* Allocate memory for modular inverse pooling */
 
 	stop_reason = normalize_pool_init (&ecmdata, ecmdata.stage2_numvals - ecmdata.totrels);
-	if (stop_reason) goto exit;
+	if (stop_reason) goto possible_lowmem;
 
 /* We have two approaches for computing nQx, if memory is really tight we compute every odd multiple of x. */
 /* Otherwise, if D is divisible by 3 we compute the 1,5 mod 6 multiples which reduces initialization cost by 33%. */
@@ -3652,25 +3680,25 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 		struct xz *Q1, *Q2, *Q3, *Qi, *Qiminus2;
 		int	t3_freed, have_QD;
 
+/* Allocate memory and init values for computing nQx.  We need Q^1, Q^2, Q^3. */
+
+		if (!alloc_xz (&ecmdata, &t1)) goto lowmem;
+		if (!alloc_xz (&ecmdata, &t2)) goto lowmem;
+		if (!alloc_xz (&ecmdata, &t3)) goto lowmem;
+
 /* Copy Q^1 -- the first nQx value */
 /* Init the first nQx value with Q^1.  After the first stage 2 init, xz.x is already normalized. */
 
 		Q1 = &xz;							// Q^1
 		ecmdata.nQx[0] = gwalloc (&ecmdata.gwdata);
-		if (ecmdata.nQx[0] == NULL) goto oom;
+		if (ecmdata.nQx[0] == NULL) goto lowmem;
 		gwfft (&ecmdata.gwdata, Q1->x, ecmdata.nQx[0]);
 		if (ecmdata.state == ECM_STATE_MIDSTAGE) {
 			stop_reason = add_to_normalize_pool (&ecmdata, ecmdata.nQx[0], Q1->z, &factor);
-			if (stop_reason) goto exit;
+			if (stop_reason) goto possible_lowmem;
 			if (factor != NULL) goto bingo;
 		}
 		totrels = 1;
-
-/* Allocate memory and init values for computing nQx.  We need Q^1, Q^2, Q^3. */
-
-		if (!alloc_xz (&ecmdata, &t1)) goto oom;
-		if (!alloc_xz (&ecmdata, &t2)) goto oom;
-		if (!alloc_xz (&ecmdata, &t3)) goto oom;
 
 /* Compute Q^2, Q^3 */
 
@@ -3679,6 +3707,7 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 
 		Q3 = &t2;
 		ell_add_xz_scr (&ecmdata, Q2, Q1, Q1, Q3, &t3);			// Q3 = Q2 + Q1 (diff Q1), scratch = t3
+		stage2_init_save_var = Q3;
 
 /* Compute the rest of the nQx values (Q^i for i >= 3) */
 /* MEMPEAK: 9 + nQx + 1 (AD4, QD.x&z, 6 for t1 through t3, nQx vals, and 1 for modinv_value assuming N^2 pooling) */
@@ -3691,10 +3720,10 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 		for (i = 3; ; i += 2) {
 			if (relatively_prime (i, ecmdata.D)) {
 				ecmdata.nQx[totrels] = gwalloc (&ecmdata.gwdata);
-				if (ecmdata.nQx[totrels] == NULL) goto oom;
+				if (ecmdata.nQx[totrels] == NULL) goto lowmem;
 				gwfft (&ecmdata.gwdata, Qi->x, ecmdata.nQx[totrels]);
 				stop_reason = add_to_normalize_pool (&ecmdata, ecmdata.nQx[totrels], Qi->z, &factor);
-				if (stop_reason) goto exit;
+				if (stop_reason) goto possible_lowmem;
 				if (factor != NULL) goto bingo;
 				totrels++;
 			}
@@ -3710,10 +3739,11 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 				}
 				else {
 					t3_freed = FALSE;
-					if (!alloc_xz (&ecmdata, &ecmdata.QD)) goto oom;
+					if (!alloc_xz (&ecmdata, &ecmdata.QD)) goto lowmem;
 					ell_dbl_xz_scr (&ecmdata, Qi, &ecmdata.QD, &t3);	// QD = 2 * Qi, scratch = t3
 				}
 				have_QD = TRUE;
+				stage2_init_save_var = &ecmdata.QD;
 			}
 			if (i + i-2 == ecmdata.D) {
 				// In tighest memory case, Qiminus2 can be used as the scratch allowing us to use t3 for QD.
@@ -3724,10 +3754,11 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 				}
 				else {
 					t3_freed = FALSE;
-					if (!alloc_xz (&ecmdata, &ecmdata.QD)) goto oom;
+					if (!alloc_xz (&ecmdata, &ecmdata.QD)) goto lowmem;
 					ell_add_xz_scr (&ecmdata, Qi, Qiminus2, Q2, &ecmdata.QD, &t3); // QD = i + (i-2), diff Q2, scratch = t3
 				}
 				have_QD = TRUE;
+				stage2_init_save_var = &ecmdata.QD;
 			}
 
 /* Break out of loop when we have QD and all our nQx values */
@@ -3738,17 +3769,14 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 /* Check for user stopping this worker after waiting until QD is computed for save file creation */
 
 				stop_reason = stopCheck (thread_num);
-				if (stop_reason) {
-					ASSERTG (!ecmdata.QD.added);
-					if (ecmdata.state == ECM_STATE_MIDSTAGE) ecm_save (&ecmdata, w, ecmdata.QD.x, ecmdata.QD.z);
-					goto exit;
-				}
+				if (stop_reason) goto possible_lowmem;
 			}
 
 /* Get next possible nQx value */
 
 			ell_add_xz_scr (&ecmdata, Qi, Q2, Qiminus2, Qiminus2, &t3);		// Next odd value
 			xzswap (*Qi, *Qiminus2);
+			stage2_init_save_var = Qi;
 
 			if (gw_test_for_error (&ecmdata.gwdata)) goto err;
 		}
@@ -3768,29 +3796,29 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 		struct xz *Q1, *Q2, *Q3, *Q5, *Q6, *Q7, *Q11, *Q1mod6, *Q1mod6minus6, *Q5mod6, *Q5mod6minus6;
 		int	have_QD;
 
+/* Allocate memory and init values for computing nQx.  We need Q^1, Q^5, Q^6, Q^7, Q^11. */
+/* We also need Q^4 to compute Q^D in the middle of the nQx init loop. */
+
+		if (!alloc_xz (&ecmdata, &ecmdata.QD)) goto lowmem;
+		if (!alloc_xz (&ecmdata, &t1)) goto lowmem;
+		if (!alloc_xz (&ecmdata, &t2)) goto lowmem;
+		if (!alloc_xz (&ecmdata, &t3)) goto lowmem;
+		if (!alloc_xz (&ecmdata, &t4)) goto lowmem;
+		if (!alloc_xz (&ecmdata, &t5)) goto lowmem;
+
 /* Copy Q^1 -- the first nQx value */
 /* Init the first nQx value with Q^1.  After the first stage 2 init, xz.x is already normalized. */
 
 		Q1 = &xz;							// Q^1
 		ecmdata.nQx[0] = gwalloc (&ecmdata.gwdata);
-		if (ecmdata.nQx[0] == NULL) goto oom;
+		if (ecmdata.nQx[0] == NULL) goto lowmem;
 		gwfft (&ecmdata.gwdata, Q1->x, ecmdata.nQx[0]);
 		if (ecmdata.state == ECM_STATE_MIDSTAGE) {
 			stop_reason = add_to_normalize_pool (&ecmdata, ecmdata.nQx[0], Q1->z, &factor);
-			if (stop_reason) goto exit;
+			if (stop_reason) goto possible_lowmem;
 			if (factor != NULL) goto bingo;
 		}
 		totrels = 1;
-
-/* Allocate memory and init values for computing nQx.  We need Q^1, Q^5, Q^6, Q^7, Q^11. */
-/* We also need Q^4 to compute Q^D in the middle of the nQx init loop. */
-
-		if (!alloc_xz (&ecmdata, &ecmdata.QD)) goto oom;
-		if (!alloc_xz (&ecmdata, &t1)) goto oom;
-		if (!alloc_xz (&ecmdata, &t2)) goto oom;
-		if (!alloc_xz (&ecmdata, &t3)) goto oom;
-		if (!alloc_xz (&ecmdata, &t4)) goto oom;
-		if (!alloc_xz (&ecmdata, &t5)) goto oom;
 
 /* Compute Q^5, Q^6, Q^7, Q^11 */
 
@@ -3802,6 +3830,7 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 
 		Q5 = &t2;
 		ell_add_xz_scr (&ecmdata, Q3, Q2, Q1, Q5, &t5);			// Q5 = Q3 + Q2 (diff Q1), scratch = t5
+		stage2_init_save_var = Q5;
 
 		if (relatively_prime (5, ecmdata.D)) {
 			ecmdata.nQx[totrels] = gwalloc (&ecmdata.gwdata);
@@ -3821,6 +3850,7 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 
 		Q11 = &t4;
 		ell_add_xz_scr (&ecmdata, Q6, Q5, Q1, Q11, &t5);		// Q11 = Q6 + Q5 (diff Q1), scratch = t5
+		stage2_init_save_var = Q11;
 
 /* Compute the rest of the nQx values (Q^i for i >= 7) */
 /* MEMPEAK: 13 + nQx + (AD4, QD.x&z, 10 for t1 through t5, nQx vals, another nQx for POOL_3MULT poolz values) */
@@ -3837,20 +3867,20 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 
 			if (relatively_prime (i, ecmdata.D)) {
 				ecmdata.nQx[totrels] = gwalloc (&ecmdata.gwdata);
-				if (ecmdata.nQx[totrels] == NULL) goto oom;
+				if (ecmdata.nQx[totrels] == NULL) goto lowmem;
 				gwfft (&ecmdata.gwdata, Q1mod6->x, ecmdata.nQx[totrels]);
 				stop_reason = add_to_normalize_pool (&ecmdata, ecmdata.nQx[totrels], Q1mod6->z, &factor);
-				if (stop_reason) goto exit;
+				if (stop_reason) goto possible_lowmem;
 				if (factor != NULL) goto bingo;
 				totrels++;
 			}
 
 			if (totrels < ecmdata.totrels && relatively_prime (i+4, ecmdata.D)) {
 				ecmdata.nQx[totrels] = gwalloc (&ecmdata.gwdata);
-				if (ecmdata.nQx[totrels] == NULL) goto oom;
+				if (ecmdata.nQx[totrels] == NULL) goto lowmem;
 				gwfft (&ecmdata.gwdata, Q5mod6->x, ecmdata.nQx[totrels]);
 				stop_reason = add_to_normalize_pool (&ecmdata, ecmdata.nQx[totrels], Q5mod6->z, &factor);
-				if (stop_reason) goto exit;
+				if (stop_reason) goto possible_lowmem;
 				if (factor != NULL) goto bingo;
 				totrels++;
 			}
@@ -3862,6 +3892,7 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 				ell_dbl_xz_scr (&ecmdata, Q2, Q2, &t5);					// Q4 = 2 * Q2, scratch = t5, Q2 no longer needed
 				ell_add_xz_scr (&ecmdata, Q1mod6, Q5mod6, Q2, &ecmdata.QD, &t5);	// QD = i + i+4 (diff Q4), Q4 no longer needed
 				have_QD = TRUE;
+				stage2_init_save_var = &ecmdata.QD;
 			}
 
 /* Break out of loop when we have all our nQx values */
@@ -3872,6 +3903,7 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 
 			ell_add_xz_scr (&ecmdata, Q1mod6, Q6, Q1mod6minus6, Q1mod6minus6, &t5);		// Next 1 mod 6 value
 			xzswap (*Q1mod6, *Q1mod6minus6);
+			stage2_init_save_var = Q1mod6;
 
 /* Compute Q^D which we will need in mQ_init.  Do this with a single ell_add_xz call when we reach the two values that are 2 apart that add to D. */
 /* This only works for D = 0 mod 4. */
@@ -3879,6 +3911,7 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 			if (i+6 + i+4 == ecmdata.D) {
 				ell_add_xz_scr (&ecmdata, Q1mod6, Q5mod6, Q2, &ecmdata.QD, &t5);	// QD = i+6 + i+4 (diff Q2), Q2 no longer needed
 				have_QD = TRUE;
+				stage2_init_save_var = &ecmdata.QD;
 			}
 
 /* Break out of loop when we have QD and all our nQx values */
@@ -3891,17 +3924,14 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 				if (gw_test_for_error (&ecmdata.gwdata)) goto err;
 
 				stop_reason = stopCheck (thread_num);
-				if (stop_reason) {
-					ASSERTG (!ecmdata.QD.added);
-					if (ecmdata.state == ECM_STATE_MIDSTAGE) ecm_save (&ecmdata, w, ecmdata.QD.x, ecmdata.QD.z);
-					goto exit;
-				}
+				if (stop_reason) goto possible_lowmem;
 			}
 
 /* Get next 5 mod 6 value */
 
 			ell_add_xz_scr (&ecmdata, Q5mod6, Q6, Q5mod6minus6, Q5mod6minus6, &t5);		// Next 5 mod 6 value
 			xzswap (*Q5mod6, *Q5mod6minus6);
+			stage2_init_save_var = Q5mod6;
 		}
 
 /* Free memory used in computing nQx values */
@@ -3913,15 +3943,13 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 		free_xz (&ecmdata, &t4);
 		free_xz (&ecmdata, &t5);
 	}
+	stage2_init_save_var = &ecmdata.QD;
 
 /* Normalize all the nQx values */
 /* MEMPEAK: 3 + nQx gwnums (AD4, QD.x&z, nQx values) + 1 or nQx for pooled_modinv */
 
 	stop_reason = normalize_pool (&ecmdata, N, &factor);
-	if (stop_reason) {
-		if (ecmdata.state == ECM_STATE_MIDSTAGE) ecm_save (&ecmdata, w, ecmdata.QD.x, ecmdata.QD.z);
-		goto exit;
-	}
+	if (stop_reason) goto possible_lowmem;
 
 /* If we found a factor, we're done */
 
@@ -3937,14 +3965,14 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 //GW:  this peak is an issue.  makes minimum gwnums 17  --- or should peak be based on main loop (likely yes)
 
 	stop_reason = mQ_init (&ecmdata, ecmdata.B2_start + ecmdata.Dsection * ecmdata.D + ecmdata.D / 2);
-	if (stop_reason) goto exit;
+	if (stop_reason) goto possible_lowmem;
 
 /* Now init the accumulator unless this value was read from a continuation file */
 /* MEMUSED: 7 + nQx gwnums (6 for computing mQx, gg, nQx values) */
 
 	if (gg == NULL) {
 		gg = gwalloc (&ecmdata.gwdata);
-		if (gg == NULL) goto oom;
+		if (gg == NULL) goto lowmem;
 		dbltogw (&ecmdata.gwdata, 1.0, gg);
 	}
 
@@ -3975,6 +4003,8 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 /* If mQz also = 1 (the 2 FFT per prime continuation) then we accumulate*/
 /*		== mQx - nQx						*/
 
+//GW:  Should we do our first mQ_next before switching state (to allow going to lowmem where we reduce memory settings and retry)?
+//GW:  or can we handle out-of-memory from mQ_next???
 	ecmdata.state = ECM_STATE_STAGE2;
 	start_timer (timers, 0);
 	last_output = last_output_t = ecmdata.modinv_count = 0;
@@ -4110,6 +4140,7 @@ replan:	//GW: does replan work, it was not here before and does not have the per
 	for (i = 1; i < ecmdata.totrels; i++) gwfree (&ecmdata.gwdata, ecmdata.nQx[i]);
 	free (ecmdata.nQx); ecmdata.nQx = NULL;
 	free (ecmdata.bitarray); ecmdata.bitarray = NULL;
+	mallocFreeForOS ();
 	ecm_stage1_memory_usage (thread_num, &ecmdata);		// With the default 10 freed gwnums cached, this should be close to the correct mem usage
 
 /* Compute the new Kruppa-adjusted B2 work completed.  This is needed when curves are run with different optimal B2 values due to */
@@ -4161,6 +4192,7 @@ restart4:
 
 more_curves:
 	gwfreeall (&ecmdata.gwdata);
+	mallocFreeForOS ();
 	if (++ecmdata.curve <= w->curves_to_do) goto restart0;
 
 /* Output line to results file indicating the number of curves run */
@@ -4225,6 +4257,21 @@ exit:	ecm_cleanup (&ecmdata);
 	free (str);
 	free (msg);
 	return (stop_reason);
+
+/* Low or possibly low on memory in stage 2 init, create save file, reduce memory settings, and try again */
+
+lowmem:
+	stop_reason = OutOfMemory (thread_num);
+possible_lowmem:
+	if (ecmdata.state == ECM_STATE_MIDSTAGE) {
+		ASSERTG (!stage2_init_save_var->added);
+		ecm_save (&ecmdata, w, stage2_init_save_var->x, stage2_init_save_var->z);
+	}
+	if (stop_reason != STOP_OUT_OF_MEM) goto exit;
+	ecm_cleanup (&ecmdata);
+	OutputBoth (thread_num, "Memory allocation error.  Trying again using less memory.\n");
+	ecmdata.pct_mem_to_use *= 0.8;
+	goto restart;
 
 /* We've run out of memory.  Print error message and exit. */
 
@@ -4368,7 +4415,6 @@ err:	OutputBoth (thread_num, "SUMOUT error occurred.\n");
 
 /* Sleep five minutes before restarting */
 
-	free (N); N = NULL;
 	free (str); str = NULL;
 	free (msg); msg = NULL;
 	free (factor); factor = NULL;
@@ -4533,7 +4579,7 @@ void pm1_cleanup (
 	free (pm1data->eQx), pm1data->eQx = NULL;
 	free (pm1data->bitarray), pm1data->bitarray = NULL;
 	gwdone (&pm1data->gwdata);
-	end_sieve (pm1data->sieve_info);
+	end_sieve (pm1data->sieve_info), pm1data->sieve_info = NULL;
 }
 
 /* Raises number to the given power */
@@ -4861,8 +4907,6 @@ int pm1_old_restore (
 		*gg = gwalloc (&pm1data->gwdata);
 		if (*gg == NULL) goto readerr;
 		if (! read_gwnum (fd, &pm1data->gwdata, *gg, &sum)) goto readerr;
-		gwfree (&pm1data->gwdata, *gg);
-		*gg = NULL;
 	}
 
 /* Read and compare the checksum */
@@ -5172,17 +5216,24 @@ int pm1_stage2_impl (
 	pm1handle *pm1data)
 {
 	unsigned int memory, min_memory, desired_memory;	/* Memory is in MB */
+	unsigned int bitarray_size, max_bitarray_size;		/* Bitarray memory in MB */
 	int	numvals;			/* Number of gwnums we can allocate */
 	struct pm1_stage2_cost_data cost_data;
 	int	stop_reason;
+
+/* Calculate (roughly) the memory required for the bit-array.  A typical stage 2 implementation is D=210, B2_start=B2/11, numrels=24, totrels=7*24. */
+/* A typical optimal B2 is 40*B1.  This means bitarray memory = B2 * 10/11 / 210 * 24 * 7 / 8 bytes. */
+
+	bitarray_size = divide_rounding_up ((unsigned int) ((pm1data->optimal_B2 ? 130 * pm1data->B : pm1data->C) * 1680 / 18480), 1 << 20);
+	max_bitarray_size = IniGetInt (INI_FILE, "MaximumBitArraySize", 250);
+	if (bitarray_size > max_bitarray_size) bitarray_size = max_bitarray_size;
 
 /* Calculate the number of temporaries we can use in stage 2.  Base our decision on the current amount of memory available. */
 /* If continuing from a stage 2 save file then we desire as many temporaries as the save file used.  Otherwise, assume 28 temporaries will */
 /* provide us with a reasonable execution speed (D = 210).  We must have a minimum of 8 temporaries (D = 30). */
 
-//GW: ecm_stage2_impl does this differently
-	min_memory = cvt_gwnums_to_mem (&pm1data->gwdata, 8);
-	desired_memory = cvt_gwnums_to_mem (&pm1data->gwdata, pm1data->state >= PM1_STATE_STAGE2 ? pm1data->stage2_numvals : 28);
+	min_memory = bitarray_size + cvt_gwnums_to_mem (&pm1data->gwdata, 8);
+	desired_memory = bitarray_size + cvt_gwnums_to_mem (&pm1data->gwdata, pm1data->state >= PM1_STATE_STAGE2 ? pm1data->stage2_numvals : 28);
 	stop_reason = avail_mem (pm1data->thread_num, min_memory, desired_memory, &memory);
 	if (stop_reason) return (stop_reason);
 
@@ -5195,7 +5246,6 @@ int pm1_stage2_impl (
 
 /* Output a message telling us how much memory is available */
 
-//gw ECM does not print this  -- should we output this outside of replan loop?
 	if (NUM_WORKER_THREADS > 1) {
 		char	buf[100];
 		sprintf (buf, "Available memory is %dMB.\n", memory);
@@ -5206,7 +5256,7 @@ int pm1_stage2_impl (
 /* because our estimate genum size was too low.  As a work-around limit numvals to 100,000 by default. */
 
 	numvals = cvt_mem_to_gwnums (&pm1data->gwdata, memory);
-	if (numvals < 1) numvals = 1;
+	if (numvals < 8) numvals = 8;
 	if (numvals > 100000) numvals = 100000;
 	if (QA_TYPE) numvals = QA_TYPE;			/* Optionally override numvals for QA purposes */
 
@@ -5405,7 +5455,6 @@ int pminus1 (
 	if (pm1data.C < pm1data.B) pm1data.C = pm1data.B;
 	pm1data.first_C_start = (uint64_t) w->B2_start;
 	if (pm1data.first_C_start < pm1data.B) pm1data.first_C_start = pm1data.B;
-//GW: copy this feature to ecm -- in ecm set this to 1.0 for every curve?
 	pm1data.pct_mem_to_use = 1.0;				// Use as much memory as we can unless we get allocation errors
 
 /* Decide if we will calculate an optimal B2 when stage 2 begins.  We do this by default for P-1 work where we know how much TF has been done. */
@@ -6003,8 +6052,7 @@ replan:	{
 
 	stop_reason = pm1_stage2_impl (&pm1data);
 	if (stop_reason) {
-//GW??		if (ecmdata.state == ECM_STATE_MIDSTAGE)
-			pm1_save (&pm1data, w, x, gg);
+		if (pm1data.state == PM1_STATE_MIDSTAGE) pm1_save (&pm1data, w, x, gg);
 		goto exit;
 	}
 
@@ -6012,7 +6060,11 @@ replan:	{
 
 	memused = cvt_gwnums_to_mem (&pm1data.gwdata, pm1data.stage2_numvals);
 	memused += (_intmin (pm1data.numDsections - pm1data.bitarrayfirstDsection, pm1data.bitarraymaxDsections) * pm1data.totrels) >> 23;
-	if (set_memory_usage (thread_num, MEM_VARIABLE_USAGE, memused)) goto replan;
+	// To dodge possible infinite loop if pm1_stage2_impl allocates too much memory (it shouldn't), decrease the percentage of memory we are allowed to use
+	if (set_memory_usage (thread_num, MEM_VARIABLE_USAGE, memused)) {
+		pm1data.pct_mem_to_use *= 0.99;
+		goto replan;
+	}
 
 /* Output a useful message regarding memory usage */
 

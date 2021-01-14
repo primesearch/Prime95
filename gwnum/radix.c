@@ -4,7 +4,7 @@
 | This file contains the C routines for radix conversion when required
 | by gianttogw or gwtogiant.
 | 
-|  Copyright 2020 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2020-2021 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -87,6 +87,7 @@ int nonbase2_gianttogw (	/* Returns an error code or zero for success */
 			int	option;
 
 			gwinit (work_gwdata);
+			gwset_safety_margin (work_gwdata, -0.25);  // More zeroes in radix-conversion multiplies than in random data
 			gwset_minimum_fftlen (work_gwdata, fftlen);
 			err_code = gwinfo (work_gwdata, 1.0, gwdata->b, exp = num_pairs * b_per_mult, -1);
 			if (err_code) {			// On error, try for a small rational FFT
@@ -115,6 +116,7 @@ int nonbase2_gianttogw (	/* Returns an error code or zero for success */
 				if (newwpm > newbpm) newwpm = newbpm;		// When base is large, use rational FFT one b per FFT word
 				if (fftlen >= num_pairs * newwpm) {
 					gwinit (work_gwdata);
+					gwset_safety_margin (work_gwdata, -0.25);  // More zeroes in radix-conversion multiplies than in random data
 					err_code = gwinfo (work_gwdata, 1.0, gwdata->b, exp = newbpm * fftlen / newwpm, -1);
 					if (err_code == 0 && fftlen >= (int) work_gwdata->FFTLEN) option = 99;	// Winner!
 				}
@@ -124,6 +126,7 @@ int nonbase2_gianttogw (	/* Returns an error code or zero for success */
 			// Option 3: Try a larger FFT length
 		}
 		gwinit (work_gwdata);
+		gwset_safety_margin (work_gwdata, -0.25);  // More zeroes in radix-conversion multiplies than in random data
 		if (gwdata->num_threads > 1) gwset_num_threads (work_gwdata, gwdata->num_threads);
 		gwset_specific_fftlen (work_gwdata, fftlen);
 		err_code = gwsetup (work_gwdata, 1.0, gwdata->b, exp, -1);
