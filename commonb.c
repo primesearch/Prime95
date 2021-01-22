@@ -5656,7 +5656,7 @@ begin:	factor_found = 0;
 
 /* We used to continue factoring to find a smaller factor in a later pass. */
 /* We'll continue to do this if the found factor is really small (less than */
-/* 2^56) or if the user sets FindSmallestFactor in prime.ini. */
+/* 2^56) or if the user sets FindSmallestFactor in prime.txt. */
 
 		find_smaller_factor = (end_bits <= (unsigned int) IniGetInt (INI_FILE, "FindSmallestFactor", 56));
 
@@ -5721,8 +5721,7 @@ begin:	factor_found = 0;
 nextpass:	;
 	    }
 
-/* If we've found a factor then we need to send an assignment done */
-/* message if we continued to look for a smaller factor. */
+/* If we've found a factor then we need to send an assignment done message if we continued to look for a smaller factor. */
 
 	    if (factor_found) {
 		if (w->assignment_uid[0] && find_smaller_factor) {
@@ -5734,7 +5733,7 @@ nextpass:	;
 			pkt.done = TRUE;
 			spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 		}
-		break;
+		if (!find_smaller_factor) break;
 	    }
 
 /* Output a no factor found message */
