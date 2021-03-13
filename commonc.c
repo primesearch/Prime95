@@ -13,14 +13,14 @@
 
 static const char JUNK[]="Copyright 1996-2021 Mersenne Research, Inc. All rights reserved";
 
-char	INI_FILE[80] = {0};
-char	LOCALINI_FILE[80] = {0};
-char	WORKTODO_FILE[80] = {0};
-char	RESFILE[80] = {0};
-char	RESFILEBENCH[80] = {0};
-char	RESFILEJSON[80] = {0};
-char	SPOOL_FILE[80] = {0};
-char	LOGFILE[80] = {0};
+char	INI_FILE[260] = {0};
+char	LOCALINI_FILE[260] = {0};
+char	WORKTODO_FILE[260] = {0};
+char	RESFILE[260] = {0};
+char	RESFILEBENCH[260] = {0};
+char	RESFILEJSON[260] = {0};
+char	SPOOL_FILE[260] = {0};
+char	LOGFILE[260] = {0};
 char	*RESFILES[3] = {RESFILE, RESFILEBENCH, RESFILEJSON};
 
 char	USERID[21] = {0};
@@ -274,7 +274,7 @@ void getCpuSpeed (void)
 
 	guessCpuSpeed ();
 
-/* Now let the user override the cpu speed from the local.ini file */
+/* Now let the user override the cpu speed from the local.txt file */
 
 	temp = IniGetInt (LOCALINI_FILE, "CpuSpeed", 99);
 	if (temp != 99) CPU_SPEED = temp;
@@ -447,7 +447,7 @@ void getCpuInfo (void)
 
 	calc_hardware_guid ();
 
-/* Let the user override the cpu flags from the local.ini file */
+/* Let the user override the cpu flags from the local.txt file */
 
 	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsRDTSC", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_RDTSC;
@@ -1132,23 +1132,18 @@ void nameAndReadIniFiles (
 /* Let the user rename these files and pick a different working directory */
 
 	IniGetString (INI_FILE, "WorkingDir", buf, sizeof(buf), NULL);
-	IniGetString (INI_FILE, "local.ini", LOCALINI_FILE, 80, LOCALINI_FILE);
-	IniGetString (INI_FILE, "worktodo.ini", WORKTODO_FILE, 80, WORKTODO_FILE);
-	IniGetString (INI_FILE, "results.txt", RESFILE, 80, RESFILE);
-	IniGetString (INI_FILE, "results.bench.txt", RESFILEBENCH, 80, RESFILEBENCH);
-	IniGetString (INI_FILE, "results.json.txt", RESFILEJSON, 80, RESFILEJSON);
-	IniGetString (INI_FILE, "prime.spl", SPOOL_FILE, 80, SPOOL_FILE);
-	IniGetString (INI_FILE, "prime.log", LOGFILE, 80, LOGFILE);
-	IniGetString (INI_FILE, "prime.ini", INI_FILE, 80, INI_FILE);
+	IniGetString (INI_FILE, "local.ini", LOCALINI_FILE, 260, LOCALINI_FILE);
+	IniGetString (INI_FILE, "worktodo.ini", WORKTODO_FILE, 260, WORKTODO_FILE);
+	IniGetString (INI_FILE, "results.txt", RESFILE, 260, RESFILE);
+	IniGetString (INI_FILE, "results.bench.txt", RESFILEBENCH, 260, RESFILEBENCH);
+	IniGetString (INI_FILE, "results.json.txt", RESFILEJSON, 260, RESFILEJSON);
+	IniGetString (INI_FILE, "prime.spl", SPOOL_FILE, 260, SPOOL_FILE);
+	IniGetString (INI_FILE, "prime.log", LOGFILE, 260, LOGFILE);
+	IniGetString (INI_FILE, "prime.ini", INI_FILE, 260, INI_FILE);
 	if (buf[0]) {
 		(void) _chdir (buf);
 		IniFileReread (INI_FILE);
 	}
-
-/* Merge an old primenet.ini file into a special section of prime.ini */
-
-	if (fileExists ("primenet.ini"))
-		IniAddFileMerge (INI_FILE, "primenet.ini", "PrimeNet");
 
 /* Perform other one-time initializations */
 
@@ -1264,9 +1259,9 @@ void initCommCode (void) {
 /* every time the INI file is read in case there have been changes to */
 /* the USE_PRIMENET or MANUAL_COMM variables. */
 
-//bug - do this on all rereads of prime.ini?  If so, only after comm windows
+//bug - do this on all rereads of prime.txt?  If so, only after comm windows
 //bug - is created (and I'm not sure the comm window should be recreated
-//bug - on every prime.ini reread (and what of the windows bugs where
+//bug - on every prime.txt reread (and what of the windows bugs where
 //bug - calling create_window from other than the main thread can hang
 	set_comm_timers ();
 
@@ -1610,7 +1605,7 @@ int readIniFiles (void)
 /* or append work while the program is running.  This is especially handy */
 /* for workstations that are not physically accessible but there file */
 /* systems are by network.  If this feature was not available, the only */
-/* safe method for updating would be to stop the program, edit the .ini */
+/* safe method for updating would be to stop the program, edit the .txt */
 /* file, and restart the program. */
 
 int addFileExists (void)
@@ -1652,7 +1647,7 @@ void incorporateIniAddFiles (void)
 	char	filename[80];
 	char	*dot;
 
-/* Merge additions to prime.ini */
+/* Merge additions to prime.txt */
 
 	strcpy (filename, INI_FILE);
 	dot = strrchr (filename, '.');
@@ -1665,7 +1660,7 @@ void incorporateIniAddFiles (void)
 			IniAddFileMerge (INI_FILE, filename, NULL);
 	}
 
-/* Merge additions to local.ini */
+/* Merge additions to local.txt */
 
 	strcpy (filename, LOCALINI_FILE);
 	dot = strrchr (filename, '.');
@@ -3724,8 +3719,7 @@ unsigned int factorLimit (
 /*            Routines to compute the rolling average         */
 /**************************************************************/
 
-//bug - someway to avoid local.ini updates (to disk) if well_behaved_work
-// is set!!
+//bug - someway to avoid local.txt updates (to disk) if well_behaved_work is set!!
 
 /* Convert a string to a hash value */
 
@@ -3919,7 +3913,7 @@ void adjust_rolling_average (void)
 	if (ROLLING_AVERAGE < 20) ROLLING_AVERAGE = 20;
 	if (ROLLING_AVERAGE > 4000) ROLLING_AVERAGE = 4000;
 
-/* Update rolling average data in the local.ini file */
+/* Update rolling average data in the local.txt file */
 
 no_update:
 	IniWriteInt (LOCALINI_FILE, "RollingHash", hash);
@@ -5515,7 +5509,7 @@ int sendProgramOptions (
 
 /* Now save the shadow copy of the changed options in our LOCALINI file */
 /* so we can detect future changes to the program options (even if user */
-/* hand edits prime.ini!) */
+/* hand edits prime.txt!) */
 
 		if (work_pref_changed) {
 			if (tnum == -1)
@@ -5748,7 +5742,7 @@ retry:
 
 //bug - who wins when user has also set some options locally during the
 //startup_in_progress code path?  What about options that came from a
-// copied prime.ini file - which take precedence?
+// copied prime.txt file - which take precedence?
 	if (server_options_counter == 1 &&
 	    server_options_counter > IniGetInt (LOCALINI_FILE, "SrvrP00", 0)) {
 		rc = getProgramOptions ();
@@ -6439,7 +6433,7 @@ error_exit:
 	}
 
 /* If an invalid work preference error is generated (can happen if user */
-/* hand edits the prime.ini file) then set the work preference to zero */
+/* hand edits the prime.txt file) then set the work preference to zero */
 /* (get work that makes the most sense) and resend the program options. */
 /* As usual, reget the work preference from the ini file just in case */
 /* the in-memory copy was inexplicably corrupted. */

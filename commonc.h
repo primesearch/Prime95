@@ -2,8 +2,8 @@
 
 /* Constants */
 
-#define VERSION		"30.4"
-#define BUILD_NUM	"8"
+#define VERSION		"30.5"
+#define BUILD_NUM	"1"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -128,13 +128,13 @@ extern char V4_USERID[15];
 extern char V4_USERPWD[9];
 extern char V4_USERNAME[80];
 
-extern char INI_FILE[80];		/* Name of the prime INI file */
-extern char LOCALINI_FILE[80];		/* Name of the local INI file */
-extern char WORKTODO_FILE[80];		/* Name of the work-to-do INI file */
-extern char RESFILE[80];		/* Name of the results file */
-extern char RESFILEBENCH[80];		/* Name of the results.bench file */
-extern char SPOOL_FILE[80];		/* Name of the spool file */
-extern char LOGFILE[80];		/* Name of the server log file */
+extern char INI_FILE[260];		/* Name of the prime INI file */
+extern char LOCALINI_FILE[260];		/* Name of the local INI file */
+extern char WORKTODO_FILE[260];		/* Name of the work-to-do INI file */
+extern char RESFILE[260];		/* Name of the results file */
+extern char RESFILEBENCH[260];		/* Name of the results.bench file */
+extern char SPOOL_FILE[260];		/* Name of the spool file */
+extern char LOGFILE[260];		/* Name of the server log file */
 
 extern char USERID[21];			/* User's ID */
 extern char COMPID[21];			/* Computer name */

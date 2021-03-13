@@ -16,7 +16,7 @@
 | threads IF AND ONLY IF each uses a different gwhandle structure
 | initialized by gwinit.
 | 
-|  Copyright 2002-2020 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2002-2021 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWNUM_H
@@ -35,34 +35,26 @@ extern "C" {
 #include "giants.h"
 #include "gwthread.h"
 
-/* To support multithreading, callers of the gwnum routines must allocate */
-/* a gwhandle (on the heap or stack) and pass it to all gwnum routines. */
-/* gwinit and gwsetup fill this structure up with lots of data that used to */
-/* be stored in global variables. */
-
+/* To support multithreading, callers of the gwnum routines must allocate a gwhandle (on the heap or stack) and pass it to */
+/* all gwnum routines.  gwinit and gwsetup fill this structure up with lots of data that used to be stored in global variables. */
 typedef struct gwhandle_struct gwhandle;
 
-/* The gwnum data type.  A gwnum points to an array of doubles - the */
-/* FFT data.  In practice, there is data stored before the doubles. */
-/* See the internals section below if you really must know. */
-
+/* The gwnum data type.  A gwnum points to an array of doubles - the FFT data.  In practice, there is */
+/* data stored before the doubles.  See the internals section below if you really must know. */
 typedef double *gwnum;
 
 /*---------------------------------------------------------------------+
 |                     SETUP AND TERMINATION ROUTINES                   |
 +---------------------------------------------------------------------*/
 
-/* This is the version number for the gwnum libraries. It changes whenever */
-/* there is a change to the gwnum code.  Since Prime95 also uses the same */
-/* version numbering scheme, you will see some strange jumps in gwnum version */
-/* numbers when there are new prime95 versions without any changes in the gwnum code. */
-/* This version number is also embedded in the assembly code and */
-/* gwsetup verifies that the version numbers match.  This prevents bugs */
-/* from accidentally linking in the wrong gwnum library. */
+/* This is the version number for the gwnum libraries. It changes whenever there is a significant change to the gwnum code. */
+/* Since Prime95 also uses the same version numbering scheme, you will see some strange jumps in gwnum version numbers when there */
+/* are new prime95 versions without any changes in the gwnum code.  This version number is also embedded in the assembly code and */
+/* gwsetup verifies that the version numbers match.  This prevents bugs from accidentally linking in the wrong gwnum library. */
 
-#define GWNUM_VERSION		"30.4"
+#define GWNUM_VERSION		"30.5"
 #define GWNUM_MAJOR_VERSION	30
-#define GWNUM_MINOR_VERSION	4
+#define GWNUM_MINOR_VERSION	5
 
 /* Error codes returned by the three gwsetup routines */
 
@@ -71,8 +63,7 @@ typedef double *gwnum;
 #define GWERROR_K_TOO_SMALL	1003	/* k < 1 is not supported */
 #define GWERROR_K_TOO_LARGE	1004	/* k > 53 bits is not supported */
 #define GWERROR_MALLOC		1005	/* Insufficient memory available */
-#define GWERROR_VERSION_MISMATCH 1006	/* GWNUM_VERSION from gwinit call doesn't match GWNUM_VERSION when */
-					/* gwnum.c was compiled. */
+#define GWERROR_VERSION_MISMATCH 1006	/* GWNUM_VERSION from gwinit call doesn't match GWNUM_VERSION when gwnum.c was compiled. */
 #define GWERROR_STRUCT_SIZE_MISMATCH 1007 /* Gwhandle structure size from gwinit call doesn't match size */
 					/* when gwnum.c was compiled.  Check compiler alignment switches. */
 #define GWERROR_TOO_SMALL	1008	/* Gwsetup called on a number <= 1 */
@@ -86,26 +77,20 @@ typedef double *gwnum;
 #define GWERROR_PARTIAL_FFT	-1009	/* Attempt to convert a partially FFTed number to binary */
 #define GWERROR_FFT		-1010	/* Attempt to convert an FFTed number to binary */
 
-/* Prior to calling gwsetup, you MUST CALL gwinit. This initializes the */
-/* gwhandle structure. It gives us a place to set rarely used gwsetup */
-/* options prior to calling gwsetup. */
+/* Prior to calling gwsetup, you MUST CALL gwinit.  This initializes the gwhandle structure. */
+/* It gives us a place to set rarely used gwsetup options prior to calling gwsetup. */
 #define gwinit(h)		gwinit2 (h, sizeof (gwhandle), GWNUM_VERSION)
-/* The gwinit function has been superceeded by gwinit2.  By passing in the */
-/* version number we can verify the caller used the same gwnum.h file as the */
-/* one he eventually links with.  The sizeof (gwhandle) structure is used */
-/* to verify he compiles with the same structure alignment options that */
-/* were used when compiling gwnum.c.  For compatibility with existing code */
-/* we delay reporting any compatibility problems until gwsetup is called. */
+/* The gwinit function has been superceeded by gwinit2.  By passing in the version number we can verify the caller */
+/* used the same gwnum.h file as the one he eventually links with.  The sizeof (gwhandle) structure is used to verify */
+/* he compiles with the same structure alignment options that were used when compiling gwnum.c.  For compatibility with */
+/* existing code we delay reporting any compatibility problems until gwsetup is called. */
 void gwinit2 (
 	gwhandle *gwdata,	/* Placeholder for gwnum global data */
 	int	struct_size,	/* Size of the gwdata structure */
 	const char *version_string);
 
-/* There are three different setup routines.  The first, gwsetup, is for */
-/* gwnum's primary use - support for fast operations modulo K*B^N+C. */
-/* Smaller K and C values result in smaller FFT sizes and faster operations. */
-/* Right now, if B<>2 defaults to the slower gwsetup_general_mod case. */
-
+/* There are three different setup routines.  The first, gwsetup, is for gwnum's primary use - support for fast */
+/* operations modulo K*B^N+C.  Smaller K and C values result in smaller FFT sizes and faster operations. */
 int gwsetup (
 	gwhandle *gwdata,	/* Placeholder for gwnum global data */
 	double	k,		/* K in K*B^N+C. Must be a positive integer. */
@@ -113,12 +98,9 @@ int gwsetup (
 	unsigned long n,	/* N in K*B^N+C. Exponent to test. */
 	signed long c);		/* C in K*B^N+C. Must be rel. prime to K. */
 
-/* This setup routine is for operations modulo an arbitrary binary number. */
-/* This is three times slower than the special forms above. */
-/* The code will try to convert suitable k*2^n+c values into the faster */
-/* gwsetup (gwdata,b,b,n,c) call above.  The caller would be better off */
-/* not relying on this detection if at all possible. */
-
+/* This setup routine is for operations modulo an arbitrary binary number.  This is three times slower than the special */
+/* forms above.  The code will try to convert suitable k*2^n+c values into the faster gwsetup (gwdata,k,b,n,c) call above. */
+/* The caller would be better off not relying on this detection if at all possible. */
 int gwsetup_general_mod (
 	gwhandle *gwdata,	/* Placeholder for gwnum global data */
 	const uint32_t *array,	/* The modulus as an array of 32-bit values */
@@ -130,13 +112,11 @@ int gwsetup_general_mod_64 (
 
 /* This setup routine is for operations without a modulo. In essence, */
 /* you are using gwnums as a general-purpose FFT multiply library. */
-
 int gwsetup_without_mod (
 	gwhandle *gwdata,	/* Placeholder for gwnum global data */
 	unsigned long n);	/* Maximum number of bits in OUTPUT numbers. */
 
 /* Free all memory allocated by gwnum routines since gwsetup was called. */
-
 void gwdone (
 	gwhandle *gwdata);	/* Handle initialized by gwsetup */
 
@@ -144,141 +124,99 @@ void gwdone (
 |                    GWNUM OBSCURE GWSETUP OPTIONS                     |
 +---------------------------------------------------------------------*/
 
-/* Prior to calling one of the gwsetup routines, you can tell the library */
-/* how many compute threads it can use to perform a multiply. */
-
+/* Prior to calling one of the gwsetup routines, you can tell the library how many compute threads it can use to perform a multiply. */
 #define gwset_num_threads(h,n)		((h)->num_threads = n)
 #define gwget_num_threads(h)		((h)->num_threads)
 
-/* Prior to calling one of the gwsetup routines, you can tell the library to use a hyperthread for memory prefetching. */
-/* Only implemented for AVX-512 FFTs.  Caller must ensure the compute thread and prefetching hyperthread are set to use */
-/* the same physical CPU core.  At present there are no known CPUs where this provides a benefit. */
-
-#define gwset_hyperthread_prefetch(h)	((h)->hyperthread_prefetching = TRUE)
-#define gwclear_hyperthread_prefetch(h)	((h)->hyperthread_prefetching = FALSE)
-
-/* Specify a call back routine for the auxiliary threads to call when they */
-/* are created.  This lets the user of the gwnum library set the thread */
-/* priority and affinity as it sees fit.  You can also specify an arbitrary */
-/* pointer to pass to the callback routine. */
+/* Specify a call back routine for the auxiliary threads to call when they are created.  This lets the user of the gwnum library */
+/* set the thread priority and affinity as it sees fit.  You can also specify an arbitrary pointer to pass to the callback routine. */
 /* The callback routine must be declared as follows: */
 /*	void callback (int thread_num, int action, void *data) */
-/* If you tell gwnum to use 4 threads, it will create 3 auxiliary threads */
-/* and invoke the callback routine with thread_num = 1, 2, and 3. */
-/* Action is 0 for thread starting and 1 for thread terminating. */
-/* Action is 10 for prefetching hyperthread starting and 11 for prefetching hyperthread terminating. */
-
+/* If you tell gwnum to use 4 threads, it will create 3 auxiliary threads and invoke the callback routine with thread_num = 1, 2, and 3. */
+/* Action is 0 for thread starting and 1 for thread terminating.  Action is 10 for prefetching hyperthread starting and 11 for */
+/* prefetching hyperthread terminating (see gwset_hyperthread_prefetch). */
 #define gwset_thread_callback(h,n)		((h)->thread_callback = n)
 #define gwset_thread_callback_data(h,d)		((h)->thread_callback_data = d)
 
-/* Prior to calling one of the gwsetup routines, you can have the library */
-/* "play it safe" by reducing the maximum allowable bits per FFT data word. */
-/* For example, the code normally tests a maximum of 22477 bits in a 1024 */
-/* SSE2 FFT, or 21.95 bits per double.  If you set the safety margin to 0.5 */
-/* then the code will only allow 21.45 bits per double, or a maximum of */
-/* 21965 bits in a 1024 length FFT.  You can also use this option to */
-/* "live dangerously" by increasing the maximum allowable bits per FFT */
-/* data word - just set the safety margin to a negative value. */
-
+/* Prior to calling one of the gwsetup routines, you can have the library play it safe" by reducing the maximum allowable bits */
+/* per FFT data word.  For example, the code normally tests a maximum of 22477 bits in a 1024 SSE2 FFT, or 21.95 bits per double. */
+/* If you set the safety margin to 0.5 then the code will only allow 21.45 bits per double, or a maximum of 21965 bits in a 1024 length FFT. */
+/* You can also use this option to "live dangerously" by increasing the maximum allowable bits per FFT data word - just set the */
+/* safety margin to a negative value. */
 #define gwset_safety_margin(h,m)	((h)->safety_margin = m)
 
-/* The gwsetup routines need to know the maximum value that will be used */
-/* in a call to gwsetmulbyconst.  By default this value is assumed to be 3, */
-/* which is what you would use in a base-3 Fermat PRP test.  Gwsetup must */
-/* switch to a generic modular reduction if k * mulbyconst or c * mulbyconst */
-/* is too large.  Call this routine prior to calling gwsetup. */
-
+/* The gwsetup routines need to know the maximum value that will be used in a call to gwsetmulbyconst.  By default this value is */
+/* assumed to be 3, which is what you would use in a base-3 Fermat PRP test.  Gwsetup must switch to a generic modular reduction */
+/* if k * mulbyconst or c * mulbyconst is too large.  Call this routine prior to calling gwsetup. */
 #define gwset_maxmulbyconst(h,c)	((h)->maxmulbyconst = c)
 #define gwsetmaxmulbyconst		gwset_maxmulbyconst
 
-/* The gwsetup routines pick the fastest FFT implementation by default. */
-/* Setting this option will cause gwsetup to give preference to FFT */
-/* implementations that support the SUM(INPUTS) != SUM(OUTPUTS) error check. */
-/* NOTE:  This error check is not available for k*b^n+c IBDWT FFTs when */
-/* c is positive.  Setting this option will have no effect. */
-/* NOTE: sum_inputs checking is only available in SSE2 FFTs and earlier. */
-
-#define gwset_sum_inputs_checking(h,b) ((h)->sum_inputs_checking = (char) (b))
-
-/* When doing a gwsetup_general_mod, the library prefers to use an */
-/* integral number of bits per word (a rational FFT) because they are */
-/* a little faster than irrational FFTs.  However, some moduli create */
-/* non-random data when using rational FFTs.  For example, if we test */
-/* (10^828809-1)/9 and put exactly 18 bits into each FFT word, then */
-/* every FFT word in GW_MODULUS_FFT will contains the same value! */
-/* Not exactly the random data the FFTs require for small roundoff errors. */
-/* This routine takes a boolean to force use of the safer irrational FFTs. */
-
+/* When doing a gwsetup_general_mod, the library prefers to use an integral number of bits per word (a rational FFT) because they are */
+/* a little faster than irrational FFTs.  However, some moduli create non-random data when using rational FFTs.  For example, if we test */
+/* (10^828809-1)/9 and put exactly 18 bits into each FFT word, then every FFT word in GW_MODULUS_FFT will contains the same value! */
+/* Not exactly the random data the FFTs require for small roundoff errors.  This routine takes a boolean to force use of the safer irrational FFTs. */
 #define gwset_irrational_general_mod(h,b)  ((h)->use_irrational_general_mod = (char) (b))
 
-/* Prior to calling one of the gwsetup routines, you can force the library */
-/* to use a larger fft length than normal.  The input argument specifies */
-/* how many FFT sizes larger than normal you would like.  You might use this */
+/* Prior to calling one of the gwsetup routines, you can force the library to use a larger fft length than normal. */
+/* The input argument specifies how many FFT sizes larger than normal you would like.  You might use this */
 /* routine if you are having roundoff errors using the normal FFT length. */
-
 #define gwset_larger_fftlen_count(h,n)	((h)->larger_fftlen_count = n)
 
-/* Force selection of the smallest FFT length equal to or greater than the specified FFT length. */
-/* You might use this routine to select a larger FFT if you are having roundoff */
-/* errors using the normal FFT length (or use gwset_larger_fftlen_count).  The library */
-/* will use the first FFT meeting the minimum_fftlen criteria -- EVEN IF IT WOULD */
-/* NOT ORDINARILY DO SO!!!  Set the FFT length below the default FFT length only if */
-/* you know what you are doing!! */
+/* Force selection of the smallest FFT length equal to or greater than the specified FFT length.  You might use this routine to */
+/* select a larger FFT if you are having roundoff errors using the normal FFT length (or use gwset_larger_fftlen_count).  The library */
+/* will use the first FFT meeting the minimum_fftlen criteria -- EVEN IF IT WOULD NOT ORDINARILY DO SO!!!  Set the FFT length below */
+/* the default FFT length only if you know what you are doing!! */
 #define gwset_minimum_fftlen(h,n)	((h)->minimum_fftlen = n)
 
-/* Prior to calling one of the gwsetup routines, you can have the library */
-/* use benchmark data stored in gwnum.txt to select the fastest */
-/* FFT implementation.  This is the default behavior. */
-
-#define gwset_use_benchmarks(h)		((h)->use_benchmarks = 1)
-#define gwclear_use_benchmarks(h)	((h)->use_benchmarks = 0)
-
-/* Set this if FFTs will use hyperthreading. This may affect selection of fastest */
-/* FFT implementation.  By default, it is assumed hyperthreading will not be used. */
-
+/* Set this if FFTs will use hyperthreading. This may affect selection of fastest FFT implementation.  By default, */
+/* it is assumed hyperthreading will not be used as for most CPUs hyperthreading is not faster and uses more electricity. */
 #define gwset_will_hyperthread(h,n)	((h)->will_hyperthread = n)
 #define gwclear_will_hyperthread(h)	((h)->will_hyperthread = 0)
 
-/* Set this if it is known how many cores will be used in total -- either by your */
-/* program or multiple instances of your program.  By default, this value is */
-/* the number of cores on the machine, which means the user of your program will */
-/* keep all cores fully occupied with gwnum work.  This setting may affect */
-/* selection of fastest FFT implementation and can be overriden in gwnum.txt. */
+/* Prior to calling one of the gwsetup routines, you can have the library use benchmark data stored in gwnum.txt to select the fastest */
+/* FFT implementation.  This is the default behavior. */
+#define gwset_use_benchmarks(h)		((h)->use_benchmarks = 1)
+#define gwclear_use_benchmarks(h)	((h)->use_benchmarks = 0)
 
+/* Set this if it is known how many cores will be used in total -- either by your program or multiple instances of your program. */
+/* By default, this value is the number of cores on the machine, which means the user of your program will keep all cores fully */
+/* occupied with gwnum work.  This setting may affect selection of fastest FFT implementation and can be overriden in gwnum.txt. */
 #define gwset_bench_cores(h,n)		((h)->bench_num_cores = n)
 
-/* Set this if it is known how many independent gwnum FFTs will be active -- either by your */
-/* program or multiple instances of your program.  Prime95 calls this "worker windows". */
-/* By default, this value is the number of cores divided by number of threads.  This setting */
+/* Set this if it is known how many independent gwnum FFTs will be active -- either by your program or multiple instances of your program. */
+/* Prime95 calls this "worker windows".  By default, this value is the number of cores divided by number of threads.  This setting */
 /* may affect selection of fastest FFT implementation and can be overriden in gwnum.txt. */
-
 #define gwset_bench_workers(h,n)	((h)->bench_num_workers = n)
 
-/* Set this if FFTs will always error check, will error check if near limit of FFT, or will */
-/* not error check.  This setting may affect selection of fastest FFT implementation. */
-/* By default, it is assumed round off error checking will not be used for every operation. */
-
+/* Set this if FFTs will always error check, will error check if near limit of FFT, or will not error check.  This setting may affect */
+/* selection of fastest FFT implementation.  By default, it is assumed round off error checking will not be used for every operation. */
 #define gwset_will_error_check(h)		((h)->will_error_check = 1)
 #define gwset_will_error_check_near_limit(h)	((h)->will_error_check = 2)
 #define gwclear_will_error_check(h)		((h)->will_error_check = 0)
 
-/* Prior to calling one of the gwsetup routines, you can have the library */
-/* attempt to use large pages (2MB or 4MB on Intel architecture) rather than the */
-/* standard 4KB pages.  This may improve performance by reducing TLB misses. */
-/* It may have system-wide costs, as the OS may not page these to disk */
-/* when not in use.  NOTE: Only the first gwalloc will return memory */
-/* allocated using large pages. */
-
+/* Prior to calling one of the gwsetup routines, you can have the library attempt to use large pages (2MB or 4MB on Intel architecture) */
+/* rather than the standard 4KB pages.  This may improve performance by reducing TLB misses.  It may have system-wide costs, as the OS */
+/* may not page these to disk when not in use.  NOTE: Only the first gwalloc will return memory allocated using large pages. */
 #define gwset_use_large_pages(h)	((h)->use_large_pages = 1)
 #define gwclear_use_large_pages(h)	((h)->use_large_pages = 0)
 #define gwget_use_large_pages(h)	((h)->use_large_pages)
 #define gw_using_large_pages(h)		((h)->large_pages_ptr != NULL)
 
+/* The gwsetup routines pick the fastest FFT implementation by default.  Setting this option will cause gwsetup to give preference */
+/* to FFT implementations that support the SUM(INPUTS) != SUM(OUTPUTS) error check. */
+/* NOTE:  This error check is not available for k*b^n+c IBDWT FFTs when c is positive.  Setting this option will have no effect. */
+/* NOTE: sum_inputs checking is only available in SSE2 FFTs and earlier.  Thus, using this option is not recommended. */
+#define gwset_sum_inputs_checking(h,b) ((h)->sum_inputs_checking = (char) (b))
+
+/* Prior to calling one of the gwsetup routines, you can tell the library to use a hyperthread for memory prefetching. */
+/* Only implemented for AVX-512 FFTs.  Caller must ensure the compute thread and prefetching hyperthread are set to use */
+/* the same physical CPU core.  At present there are no known CPUs where this provides a benefit. */
+#define gwset_hyperthread_prefetch(h)	((h)->hyperthread_prefetching = TRUE)
+#define gwclear_hyperthread_prefetch(h)	((h)->hyperthread_prefetching = FALSE)
+
 /* DEPRECATED, use gwset_minimum_fftlen instead. */
-/* Prior to calling one of the gwsetup routines, you can force the library */
-/* to use a specific fft length.  This should rarely (if ever) be used. */
-/* I use it occasionally for benchmarking and/or checking round off errors */
-/* at the FFT crossover points. */
+/* Prior to calling one of the gwsetup routines, you can force the library to use a specific fft length.  This should rarely (if ever) be used. */
+/* I use it occasionally for benchmarking and/or checking round off errors at the FFT crossover points. */
 /* Only choose a specific FFT size if you know what you are doing!! */
 #define gwset_specific_fftlen(h,n)	((h)->minimum_fftlen = n)
 
@@ -329,7 +267,6 @@ void binary64togw (
 
 /* Convert a binary value (array of 32-bit or 64-bit values) to a gwnum. */
 /* Check your C compiler specs to see if a long is 32 or 64 bits. */
-
 void binarylongstogw (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	const unsigned long *array, /* Array containing the binary value */
@@ -376,44 +313,59 @@ void gw_random_number (
 +---------------------------------------------------------------------*/
 
 /* Macros and routines to interface with assembly code */
-/* The assembly routines are designed to provide a flexible way of multiplying two numbers.  If you will use a value in several */
-/* multiplies it is beneficial to perform the forward transform just once.  Furthermore, the multiply routines are tuned to allow */
-/* one unnormalized addition prior to a multiply without introducing too much convolution error.  Thus: */
+
+/* The assembly routines are designed to provide a flexible way of multiplying two numbers with lots of options to maximize performance. */
+/* To get maximum performance, you'll need to look for ways to minimize transforms (if a value is used in several multiply operations, */
+/* it is beneficial to perform the forward transform just once). */
+/* Especially important for large numbers on modern bandwidth-limited CPUs is looking for ways to reduce memory accesses.  This can be done */
+/* by having multiply operations start a forward transform on the result (doing this means a multiply requires two r/w accesses to memory */
+/* instead of three).  Another technique is to use gwaddmul4 and gwsubmul4, which saves a r/w if the first two arguments are already transformed */
+/* compared to a separate gwadd or gwsub followed by a gwmul.  Also, using options in gwmul3 to transform input arguments as a side effect of */
+/* a multiply operation can save a r/w compared to a separate gwfft call followed by a gwmul3 call.  One thing to note on gwmul3 options: unless */
+/* specifically instructed to preserve or transform an input argument, gwmul3 will either transform or leave the input argument unchanged.  */
+/* Similarly, gwaddmul4 and gwubmul4 will either transform or leave unchanged the third input argument (the first two input arguments are always */
+/* transformed).  Lastly, there are the more mundane methods of reducing memory accesses: perform operations "in-place" destination same as one */
+/* of the source arguments), minimize gwcopy calls, etc. */
+/* The last area of optimization is reducing normalizations in gwadd, gwsub, gwaddsub.  When working on numbers that are not near the maximum */
+/* an FFT size can accommodate, add & sub operations can sometimes be performed without normalizing carries.  To do this gwnum needs to know how */
+/* you intend to use the outputs of add & sub operations.  From worst-to-best (tell gwnum the worst usage) choose one of add/sub output will be */
+/* used as input to: 1) gwsquare, 2) gwmul or third argument of gwaddmul/gwsubmul, 3) first/second argument of gwaddmul/gwsubmul.  Also note that */
+/* gwadd bases it's normalization decisions assuming the input arguments are essentially random data.  Using gwadd to double a number is *not* random */
+/* data as every FFT data element will double in magnitude.  There is a gwadd option to let gwnum know that this is a worst-case non-random scenario */
+/* and act accordingly.  Lastly, if doing several gwadd/gwsub operations in a row use the option that delays normalization until the last gwadd/gwsub. */
+
+/* Note that multiply routines allow one unnormalized addition prior to a multiply without introducing too much convolution error.  Thus: */
 /* Legal:	gwaddquick (h, t1, t2); gwmul (h, t2, x); */
 /* Legal:	gwfft (h, t1, t1); gwfft (h, t2, t2); gwadd (h, t1, t2); gwmul (h, t2, x); */
 /* Not Legal:	gwaddquick (h, t1, t2); gwaddquick (h, y, x); gwmul (h, t2, x); */
 /* Not Legal:	gwfft (h, t1, t1); gwadd (h, t1, t1); gwsquare (h, t1); */
 
-/* A brief description of each of the commonly used "gw" routines.  The gwhandle argument is omitted. */
+/* A brief description of each of the commonly used "gw" routines.  The gwhandle argument is omitted.  Sorry for the unsightly "o" (which stands */
+/* for "with options") following gwadd3, gwsub3, gwaddsub4.  The non-"o" name was used in an earlier gwnum and macros are in place to convert */
+/* the old usage to the new usage. */
+
 /* gwswap(a,b)			Quickly swaps two gw numbers */
 /* gwcopy(s,d)			Copies gwnum s to d */
-/* gwadd3(s1,s2,d)		Adds two numbers and normalizes them if necessary (normalize only if inputs not FFTed) */
-/* gwsub3(s1,s2,d)		Subtracts second number from first number and normalizes result if necessary */
-/* gwaddsub4(s1,s2,d1,d2)	Adds and subtracts 2 numbers (first+second and first-second) normalizes the results if necessary */
-/* gwadd3quick(s1,s2,d)		Adds two numbers WITHOUT normalizing */
-/* gwsub3quick(s1,s2,d)		Subtracts second number from first WITHOUT normalizing */
-/* gwaddsub4quick(s1,s2,d1,d2)	Like gwaddsub4 but WITHOUT normalizing */
 /* gwfft(s,d)			Perform the forward Fourier transform on a number */
 /* gwsquare2(s,d)		Computes d=s*s */
 /* gwmul3(s1,s2,d)		Computes d=s1*s2 with many options available */
 /* gwmul3_carefully(s1,s2,d)	Like gwmul3 but uses a slower method that will have a lower roundoff error even if input is non-random. */
-/* gwaddmul3(s1,s2,s3,d)	Computes d=(s1+s2)*s3 with many options available */
-/* gwsubmul3(s1,s2,s3,d)	Computes d=(s1-s2)*s3 with many options available */
+/* gwaddmul4(s1,s2,s3,d)	Computes d=(s1+s2)*s3 with many options available */
+/* gwsubmul4(s1,s2,s3,d)	Computes d=(s1-s2)*s3 with many options available */
+/* gwadd3o(s1,s2,d)		Adds two numbers (with options).  Output is normalized them if necessary (only if inputs not FFTed) */
+/* gwsub3o(s1,s2,d)		Subtracts second number from first number (with options).  Output is normalized them if necessary (if inputs not FFTed) */
+/* gwaddsub4o(s1,s2,d1,d2)	Adds and subtracts 2 numbers (first+second and first-second). normalizes the results if necessary */
 
 /* Macros to do easy work */
-
 #define gwswap(s,d)		{gwnum t; t = s; s = d; d = t;}
-#define gwtouch(h,s)		gwcopy (h,s,s)
 #define gwsquare2(h,s,d,opt)	gwmul3 (h,s,s,d,opt)
 
 /* A global setting is used determine if roundoff error-checking is performed by the gwnum multiplication routines. */
 /* The maximum round-off error is saved in MAXERR. */
-
 #define gwerror_checking(h,e)	{(h)->NORMNUM = ((h)->NORMNUM & ~1) + ((e) ? 1 : 0);}
 
 /* Set the small constant which the results of a multiplication can be multiplied by. */
 /* Use this routine in conjunction with the GWMUL_MULBYCONST option. */
-
 #define GWMULBYCONST_MAX	255		/* I think this is right */
 void gwsetmulbyconst (gwhandle *gwdata, long s);
 
@@ -421,10 +373,12 @@ void gwcopy (			/* Copy a gwnum */
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	gwnum	s,		/* Source */
 	gwnum	d);		/* Dest */
+
 void gwfft (			/* Forward FFT */
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	gwnum	s,		/* Source number */
 	gwnum	d);		/* Destination (can be same as source) */
+
 /* Options for gwmul3, gwaddmul4, gwsubmul4 routines */
 #define GWMUL_FFT_S1		0x0001		/* FFT the first source */
 #define GWMUL_PRESERVE_S1	0x0002		/* Do not modify the first source */
@@ -437,6 +391,9 @@ void gwfft (			/* Forward FFT */
 #define GWMUL_STARTNEXTFFT1	0x0100		/* Start the forward FFT of the multiplication result only if an extra add can occur on */
 						/* multiplication inputs.  Normally a multiply of (a+b)*c is safe, this option takes */
 						/* effect if we are sufficiently below the FFT limit that (a+b)*(c+d) is also safe. */
+#define GWMUL_STARTNEXTFFT2	0x0200		/* Start the forward FFT of the multiplication result only if an extra add can occur on */
+						/* gwsquare inputs.  This option takes effect if we are sufficiently below the FFT limit */
+						/* that (a+b)*(a+b) is safe. */
 void gwmul3 (			/* Multiply two gwnums, one of s1 or s2 will be FFTed unless the PRESERVE option is set */
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	gwnum	s1,		/* First source */
@@ -464,38 +421,94 @@ void gwsubmul4 (		/* (s1-s2)*s3, s1 and s2 will be FFTed unless the PRESERVE opt
 	gwnum	d,		/* Destination */
 	int	options);
 
-void gwadd3 (			/* Add two numbers normalizing if needed and inputs are not FFTed. */
+/* Options for gwadd3o, gwsub3o, gwaddsub4o routines */
+// To properly decide whether an unnormalized add will be safe, gwnum needs to know how the result of the add will eventually be used.  The options
+// below cover a great many of the ways a caller will use an add result.
+//
+// See EB_GWMUL_SAVINGS, EB_FIRST_ADD, etc. for a description of the derivation of the constants .527, .509, .288, .218 below.
+//
+// EXTRA_BITS is the number of extra FFT output bits available for a gwmul operation.  This comes from operating on numbers below an FFT's limit
+// plus the savings that come from doing a gwmul instead of a gwsquare.  Thus, EXTRA_BITS starts at .527.
+//
+// These describe what is safe for various squaring and multiplication operations (assuming gwadds aren't strung together in a chain):
+//
+// 1) gwsquare with 0 args from gwadd.  Needs EXTRA_BITS >= .527  (always safe)
+// 2) gwsquare with 1 arg from gwadd.  Needs EXTRA_BITS >= .527 + 0.509 + 0.509
+// 3) gwmul with 0 args from gwadd.  Needs EXTRA_BITS >= 0  (always safe)
+// 4) gwmul with 1 arg from gwadd.  Needs EXTRA_BITS >= 0.509  (always safe)
+// 5) gwmul with 2 args from gwadd.  Needs EXTRA_BITS >= 0.509 + 0.509
+// 6) gwaddmul with 0 add args from gwadd and 0 mul args from gwadd.  Needs EXTRA_BITS >= 0.509  (always safe)
+// 7) gwaddmul with 1 add arg from gwadd and 0 mul args from gwadd.  Needs EXTRA_BITS >= 0.509 + 0.288
+// 8) gwaddmul with 2 add args from gwadd and 0 mul args from gwadd.  Needs EXTRA_BITS >= 0.509 + 0.288 + 0.218
+// 9) gwaddmul with 0 add args from gwadd and 1 mul arg from gwadd.  Needs EXTRA_BITS >= 0.509 + 0.509
+// 10) gwaddmul with 1 add arg from gwadd and 1 mul arg from gwadd.  Needs EXTRA_BITS >= 0.509 + 0.509 + 0.288
+// 11) gwaddmul with 2 add args from gwadd and 1 mul arg from gwadd.  Needs EXTRA_BITS >= 0.509 + 0.509 + 0.288 + 0.218
+//
+// While the above cases seems daunting, five GWADD_ options combine to cover almost all of the squaring/multiplication cases above.
+// In these examples, a,b,c,d,e,f,x,y,z are all normalized gwnums presumably output from a gwsquare or gwmul.
+// 2) Use GWADD_SQUARE_INPUT.  Example:  gwadd3o(a,b,r,GWADD_SQUARE_INPUT);  gwsquare(r);
+// 4) Use GWADD_MUL_INPUT.  Example:  gwadd3o(a,b,r,GWADD_MUL_INPUT);  gwmul3(r,x,y); OR gwmul3(x,r,y);
+// 5) Use GWADD_MUL_INPUT | GWADD_ADDITIONAL_MUL_INPUT.  Example:  gwadd3o(a,b,r,GWADD_MUL_INPUT | GWADD_ADDITIONAL_MUL_INPUT);
+//		gwadd3o(c,d,s,GWADD_MUL_INPUT | GWADD_ADDITIONAL_MUL_INPUT); gwmul3(r,s,y);
+// 7) Use GWADD_ADD_INPUT.  Example:  gwadd3o(a,b,r,GWADD_ADD_INPUT);  gwaddmul4(r,x,y,z); OR gwaddmul4(x,r,y,z);
+// 8) Use GWADD_ADD_INPUT | GWADD_ADDITIONAL_ADD_INPUT.  Example:  gwadd3o(a,b,r,GWADD_ADD_INPUT | GWADD_ADDITIONAL_ADD_INPUT);
+//		gwadd3o(c,d,s,GWADD_ADD_INPUT | GWADD_ADDITIONAL_ADD_INPUT);  gwaddmul4(r,s,y,z);
+// 9) Use GWADD_MUL_INPUT.  Example:  gwadd3o(a,b,r,GWADD_MUL_INPUT);  gwaddmul4(x,y,r,z);
+// 10 & 11) Use combinations of GWADD_ADD_INPUT, GWADD_MUL_INPUT, GWADD_ADDITIONAL_ADD_INPUT, GWADD_ADDITIONAL_MUL_INPUT.  Examples:
+// 10a)		gwadd3o(a,b,r,GWADD_ADD_INPUT | GWADD_MUL_INPUT); gwaddmul4(r,x,r,z); OR gwaddmul4(x,r,r,z);
+// 10b) 	gwadd3o(a,b,r,GWADD_ADD_INPUT | GWADD_ADDITIONAL_MUL_INPUT);
+//		gwadd3o(c,d,s,GWADD_MUL_INPUT | GWADD_ADDITIONAL_ADD_INPUT);  gwaddmul4(r,x,s,z);
+// 11a) 	gwadd3o(a,b,r,GWADD_ADD_INPUT | GWADD_MUL_INPUT | GWADD_ADDITIONAL_ADD_INPUT);
+//		gwadd3o(c,d,s,GWADD_ADD_INPUT | GWADD_ADDITIONAL_ADD_INPUT | GWADD_ADDITIONAL_MUL_INPUT);  gwaddmul4(r,s,r,z);
+// 11b) 	gwadd3o(a,b,r,GWADD_ADD_INPUT | GWADD_ADDITIONAL_ADD_INPUT | GWADD_ADDITIONAL_MUL_INPUT);
+//		gwadd3o(c,d,s,GWADD_ADD_INPUT | GWADD_ADDITIONAL_ADD_INPUT | GWADD_ADDITIONAL_MUL_INPUT);  gwaddmul4(r,s,r,z);
+//		gwadd3o(e,f,t,GWADD_MUL_INPUT | GWADD_ADDITIONAL_ADD_INPUT | GWADD_ADD_INPUT /* a hack! */);  gwaddmul4(r,s,t,z);
+//
+// If adds are chained together, all should be OK as long as each add in the chain specifies (the worst case scenario) of how the final
+// add in the chain will be used.
+//
+// Where you might run into trouble -- when GWADD_ADDITIONAL_MUL_INPUT or GWADD_ADDITIONAL_ADD_INPUT is used the gwnum library assumes the
+// additional input is the result of a *single* gwadd call.  If the additional input is the result of chained adds, then gwnum library could
+// make the wrong decision regarding the safety of an unnormalized add.  An example that could fail:
+//		gwadd3o(a,b,r,GWADD_MUL_INPUT | GWADD_ADDITIONAL_MUL_INPUT); gwadd3o(d,e,s,GWADD_MUL_INPUT | GWADD_ADDITIONAL_MUL_INPUT);
+//		gwadd3o(c,r,r,GWADD_MUL_INPUT | GWADD_ADDITIONAL_MUL_INPUT); gwadd3o(f,s,s,GWADD_MUL_INPUT | GWADD_ADDITIONAL_MUL_INPUT);
+//		gwmul3(r,s,y);
+//
+// The above is rather-long winded and need not be fully understood for 98% of the gwnum use cases.  If code gets too complicated, one can always
+// use GWADD_FORCE_NORMALIZE to be sure of the end results.
+//
+/* NOTE: Case 5 above is tied to GWMUL_STARTNEXTFFT1 and case 2 above is tied to GWMUL_STARTNEXTFFT2. */
+/* NOTE: If you are adding or subtracting FFTed data it is up to you to keep track if you are doing too many unnormalized adds prior to a multiply */
+/* NOTE: The worst case scenario is sending an add result to a squaring operation. */
+/* NOTE: An example use of GWADD_GUARANTEED_OK would be right after calling dbltogw.  The caller knows there's at most 53 bits of data in the gwnum. */
+#define GWADD_SQUARE_INPUT		0x0001	/* Result will eventually be input to gwsquare */
+#define GWADD_MUL_INPUT			0x0002	/* Result will eventually be input to gwmul3 */
+#define GWADD_ADD_INPUT			0x0004	/* Result will eventually be input to one of the first two arguments of gwaddmul4 or gwsubmul4 */
+#define GWADD_ADDITIONAL_MUL_INPUT	0x0008	/* The eventual use of this gwadd has another multiply input coming from a different gwadd */
+#define GWADD_ADDITIONAL_ADD_INPUT	0x0010	/* The eventual use of this gwadd in gwaddmul4 has another add input coming from a different gwadd */
+#define GWADD_GUARANTEED_OK		0x1000	/* Caller guarantees result will not cause problems for future multiplies.  Unnormalized add will be done. */
+#define GWADD_NON_RANDOM_DATA		0x2000	/* Two inputs are correlated (like adding number to itself) which has much worse impact on roundoff */
+#define GWADD_DELAY_NORMALIZE		0x4000	/* Do not normalize the result (another add operation is coming) */
+#define GWADD_FORCE_NORMALIZE		0x8000	/* Force normalization the the result */
+void gwadd3o (			/* Add two numbers normalizing if needed and inputs are not FFTed. */
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	gwnum	s1,		/* Source #1.  Will be FFTed if two sources do not have the same FFT state. */
 	gwnum	s2,		/* Source #2.  Will be FFTed if two sources do not have the same FFT state. */
-	gwnum	d);		/* Destination */
-void gwsub3 (			/* Compute s1 - s2 normalizing if needed and inputs are not FFTed. */
+	gwnum	d,		/* Destination */
+	int	options);
+void gwsub3o (			/* Compute s1 - s2 normalizing if needed and inputs are not FFTed. */
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	gwnum	s1,		/* Source #1.  Will be FFTed if two sources do not have the same FFT state. */
 	gwnum	s2,		/* Source #2.  Will be FFTed if two sources do not have the same FFT state. */
-	gwnum	d);		/* Destination */
-void gwaddsub4 (		/* Add & sub two nums normalizing if needed and inputs are not FFTed. */
+	gwnum	d,		/* Destination */
+	int	options);
+void gwaddsub4o (		/* Add & sub two nums normalizing if needed and inputs are not FFTed. */
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	gwnum	s1,		/* Source #1.  Will be FFTed if two sources do not have the same FFT state. */
 	gwnum	s2,		/* Source #2.  Will be FFTed if two sources do not have the same FFT state. */
 	gwnum	d1,		/* Destination #1 */
-	gwnum	d2);		/* Destination #2 */
-void gwadd3quick (		/* Add two numbers without normalizing */
-	gwhandle *gwdata,	/* Handle initialized by gwsetup */
-	gwnum	s1,		/* Source #1.  Will be FFTed if two sources do not have the same FFT state. */
-	gwnum	s2,		/* Source #2.  Will be FFTed if two sources do not have the same FFT state. */
-	gwnum	d);		/* Destination */
-void gwsub3quick (		/* Compute s1 - s2 without normalizing */
-	gwhandle *gwdata,	/* Handle initialized by gwsetup */
-	gwnum	s1,		/* Source #1.  Will be FFTed if two sources do not have the same FFT state. */
-	gwnum	s2,		/* Source #2.  Will be FFTed if two sources do not have the same FFT state. */
-	gwnum	d);		/* Destination */
-void gwaddsub4quick (		/* Add & sub two numbers without normalizing */
-	gwhandle *gwdata,	/* Handle initialized by gwsetup */
-	gwnum	s1,		/* Source #1.  Will be FFTed if two sources do not have the same FFT state. */
-	gwnum	s2,		/* Source #2.  Will be FFTed if two sources do not have the same FFT state. */
-	gwnum	d1,		/* Destination #1 */
-	gwnum	d2);		/* Destination #2 */
+	gwnum	d2,		/* Destination #2 */
+	int	options);
 
 /* The FFT selection code assumes FFT data will essentially be random data2 yielding pretty well understood maximum */
 /* round off errors.  When working  with some numbers, especially at the start of a PRP exponentiation, the FFT data */
@@ -504,52 +517,33 @@ void gwaddsub4quick (		/* Add & sub two numbers without normalizing */
 /* routine and the next n gwsquare or gwmul3 calls will be replaced by gwmul3_carefully calls.  If you pass an n of -1, */
 /* the gwnum code will use a default value for n that should be suitable for getting a PRP exponentiation into a */
 /* "random data state".  This routine can be called before gwsetup is called. */
-
 void gwset_carefully_count (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	int	n);		/* Number of squarings and multiplications to do carefully. */
 				/* If n is -1, a suitable default value is used */
 
-/* These routines can be used to add a constant to the result of a */
-/* multiplication at virtually no cost.  Prime95 uses these routines to */
-/* do the -2 operation in a Lucas-Lehmer test.  NOTE:  There are some */
-/* number formats that cannot use these routines.  If abs(c) in k*b^n+c is 1, */
-/* then gwsetaddin can be used.  To use gwsetaddinatpowerofb, k must also be 1. */
-/* If you also use the mul-by-small-const normalization routine, the multiply */
+/* These routines can be used to add a constant to the result of a multiplication at virtually no cost.  Prime95 uses these routines to */
+/* do the -2 operation in a Lucas-Lehmer test.  NOTE:  There are some number formats that cannot use these routines.  If abs(c) in k*b^n+c is 1, */
+/* then gwsetaddin can be used.  To use gwsetaddinatpowerofb, k must also be 1.  If you also use the mul-by-small-const option, the multiply */
 /* is done after the addition. */
-
 void gwsetaddin (gwhandle *, long);
 void gwsetaddinatpowerofb (gwhandle *, long, unsigned long);
 
-/* This routine adds a small value to a gwnum.  This lets us apply some */
-/* optimizations that cannot be performed by general purpose gwadd */
-
+/* This routine adds a small value to a gwnum.  This lets us apply some optimizations that cannot be performed by general purpose gwadd. */
 #define GWSMALLADD_MAX		1125899906842624.0	/* 2^50 */
 void gwsmalladd (gwhandle *gwdata, double addin, gwnum g);
 
 /* This routine multiplies a gwnum by a small positive value.  This lets us apply some */
 /* optimizations that cannot be performed by a full FFT multiplication. */
-
 #define GWSMALLMUL_MAX		67108864.0		/* May allow more at a later date */
 void gwsmallmul (gwhandle *gwdata, double mult, gwnum g);
 
-/*-----------------------------------------------------------------+
-|                      GWNUM COMPARISON ROUTINES                   |
-+-----------------------------------------------------------------*/
+/* Perform an inverse FFT.  This is inefficient!!  We call this to undo a forward FFT performed on a gwnum where we need unFFTed data. */
+/* In a perfect world, the forward FFT would not have been done in the first place. */
+void gwunfft (gwhandle *, gwnum s, gwnum d);
 
-/* Test if a gwnum is zero.  This routine was originally written by Jean Penne. */
-/* It has not been adequately tested and MAY NOT BE BUG-FREE.  Use at your own risk! */
-/* Returns TRUE if number is zero, FALSE if number is not zero, and a negative error */
-/* code if a problem is found. */
-
-int gwiszero (gwhandle *, gwnum);
-
-/* Test two gwnums for equality.  Written by Jean Penne.  Uses the gwiszero routine */
-/* which MAY NOT BE BUG-FREE.  Use this routine at your own risk! */
-/* Returns TRUE if number is zero, FALSE if number is not zero, and a negative error */
-/* code if a problem is found. */
-
-int gwequal (gwhandle *, gwnum, gwnum);
+/* Obscure routine to possibly keep a gwnum in the CPU caches by accessing it. */
+#define gwtouch(h,s)		gwcopy (h,s,s)
 
 /*---------------------------------------------------------------------+
 |                      GWNUM ERROR-CHECKING ROUTINES                   |
@@ -562,20 +556,14 @@ int gwequal (gwhandle *, gwnum, gwnum);
 #define gwsumout(h,g)			((g)[-3])
 #define gw_clear_error(h)		((h)->GWERROR = 0)
 
-/* Get or clear the roundoff error.  Remember that if the roundoff error */
-/* exceeds 0.5 then the FFT results will be wrong.  It is prudent to watch */
-/* the roundoff error to make sure the roundoff error does not get close */
-/* to 0.5. */
-
+/* Get or clear the roundoff error.  Remember that if the roundoff error exceeds 0.5 then the FFT results will be wrong. */
+/* It is prudent to watch the roundoff error to make sure the roundoff error does not get close to 0.5. */
 double gw_get_maxerr (gwhandle *gwdata);
 void gw_clear_maxerr (gwhandle *gwdata);
 
-/* Return TRUE if we are operating near the limit of this FFT length */
-/* Input argument is the percentage to consider as near the limit. */
-/* For example, if percent is 0.1 and the FFT can handle 20 bits per FFT */
-/* data word, then if there are more than 19.98 bits per FFT data word */
-/* this function will return TRUE. */
-
+/* Return TRUE if we are operating near the limit of this FFT length.  Input argument is the percentage to consider as near the limit. */
+/* For example, if percent is 0.1 and the FFT can handle 20 bits per FFT data word, then if there are more than 19.98 bits per FFT data */
+/* word this function will return TRUE. */
 int gwnear_fft_limit (gwhandle *gwdata, double pct);
 
 /*---------------------------------------------------------------------+
@@ -597,61 +585,68 @@ void gwfft_description (gwhandle *, char *buf);
 /* A human-readable string for the modulus currently in use */
 #define gwmodulo_as_string(h)	((h)->GWSTRING_REP)
 
-/* Get the number of threads gwnum can use */
-#define gwget_num_threads(h)	((h)->num_threads)
-
-/* Gwnum keeps a running count of the number of Fast Fourier transforms */
-/* performed.  You can get and reset this counter. */
-
+/* Gwnum keeps a running count of the number of Fast Fourier transforms performed.  You can get and reset this counter.  For non-transformed */
+/* inputs, a squaring requires one forward and one inverse transform, and a multiply requires two forward and one inverse transforms. */
 #define gw_get_fft_count(h)	((h)->fft_count)
 #define gw_clear_fft_count(h)	((h)->fft_count = 0.0)
 
-/* Get the amount of memory required for the gwnum's raw FFT data.  This */
-/* does not include the GW_HEADER_SIZE bytes for the header or any pad */
-/* bytes that might be allocated for alignment.  I see little need for */
-/* a program to use this routine. */
-unsigned long gwnum_datasize (gwhandle *);
-
-/* Get the amount of memory likely to be allocated a gwnum.  This includes */
-/* FFT data, headers, and pad bytes for alignment. */
+/* Get the amount of memory needed to allocate a gwnum.  This includes FFT data, headers, and pad bytes for alignment. */
 unsigned long gwnum_size (gwhandle *);
 
-/* Get the fixed amount of memory allocated during gwsetup.  Programs can */
-/* use this and gwnum_size to determine working set size and act accordingly.*/
+/* Get the fixed amount of memory allocated during gwsetup.  Programs can use this and gwnum_size to determine working set size and act accordingly. */
 unsigned long gwmemused (gwhandle *);
 
-/* Macros to acccess some of the header values in a gwnum.  Do not access or change these unless you know what you are doing! */
-/* Log2(norm_count) is the number of extra bits in the FFT data due to unnormalized adds and subtracts.  The add/sub routines do not */
-/* always normalize results, it depends on how close k*b^n+c is to the maximum for this FFT size.  Add/sub of FFTed or partially FFTed */
-/* data never normalizes results.  It is the programmer's responsibility to make sure there aren't too many unnormalized add/sub */
-/* operations prior to a multiplication operation.  ASSERTs can be enabled to ensure excessive unnormalized adds are not occurring. */
+/* Returns TRUE if the gwnum value is normalized (the gwadd did not do an unnormalized add) */
+#define gwnum_is_normalized(h,g)	(norm_count(g) == 0.0f)
 
-#define norm_count(x)		((uint32_t *)(x))[-1]
-#define force_normalize(x)	norm_count(x)=999		// Use on destination of gwadd3, gwsub3, or gwaddsub4 to force a normalize
-#define FFT_state(x)		((uint32_t *)(x))[-7]
-#define	NOT_FFTed		0
-#define PARTIALLY_FFTed		1
-#define FULLY_FFTed		3
-
-/* Return TRUE if the gwnum value in a the specified FFT state */
+/* Returns TRUE if the gwnum value is in the specified FFT state */
 #define gwnum_is_not_ffted(h,g)		(FFT_state(g) == NOT_FFTed)
 #define gwnum_is_partially_ffted(h,g)	(FFT_state(g) == PARTIALLY_FFTed)
 #define gwnum_is_fully_ffted(h,g)	(FFT_state(g) == FULLY_FFTed)
 
-/* Perform an inverse FFT.  This is inefficient!!  We call this to undo a forward FFT performed on a gwnum where we need unFFTed data. */
-/* In a perfect world, the forward FFT would not have been done in the first place. */
-void gwunfft (gwhandle *, gwnum s, gwnum d);
+/* Macros to acccess some of the header values in a gwnum.  Do not access or change these unless you know what you are doing! */
+/* Norm_count is the number of extra bits in the output FFT data needed due to unnormalized adds and subtracts.  The add/sub routines do not */
+/* always normalize results, it depends on how close k*b^n+c is to the maximum for this FFT size.  Add/sub of FFTed or partially FFTed */
+/* data never normalizes results.  It is the programmer's responsibility to make sure there aren't too many unnormalized add/sub */
+/* operations prior to a multiplication operation.  ASSERTs can be enabled to ensure excessive unnormalized adds are not occurring. */
+#define FFT_state(x)		((uint32_t *)(x))[-7]
+#define	NOT_FFTed		0
+#define PARTIALLY_FFTed		1
+#define FULLY_FFTed		3
+#define norm_count(x)		((float *)(x))[-1]
+// Convert norm_count to and from extra FFT output bits
+#define norm_count_to_eb(n)	((n) > 2.0f ? EB_FIRST_ADD + EB_SECOND_ADD + ((n) - 2.0f) * EB_THIRD_ADD : \
+				 (n) > 1.0f ? EB_FIRST_ADD + EB_SECOND_ADD : (n) > 0.0f ? EB_FIRST_ADD : 0.0f)
+#define eb_to_norm_count(n)	((n) > EB_FIRST_ADD + EB_SECOND_ADD ? 2.0f + ((n) - EB_FIRST_ADD - EB_SECOND_ADD) / EB_THIRD_ADD : \
+				 (n) > EB_FIRST_ADD ? 2.0f : (n) > 0.0f ? 1.0f : 0.0f)
+
+/* Get the amount of memory required for the gwnum's raw FFT data.  This does not include the GW_HEADER_SIZE bytes for the header */
+/* or any pad bytes that might be allocated for alignment.  I see little need for a program to use this routine. */
+unsigned long gwnum_datasize (gwhandle *);
+
+/*-----------------------------------------------------------------+
+|             **DANGEROUS**  GWNUM COMPARISON ROUTINES             |
++-----------------------------------------------------------------*/
+
+/* Test if a gwnum is zero.  This routine was originally written by Jean Penne. */
+/* It has not been adequately tested and MAY NOT BE BUG-FREE.  Use at your own risk! */
+/* Returns TRUE if number is zero, FALSE if number is not zero, and a negative error */
+/* code if a problem is found. */
+int gwiszero (gwhandle *, gwnum);
+
+/* Test two gwnums for equality.  Written by Jean Penne.  Uses the gwiszero routine */
+/* which MAY NOT BE BUG-FREE.  Use this routine at your own risk! */
+/* Returns TRUE if number is zero, FALSE if number is not zero, and a negative error */
+/* code if a problem is found. */
+int gwequal (gwhandle *, gwnum, gwnum);
 
 /*---------------------------------------------------------------------+
 |                 ALTERNATIVE INTERFACES USING GIANTS                  |
 +---------------------------------------------------------------------*/
 
-/* The giants library from Dr. Richard Crandall, Perfectly Scientific, */
-/* is used internally for a few infrequent operations.  It can optionally */
-/* be used in the interfaces to convert between gwnum data type and binary. */
-/* I do not recommend this.  There are many other faster and more robust */
-/* libraries available. */
-
+/* The giants library from the late Dr. Richard Crandall at Perfectly Scientific is used internally for a few infrequent operations. */
+/* It can optionally be used in the interfaces to convert between gwnum data type and binary.  I do not recommend this.  There are many */
+/* other faster and more robust bignum libraries available.  GMP is very, very good.  I shied away from it here because of the GPL license. */
 #include "giants.h"
 
 /* Same as gwsetup_general_mod but uses giants instead of array of longs */
@@ -662,26 +657,48 @@ int gwsetup_general_mod_giant (
 /* Convert a giant to a gwnum */
 void gianttogw (gwhandle *, giant, gwnum);
 
-/* Convert a gwnum to a giant.  WARNING: Caller must allocate an array that */
-/* is several words larger than the maximum result that can be returned. */
-/* This is a gross kludge that lets gwtogiant use the giant for intermediate */
-/* calculations.  Returns a negative number if an error occurs.  Returns */
-/* zero on success. */
+/* Convert a gwnum to a giant.  WARNING: Caller must allocate an array that is several words larger than the maximum result */
+/* that can be returned.  This is a gross kludge that lets gwtogiant use the giant for intermediate calculations. */
+/* Returns a negative number if an error occurs.  Returns zero on success. */
 int gwtogiant (gwhandle *, gwnum, giant);
 
 /*---------------------------------------------------------------------+
 |          MISC. CONSTANTS YOU PROBABLY SHOULDN'T CARE ABOUT           |
 +---------------------------------------------------------------------*/
 
-/* The maximum value k * mulbyconst can be in a zero pad FFT.  Larger */
-/* values must use generic modular reduction. */
-
+/* The maximum value k * mulbyconst can be in a zero pad FFT.  Larger values must use generic modular reduction. */
 #define MAX_ZEROPAD_K	2251799813685247.0	/* 51-bit k's are OK. */
 
-/* The maximum value c * mulbyconst can be in a zero pad FFT.  Larger */
-/* values must use generic modular reduction. */
-
+/* The maximum value c * mulbyconst can be in a zero pad FFT.  Larger values must use generic modular reduction. */
 #define MAX_ZEROPAD_C	8388607			/* 23-bit c's seem to work. */
+
+/* Constants for calculating EXTRA_BITS.  These are based on data from the (not-included) program roe_gwnum.cpp.  This program output: */
+// Roe for 2M FFT, threads = 2
+// FFT: FMA3 FFT length 2M, Pass1=2K, Pass2=1K, clm=1, 2 threads
+// gwsquare, avg roe: 0.228303
+// gwmul3, avg roe: 0.158434
+// Addq, gwsquare, avg roe: 0.457921
+// addmul4, avg roe: 0.225439
+// Addq mul input, addmul4, avg roe: 0.319609
+// Addq add input, addmul4, avg roe: 0.275238
+// Addq addq one add input, addmul4, avg roe: 0.320079
+// Addq both add inputs, addmul4, avg roe: 0.321272
+// Addq one add input, addq mul input, addmul4, avg roe: 0.393078
+//
+// Which leads us to conclude:
+//
+// Output bits saved from gwmul vs. gwsquare:  log2(.158434/.228303) = -.5271
+// Impact of addquick before gwsquare: log2(.457921/.228303) = 1.004 bits (or 0.502 bits per gwmul input)
+// Impact of addquick on gwmul: log2(0.225439/0.158434) = 0.5089
+// and another = log2(0.319609/0.225439) = 0.5036
+// and another = log2(0.393078/0.275238) = 0.5141
+// Impact of second addquick: log2(.275238/.225439) = 0.2879 bits
+// Impact of third addquick: log2(.320079/.275238) = 0.2177 bits
+
+#define EB_GWMUL_SAVINGS	0.5271f
+#define EB_FIRST_ADD		0.5089f
+#define EB_SECOND_ADD		0.2879f
+#define EB_THIRD_ADD		0.2177f
 
 /*---------------------------------------------------------------------+
 |                        OLDER GWNUM INTERFACE                         |
@@ -695,7 +712,7 @@ int gwtogiant (gwhandle *, gwnum, giant);
 /* gwfftaddsub(x,y)		DEPRECATED - use gwaddsub4.  Adds and subtracts 2 FFTed numbers */
 /* gwfftadd3(s1,s2,d)		DEPRECATED - use gwadd3.  Adds two FFTed numbers */
 /* gwfftsub3(s1,s2,d)		DEPRECATED - use gwadd3.  Subtracts second FFTed number from first FFTed number */
-/* gwfftaddsub4(s1,s2,d1,d2)	DEPRECATED - use gwadd3.  Like, gwfftaddsub but stores results in separate variables */
+/* gwfftaddsub4(s1,s2,d1,d2)	DEPRECATED - use gwaddsub4.  Like gwfftaddsub but stores results in separate variables */
 /* gwsquare(x)			DEPRECATED - use gwsquare2.  Shortcut for gwsquare2(x,x,0) */
 /* gwsquare2(h,s,d) w/o options	DEPRECATED - use the new gwsquare2 and specify 0 for the options argument */
 /* gwmul(s,d)			DEPRECATED - use gwmul3.  Computes d=s*d.  NOTE: s is replaced by its FFT */
@@ -705,6 +722,13 @@ int gwtogiant (gwhandle *, gwnum, giant);
 /* gwsquare_carefully(x)	DEPRECATED - use gwmul3_carefully */
 /* gwsquare2_carefully(s,d)	DEPRECATED - use gwmul3_carefully */
 /* gwmul_carefully(s,d)		DEPRECATED - use gwmul3_carefully */
+/* gwadd3(s1,s2,d)		DEPRECATED - use gwadd3o.  Adds two numbers */
+/* gwsub3(s1,s2,d)		DEPRECATED - use gwasub3o.  Subtracts second number from first */
+/* gwaddsub4(s1,s2,d1,d2)	DEPRECATED - use gwaddsub4o.  Like gwaddsub4o */
+/* gwadd3quick(s1,s2,d)		DEPRECATED - use gwadd3o.  Adds two numbers WITHOUT normalizing */
+/* gwsub3quick(s1,s2,d)		DEPRECATED - use gwasub3o.  Subtracts second number from first WITHOUT normalizing */
+/* gwaddsub4quick(s1,s2,d1,d2)	DEPRECATED - use gwaddsub4o.  Like gwaddsub4 but WITHOUT normalizing */
+/* force_normalize(x)		DEPRECATED - use GWADD_FORCE_NORMALIZE option.  Was used on destination of gwadd3, gwsub3, or gwaddsub4 in version 30.4 */
 
 /* Macros to implement deprecated routines */
 
@@ -719,6 +743,7 @@ int gwtogiant (gwhandle *, gwnum, giant);
 #define gwsquare_carefully(h,x)		gwmul3_carefully(h,x,x,x,GWMUL_GLOBALSTARTNEXTFFT | GWMUL_GLOBALMULBYCONST)
 #define gwsquare2_carefully(h,s,d)	gwmul3_carefully(h,s,s,d,GWMUL_PRESERVE_S1 | GWMUL_PRESERVE_S2 | GWMUL_GLOBALSTARTNEXTFFT | GWMUL_GLOBALMULBYCONST)
 #define gwmul_carefully(h,s,d)		gwmul3_carefully(h,s,d,d,GWMUL_PRESERVE_S1 | GWMUL_GLOBALSTARTNEXTFFT | GWMUL_GLOBALMULBYCONST)
+#define gwset_square_carefully_count(h,n) DEPRECATED - use gwset_carefully_count
 
 #define gwadd(h,s,d)			gwadd3 (h,s,d,d)
 #define gwsub(h,s,d)			gwsub3 (h,d,s,d)
@@ -732,13 +757,19 @@ int gwtogiant (gwhandle *, gwnum, giant);
 #define gwfftadd3(h,s1,s2,d)		gwadd3 (h,s1,s2,d)
 #define gwfftsub3(h,s1,s2,d)		gwsub3 (h,s1,s2,d)
 #define gwfftaddsub4(h,s1,s2,d1,d2)	gwaddsub4 (h,s1,s2,d1,d2)
+#define gwadd3(h,s1,s2,d)		gwadd3o (h,s1,s2,d,GWADD_MUL_INPUT)
+#define gwsub3(h,s1,s2,d)		gwsub3o (h,s1,s2,d,GWADD_MUL_INPUT)
+#define gwaddsub4(h,s1,s2,d1,d2)	gwaddsub4o (h,s1,s2,d1,d2,GWADD_MUL_INPUT)
+#define gwadd3quick(h,s1,s2,d)		gwadd3o (h,s1,s2,d,GWADD_DELAY_NORMALIZE | GWADD_MUL_INPUT)
+#define gwsub3quick(h,s1,s2,d)		gwsub3o (h,s1,s2,d,GWADD_DELAY_NORMALIZE | GWADD_MUL_INPUT)
+#define gwaddsub4quick(h,s1,s2,d1,d2)	gwaddsub4o (h,s1,s2,d1,d2,GWADD_DELAY_NORMALIZE | GWADD_MUL_INPUT)
+#define force_normalize(x)		DEPRECATED - use GWADD_FORCE_NORMALIZE
 
 /* DEPRECATED.  Using gwerror_checking macro and the GWMUL_MULBYCONST option is preferred. */
 /* The multiplication code has two options that you can set using this macro.  The e argument tells the multiplication */
 /* code whether or not it should perform round-off error checking - returning the maximum difference from an integer result */
 /* in MAXERR.  The c argument tells the multiplication code whether or not it should multiply the result by a small constant. */
 /* These are global settings.  The c argument can be overridden in each each multiply call with GWMUL_NOMULBYCONST or GWMUL_MULBYCONST */
-
 #define gwsetnormroutine(h,z,e,c) {(h)->NORMNUM=((c)?2:0)+((e)?1:0);}
 
 /* DEPRECATED.  Use GWMUL_NOSTARTNEXTFFT, GWMUL_STARTNEXTFFT, GWMUL_STARTNEXTFFT1 options instead. */
@@ -746,7 +777,6 @@ int gwtogiant (gwhandle *, gwnum, giant);
 /* then a small performance gain can be had in larger FFTs by doing some of the next forward FFT at the end of the multiplication. */
 /* Use this routine to tell the multiplication code whether or not it can start the forward FFT on the result. */
 /* NOTE:  The STARTNEXTFFT option is not supported for generic modular reduction and one-pass FFTs. */
-
 #define gwstartnextfft(h,state)	{(h)->GLOBAL_POSTFFT = (state);}
 
 /* DEPRECATED!!! These routines were deprecated because unlike all other gwnum routines */
@@ -757,27 +787,21 @@ int gwtogiant (gwhandle *, gwnum, giant);
 /* Replaced by better named gwsetaddinatpowerofb */
 #define gwsetaddinatbit(h,v,b)	gwsetaddinatpowerofb(h,v,b)
 
-/* gwset_square_carefully_count(h,n)	DEPRECATED - use gwset_carefully_count to be careful on both squarings and multiplications */
-
 /*---------------------------------------------------------------------+
 |          SPECIAL ECM ROUTINE FOR GMP-ECM USING GWNUM LIBRARY         |
 +---------------------------------------------------------------------*/
 
 /* Return codes */
-
 #define ES1_SUCCESS		0	/* Success, but no factor */
 #define ES1_FACTOR_FOUND	1	/* Success, factor found */
 #define ES1_CANNOT_DO_IT	2	/* This k,b,n,c cannot be handled */
 #define ES1_MEMORY		3	/* Out of memory */
 #define ES1_INTERRUPT		4	/* Execution interrupted */
 #define ES1_CANNOT_DO_QUICKLY	5	/* Requires 3-multiply reduction */
-#define ES1_HARDWARE_ERROR	6	/* An error was detected, most */
-					/* likely a hardware error. */
+#define ES1_HARDWARE_ERROR	6	/* An error was detected, most likely a hardware error. */
 
 /* Option codes */
-
-#define ES1_DO_SLOW_CASE	0x1	/* Set this if ecmStage1 should do */
-					/* slow 3-multiply reduction cases. */
+#define ES1_DO_SLOW_CASE	0x1	/* Set this if ecmStage1 should do slow 3-multiply reduction cases. */
 
 /* INPUTS:
 
@@ -868,7 +892,6 @@ int gwnum_ecmStage1_u64 (
 
 /* This structure mimics a jmptable entry defined in the assembly code */
 /* We use C code to read the entry and do lots of initialization. */
-
 struct gwasm_jmptab {
 	uint32_t max_exp;	/* Maximum exponent for this FFT len */
 	uint32_t fftlen;	/* FFT length */
@@ -892,7 +915,6 @@ struct gwasm_alt_jmptab {	/* Used when pass 1 and pass 2 code is shared among FF
 
 /* Structure for maintaining groups of blocks for each pass 1 thread to work on. */
 /* Each thread wants to work on contiguous blocks for independent carry propagation. */
-
 struct pass1_carry_sections {
 	unsigned int start_block;	/* First block in section */
 	unsigned int last_block;	/* Last block in section */
@@ -905,33 +927,27 @@ struct pass1_carry_sections {
 };
 
 /* The FFT types currently implemented in assembly code */
-
 #define FFT_TYPE_HOME_GROWN		0
 #define FFT_TYPE_RADIX_4		1
 #define FFT_TYPE_RADIX_4_DELAYED	2
 #define FFT_TYPE_RADIX_4_DWPN		3	/* r4delay with partial normalization */
 
 /* The gwhandle structure containing all of gwnum's "global" data. */
-
 struct gwhandle_struct {
-
 	/* Variables which affect gwsetup.  These are usually set by macros above. */
 	double	safety_margin;		/* Reduce maximum allowable bits per FFT data word by this amount. */
-	long	maxmulbyconst;		/* Gwsetup needs to know the maximum value the caller will use in */
-					/* gwsetmulbyconst.  The default value is 3, commonly used */
-					/* in a base-3 Fermat PRP test. */
+	long	maxmulbyconst;		/* Gwsetup needs to know the maximum value the caller will use in gwsetmulbyconst. */
+					/* The default value is 3, commonly used in a base-3 Fermat PRP test. */
 	unsigned long minimum_fftlen;	/* Minimum fft length for gwsetup to use. */
 	unsigned long num_threads;	/* Number of compute threads to use in multiply routines.  Default is obviously one. */
 	char	hyperthread_prefetching; /* Set to true to launch a separate thread for prefetching.  Caller must set */
 					/* affinity to make sure hyperthread and compute thread share the same physical core */
 	char	larger_fftlen_count;	/* Force using larger FFT sizes.  This is a count of how many FFT sizes to "skip over". */
-	char	sum_inputs_checking;	/* If possible, pick an FFT implementation that */
-					/* supports the SUM(INPUTS) != SUM(OUTPUTS) error check. */
+	char	sum_inputs_checking;	/* If possible, pick an FFT implementation that supports the SUM(INPUTS) != SUM(OUTPUTS) error check. */
 	char	force_general_mod;	/* Forces gwsetup_general_mod to not check for a k*2^n+c reduction */
 	char	use_irrational_general_mod; /* Force using an irrational FFT when doing a general mod. */
-					/* This is slower, but more immune to round off errors from */
-					/* pathological bit patterns in the modulus. */
-	char	use_large_pages;	/* FUTURE USE: Try to use 2MB/4MB pages */
+					/* This is slower, but more immune to round off errors from pathological bit patterns in the modulus. */
+	char	use_large_pages;	/* Try to use 2MB/4MB pages */
 	char	use_benchmarks;		/* Use benchmark data in gwnum.txt to select fastest FFT implementations */
 	char	will_hyperthread;	/* Set if FFTs will use hyperthreading (affects select of fastest FFT implementation from gwnum.txt) */
 	char	will_error_check;	/* Set if FFTs will error check (affects select of fastest FFT implementation from gwnum.txt) */
@@ -978,8 +994,8 @@ struct gwhandle_struct {
 	unsigned long SCRATCH_SIZE;	/* Size of the pass 1 scratch area */
 	float	EXTRA_BITS;		/* Number of extra bits available in FFT output because k*b^n+c is not near the FFT limit. */
 					/* This is used to determine if unnormalized adds that can be safely performed. */
-					/* FFT limits are chosen such that there is one bit available in FFT output which */
-					/* means that (a + b) * c should not have excessive round off if (a + b) is unnormalized. */
+					/* At the FFT limit this will be set to EB_GWMUL_SAVINGS.  That is, this measures extra bits */
+					/* available for multiplications, not squarings. */
 	gwnum	GW_RANDOM;		/* A random number used in gwmul3_carefully. */
 	unsigned long saved_copyz_n;	/* Used to reduce COPYZERO calculations */
 	char	GWSTRING_REP[60];	/* The gwsetup modulo number as a string. */
@@ -1049,33 +1065,26 @@ struct gwhandle_struct {
 };
 
 /* A psuedo declaration for our big numbers.  The actual pointers to */
-/* these big numbers are to the data array.  The 96 bytes prior to the */
-/* data contain: */
+/* these big numbers are to the data array.  The 96 bytes prior to the data contain: */
 /* data-4:  integer containing number of unnormalized adds that have been */
 /*	    done.  After a certain number of unnormalized adds, the next add */
 /*	    must be normalized to avoid overflow errors during a multiply. */
 /* data-8:  integer containing number of bytes in data area. Used by gwcopy. */
-/* data-16: double containing the product of the two sums of the input FFT */
-/*	    values. */
+/* data-16: double containing the product of the two sums of the input FFT values. */
 /* data-24: double containing the sum of the output FFT values.  These two */
 /*	    values can be used as a sanity check when multiplying numbers. */
 /*	    The two values should be "reasonably close" to one another. */
 /* data-28: Flag indicating gwnum value has been partially FFTed. */
 /* data-32: Pointer returned by malloc - used to free memory when done. */
-/* data-88: Seven doubles (input FFT values near the halfway point */
-/*	    when doing a zero-padded FFT). */
+/* data-88: Seven doubles (input FFT values near the halfway point when doing a zero-padded FFT). */
 /* data-96: Eight unused bytes */
 /* typedef struct { */
-/*	char	pad[96];	   Used to track unnormalized add/sub */
-/*				   and original address */
-/*	double	data[512];	   The big number broken into chunks */
-/*				   This array is variably sized. */
+/*	char	pad[96];	   Used to track unnormalized add/sub and original address */
+/*	double	data[512];	   The big number broken into chunks.  This array is variably sized. */
 /* } *gwnum; */
 #define GW_HEADER_SIZE	96	/* Number of data bytes before a gwnum ptr */
 
-/* Some mis-named #defines that describe the maximum Mersenne number */
-/* exponent that the gwnum routines can process. */
-
+/* Some mis-named #defines that describe the maximum Mersenne number exponent that the gwnum routines can process. */
 #define MAX_PRIME	79300000L	/* Maximum number of x87 bits */
 #define MAX_PRIME_SSE2	595800000L	/* SSE2 bit limit */
 #define MAX_PRIME_AVX	595700000L	/* AVX bit limit */
@@ -1087,9 +1096,7 @@ struct gwhandle_struct {
 #define MAX_FFTLEN_FMA3	52428800L	/* 50M FFT max for FMA3 */
 #define MAX_FFTLEN_AVX512 67108864L	/* 64M FFT max for AVX-512 */
 
-/* Informational routines that can be called prior to gwsetup */
-/* Many of these routines only work for k*b^n+c FFTs. */
-
+/* Informational routines that can be called prior to gwsetup.  Many of these routines only work for k*b^n+c FFTs. */
 unsigned long gwmap_to_fftlen (double, unsigned long, unsigned long, signed long);
 unsigned long gwmap_with_cpu_flags_to_fftlen (int, double, unsigned long, unsigned long, signed long);
 double gwmap_to_timing (double, unsigned long, unsigned long, signed long);
@@ -1103,7 +1110,6 @@ unsigned long gwmap_to_estimated_size (double, unsigned long, unsigned long, sig
 void gw_as_string(char *buf, double k, unsigned long b, unsigned long n, signed long c);
 
 /* Other routines used internally */
-
 int gwinfo (gwhandle *, double, unsigned long, unsigned long, signed long);
 double virtual_bits_per_word (gwhandle *);
 unsigned long addr_offset (gwhandle *, unsigned long);
@@ -1115,30 +1121,21 @@ void bitaddr (gwhandle *, unsigned long, unsigned long *, unsigned long *);
 void specialmodg (gwhandle *, giant);
 #define gw_set_max_allocs(h,n)	if ((h)->gwnum_alloc==NULL) (h)->gwnum_alloc_array_size=n
 
-/* Specialized routines that let the internal giants code share the free */
-/* memory pool used by gwnums. */
-
+/* Specialized routines that let the internal giants code share the free memory pool used by gwnums. */
 void gwfree_temporarily (gwhandle *, gwnum);
 void gwrealloc_temporarily (gwhandle *, gwnum);
 
 /* Routines to share the memory of cached free gwnums with giants code. */
-/* Used by prime95 to have the giants GCD code reuse the memory used */
-/* during P-1 and ECM calculations. */
-
+/* Used by prime95 to have the giants GCD code reuse the memory used during P-1 and ECM calculations. */
 void *gwgiantalloc (void *);
 void gwgiantfree (void *, void *);
 void gwgiantdealloc (void *);
 
-/* When debugging gwnum and giants, I sometimes write code that "cheats" */
-/* by calling a routine that is part of prime95 rather than the gwnum and */
-/* giants library.  Prime95 will set this routine pointer so that gwnum */
-/* code can cheat while keeping the gwnum library interface clean. */
-
+/* When debugging gwnum and giants, I sometimes write code that "cheats" by calling a routine that is part of prime95 rather than the gwnum */
+/* and giants library.  Prime95 will set this routine pointer so that gwnum code can cheat while keeping the gwnum library interface clean. */
 extern void (*OutputBothRoutine)(int, const char *);
 
-/* These routines let me time many assembly language building blocks -- used */
-/* when optimizing these building blocks. */
-
+/* These routines let me time many assembly language building blocks -- used when optimizing these building blocks. */
 int gwtimeit (void *);
 #define get_asm_timers(g) ((uint32_t *) &(g)->ASM_TIMERS)
 

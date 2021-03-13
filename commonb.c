@@ -12049,7 +12049,7 @@ begin:	N = exp = NULL;
 				gwcopy (&gwdata, ps.x, ps.alt_x);
 				ps.alt_units_bit = 0;
 			} else {
-				gwadd3 (&gwdata, ps.x, ps.x, ps.alt_x);
+				gwadd3o (&gwdata, ps.x, ps.x, ps.alt_x, GWADD_FORCE_NORMALIZE); // Don't corrupt min/max roundoff error output
 				ps.alt_units_bit = ps.units_bit + 1;
 				if (ps.alt_units_bit >= w->n) ps.alt_units_bit -= w->n;
 			}
@@ -12119,10 +12119,9 @@ rotateg (t1, w->n, ps.units_bit, &gwdata.gdata);
 				ps.state = PRP_STATE_DCHK_PASS1;
 				ps.start_counter = ps.counter;
 				ps.end_counter = ps.counter + iters_left;
-				// Only Mersennes support shift counts.  Alt_x cannot have a different shift count when
-				// DCHK ends and GERBICZ resumes.
+				// Only Mersennes support shift counts.  Alt_x cannot have a different shift count when DCHK ends and GERBICZ resumes.
 				if (ps.alt_units_bit && ps.end_counter == final_counter) {
-					gwadd3 (&gwdata, ps.alt_x, ps.alt_x, ps.alt_x);
+					gwadd3o (&gwdata, ps.alt_x, ps.alt_x, ps.alt_x, GWADD_FORCE_NORMALIZE); // Don't corrupt min/max roundoff error output
 					ps.alt_units_bit = ps.alt_units_bit + 1;
 					if (ps.alt_units_bit >= w->n) ps.alt_units_bit -= w->n;
 				}

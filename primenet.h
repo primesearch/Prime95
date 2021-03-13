@@ -101,6 +101,8 @@ struct primenetUpdateComputerInfo {
 #define PRIMENET_WP_PRP_DBLCHK		151	/* PRP double checks */
 #define PRIMENET_WP_PRP_WORLD_RECORD	152	/* PRP test of world record Mersennes */
 #define PRIMENET_WP_PRP_100M		153	/* PRP test of 100M digit Mersennes */
+#define PRIMENET_WP_PRP_NO_PMINUS1	154	/* PRP test that if possible also needs P-1 */
+#define PRIMENET_WP_PRP_DC_PROOF	155	/* PRP double-check where a proof will be produced */
 #define PRIMENET_WP_PRP_COFACTOR	160	/* PRP test of Mersenne cofactors */
 #define PRIMENET_WP_PRP_COFACTOR_DBLCHK	161	/* PRP double check of Mersenne cofactors */
 

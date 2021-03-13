@@ -10,7 +10,7 @@
  *	Other important ideas courtesy of Peter Montgomery and Mihai Preda.
  *
  *	c. 1997 Perfectly Scientific, Inc.
- *	c. 1998-2020 Mersenne Research, Inc.
+ *	c. 1998-2021 Mersenne Research, Inc.
  *	All Rights Reserved.
  *
  *************************************************************/
@@ -379,22 +379,22 @@ int fill_work_bitarray (
 
 	if (*bitarray == NULL) {
 		len = divide_rounding_up (totrels * numDsections, 8);
-		*bitarray = (char *) malloc (len);
+		*bitarray = (char *) malloc ((size_t) len);
 		if (*bitarray == NULL) goto oom;
 	}
 
 /* Allocate two bit arrays for the primes and relocated primes */
 
 	len = divide_rounding_up (numDsections * numrels * 2, 8);
-	primes = (char *) malloc (len);
+	primes = (char *) malloc ((size_t) len);
 	if (primes == NULL) goto oom;
-	relocated = (char *) malloc (len);
+	relocated = (char *) malloc ((size_t) len);
 	if (relocated == NULL) goto oom;
 
 /* Set one bit (or more for relocatables) for each prime between C_start and C. */
 
-	memset (primes, 0, len);
-	memset (relocated, 0, len);
+	memset (primes, 0, (size_t) len);
+	memset (relocated, 0, (size_t) len);
 	start_sieve_with_limit (thread_num, first_relocatable, (uint32_t) sqrt((double) C), sieve_info);
 	initmap (D, &reldata);
 	numprimes = 0;
@@ -418,18 +418,21 @@ int fill_work_bitarray (
 			}
 		} else {									// Mark all possible relocations
 			int	i;
-			numprimes++;
+			int	set_a_bit = 0;
 			for (i = D_data[D_index].first_missing_prime; i * prime < B2_end; i += 2) {
-				if (map_is_relprime (i, D, &reldata) && i * prime >= C_start)
+				if (map_is_relprime (i, D, &reldata) && i * prime >= C_start) {
 					bitset_prime (relocated, i * prime);
+					set_a_bit = 1;
+				}
 			}
+			numprimes += set_a_bit;
 		}
 	}
 
 /* Clear the work array */
 
 	work = *bitarray;
-	memset (work, 0, divide_rounding_up (numDsections * totrels, 8));
+	memset (work, 0, (size_t) divide_rounding_up (numDsections * totrels, 8));
 	bits_set = 0;
 
 /* Fill a work bit array in such a way that it maximizes stage 2 prime pairings in ECM and P-1. */
@@ -794,19 +797,16 @@ __inline void convert_xz (
 	struct xz *arg)
 {
 	if (arg->added) return;
-	if (gwnum_is_not_ffted (&ecmdata->gwdata, arg->x)) {
-		gwaddsub (&ecmdata->gwdata, arg->x, arg->z);		/* Convert to x + z, x - z format */
-	}
-	else if (gwnum_is_partially_ffted (&ecmdata->gwdata, arg->x)) {
-		ASSERTG (ecmdata->gwdata.EXTRA_BITS >= 2.0);
-		gwfftaddsub (&ecmdata->gwdata, arg->x, arg->z);		/* Convert to x + z, x - z format */
-	} else {
-		// Super rare (perhaps impossible).  I ECMed to B1=22M and this did not occur.
-		// Undo the FFT of diff done in ell_add_xz.
+
+	// Super rare.  It is possible when following the lucas_mul rules for ell_add_xz to FFT the diff values and for us to later need a
+	// conversion to x+z,x-z format.  If this happens and we need to do normalized adds, undo the FFT of diff done in ell_add_xz.
+	if (gwnum_is_fully_ffted (&ecmdata->gwdata, arg->x) && ecmdata->gwdata.EXTRA_BITS < EB_GWMUL_SAVINGS + EB_FIRST_ADD + EB_FIRST_ADD) {
 		gwunfft (&ecmdata->gwdata, arg->x, arg->x);
 		gwunfft (&ecmdata->gwdata, arg->z, arg->z);
-		gwaddsub (&ecmdata->gwdata, arg->x, arg->z);		/* Convert to x + z, x - z format */
 	}
+
+	// Convert to x + z, x - z format
+	gwaddsub4o (&ecmdata->gwdata, arg->x, arg->z, arg->x, arg->z, GWADD_SQUARE_INPUT);
 	arg->added = TRUE;
 }
 
@@ -830,12 +830,12 @@ void ell_dbl_xz_scr (
 
 	/* If we have extra_bits and the input has not yet been converted, then we can use a slightly different algorithm */
 	/* that saves a gwsub3 to calculate t3 as well as generating a normalized t3. */
-	if (ecmdata->gwdata.EXTRA_BITS >= 2.0 && !in->added) {
+	if (ecmdata->gwdata.EXTRA_BITS >= EB_GWMUL_SAVINGS + EB_FIRST_ADD + EB_FIRST_ADD && !in->added) {
 		t2 = out->x;
 		if (in == out) t3 = scr->x, t4 = out->z;
 		else t3 = out->z, t4 = scr->x;
 		gwsetmulbyconst (&ecmdata->gwdata, 4);
-		gwmul3 (&ecmdata->gwdata, in->x, in->z, t3, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT1); /* t3 = 4 * x * z */
+		gwmul3 (&ecmdata->gwdata, in->x, in->z, t3, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT2); /* t3 = 4 * x * z */
 		if (in == out || in == scr) {
 			gwfftsub3 (&ecmdata->gwdata, in->x, in->z, in->z);	/* Compute x - z */
 		} else {
@@ -855,24 +855,21 @@ void ell_dbl_xz_scr (
 		convert_xz (ecmdata, in);
 		/* If we have extra_bits then we can start next FFT of t1 and t2 since (t2+t1)^2 will not have too much roundoff error */
 		if (in == out || in == scr) {
-			gwsquare2 (&ecmdata->gwdata, in->x, t1, GWMUL_STARTNEXTFFT1);	/* t1 = (x + z)^2 */
-			gwsquare2 (&ecmdata->gwdata, in->z, t2, GWMUL_STARTNEXTFFT1);	/* t2 = (x - z)^2 */
+			gwsquare2 (&ecmdata->gwdata, in->x, t1, GWMUL_STARTNEXTFFT2);			/* t1 = (x + z)^2 */
+			gwsquare2 (&ecmdata->gwdata, in->z, t2, GWMUL_STARTNEXTFFT2);			/* t2 = (x - z)^2 */
 		} else {
 			//GW: asm squaring that also outputs FFT would be useful (twice)! Hard for AVX
-			gwsquare2 (&ecmdata->gwdata, in->x, t1, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT1); /* t1 = (x + z)^2 */
-			gwsquare2 (&ecmdata->gwdata, in->z, t2, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT1); /* t2 = (x - z)^2 */
+			gwsquare2 (&ecmdata->gwdata, in->x, t1, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT2);	/* t1 = (x + z)^2 */
+			gwsquare2 (&ecmdata->gwdata, in->z, t2, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT2);	/* t2 = (x - z)^2 */
 		}
-		gwsub3 (&ecmdata->gwdata, t1, t2, t3);					/* t3 = t1 - t2 = 4 * x * z */
+		gwsub3o (&ecmdata->gwdata, t1, t2, t3, GWADD_MUL_INPUT | GWADD_ADD_INPUT);		/* t3 = t1 - t2 = 4 * x * z */
 	}
 
 	/* Finish up */
-	gwmul3 (&ecmdata->gwdata, t2, ecmdata->Ad4, t4, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);	/* t4 = t2 * Ad4 */
-	/* If we have extra_bits then we can start next FFT of the outputs since (x+z)^2 should not have too much roundoff error */
-	gwaddmul4 (&ecmdata->gwdata, t2, t3, t4, out->x, GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_STARTNEXTFFT1);	/* outx = t4 * (t1 = t2 + t3) */
-	/* I do not know why this next gwaddmul4 doesn't generate a big roundoff error!!  When EXTRA_BITS is 2, we rightfully assert */
-	/* that log2((1+2)*2) is not <= 2.  However, when we tweak the t3 normalized add count to 1 the roundoff error remains manageable. */
-	norm_count(t3) = 1;
-	gwaddmul4 (&ecmdata->gwdata, t4, t3, t3, out->z, GWMUL_STARTNEXTFFT1);		/* outz = (t4 + t3) * t3 */
+	gwmul3 (&ecmdata->gwdata, t2, ecmdata->Ad4, t4, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);		/* t4 = t2 * Ad4 */
+	/* If we have extra_bits then we can start next FFT of the outputs since future (x+z)^2 should not have too much roundoff error */
+	gwaddmul4 (&ecmdata->gwdata, t2, t3, t4, out->x, GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_STARTNEXTFFT2); /* outx = (t1 = t2 + t3) * t4 */
+	gwaddmul4 (&ecmdata->gwdata, t4, t3, t3, out->z, GWMUL_STARTNEXTFFT2);				/* outz = (t4 + t3) * t3 */
 	out->added = FALSE;
 }
 
@@ -907,13 +904,12 @@ void ell_dbl_xz_scr_last (
 	t4 = out->z;
 	convert_xz (ecmdata, in);
 	/* If we have extra_bits then we can start next FFT of t1 and t2 since (t2+t1)^2 will not have too much roundoff error */
-	gwsquare2 (&ecmdata->gwdata, in->x, t1, GWMUL_STARTNEXTFFT1);		/* t1 = (x + z)^2 */
-	gwsquare2 (&ecmdata->gwdata, in->z, t2, GWMUL_STARTNEXTFFT1);		/* t2 = (x - z)^2 */
-	gwsub3 (&ecmdata->gwdata, t1, t2, t3);					/* t3 = t1 - t2 = 4 * x * z */
+	gwsquare2 (&ecmdata->gwdata, in->x, t1, GWMUL_STARTNEXTFFT2);				/* t1 = (x + z)^2 */
+	gwsquare2 (&ecmdata->gwdata, in->z, t2, GWMUL_STARTNEXTFFT2);				/* t2 = (x - z)^2 */
+	gwsub3o (&ecmdata->gwdata, t1, t2, t3, GWADD_MUL_INPUT | GWADD_ADD_INPUT);		/* t3 = t1 - t2 = 4 * x * z */
 	gwmul3 (&ecmdata->gwdata, t2, ecmdata->Ad4, t4, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);	/* t4 = t2 * Ad4 */
-	gwaddmul4 (&ecmdata->gwdata, t2, t3, t4, out->x, GWMUL_FFT_S2 | GWMUL_FFT_S3);		/* outx = t4 * (t1 = t2 + t3) */
-	norm_count(t3) = 1;
-	gwaddmul4 (&ecmdata->gwdata, t4, t3, t3, out->z, 0);			/* outz = (t4 + t3) * t3 */
+	gwaddmul4 (&ecmdata->gwdata, t2, t3, t4, out->x, GWMUL_FFT_S2 | GWMUL_FFT_S3);		/* outx = (t1 = t2 + t3) * t4 */
+	gwaddmul4 (&ecmdata->gwdata, t4, t3, t3, out->z, 0);					/* outz = (t4 + t3) * t3 */
 	out->added = FALSE;
 }
 
@@ -938,29 +934,29 @@ void ell_add_xz_scr (
 	convert_xz (ecmdata, in1);
 	convert_xz (ecmdata, in2);
 	/* If we have extra_bits then we can start next FFT of t1 and t2 since (t2+t1)^2 will not have too much roundoff error */
-	options = GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT1;
+	options = GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT2;
 	if (in1 == out || in1 == scr) options &= ~GWMUL_FFT_S1;
 	if (in2 == out || in2 == scr) options &= ~GWMUL_FFT_S2;
-	gwmul3 (&ecmdata->gwdata, in1->x, in2->z, t1, options);			/* t1 = (x1 + z1)(x2 - z2) */
-	gwmul3 (&ecmdata->gwdata, in1->z, in2->x, t2, options);			/* t2 = (x1 - z1)(x2 + z2) */
-	gwaddsub (&ecmdata->gwdata, t2, t1);
-	gwsquare2 (&ecmdata->gwdata, t2, t2, GWMUL_STARTNEXTFFT);		/* t2 = (t2 + t1)^2 */
-	gwsquare2 (&ecmdata->gwdata, t1, t1, GWMUL_STARTNEXTFFT);		/* t1 = (t2 - t1)^2 */
-	/* If we have extra_bits then we can start next FFT of the outputs since (x+z)^2 will not have too much roundoff error */
+	gwmul3 (&ecmdata->gwdata, in1->x, in2->z, t1, options);					/* t1 = (x1 + z1)(x2 - z2) */
+	gwmul3 (&ecmdata->gwdata, in1->z, in2->x, t2, options);					/* t2 = (x1 - z1)(x2 + z2) */
+	gwaddsub4o (&ecmdata->gwdata, t2, t1, t2, t1, GWADD_SQUARE_INPUT);
+	gwsquare2 (&ecmdata->gwdata, t2, t2, GWMUL_STARTNEXTFFT);				/* t2 = (t2 + t1)^2 */
+	gwsquare2 (&ecmdata->gwdata, t1, t1, GWMUL_STARTNEXTFFT);				/* t1 = (t2 - t1)^2 */
+	/* If we have extra_bits then we can start next FFT of the outputs since future (x+z)^2 will not have too much roundoff error */
 	if (diff->added) {
-		gwsubmul4 (&ecmdata->gwdata, diff->x, diff->z, t2, t2, GWMUL_STARTNEXTFFT1);	/* t2 = t2 * zdiff (will become outx) */
-		gwaddmul4 (&ecmdata->gwdata, diff->x, diff->z, t1, t1, GWMUL_STARTNEXTFFT1);	/* t1 = t1 * xdiff (will become outz) */
+		gwsubmul4 (&ecmdata->gwdata, diff->x, diff->z, t2, t2, GWMUL_STARTNEXTFFT2);	/* t2 = t2 * zdiff (will become outx) */
+		gwaddmul4 (&ecmdata->gwdata, diff->x, diff->z, t1, t1, GWMUL_STARTNEXTFFT2);	/* t1 = t1 * xdiff (will become outz) */
 	} else if (diff == out) {
-		gwmul3 (&ecmdata->gwdata, t2, diff->z, t2, GWMUL_STARTNEXTFFT1);		/* t2 = t2 * zdiff (will become outx) */
-		gwmul3 (&ecmdata->gwdata, t1, diff->x, t1, GWMUL_STARTNEXTFFT1);		/* t1 = t1 * xdiff (will become outz) */
+		gwmul3 (&ecmdata->gwdata, t2, diff->z, t2, GWMUL_STARTNEXTFFT2);		/* t2 = t2 * zdiff (will become outx) */
+		gwmul3 (&ecmdata->gwdata, t1, diff->x, t1, GWMUL_STARTNEXTFFT2);		/* t1 = t1 * xdiff (will become outz) */
 	} else if (in2 == out) {			/* In this lucas mul case, we find that diff is usually used next in x+z,x-z fmt */
 		convert_xz (ecmdata, diff);					/* Convert to x + z, x - z format */
-		gwsubmul4 (&ecmdata->gwdata, diff->x, diff->z, t2, t2, GWMUL_STARTNEXTFFT1);	/* t2 = t2 * zdiff (will become outx) */
-		gwaddmul4 (&ecmdata->gwdata, diff->x, diff->z, t1, t1, GWMUL_STARTNEXTFFT1);	/* t1 = t1 * xdiff (will become outz) */
+		gwsubmul4 (&ecmdata->gwdata, diff->x, diff->z, t2, t2, GWMUL_STARTNEXTFFT2);	/* t2 = t2 * zdiff (will become outx) */
+		gwaddmul4 (&ecmdata->gwdata, diff->x, diff->z, t1, t1, GWMUL_STARTNEXTFFT2);	/* t1 = t1 * xdiff (will become outz) */
 	} else {					/* In these lucas mul cases, we find that diff is usually used next as a diff */
 							/* If the FFTed diff is used as a regular in1/in2 arg then convert_xz will catch it */
-		gwmul3 (&ecmdata->gwdata, t2, diff->z, t2, GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT1);	/* t2 = t2 * zdiff (will become outx) */
-		gwmul3 (&ecmdata->gwdata, t1, diff->x, t1, GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT1);	/* t1 = t1 * xdiff (will become outz) */
+		gwmul3 (&ecmdata->gwdata, t2, diff->z, t2, GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT2);	/* t2 = t2 * zdiff (will become outx) */
+		gwmul3 (&ecmdata->gwdata, t1, diff->x, t1, GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT2);	/* t1 = t1 * xdiff (will become outz) */
 	}
 	scr->x = t2;
 	scr->z = t1;
@@ -1006,9 +1002,9 @@ void ell_add_xz_last (
 	convert_xz (ecmdata, in1);
 	convert_xz (ecmdata, in2);
 	/* If we have extra_bits then we can start next FFT of t1 and t2 since (t2+t1)^2 will not have too much roundoff error */
-	gwmul3 (&ecmdata->gwdata, in1->x, in2->z, t1, GWMUL_STARTNEXTFFT1);	/* t1 = (x1 + z1)(x2 - z2) */
-	gwmul3 (&ecmdata->gwdata, in1->z, in2->x, t2, GWMUL_STARTNEXTFFT1);	/* t2 = (x1 - z1)(x2 + z2) */
-	gwaddsub (&ecmdata->gwdata, t2, t1);
+	gwmul3 (&ecmdata->gwdata, in1->x, in2->z, t1, GWMUL_STARTNEXTFFT2);	/* t1 = (x1 + z1)(x2 - z2) */
+	gwmul3 (&ecmdata->gwdata, in1->z, in2->x, t2, GWMUL_STARTNEXTFFT2);	/* t2 = (x1 - z1)(x2 + z2) */
+	gwaddsub4o (&ecmdata->gwdata, t2, t1, t2, t1, GWADD_SQUARE_INPUT);
 	gwsquare2 (&ecmdata->gwdata, t2, t2, GWMUL_STARTNEXTFFT);		/* t2 = (t2 + t1)^2 */
 	gwsquare2 (&ecmdata->gwdata, t1, t1, GWMUL_STARTNEXTFFT);		/* t1 = (t2 - t1)^2 */
 	if (diff->added) {
@@ -2968,17 +2964,17 @@ int choose12 (
 	}
 
 	/* Now for A. */
-	gwsub3 (&ecmdata->gwdata, zs, xs, t2);
+	gwsub3o (&ecmdata->gwdata, zs, xs, t2, GWADD_GUARANTEED_OK | GWADD_SQUARE_INPUT);
 	gwsquare2 (&ecmdata->gwdata, t2, t3, GWMUL_STARTNEXTFFT);
-	gwmul (&ecmdata->gwdata, t3, t2);		/* (v-u)^3 */
-	gwadd3 (&ecmdata->gwdata, xs, xs, t3);
-	gwadd3 (&ecmdata->gwdata, xs, t3, t3);
-	gwadd3 (&ecmdata->gwdata, zs, t3, t3);		/* 3u+v */
-	gwmul3 (&ecmdata->gwdata, t2, t3, t2, 0);	/* An = (v-u)^3 (3u+v) */
+	gwmul (&ecmdata->gwdata, t3, t2);						/* (v-u)^3 */
+	gwadd3o (&ecmdata->gwdata, xs, xs, t3, GWADD_GUARANTEED_OK | GWADD_MUL_INPUT);
+	gwadd3o (&ecmdata->gwdata, xs, t3, t3, GWADD_GUARANTEED_OK | GWADD_MUL_INPUT);
+	gwadd3o (&ecmdata->gwdata, zs, t3, t3, GWADD_GUARANTEED_OK | GWADD_MUL_INPUT);	/* 3u+v */
+	gwmul3 (&ecmdata->gwdata, t2, t3, t2, 0);					/* An = (v-u)^3 (3u+v) */
 	gwmul3 (&ecmdata->gwdata, xs, zs, ecmdata->Ad4, GWMUL_STARTNEXTFFT);
 	gwsquare2 (&ecmdata->gwdata, xs, xs, GWMUL_STARTNEXTFFT);
-	gwmul3 (&ecmdata->gwdata, xs, ecmdata->Ad4, ecmdata->Ad4, 0);	/* u^3 * v */
-	gwsmallmul (&ecmdata->gwdata, 4.0, ecmdata->Ad4);	/* An/Ad is now A + 2 */
+	gwmul3 (&ecmdata->gwdata, xs, ecmdata->Ad4, ecmdata->Ad4, 0);			/* u^3 * v */
+	gwsmallmul (&ecmdata->gwdata, 4.0, ecmdata->Ad4);				/* An/Ad is now A + 2 */
 
 	/* Normalize so that An is one */
 	stop_reason = normalize (ecmdata, ecmdata->Ad4, t2, N, factor);
@@ -3539,7 +3535,7 @@ int ecm_stage2_impl (
 /* Figure out how many gwnum values fit in our memory limit.  User nordi had over-allocating memory troubles on Linux testing M1277, presumably */
 /* because our estimate genum size was too low.  As a work-around limit numvals to 100,000 by default. */
 
-	numvals = cvt_mem_to_gwnums (&ecmdata->gwdata, memory);
+	numvals = cvt_mem_to_gwnums (&ecmdata->gwdata, memory - bitarray_size);
 	if (numvals < 13) numvals = 13;
 	if (numvals > 100000) numvals = 100000;
 
@@ -3829,7 +3825,7 @@ int ecm_restore (			/* For version 30.4 save files */
 		if (bitarray_numDsections > ecmdata->bitarraymaxDsections) bitarray_numDsections = ecmdata->bitarraymaxDsections;
 		bitarray_len = divide_rounding_up (bitarray_numDsections * ecmdata->totrels, 8);
 		bitarray_start = divide_rounding_down ((ecmdata->Dsection - ecmdata->bitarrayfirstDsection) * ecmdata->totrels, 8);
-		ecmdata->bitarray = (char *) malloc (bitarray_len);
+		ecmdata->bitarray = (char *) malloc ((size_t) bitarray_len);
 		if (ecmdata->bitarray == NULL) goto readerr;
 		if (! read_array (fd, ecmdata->bitarray + bitarray_start, (unsigned long) (bitarray_len - bitarray_start), &sum)) goto readerr;
 	}
@@ -4272,7 +4268,8 @@ if (w->n == 604) {
 	sprintf (buf, "\nUsing %s\n", fft_desc);
 	OutputStr (thread_num, buf);
 	if (ecmdata.gwdata.PASS1_SIZE) {
-		sprintf (buf, "%5.3f bits-per-word below FFT limit (more than 0.5 allows extra optimizations)\n", (ecmdata.gwdata.EXTRA_BITS - 1.0) / 2.0);
+		sprintf (buf, "%5.3f bits-per-word below FFT limit (more than %5.3f allows extra optimizations)\n",
+			 ecmdata.gwdata.fft_max_bits_per_word - virtual_bits_per_word (&ecmdata.gwdata), EB_FIRST_ADD);
 		OutputStr (thread_num, buf);
 	}
 
@@ -4590,10 +4587,12 @@ replan:	min_memory = cvt_gwnums_to_mem (&ecmdata.gwdata, 13);
 /* Record the amount of memory this thread will be using in stage 2. */
 
 	memused = cvt_gwnums_to_mem (&ecmdata.gwdata, ecmdata.stage2_numvals);
-	memused += (_intmin (ecmdata.numDsections - ecmdata.bitarrayfirstDsection, ecmdata.bitarraymaxDsections) * ecmdata.totrels) >> 23; 
+	memused += (_intmin (ecmdata.numDsections - ecmdata.bitarrayfirstDsection, ecmdata.bitarraymaxDsections) * ecmdata.totrels) >> 23;
 	// To dodge possible infinite loop if ecm_stage2_impl allocates too much memory (it shouldn't), decrease the percentage of memory we are allowed to use
+	// Beware that replaning may allocate a larger bitarray
 	if (set_memory_usage (thread_num, MEM_VARIABLE_USAGE, memused)) {
 		ecmdata.pct_mem_to_use *= 0.99;
+		free (ecmdata.bitarray); ecmdata.bitarray = NULL;
 		goto replan;
 	}
 	gw_set_max_allocs (&ecmdata.gwdata, ecmdata.stage2_numvals);
@@ -5960,7 +5959,7 @@ int pm1_restore (			/* For version 30.4 and later save files */
 		if (bitarray_numDsections > pm1data->bitarraymaxDsections) bitarray_numDsections = pm1data->bitarraymaxDsections;
 		bitarray_len = divide_rounding_up (bitarray_numDsections * pm1data->totrels, 8);
 		bitarray_start = divide_rounding_down ((pm1data->Dsection - pm1data->bitarrayfirstDsection) * pm1data->totrels, 8);
-		pm1data->bitarray = (char *) malloc (bitarray_len);
+		pm1data->bitarray = (char *) malloc ((size_t) bitarray_len);
 		if (pm1data->bitarray == NULL) goto readerr;
 		if (! read_array (fd, pm1data->bitarray + bitarray_start, (unsigned long) (bitarray_len - bitarray_start), &sum)) goto readerr;
 	}
@@ -6221,7 +6220,7 @@ int pm1_stage2_impl (
 /* Compute the number of gwnum temporaries we can allocate.  User nordi had over-allocating memory troubles on Linux testing M1277, presumably */
 /* because our estimate genum size was too low.  As a work-around limit numvals to 100,000 by default. */
 
-	numvals = cvt_mem_to_gwnums (&pm1data->gwdata, memory);
+	numvals = cvt_mem_to_gwnums (&pm1data->gwdata, memory - bitarray_size);
 	if (numvals < 8) numvals = 8;
 	if (numvals > 100000) numvals = 100000;
 	if (QA_TYPE) numvals = QA_TYPE;			/* Optionally override numvals for QA purposes */
@@ -7027,8 +7026,10 @@ replan:	{
 	memused = cvt_gwnums_to_mem (&pm1data.gwdata, pm1data.stage2_numvals);
 	memused += (_intmin (pm1data.numDsections - pm1data.bitarrayfirstDsection, pm1data.bitarraymaxDsections) * pm1data.totrels) >> 23;
 	// To dodge possible infinite loop if pm1_stage2_impl allocates too much memory (it shouldn't), decrease the percentage of memory we are allowed to use
+	// Beware that replaning may allocate a larger bitarray
 	if (set_memory_usage (thread_num, MEM_VARIABLE_USAGE, memused)) {
 		pm1data.pct_mem_to_use *= 0.99;
+		free (pm1data.bitarray); pm1data.bitarray = NULL;
 		goto replan;
 	}
 
