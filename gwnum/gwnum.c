@@ -9434,7 +9434,6 @@ void gwmul3_carefully (		/* Multiply two gwnums very carefully */
 {
 	struct gwasm_data *asm_data = (struct gwasm_data *) gwdata->asm_data;
 	double	saved_addin_value;
-	float	saved_extra_bits;
 	int	saved_careful_count;
 
 	ASSERTG (norm_count (s1) >= 0.0f);
@@ -9465,21 +9464,17 @@ void gwmul3_carefully (		/* Multiply two gwnums very carefully */
 
 	saved_addin_value = asm_data->ADDIN_VALUE;
 
+/* Handle a squaring operation using two multiplies and several adds. */
 /* Make sure we do not do addquick when computing s+random.  If we do not do this, then the non-randomness of s can swamp */
 /* the randomness of s+random.  An example is the first PRP iterations of 2*3^599983-1 -- s is all positive values and gwadd3 */
 /* thinks there are enough extra bits to do an add quick.  This generates temps with nearly all positive values -- very bad. */
-
-	saved_extra_bits = gwdata->EXTRA_BITS;
-	gwdata->EXTRA_BITS = 0.0;
-
-/* Handle a squaring operation using two multiplies and several adds. */
 
 	if (s1 == s2) {
 		gwnum tmp = gwalloc (gwdata);
 		if (FFT_state (s1) == NOT_FFTed);							/* Make sure input data is not FFTed */
 		else if (options & (GWMUL_PRESERVE_S1 | GWMUL_PRESERVE_S2)) gwunfft (gwdata, s1, tmp), s1 = tmp;
 		else gwunfft (gwdata, s1, s1);
-		gwaddsub4o (gwdata, s1, gwdata->GW_RANDOM, tmp, d, GWADD_SQUARE_INPUT);			/* Compute s1+random and s1-random */
+		gwaddsub4o (gwdata, s1, gwdata->GW_RANDOM, tmp, d, GWADD_FORCE_NORMALIZE);		/* Compute s1+random and s1-random */
 		gwmul3 (gwdata, tmp, d, d, options & (GWMUL_MULBYCONST | GWMUL_GLOBALMULBYCONST));	/* Compute (s1+random)(s1-random)*const+addin */
 		asm_data->ADDIN_VALUE = 0.0;								/* Clear the addin value */
 		gwfft (gwdata, gwdata->GW_RANDOM, tmp);
@@ -9504,10 +9499,10 @@ void gwmul3_carefully (		/* Multiply two gwnums very carefully */
 		else if (options & GWMUL_PRESERVE_S2) gwunfft (gwdata, s2, tmp3), s2 = tmp3;
 		else gwunfft (gwdata, s2, s2);
 
-		gwadd3o (gwdata, s1, gwdata->GW_RANDOM, tmp1, GWADD_SQUARE_INPUT);	/* Compute s1+random */
-		gwadd3o (gwdata, s2, gwdata->GW_RANDOM, d, GWADD_SQUARE_INPUT);		/* Compute s2+random */
-		gwadd3o (gwdata, tmp1, gwdata->GW_RANDOM, tmp2, GWADD_SQUARE_INPUT);	/* Compute s1+2*random */
-		gwadd3o (gwdata, d, gwdata->GW_RANDOM, tmp3, GWADD_SQUARE_INPUT);	/* Compute s2+2*random */
+		gwadd3o (gwdata, s1, gwdata->GW_RANDOM, tmp1, GWADD_FORCE_NORMALIZE);	/* Compute s1+random */
+		gwadd3o (gwdata, s2, gwdata->GW_RANDOM, d, GWADD_FORCE_NORMALIZE);	/* Compute s2+random */
+		gwadd3o (gwdata, tmp1, gwdata->GW_RANDOM, tmp2, GWADD_FORCE_NORMALIZE);	/* Compute s1+2*random */
+		gwadd3o (gwdata, d, gwdata->GW_RANDOM, tmp3, GWADD_FORCE_NORMALIZE);	/* Compute s2+2*random */
 
 		gwmul3 (gwdata, tmp1, d, d, options & GWMUL_GLOBALMULBYCONST);		/* Compute (s1+r)*(s2+r)+addin = s1s2 + rs1 + rs2 + rr + addin */
 		gwmul3 (gwdata, tmp2, tmp3, tmp3, options & GWMUL_GLOBALMULBYCONST);	/* Compute (s+2r)*(s2+2r)+addin = s1s2 + 2rs1 + 2rs2 + 4rr + addin */
@@ -9529,7 +9524,6 @@ void gwmul3_carefully (		/* Multiply two gwnums very carefully */
 /* Restore from saved values */
 
 	asm_data->ADDIN_VALUE = saved_addin_value;
-	gwdata->EXTRA_BITS = saved_extra_bits;
 	gwdata->careful_count = saved_careful_count;
 }
 
@@ -9986,7 +9980,7 @@ void gwadd3o (			/* Add two numbers normalizing if needed */
 /* Sanity check the options */
 
 	ASSERTG (!(options & GWADD_DELAY_NORMALIZE) || !(options & GWADD_FORCE_NORMALIZE));	// Both options cannot be set
-	ASSERTG (options & (GWADD_SQUARE_INPUT | GWADD_MUL_INPUT | GWADD_ADD_INPUT));		// At least one intended usage must be set
+	ASSERTG (options & (GWADD_FORCE_NORMALIZE | GWADD_SQUARE_INPUT | GWADD_MUL_INPUT | GWADD_ADD_INPUT)); // Force normalize or usage must be set
 
 /* Calculate the new norm_count if we don't do a normalized add. */
 /* Non-random input data will eat up a full extra FFT output bit. */
@@ -10118,7 +10112,7 @@ void gwsub3o (			/* Compute s1 - s2 normalizing if needed */
 /* Sanity check the options */
 
 	ASSERTG (!(options & GWADD_DELAY_NORMALIZE) || !(options & GWADD_FORCE_NORMALIZE));	// Both options cannot be set
-	ASSERTG (options & (GWADD_SQUARE_INPUT | GWADD_MUL_INPUT | GWADD_ADD_INPUT));		// At least one intended usage must be set
+	ASSERTG (options & (GWADD_FORCE_NORMALIZE | GWADD_SQUARE_INPUT | GWADD_MUL_INPUT | GWADD_ADD_INPUT)); // Force normalize or usage must be set
 
 /* Calculate the new norm_count if we don't do a normalized add. */
 /* Non-random input data will eat up a full extra output bit. */
@@ -10251,7 +10245,7 @@ void gwaddsub4o (		/* Add & sub two nums normalizing if needed */
 /* Sanity check the options */
 
 	ASSERTG (!(options & GWADD_DELAY_NORMALIZE) || !(options & GWADD_FORCE_NORMALIZE));	// Both options cannot be set
-	ASSERTG (options & (GWADD_SQUARE_INPUT | GWADD_MUL_INPUT | GWADD_ADD_INPUT));		// At least one intended usage must be set
+	ASSERTG (options & (GWADD_FORCE_NORMALIZE | GWADD_SQUARE_INPUT | GWADD_MUL_INPUT | GWADD_ADD_INPUT)); // Force normalize or usage must be set
 
 /* Calculate the new norm_count if we don't do a normalized add. */
 /* Non-random input data will eat up a full extra output bit. */

@@ -6578,7 +6578,6 @@ restart:
 
 		if (pm1data.state == PM1_STATE_MIDSTAGE) {
 			if (pm1data.B > pm1data.B_done) {
-//GW ???
 				gwfree (&pm1data.gwdata, gg), gg = NULL;
 				goto more_B;
 			}
@@ -6594,6 +6593,7 @@ restart:
 
 			if (pm1data.B > pm1data.B_done && w->work_type == WORK_PMINUS1) {
 				gwfree (&pm1data.gwdata, gg), gg = NULL;
+				free (pm1data.bitarray), pm1data.bitarray = NULL;
 				goto more_B;
 			}
 
@@ -6640,7 +6640,7 @@ restart:
 		ASSERTG (pm1data.state == PM1_STATE_DONE);
 		if (pm1data.B > pm1data.B_done) goto more_B;
 		if (pm1data.C > pm1data.C_done) {
-			pm1data.state = PM1_STATE_MIDSTAGE;	//GW: bug - can set gg to one, don't need to create save file if stage2 init interrupted
+			pm1data.state = PM1_STATE_MIDSTAGE;
 			if (pm1data.first_C_start == pm1data.B) pm1data.first_C_start = pm1data.C_done;
 			goto restart3a;
 		}
@@ -6977,10 +6977,6 @@ more_B:		pm1data.interim_B = pm1data.B;
 /* Initialize variables for second stage.  We set gg to x-1 in case the user opted to skip the GCD after stage 1. */
 
 restart3a:
-	//GW:  need to come here when abandoning an old stage 2 save file.  Move this to 3b and test for gg == NULL ???
-
-//GW implies this needs to be saved....  OR done later only if state = PM1_STATE_midstage
-// will not get executed on a restart in midstage state????
 	gg = gwalloc (&pm1data.gwdata);
 	if (gg == NULL) goto oom;
 	gwcopy (&pm1data.gwdata, x, gg);
