@@ -366,6 +366,7 @@ int radix_gwcopy (
 		int	b_we_have;
 
 		dstb = dst_gwdata->NUM_B_PER_SMALL_WORD + !!is_big_word (dst_gwdata, dsti);
+		if (dsti > last_dsti) dstb = 0;  // Needed for zero-padded FFTs
 		dstval = 0;
 		b_we_have = 0;
 
@@ -402,11 +403,11 @@ int radix_gwcopy (
 
 		// Store in balanced representation except for the last destination FFT word.
 		dstval += carry;
-		if (dsti == last_dsti) {			// NOTE: This occurs before the last FFT word if avg_num_b_per_word < 1
+		if (dsti == last_dsti) {			// NOTE: This occurs before the last FFT word if avg_num_b_per_word < 1 or zero-pad
 			// Sometimes there is data above the last srcb -- a possible carry.
 			// Get that data so we can adjust last dstval accordingly.
-			ASSERTG (srcb || srci != src_gwdata->FFTLEN);
-			if (srcb == 0) {
+			ASSERTG (srcb || srci != src_gwdata->FFTLEN || dst_gwdata->ZERO_PADDED_FFT);
+			if (srcb == 0 && srci != src_gwdata->FFTLEN) {
 				err_code = get_fft_value (src_gwdata, src, srci, &srcval);
 				if (err_code) return (err_code);
 			}

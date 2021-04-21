@@ -8,7 +8,7 @@
 | Commonb contains information used only during execution
 | Commonc contains information used during setup and execution
 |
-| Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
 +---------------------------------------------------------------------*/
 
 /* Routine to eliminate odd puctuation characters from user ID */
@@ -153,6 +153,8 @@ void rangeStatusMessage (
 			sprintf (buf, "ECM %d curve%s B1=%.0f", w->curves_to_do, w->curves_to_do == 1 ? "" : "s", w->B1);
 		else if (w->work_type == WORK_PMINUS1)
 			sprintf (buf, "P-1 B1=%.0f", w->B1);
+		else if (w->work_type == WORK_PPLUS1)
+			sprintf (buf, "P+1 B1=%.0f", w->B1);
 		else if (w->work_type == WORK_FACTOR)
 			sprintf (buf, "factor from 2^%d to 2^%d", (int) w->sieve_depth, (int) w->factor_to);
 		else

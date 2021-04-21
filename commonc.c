@@ -2287,7 +2287,7 @@ void addKnownFermatFactors (
 /* If this is ECM or P-1 on a Fermat number, then automatically add known Fermat factors */
 
 	if (w->k == 1.0 && w->b == 2 && w->c == 1 &&
-	    (w->work_type == WORK_ECM || w->work_type == WORK_PMINUS1) &&
+	    (w->work_type == WORK_ECM || w->work_type == WORK_PMINUS1 || w->work_type == WORK_PPLUS1) &&
 	    IniGetInt (INI_FILE, "AddKnownFermatFactors", 1)) {
 		if (w->n == 4096) addKnownFermatFactor (w, "114689");
 		if (w->n == 4096) addKnownFermatFactor (w, "26017793");
@@ -2755,6 +2755,42 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		}
 	    }
 
+/* Handle Pplus1 lines:							*/
+/*	Pplus1=k,b,n,c,B1,B2,nth_run,[,how_far_factored][,"factors"]	*/
+/* where nth_run is 1 for start 2/7, 2 for start 6/5, 3+ for random start */
+
+	    else if (_stricmp (keyword, "Pplus1") == 0) {
+		char	*q;
+		w->work_type = WORK_PPLUS1;
+		w->k = atof (value);
+		if ((q = strchr (value, ',')) == NULL) goto illegal_line;
+		sscanf (q+1, "%lu,%lu,%ld", &w->b, &w->n, &w->c);
+		for (i = 1; i <= 3; i++) if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+		w->B1 = atof (q+1);
+		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+		w->B2 = atof (q+1);
+		q = strchr (q+1, ',');
+		w->nth_run = 1;
+		if (q != NULL && q[1] != '"') {
+			w->nth_run = atoi (q+1);
+			q = strchr (q+1, ',');
+		}
+		w->sieve_depth = 0.0;
+		if (q != NULL && q[1] != '"') {
+			double	j;
+			j = atof (q+1);
+			if (j < 100.0) {
+				w->sieve_depth = j;
+				q = strchr (q+1, ',');
+			}
+		}
+		if (q != NULL && q[1] == '"') {
+			w->known_factors = (char *) malloc (strlen (q));
+			if (w->known_factors == NULL) goto nomem;
+			strcpy (w->known_factors, q+2);
+		}
+	    }
+
 /* Handle PRP= lines.									*/
 /*	PRP=k,b,n,c[,how_far_factored,tests_saved[,base,residue_type]][,known_factors]	*/
 /*	PRPDC=k,b,n,c[,how_far_factored,tests_saved[,base,residue_type]][,known_factors]*/
@@ -2840,7 +2876,7 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 /* should never be asked to factor a number more than we are capable of. */
 
 	    if (w->k == 1.0 && w->b == 2 && !isPrime (w->n) && w->c == -1 && w->known_factors == NULL &&
-		w->work_type != WORK_ECM && w->work_type != WORK_PMINUS1 &&
+		w->work_type != WORK_ECM && w->work_type != WORK_PMINUS1 && w->work_type != WORK_PPLUS1 &&
 		!(w->work_type == WORK_PRP && IniGetInt (INI_FILE, "PhiExtensions", 0))) {
 		char	buf[80];
 		sprintf (buf, "Error: Worktodo.txt file contained composite exponent: %ld\n", w->n);
@@ -3155,6 +3191,14 @@ int writeWorkToDoFile (
 				sprintf (buf + strlen (buf), ",%.0f", w->sieve_depth);
 			if (w->B2_start > w->B1)
 				sprintf (buf + strlen (buf), ",%.0f", w->B2_start);
+			if (w->known_factors != NULL)
+				sprintf (buf + strlen (buf), ",\"%s\"", w->known_factors);
+			break;
+
+		case WORK_PPLUS1:
+			sprintf (buf, "Pplus1=%s%.0f,%lu,%lu,%ld,%.0f,%.0f,%d", idbuf, w->k, w->b, w->n, w->c, w->B1, w->B2, w->nth_run);
+			if (w->sieve_depth > 0.0)
+				sprintf (buf + strlen (buf), ",%.0f", w->sieve_depth);
 			if (w->known_factors != NULL)
 				sprintf (buf + strlen (buf), ",\"%s\"", w->known_factors);
 			break;
@@ -3516,7 +3560,7 @@ double work_estimate (
 			B2 = guess_B2;
 		} else {
 			B1 = w->B1;
-			B2 = w->B2;
+			B2 = w->B2 ? w->B2 : 40 * w->B1;
 		}
 
 		if (w->stage[0]) stage = atoi (&w->stage[1]);
@@ -3524,17 +3568,33 @@ double work_estimate (
 
 		timing = gwmap_to_timing (w->k, w->b, w->n, w->c);
 		stage1_time = timing * (1.4545 * B1);
-		if (B2)
-			stage2_time = timing * (0.06154 * (B2 - B1)) * 1.285;
-		else
-			stage2_time = timing * (0.06154 * 99.0 * B1) * 1.285;
+		stage2_time = (B2 >= B1) ? timing * (0.06154 * (B2 - B1)) * 1.285 : 0.0;
 
-		if (stage == 0)
-			est = stage1_time + stage2_time;
-		if (stage == 1)
-			est = stage1_time * (1.0 - pct_complete) + stage2_time;
-		if (stage == 2)
-			est = stage2_time * (1.0 - pct_complete);
+		if (stage == 0) est = stage1_time + stage2_time;
+		if (stage == 1) est = stage1_time * (1.0 - pct_complete) + stage2_time;
+		if (stage == 2) est = stage2_time * (1.0 - pct_complete);
+	}
+
+/* For P+1, estimate about the same as a P-1 */ 
+
+	if (w->work_type == WORK_PPLUS1) {
+		int	stage;
+		double	B1, B2;
+		double	stage1_time, stage2_time;
+
+		B1 = w->B1;
+		B2 = w->B2 ? w->B2 : 40 * w->B1;
+
+		if (w->stage[0]) stage = atoi (&w->stage[1]);
+		else stage = 0;
+
+		timing = gwmap_to_timing (w->k, w->b, w->n, w->c);
+		stage1_time = timing * (1.4545 * B1);
+		stage2_time = (B2 >= B1) ? timing * (0.06154 * (B2 - B1)) * 1.285 : 0.0;
+
+		if (stage == 0) est = stage1_time + stage2_time;
+		if (stage == 1) est = stage1_time * (1.0 - pct_complete) + stage2_time;
+		if (stage == 2) est = stage2_time * (1.0 - pct_complete);
 	}
 
 /* If factoring, guess how long that will take.  Timings are based on */
@@ -3966,6 +4026,7 @@ void tempFileName (
 	if (w->work_type == WORK_FACTOR) buf[0] = 'f';
 	if (w->work_type == WORK_ECM) buf[0] = 'e';
 	if (w->work_type == WORK_PMINUS1 || w->work_type == WORK_PFACTOR) buf[0] = 'm';
+	if (w->work_type == WORK_PPLUS1) buf[0] = 'n';
 	if (w->work_type == WORK_CERT) buf[0] = 'c';
 
 /* Prior to version 25.9 build 5, the pfactor work type used p as the */
@@ -4136,6 +4197,7 @@ int write_gwnum (
 	unsigned long *sum)
 {
 	giant	tmp;
+	gwnum	tmp_gwnum = NULL;
 	int	retcode;
 	unsigned long i, len, bytes;
 
@@ -4143,6 +4205,15 @@ int write_gwnum (
 	if (tmp == NULL) {
 		OutputBoth (MAIN_THREAD_NUM, "In write_gwnum, unexpected popg failure\n");
 		return (FALSE);
+	}
+	if (!gwnum_is_not_ffted (gwdata, g)) {
+		tmp_gwnum = gwalloc (gwdata);
+		if (tmp_gwnum == NULL) {
+			OutputBoth (MAIN_THREAD_NUM, "In write_gwnum, unexpected gwalloc failure\n");
+			goto err;
+		}
+		gwunfft (gwdata, g, tmp_gwnum);
+		g = tmp_gwnum;
 	}
 	retcode = gwtogiant (gwdata, g, tmp);
 	if (retcode) {
@@ -4170,8 +4241,10 @@ int write_gwnum (
 	*sum = (uint32_t) (*sum + len);
 	for (i = 0; i < len; i++) *sum = (uint32_t) (*sum + tmp->n[i]);
 	pushg (&gwdata->gdata, 1);
+	gwfree (gwdata, tmp_gwnum);
 	return (TRUE);
 err:	pushg (&gwdata->gdata, 1);
+	gwfree (gwdata, tmp_gwnum);
 	return (FALSE);
 }
 
@@ -5050,6 +5123,9 @@ void kbnc_to_text (
 		break;
 	case PRIMENET_WORK_TYPE_PMINUS1:
 		work_type_str = "P-1";
+		break;
+	case PRIMENET_WORK_TYPE_PPLUS1:
+		work_type_str = "P+1";
 		break;
 	case PRIMENET_WORK_TYPE_PRP:
 		work_type_str = prp_dblchk ? "PRPDC" : "PRP";
@@ -5970,12 +6046,13 @@ retry:
 		}
 
 /* If this is the first work unit for this worker, clear flag if it might be costly to interrupt it with priority work */
-/* This would be P-1 (especially) or ECM where stage 2 setup can be expensive.  Also PRP tests that are near done should */
+/* This would be P-1 (especially) or ECM and P+1 where stage 2 setup can be expensive.  Also PRP tests that are near done should */
 /* be completed ASAP to free up the temp disk space they are using.  Actually, any work that is near done, the user might */
 /* be watching with anticipation for its completion. */
 
 		if (est == 0.0 && IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10) < 50 &&
-		    (w->work_type == WORK_PMINUS1 || w->work_type == WORK_PFACTOR || w->work_type == WORK_ECM || w->pct_complete > 0.85))
+		    (w->work_type == WORK_PMINUS1 || w->work_type == WORK_PFACTOR || w->work_type == WORK_ECM ||
+		     w->work_type == WORK_PPLUS1 || w->pct_complete > 0.85))
 			first_work_unit_interruptable = FALSE;
 
 /* Adjust our time estimate */
@@ -5995,12 +6072,15 @@ retry:
 				pkt.work_type = PRIMENET_WORK_TYPE_FACTOR;
 			if (w->work_type == WORK_PMINUS1)
 				pkt.work_type = PRIMENET_WORK_TYPE_PMINUS1;
+			if (w->work_type == WORK_PPLUS1)
+				pkt.work_type = PRIMENET_WORK_TYPE_PPLUS1;
 			if (w->work_type == WORK_PFACTOR)
 				pkt.work_type = PRIMENET_WORK_TYPE_PFACTOR;
+			if (w->work_type == WORK_PPLUS1)
+				pkt.work_type = PRIMENET_WORK_TYPE_PPLUS1;
 			if (w->work_type == WORK_ECM)
 				pkt.work_type = PRIMENET_WORK_TYPE_ECM;
-			if (w->work_type == WORK_TEST ||
-			    w->work_type == WORK_ADVANCEDTEST)
+			if (w->work_type == WORK_TEST || w->work_type == WORK_ADVANCEDTEST)
 				pkt.work_type = PRIMENET_WORK_TYPE_FIRST_LL;
 			if (w->work_type == WORK_DBLCHK)
 				pkt.work_type = PRIMENET_WORK_TYPE_DBLCHK;
@@ -6225,6 +6305,15 @@ retry:
 			w.k = pkt1.k;
 			w.b = pkt1.b;
 			w.c = pkt1.c;
+			w.B1 = pkt1.B1;
+			w.B2 = pkt1.B2;
+			break;
+		case PRIMENET_WORK_TYPE_PPLUS1:		/* Not presently supported by the server */
+			w.work_type = WORK_PPLUS1;
+			w.k = pkt1.k;
+			w.b = pkt1.b;
+			w.c = pkt1.c;
+			w.nth_run = pkt1.nth_run;
 			w.B1 = pkt1.B1;
 			w.B2 = pkt1.B2;
 			break;

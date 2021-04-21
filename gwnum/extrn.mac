@@ -1,4 +1,4 @@
-; Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved
+; Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -123,7 +123,7 @@ sincos4			EQU	PPTR [AD_BASE+42*SZPTR+128]		;; could be moved to UNION area like 
 sincos5			EQU	PPTR [AD_BASE+43*SZPTR+128]		;; could be moved to UNION area like sincos6, sincos7, etc.
 ;;hyperthread_id	EQU	PPTR [AD_BASE+44*SZPTR+128]		;; Only referenced in C code
 ;;hyperthread_work_to_do EQU	PPTR [AD_BASE+45*SZPTR+128]		;; Only referenced in C code
-;;UNUSED_PTRS[1]	EQU	PPTR [AD_BASE+46*SZPTR+128]
+SRC3ARG			EQU	PPTR [AD_BASE+46*SZPTR+128]
 ASM_TIMERS		EQU	PPTR [AD_BASE+47*SZPTR+128]
 
 COPYZERO		EQU	DPTR [AD_BASE+48*SZPTR+128]

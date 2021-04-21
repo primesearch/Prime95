@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
 +---------------------------------------------------------------------*/
 
 //#define SERVER_TESTING
@@ -91,6 +91,7 @@ int prp (int, struct PriorityInfo *, struct work_unit *, int);
 int cert (int, struct PriorityInfo *, struct work_unit *, int);
 int ecm (int, struct PriorityInfo *, struct work_unit *);
 int pminus1 (int, struct PriorityInfo *, struct work_unit *);
+int pplus1 (int, struct PriorityInfo *, struct work_unit *);
 int pfactor (int, struct PriorityInfo *, struct work_unit *);
 double guess_pminus1_probability (struct work_unit *w);
 void autoBench (void);
@@ -207,6 +208,7 @@ int primeSieveTest (int);
 int setN (int, struct work_unit *, giant *);
 int ecm_QA (int, struct PriorityInfo *);
 int pminus1_QA (int, struct PriorityInfo *);
+int pplus1_QA (int, struct PriorityInfo *);
 int test_randomly (int, struct PriorityInfo *);
 int test_all_impl (int, struct PriorityInfo *);
 

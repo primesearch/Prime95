@@ -930,8 +930,8 @@ void options_resources (void)
 	if (m_memory_editable) {
 		float	max_mem;
 		max_mem = (float) (0.9 * physical_memory () / 1024.0);
-		askFloat ("Daytime P-1/ECM stage 2 memory in GB", &m_day_memory, 0.0, max_mem);
-		askFloat ("Nighttime P-1/ECM stage 2 memory in GB", &m_night_memory, 0.0, max_mem);
+		askFloat ("Daytime P-1/P+1/ECM stage 2 memory in GB", &m_day_memory, 0.0, max_mem);
+		askFloat ("Nighttime P-1/P+1/ECM stage 2 memory in GB", &m_night_memory, 0.0, max_mem);
 		if (m_day_memory != m_night_memory) {
 			askStr ("Daytime begins at", m_start_time, 12);
 			askStr ("Daytime ends at", m_end_time, 12);
@@ -957,7 +957,7 @@ void options_resources (void)
 		}
 		if (CPU_HYPERTHREADS > 1 && OS_CAN_SET_AFFINITY) {
 			askYN ("Use hyperthreading for trial factoring (recommended)", &m_hyper_tf);
-			askYN ("Use hyperthreading for PRP, LL, P-1, ECM (not recommended)", &m_hyper_ll);
+			askYN ("Use hyperthreading for PRP, LL, P-1, P+1, ECM (not recommended)", &m_hyper_ll);
 		}
 	}
 

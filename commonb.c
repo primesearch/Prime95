@@ -1305,14 +1305,14 @@ int set_memory_usage (
 /* Wait for the stop to take effect so that we don't briefly over-allocate memory. */
 
 			MEM_FLAGS[thread_num] |= MEM_WAITING;
-			gwmutex_unlock (&MEM_MUTEX);
 			gwevent_init (&MEM_WAIT_OR_STOP[thread_num]);
 			gwevent_reset (&MEM_WAIT_OR_STOP[thread_num]);
 			MEM_WAIT_OR_STOP_INITIALIZED[thread_num] = 1;
+			gwmutex_unlock (&MEM_MUTEX);
 			gwevent_wait (&MEM_WAIT_OR_STOP[thread_num], 20);
+			gwmutex_lock (&MEM_MUTEX);
 			MEM_WAIT_OR_STOP_INITIALIZED[thread_num] = 0;
 			gwevent_destroy (&MEM_WAIT_OR_STOP[thread_num]);
-			gwmutex_lock (&MEM_MUTEX);
 			MEM_FLAGS[thread_num] &= ~MEM_WAITING;
 		}
 	}
@@ -1364,7 +1364,6 @@ int set_memory_usage (
 			if (are_threads_using_lots_of_memory (i)) continue;
 			stop_worker_for_mem_changed (i);
 			all_threads_set = FALSE;
-			break;
 		}
 	}
 
@@ -1495,14 +1494,14 @@ int avail_mem (
 	for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
 		if (i == thread_num) continue;
 		if (MEM_FLAGS[i] & MEM_USAGE_NOT_SET || MEM_FLAGS[i] & MEM_RESTARTING) {
-			gwmutex_unlock (&MEM_MUTEX);
 			gwevent_init (&MEM_WAIT_OR_STOP[thread_num]);
 			gwevent_reset (&MEM_WAIT_OR_STOP[thread_num]);
 			MEM_WAIT_OR_STOP_INITIALIZED[thread_num] = 1;
+			gwmutex_unlock (&MEM_MUTEX);
 			gwevent_wait (&MEM_WAIT_OR_STOP[thread_num], 5 + thread_num);
+			gwmutex_lock (&MEM_MUTEX);
 			MEM_WAIT_OR_STOP_INITIALIZED[thread_num] = 0;
 			gwevent_destroy (&MEM_WAIT_OR_STOP[thread_num]);
-			gwmutex_lock (&MEM_MUTEX);
 			break;
 		}
 	}
@@ -3199,10 +3198,16 @@ int primeContinue (
 			stop_reason = ecm (thread_num, &sp_info, w);
 		}
 
-/* See if this is an P-1 factoring line */
+/* See if this is a P-1 factoring line */
 
 		if (w->work_type == WORK_PMINUS1 && pass == 2) {
 			stop_reason = pminus1 (thread_num, &sp_info, w);
+		}
+
+/* See if this is a P+1 factoring line */
+
+		if (w->work_type == WORK_PPLUS1 && pass == 2) {
+			stop_reason = pplus1 (thread_num, &sp_info, w);
 		}
 
 /* Run a PRP test */
@@ -7342,7 +7347,7 @@ static const char SELFFAIL1[] = "ERROR: ILLEGAL SUMOUT\n";
 static const char SELFFAIL2[] = "FATAL ERROR: Resulting sum was %.16g, expected: %.16g\n";
 static const char SELFFAIL3[] = "FATAL ERROR: Rounding was %.10g, expected less than 0.4\n";
 static const char SELFFAIL4[] = "Possible hardware failure, consult readme.txt file, restarting test.\n";
-static const char SELFFAIL5[] = "Hardware failure detected, consult stress.txt file.\n";
+static const char SELFFAIL5[] = "Hardware failure detected running %lu%s FFT size, consult stress.txt file.\n";
 static const char SELFFAIL6[] = "Maximum number of warnings exceeded.\n";
 
 static const char SELFPASS[] = "Self-test %i%s passed!\n";
@@ -7722,13 +7727,11 @@ int selfTestInternal (
 
 	time (&start_time);
 
-/* Start in the self test data array where we left off the last time */
-/* torture test executed this FFT length. */
+/* Start in the self test data array where we left off the last time torture test executed this FFT length. */
 
 	i = (torture_index == NULL) ? 0 : *torture_index;
 
-/* Loop testing various exponents from self test data array until */
-/* time runs out */
+/* Loop testing various exponents from self test data array until time runs out */
 
 	for (iter = 1; ; iter++) {
 		char	fft_desc[200];
@@ -7752,8 +7755,7 @@ int selfTestInternal (
 /* The SSE2 carry propagation code gets into trouble if there are too */
 /* few bits per FFT word!  Thus, we'll require at least 8 bits per */
 /* word here.  Now that the number of iterations changes for each FFT */
-/* length I'm raising the requirement to 10 bits to keep timings roughly */
-/* equal. */
+/* length I'm raising the requirement to 10 bits to keep timings roughly equal. */
 
 			if (p / fftlen < 10) continue;
 
@@ -7866,7 +7868,8 @@ restart_test:	dbltogw (&lldata.gwdata, 4.0, lldata.lldata);
 			if (gw_test_mismatched_sums (&lldata.gwdata)) {
 				sprintf (buf, SELFFAIL2, gwsumout (&lldata.gwdata, g), gwsuminp (&lldata.gwdata, g));
 				OutputBoth (thread_num, buf);
-				OutputBoth (thread_num, SELFFAIL5);
+				sprintf (buf, SELFFAIL5, (fftlen % 1024 == 0) ? fftlen >> 10 : fftlen, (fftlen % 1024 == 0) ? "K" : "");
+				OutputBoth (thread_num, buf);
 				flashWindowAndBeep ();
 				(*errors)++;
 				lucasDone (&lldata);
@@ -7879,7 +7882,8 @@ restart_test:	dbltogw (&lldata.gwdata, 4.0, lldata.lldata);
 			if (gw_get_maxerr (&lldata.gwdata) > 0.45) {
 				sprintf (buf, SELFFAIL3, gw_get_maxerr (&lldata.gwdata));
 				OutputBoth (thread_num, buf);
-				OutputBoth (thread_num, SELFFAIL5);
+				sprintf (buf, SELFFAIL5, (fftlen % 1024 == 0) ? fftlen >> 10 : fftlen, (fftlen % 1024 == 0) ? "K" : "");
+				OutputBoth (thread_num, buf);
 				flashWindowAndBeep ();
 				(*errors)++;
 				lucasDone (&lldata);
@@ -7917,7 +7921,8 @@ restart_test:	dbltogw (&lldata.gwdata, 4.0, lldata.lldata);
 		if (reshi != test_data[i].reshi) {
 			sprintf (buf, SELFFAIL, reshi, test_data[i].reshi);
 			OutputBoth (thread_num, buf);
-			OutputBoth (thread_num, SELFFAIL5);
+			sprintf (buf, SELFFAIL5, (fftlen % 1024 == 0) ? fftlen >> 10 : fftlen, (fftlen % 1024 == 0) ? "K" : "");
+			OutputBoth (thread_num, buf);
 			flashWindowAndBeep ();
 			(*errors)++;
 			return (STOP_FATAL_ERROR);
@@ -8753,6 +8758,8 @@ static	int	time_all_complex = 0;	/* TRUE if we should time all-complex FFTs */
 
 		if (p >= 9994 && p <= 9999)
 			return (lucas_QA (thread_num, 9999 - p));
+		if (p == 9993)
+			return (pplus1_QA (thread_num, &sp_info));
 		if (p == 9992)
 			return (pminus1_QA (thread_num, &sp_info));
 		if (p == 9991)

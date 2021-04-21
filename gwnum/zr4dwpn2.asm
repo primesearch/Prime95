@@ -1,4 +1,4 @@
-; Copyright 2011-2020 Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2021 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;

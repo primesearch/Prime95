@@ -2,8 +2,8 @@
 
 /* Constants */
 
-#define VERSION		"30.5"
-#define BUILD_NUM	"2"
+#define VERSION		"30.6"
+#define BUILD_NUM	"1"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -326,7 +326,8 @@ int OutOfMemory (int);
 #define WORK_ADVANCEDTEST	3
 #define WORK_ECM		4
 #define WORK_PMINUS1		5
-#define WORK_PFACTOR		6
+#define WORK_PPLUS1		6
+#define WORK_PFACTOR		7
 #define WORK_PRP		10
 #define WORK_CERT		11
 #define WORK_NONE		100	/* Comment line in worktodo.ini */
@@ -340,15 +341,14 @@ struct work_unit {		/* One line from the worktodo file */
 	unsigned long b;	/* B in k*b^n+c */
 	unsigned long n;	/* N in k*b^n+c */
 	signed long c;		/* C in k*b^n+c */
-	unsigned long minimum_fftlen;/* Minimum FFT length to use.  Primarily */
-				/* used for implementing soft FFT */
-				/* crossovers.  Zero means default fftlen */
+	unsigned long minimum_fftlen;/* Minimum FFT length to use.  Zero means default fftlen. */
 	double	sieve_depth;	/* How far it has been trial factored */
 	double	factor_to;	/* How far we should trial factor to */
 	int	pminus1ed;	/* TRUE if has been P-1 factored */
-	double	B1;		/* ECM and P-1 - Stage 1 bound */
-	double	B2_start;	/* ECM and P-1 - Stage #2 start */
-	double	B2;		/* ECM and P-1 - Stage #2 end */
+	double	B1;		/* ECM, P-1, P+1 - Stage 1 bound */
+	double	B2;		/* ECM, P-1, P+1 - Stage 2 bound */
+	double	B2_start;	/* P-1 - Stage 2 start */
+	int	nth_run;	/* P+1 - 1 for start 2/7, 2 for start 6/5, 3+ for random start */
 	unsigned int curves_to_do; /* ECM - curves to try */
 	double	curve;		/* ECM - Specific curve to test (debug tool) */
 	double	tests_saved;	/* Pfactor - primality tests saved if a factor is found */
@@ -356,22 +356,18 @@ struct work_unit {		/* One line from the worktodo file */
 	int	prp_residue_type; /* PRP residue to output -- see primenet.h */
 	int	prp_dblchk;	/* True if this is a doublecheck of a previous PRP */
 	int	cert_squarings; /* Number of squarings required for PRP proof certification */
-	char	*known_factors;	/* ECM, P-1, PRP - list of known factors */
-	char	*comment;	/* Comment line in worktodo.ini */
+	char	*known_factors;	/* ECM, P-1, P+1, PRP - list of known factors */
+	char	*comment;	/* Comment line in worktodo.txt */
 		/* Runtime variables */
 	struct work_unit *next; /* Next in doubly-linked list */
 	struct work_unit *prev; /* Previous in doubly-linked list */
 	int	in_use_count;	/* Count of threads accessing this work unit */
-	int	high_memory_usage;/* Set if we are using a lot of memory */
-				/* If user changes the available memory */
-				/* settings, then we should stop and */
-				/* restart our computations */
+	int	high_memory_usage;/* Set if we are using a lot of memory.  If user changes the available memory */
+				/* settings, then we should stop and restart our computations. */
 	char	stage[10];	/* Test stage (e.g. TF,P-1,LL) */
-	double	pct_complete;	/* Percent complete (misnomer as value is */
-				/* between 0.0 and 1.0) */
+	double	pct_complete;	/* Percent complete (misnomer as value is between 0.0 and 1.0) */
 	unsigned long fftlen;	/* FFT length in use */
-	int	ra_failed;	/* Set when register assignment fails, tells */
-				/* us not to try registering it again. */
+	int	ra_failed;	/* Set when register assignment fails, tells us not to try registering it again. */
 };
 struct work_unit_array {	/* All the lines for one worker thread */
 	struct work_unit *first; /* First work unit */
