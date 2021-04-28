@@ -294,9 +294,10 @@ struct primenetAssignmentResult {
 	uint32_t prp_base;		/* Base used in a PRP test */
 	uint32_t prp_residue_type;	/* PRP Residue type */
 	uint32_t proof_power;		/* Zero if no proof, else power used in proof */
+	char	JSONmessage[2000];	/* JSON message.  If not empty, this text is sent rather than the 201-byte message. */
 	uint32_t pp1_numerator;		/* P+1 starting numerator */
 	uint32_t pp1_denominator;	/* P+1 starting denominator */
-	char	JSONmessage[2000];	/* JSON message.  If not empty, this text is sent rather than the 201-byte message. */
+/* ADD NEW FIELDS HERE -- ELSE SPOOL FILES WILL BE CORRUPTED WHEN UPGRADING */
 
 	/* Returned by the server */
 

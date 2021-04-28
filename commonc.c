@@ -681,10 +681,10 @@ int isPrime (
 
 
 /* Routines that use a simple sieve to find "may be prime" numbers.  That is, numbers without any small factors. */
-/* This is used by ECM and P-1.  Also, used by 64-bit trial factoring setup code. */
+/* This is used by ECM, P-1, and P+1.  Also, used by 64-bit trial factoring setup code. */
 
 typedef struct {
-	unsigned int *primes;
+	uint32_t *primes;				// Sieving primes and the bit-to-clear
 	uint64_t first_number;
 	unsigned int bit_number;
 	unsigned int num_primes;
@@ -699,19 +699,20 @@ typedef struct {
 void fill_sieve (
 	sieve_info *si)
 {
-	unsigned int i, fmax;
+	unsigned int i;
+	uint32_t fmax;
 
 /* Determine the first sieve bit to clear for each small prime */
 
-	fmax = (unsigned int) sqrt ((double) (si->first_number + sizeof (si->array) * 8 * 2));
+	fmax = (uint32_t) sqrt ((double) (si->first_number + sizeof (si->array) * 8 * 2));
 	for (i = si->num_primes; i < si->num_elimination_primes * 2; i += 2) {
-		unsigned long f, r, bit;
+		uint32_t f, r, bit;
 		f = si->primes[i];
 		if (f > fmax) break;
 		if (si->first_number == 3) {
 			bit = (f * f - 3) >> 1;
 		} else {
-			r = (unsigned long) (si->first_number % f);
+			r = (uint32_t) (si->first_number % f);
 			if (r == 0) bit = 0;
 			else if (r & 1) bit = (f - r) / 2;
 			else bit = (f + f - r) / 2;
@@ -725,7 +726,7 @@ void fill_sieve (
 
 	memset (si->array, 0xFF, sizeof (si->array));
 	for (i = 0; i < si->num_primes; i += 2) {
-		unsigned int f, bit;
+		uint32_t f, bit;
 		f = si->primes[i];
 		for (bit = si->primes[i+1]; bit < sizeof (si->array) * 8; bit += f) bitclr (si->array, bit);
 		si->primes[i+1] = bit - sizeof (si->array) * 8;
@@ -789,10 +790,10 @@ int start_sieve_with_limit (
 /* Initialize sieving primes */
 
 	if (si->primes == NULL) {
-		unsigned int f;
+		uint32_t f;
 		unsigned int estimated_num_primes;
 		estimated_num_primes = (unsigned int) ((double) max_elimination_factor / (log ((double) max_elimination_factor) - 1.0) * 1.01);
-		si->primes = (unsigned int *) malloc (estimated_num_primes * 2 * sizeof (unsigned int));
+		si->primes = (uint32_t *) malloc (estimated_num_primes * 2 * sizeof (uint32_t));
 		if (si->primes == NULL) goto oom;
 		for (i = 0, f = 3; f <= max_elimination_factor && i < estimated_num_primes; f += 2)
 			if (isPrime (f)) si->primes[i*2] = f, i++;
@@ -2756,7 +2757,7 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 	    }
 
 /* Handle Pplus1 lines:							*/
-/*	Pplus1=k,b,n,c,B1,B2,nth_run,[,how_far_factored][,"factors"]	*/
+/*	Pplus1=k,b,n,c,B1,B2,nth_run[,how_far_factored][,"factors"]	*/
 /* where nth_run is 1 for start 2/7, 2 for start 6/5, 3+ for random start */
 
 	    else if (_stricmp (keyword, "Pplus1") == 0) {
@@ -2779,10 +2780,9 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		if (q != NULL && q[1] != '"') {
 			double	j;
 			j = atof (q+1);
-			if (j < 100.0) {
-				w->sieve_depth = j;
-				q = strchr (q+1, ',');
-			}
+			if (j >= 100.0) j = 0.0;
+			w->sieve_depth = j;
+			q = strchr (q+1, ',');
 		}
 		if (q != NULL && q[1] == '"') {
 			w->known_factors = (char *) malloc (strlen (q));
@@ -2904,6 +2904,13 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 	    if (w->work_type == WORK_FACTOR && w->n > MAX_FACTOR && !IniGetInt (INI_FILE, "LargeTFexponents", 0)) {
 		char	buf[100];
 		sprintf (buf, "Error: Worktodo.txt file contained bad factoring assignment: %ld\n", w->n);
+		OutputBoth (MAIN_THREAD_NUM, buf);
+		goto illegal_line;
+	    }
+	    if ((w->work_type == WORK_PMINUS1 || w->work_type == WORK_PPLUS1 || w->work_type == WORK_ECM) &&
+		(w->B1 < 50000) && !IniGetInt (INI_FILE, "AllowLowB1", 0)) {
+		char	buf[100];
+		sprintf (buf, "Error: Worktodo.txt file has P-1/P+1/ECM with B1 < 50000 (exponent: %ld)\n", w->n);
 		OutputBoth (MAIN_THREAD_NUM, buf);
 		goto illegal_line;
 	    }
@@ -3575,7 +3582,7 @@ double work_estimate (
 		if (stage == 2) est = stage2_time * (1.0 - pct_complete);
 	}
 
-/* For P+1, estimate about the same as a P-1 */ 
+/* For P+1, stage 1 is 1.52 times P-1 stage 1, stage 2 is about the same */ 
 
 	if (w->work_type == WORK_PPLUS1) {
 		int	stage;
@@ -3589,7 +3596,7 @@ double work_estimate (
 		else stage = 0;
 
 		timing = gwmap_to_timing (w->k, w->b, w->n, w->c);
-		stage1_time = timing * (1.4545 * B1);
+		stage1_time = timing * (1.4545 * 1.52 * B1);
 		stage2_time = (B2 >= B1) ? timing * (0.06154 * (B2 - B1)) * 1.285 : 0.0;
 
 		if (stage == 0) est = stage1_time + stage2_time;

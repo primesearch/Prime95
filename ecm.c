@@ -2,7 +2,7 @@
  *
  *	ecm.c
  *
- *	ECM and P-1 factoring program
+ *	ECM, P-1, and P+1 factoring routines
  *
  *	Original author:  Richard Crandall - www.perfsci.com
  *	Adapted to Mersenne numbers and optimized by George Woltman
@@ -30,10 +30,10 @@ int	PRAC_SEARCH = 7;
 #define isPowerOf2(n)			(((n) & ((n)-1)) == 0)
 
 /**********************************************************************************************************************/
-/*                                     ECM and P-1 best stage 2 implementation routines                               */
+/*                                ECM, P-1, and P+1 best stage 2 implementation routines                              */
 /**********************************************************************************************************************/
 
-/* Various D values that we will consider in creating an ECM or P-1 plan */
+/* Various D values that we will consider in creating an ECM, P-1 or P+1 plan */
 
 #define NUM_D		21
 struct D_data {
@@ -72,7 +72,7 @@ struct D_data {
 #define MAX_RELPRIMES	720
 
 /* Select the best D value for the given the number of temporary gwnums that can be allocated.  We trade off more D steps vs. better */
-/* prime pairing vs. different B2 start points using the ECM or P-1 costing function. */
+/* prime pairing vs. different B2 start points using the ECM, P-1, or P+1 costing function. */
 /* Returns the cost.  Cost function can return more information, such as best D value, B2_start, B2_end. */
 
 double best_stage2_impl_internal (
@@ -81,7 +81,7 @@ double best_stage2_impl_internal (
 	int	totrels,		/* Number of gwnum temporaries used for storing relative prime data */
 	double	numprimes,		/* Estimated number of primes to be processed in stage 2 */
 	int	max_bitarray_size,	/* Maximum size of the work bit array in MB */
-	double	(*cost_func)(int, uint64_t, uint64_t, uint64_t, int, double, double, double, void *), /* ECM or P-1 costing function */
+	double	(*cost_func)(int, uint64_t, uint64_t, uint64_t, int, double, double, double, void *), /* ECM, P-1 or P+1 costing function */
 	void	*cost_func_data)	/* User-supplied data to pass to the costing function */
 {
 	uint64_t B2_start, B2_end, numDsections, bitarraymaxDsections;
@@ -90,7 +90,7 @@ double best_stage2_impl_internal (
 	int	D, i, best_i, j;
 
 /* Kludge to make one pass finding the best D value and a second pass to re-call the cost function using the best D. */
-/* Re-calling the cost function allows it to pass back any data that P-1 or ECM may need to save. */
+/* Re-calling the cost function allows it to pass back any data that P-1, P+1, or ECM may need to save. */
 
 	best_cost = 1.0e99;
 	for (j = 0; j < 2; j++) {
@@ -153,14 +153,14 @@ double best_stage2_impl_internal (
 }
 
 /* Binary search for the best number of gwnums to allocate and the best D value to use.  Caller specifies the maximum number of gwnums */
-/* that can be allocated.  We trade off more D steps vs. better prime pairing vs. different B2 start points using the ECM or P-1 costing function. */
+/* that can be allocated.  We trade off more D steps vs. better prime pairing vs. different B2 start points using the ECM, P-1, or P+1 costing function. */
 /* Returns the cost.  Cost function can return more information, such as best D value, B2_start, B2_end. */
 
 double best_stage2_impl (
 	uint64_t C_start,		/* Starting point for bound #2 */
 	uint64_t C,			/* Bound #2 */
 	int	maxtotrels,		/* Maximum number of gwnum temporaries that can be used for storing relative prime data */
-	double	(*cost_func)(int, uint64_t, uint64_t, uint64_t, int, double, double, double, void *), /* ECM or P-1 costing function */
+	double	(*cost_func)(int, uint64_t, uint64_t, uint64_t, int, double, double, double, void *), /* ECM, P-1, or P+1 costing function */
 	void	*cost_func_data)	/* User-supplied data to pass to the costing function */
 {
 	int	max_bitarray_size;	/* Maximum size of the work bit array in MB */
@@ -243,7 +243,7 @@ double best_stage2_impl (
 }
 
 /**********************************************************************************************************************/
-/*                                            ECM and P-1 prime pairing routines                                      */
+/*                                        ECM, P-1, and P+1 prime pairing routines                                    */
 /**********************************************************************************************************************/
 
 #define bitset_prime(array,p)	bitset (array, ((p) - C_start) / D * numrels * 2 + map_relprime_to_index ((p) % D, D, &reldata))
@@ -312,6 +312,8 @@ int map_is_relprime (int n, int D, struct relmap_data *data)
 }
 
 // Count the number of primes a particular prime can pair with
+// This was found to be slow for high multipliers (an N^2 algorithm) and worse pairing than just matching the first available prime!!
+#ifdef NOT_USED_ANYMORE
 int count_possible_pairs (char *primes, char *relocated, uint64_t numDsections, int numrels, int totrels, int multiplier, uint64_t k, int j)
 {
 	int	i, count, j_pair, work_j, work_j_pair;
@@ -332,8 +334,9 @@ int count_possible_pairs (char *primes, char *relocated, uint64_t numDsections, 
 	}
 	return (count);
 }
+#endif
 
-/* Allocate and fill a bit array in such a way that it maximizes stage 2 prime pairings in ECM and P-1.  Large B2 values will result */
+/* Allocate and fill a bit array in such a way that it maximizes stage 2 prime pairings in ECM, P-1, and P+1.  Large B2 values will result */
 /* in large bit arrays -- and if B2 is really large then the bit array must be created in chunks. */
 
 int fill_work_bitarray (
@@ -438,7 +441,7 @@ int fill_work_bitarray (
 	memset (work, 0, (size_t) divide_rounding_up (numDsections * totrels, 8));
 	bits_set = 0;
 
-/* Fill a work bit array in such a way that it maximizes stage 2 prime pairings in ECM and P-1. */
+/* Fill a work bit array in such a way that it maximizes stage 2 prime pairings in ECM, P-1, and P+1. */
 /* Input is a bit array of non-relocatable primes and a bit array of relocatable primes. */
 
 /* Pair primes making multiple passes over the input bit arrays.  We've tried several algorithms and may try several more! */
@@ -456,7 +459,7 @@ int fill_work_bitarray (
 #define NO_MATCH	9999
 	multiplier = totrels / numrels;
 	for (loop_count = 0; loop_count <= 1001; loop_count++) {
-		int	i, j, j_pair, work_j, work_j_pair, match, match_optional, best_count;
+		int	i, j, j_pair, work_j, work_j_pair, match, match_relocatable;
 		uint64_t k, prime;
 		int64_t	bit, bit_pair;
 
@@ -469,67 +472,65 @@ int fill_work_bitarray (
 				if (loop_count < 1000) {
 					if (!bittst (primes, bit)) continue;
 				} else {
-					if (!bittst (primes, bit) && !bittst (relocated, bit)) continue;
+					if (!bittst (relocated, bit)) continue;
 				}
 
 				// j and j_pair are zero-based indices for accessing the input prime bit arrays
 				// for D=30 values are -13,-11,-7,-1,1,7,11,13
 				j_pair = numrels * 2 - 1 - j;
-				// work_j and work_j_pair are zero based indicies to aid in generating output bit array
+				// work_j and work_j_pair are zero based indices to aid in generating output bit array
 				// for D=30, multiplier=1, totrels=6 values are -19,-17,-13,-11,-7,-1,1,7,11,13,17,19
 				work_j = j + (totrels - numrels);
 				work_j_pair = j_pair + (totrels - numrels);
 				// bit indexes into the input prime bit arrays
 				bit_pair = k * numrels * 2 + j_pair;
 
+// Loop over all possible ways this prime can be represented by multiple of D +/- a relative prime.  If any of these possible representations
+// pair with a prime that is wonderful.  If multiple representations pair with a prime simply select the first.  We used to select the pairing that
+// gives us the most flexibility for other primes to pair up, but that actually led to a slightly lower pairing percentage.
+
 				match = NO_MATCH;	// no match yet
-				best_count = 999;
-//GW: Rather than recalculate matches each loop, have a bitarray for each multiplier
-//try pairing without relocatables.  then go back and see if the reloctables can pair the singles?
 
-// Loop over all possible ways this prime can be represented by multiple of D +/- a relative prime
-// If any of these possible representations pair with a prime that is wonderful.  If multiple representations pair with a prime
-// try to select the pairing that gives us the most flexibility for other primes to pair up.
-
-				// Find all the other possible represenations for this entry in the prime bit array
-			        for (i = -(multiplier / 2 + 1); i <= (multiplier / 2 + 1); i++) {
-					// Make sure this representation of the prime is possible
-					if (work_j - i * numrels * 2 < 0 || work_j - i * numrels * 2 >= totrels * 2) continue;
-					if (bit_pair + i * numrels * 4 < 0 || bit_pair + i * numrels * 4 >= (int64_t) numDsections * numrels * 2) continue;
+				// Find all the possible representations for this entry in the prime bit array
+				// We only need to do this when looking for pairs from the primes array and we only need to look ahead.
+				// Any possible matches against a smaller prime have already been matched with a different prime.
+				if (loop_count < 1000)
+			        for (i = 0; i <= (multiplier / 2 + 1); i++) {
+					// Make sure this representation of the pairing prime is possible
+					if (work_j - i * numrels * 2 < 0) continue;
+					if (bit_pair + i * numrels * 4 >= (int64_t) numDsections * numrels * 2) continue;
 
 					// See if the pair for this representation is also required in the output work bit array
 					if (bittst (primes, bit_pair + i * numrels * 4)) {
-						int	countp, countopt;
-						countp = count_possible_pairs (primes, NULL, numDsections, numrels, totrels, multiplier, k + i * 2, j_pair);
-						if (countp == 1) {
-							match = i;
-							match_optional = FALSE;
-							break;
-						}
-						countopt = count_possible_pairs (relocated, NULL, numDsections, numrels, totrels, multiplier, k + i * 2, j_pair);
-						if (match == NO_MATCH || match_optional || (countp*2 + countopt) <= best_count) {
-							best_count = countp*2 + countopt;
-							match = i;
-							match_optional = FALSE;
-						}
-					}
-					else if (match != NO_MATCH && !match_optional) continue;	// an optimization to skip count below
-					else if (bittst (relocated, bit_pair + i * numrels * 4)) {
-						int count = count_possible_pairs (primes, relocated, numDsections, numrels, totrels, multiplier, k + i * 2, j_pair);
-						if (match == NO_MATCH || (match_optional && count < best_count)) {
-							best_count = count;
-							match = i;
-							match_optional = TRUE;
-						}
+						match = i;
+						match_relocatable = FALSE;
+						break;
 					}
 				}
 
-				// On first pass doing relocatables, only process matches
+				// Find all the other possible representations for this entry in the relocatable bit array
+				if (match == NO_MATCH)
+			        for (i = -(multiplier / 2 + 1); i <= (multiplier / 2 + 1); i++) {
+					// Make sure this representation of the pairing prime is possible
+					if (work_j - i * numrels * 2 < 0 || work_j - i * numrels * 2 >= totrels * 2) continue;
+					if (bit_pair + i * numrels * 4 < 0 || bit_pair + i * numrels * 4 >= (int64_t) numDsections * numrels * 2) continue;
+
+					// See if there is a pairing using the relocatable primes
+					if (bittst (relocated, bit_pair + i * numrels * 4)) {
+						match = i;
+						match_relocatable = TRUE;
+						break;
+					}
+				}
+
+				// On first pass doing relocatables, only process matches.  A different multiple of the relocatable
+				// prime may have a pairing.
 				if (loop_count == 1000 && match == NO_MATCH) continue;
 
 				// Clear bit from the primes array
-				if (bittst (primes, bit)) {
-					bitclr (primes, bit);
+				if (loop_count < 1000) {
+//					Bit clear not necessary with our current algorithm that handles all primes in one-pass
+//					bitclr (primes, bit);
 				}
 				// Clear bit from the relocated array for all possible relocations of the small prime
 				else {
@@ -553,7 +554,7 @@ int fill_work_bitarray (
 				}
 
 				// Clear bit from the primes array for the matching prime of this pair
-				else if (!match_optional) {
+				else if (!match_relocatable) {
 					bitset_work (work, k + match, work_j - match * numrels * 2);
 					bits_set++;
 					ASSERTG (bittst (primes, bit_pair + match * numrels * 4));
@@ -5154,7 +5155,7 @@ more_curves:
 
 /* Send ECM completed message to the server.  Although don't do it for puny B1 values. */
 
-	if (!QA_IN_PROGRESS && (ecmdata.B >= 10000 || IniGetInt (INI_FILE, "SendAllFactorData", 0))) {
+	if (!QA_IN_PROGRESS && (ecmdata.B >= 50000 || IniGetInt (INI_FILE, "SendAllFactorData", 0))) {
 		struct primenetAssignmentResult pkt;
 		memset (&pkt, 0, sizeof (pkt));
 		strcpy (pkt.computer_guid, COMPUTER_GUID);
@@ -6922,6 +6923,10 @@ more_B:		pm1data.interim_B = pm1data.B;
 
 	if (pm1data.C <= pm1data.B) goto msg_and_exit;
 
+/* Since gwmul_carefully was called in stage 1, free the memory allocated for GW_RANDOM */
+
+	gwfree_internal_memory (&pm1data.gwdata);
+
 /*
    Stage 2:  Use ideas from Crandall, Zimmermann, Montgomery, and Preda on each prime below C.
    This code is more efficient the more memory you can give it.
@@ -7251,7 +7256,7 @@ msg_and_exit:
 
 /* Send P-1 completed message to the server.  Although don't do it for puny B1 values as this is just the user tinkering with P-1 factoring. */
 
-	if (!QA_IN_PROGRESS && (pm1data.B >= 10000 || IniGetInt (INI_FILE, "SendAllFactorData", 0))) {
+	if (!QA_IN_PROGRESS && (pm1data.B >= 50000 || IniGetInt (INI_FILE, "SendAllFactorData", 0))) {
 		struct primenetAssignmentResult pkt;
 		memset (&pkt, 0, sizeof (pkt));
 		strcpy (pkt.computer_guid, COMPUTER_GUID);
@@ -7270,13 +7275,12 @@ msg_and_exit:
 		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 	}
 
-/* Create save file so that we can expand bound 1 or bound 2 at a later date. */
 /* If this is pre-factoring for an LL or PRP test, then delete the large save file. */
+/* Create save file so that we can expand bound 1 or bound 2 at a later date. */
 
+	unlinkSaveFiles (&pm1data.write_save_file_state);
 	if (!QA_IN_PROGRESS && w->work_type == WORK_PMINUS1 && IniGetInt (INI_FILE, "KeepPminus1SaveFiles", 1))
 		pm1_save (&pm1data);
-	else
-		unlinkSaveFiles (&pm1data.write_save_file_state);
 
 /* Return stop code indicating success or work unit complete */ 
 
@@ -7412,17 +7416,15 @@ bingo:	if (pm1data.state < PM1_STATE_MIDSTAGE)
 		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 	}
 
-/* If LL testing, free all save files -- including possible LL save files */
+/* Free save files.  If LL testing, free those save files too. */
+/* Then create save file so that we can expand bound 1 or bound 2 at a later date. */
 
-	if (QA_IN_PROGRESS || w->work_type != WORK_PMINUS1 || !IniGetInt (INI_FILE, "KeepPminus1SaveFiles", 1)) {
-		unlinkSaveFiles (&pm1data.write_save_file_state);
+	unlinkSaveFiles (&pm1data.write_save_file_state);
+	if (w->work_type != WORK_PMINUS1) {
 		pm1data.write_save_file_state.base_filename[0] = 'p';
 		unlinkSaveFiles (&pm1data.write_save_file_state);
 	}
-
-/* Otherwise create save file so that we can expand bound 1 or bound 2 at a later date. */
-
-	else
+	if (!QA_IN_PROGRESS && w->work_type == WORK_PMINUS1 && IniGetInt (INI_FILE, "KeepPminus1SaveFiles", 1))
 		pm1_save (&pm1data);
 
 /* Since we found a factor, then we may have performed less work than */
@@ -8101,10 +8103,10 @@ int pp1_restore (
 	if (! read_int (fd, &numerator, &sum)) goto readerr;
 	if (! read_int (fd, &denominator, &sum)) goto readerr;
 	if (numerator != pp1data->numerator || denominator != pp1data->denominator) {
-		if (pp1data->w->nth_run <= 2) goto readerr;		// User wants to do 2/7 or 6/5 and save file does not match
-		if (numerator == 2 && denominator == 7) goto readerr;	// User wants a random start, not 2/7
-		if (numerator == 6 && denominator == 5) goto readerr;	// User wants a random start, not 6/5
-		pp1data->numerator = numerator;				// Replace random start with random start from save file
+		if (pp1data->w->nth_run <= 2) goto bad_nth_run;			// User wants to do 2/7 or 6/5 and save file does not match
+		if (numerator == 2 && denominator == 7) goto bad_nth_run;	// User wants a random start, not 2/7
+		if (numerator == 6 && denominator == 5) goto bad_nth_run;	// User wants a random start, not 6/5
+		pp1data->numerator = numerator;					// Replace random start with random start from save file
 		pp1data->denominator = denominator;
 	}
 
@@ -8163,6 +8165,8 @@ int pp1_restore (
 /* Read stage 2 accumulator gwnum */
 
 	if (pp1data->state >= PP1_STATE_MIDSTAGE && pp1data->state <= PP1_STATE_GCD) {
+		pp1data->gg = gwalloc (&pp1data->gwdata);
+		if (pp1data->gg == NULL) goto readerr;
 		if (! read_gwnum (fd, &pp1data->gwdata, pp1data->gg, &sum)) goto readerr;
 	}
 
@@ -8177,6 +8181,8 @@ int pp1_restore (
 
 /* An error occurred.  Cleanup and return. */
 
+bad_nth_run:
+	OutputBoth (pp1data->thread_num, "P+1 starting point in save file does not match nth_run parameter from worktodo.txt\n");
 readerr:
 	_close (fd);
 err:
@@ -8921,11 +8927,11 @@ int pplus1 (
 	sprintf (buf, "%s P+1", testnum);
 	title (thread_num, buf);
 	if (pp1data.C <= pp1data.B)
-		sprintf (buf, "P+1 on %s with B1=%" PRIu64 "\n", testnum, pp1data.B);
+		sprintf (buf, "P+1 on %s, start=%" PRIu32 "/%" PRIu32 ", B1=%" PRIu64 "\n", testnum, pp1data.numerator, pp1data.denominator, pp1data.B);
 	else if (pp1data.optimal_B2)
-		sprintf (buf, "P+1 on %s with B1=%" PRIu64 ", B2=TBD\n", testnum, pp1data.B);
+		sprintf (buf, "P+1 on %s, start=%" PRIu32 "/%" PRIu32 ", B1=%" PRIu64 ", B2=TBD\n", testnum, pp1data.numerator, pp1data.denominator, pp1data.B);
 	else
-		sprintf (buf, "P+1 on %s with B1=%" PRIu64 ", B2=%" PRIu64 "\n", testnum, pp1data.B, pp1data.C);
+		sprintf (buf, "P+1 on %s, start=%" PRIu32 "/%" PRIu32 ", B1=%" PRIu64 ", B2=%" PRIu64 "\n", testnum, pp1data.numerator, pp1data.denominator, pp1data.B, pp1data.C);
 	OutputStr (thread_num, buf);
 	if (w->sieve_depth > 0.0 && !pp1data.optimal_B2) {
 		double prob = pm1prob (pp1data.takeAwayBits, (unsigned int) w->sieve_depth, (double) pp1data.B, (double) pp1data.C) * pp1data.success_rate;
@@ -9173,6 +9179,13 @@ restart1:
 			for ( ; count; count--) {
 				gwmul3_carefully (&pp1data.gwdata, pp1data.V, pp1data.V, pp1data.V, GWMUL_ADDINCONST);
 			}
+			/* Free the memory allocated for GW_RANDOM */
+			gwfree_internal_memory (&pp1data.gwdata);
+			/* Include the Mersenne (or generalized Fermat) exponent.  I was against this (encourages using P+1 to find P-1 factors */
+			/* rather than the more efficient P-1 factoring algorithm).  But just in case a P-1 run was done and a hardware error */
+			/* occurred, give P+1 a chance to find a missed factor. */
+			if (w->n > pp1data.B && (isMersenne (w->k, w->b, w->n, w->c) || isGeneralizedFermat (w->k, w->b, w->n, w->c)))
+				pp1_mul (&pp1data, w->n, FALSE);
 		}
 
 /* Apply the proper number of primes */
@@ -9735,7 +9748,7 @@ msg_and_exit:
 
 /* Send P+1 completed message to the server.  Although don't do it for puny B1 values as this is just the user tinkering with P+1 factoring. */
 
-	if (!QA_IN_PROGRESS && (pp1data.B >= 10000 || IniGetInt (INI_FILE, "SendAllFactorData", 0))) {
+	if (!QA_IN_PROGRESS && (pp1data.B >= 50000 || IniGetInt (INI_FILE, "SendAllFactorData", 0))) {
 		struct primenetAssignmentResult pkt;
 		memset (&pkt, 0, sizeof (pkt));
 		strcpy (pkt.computer_guid, COMPUTER_GUID);
@@ -9756,13 +9769,13 @@ msg_and_exit:
 		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 	}
 
+/* Free save files (especially big ones created during stage 2) */
 /* Create save file so that we can expand bound 1 or bound 2 at a later date.  Only allow this for 2/7 and 6/5 start. */
 /* If we don't delete random start save files, then a new random start attempt would use the existing random start save file. */ 
 
+	unlinkSaveFiles (&pp1data.write_save_file_state);
 	if (!QA_IN_PROGRESS && IniGetInt (INI_FILE, "KeepPplus1SaveFiles", 0) && w->nth_run <= 2)
 		pp1_save (&pp1data);
-	else
-		unlinkSaveFiles (&pp1data.write_save_file_state);
 
 /* Return stop code indicating success or work unit complete */ 
 
@@ -9887,15 +9900,11 @@ bingo:	if (pp1data.state < PP1_STATE_MIDSTAGE)
 		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
 	}
 
-/* Free save files */
+/* Free save files (especially big ones created during stage 2) */
+/* Then create save file so that we can expand bound 1 or bound 2 at a later date. */
 
-	if (QA_IN_PROGRESS || !IniGetInt (INI_FILE, "KeepPplus1SaveFiles", 0) || w->nth_run > 2) {
-		unlinkSaveFiles (&pp1data.write_save_file_state);
-	}
-
-/* Otherwise create save file so that we can expand bound 1 or bound 2 at a later date. */
-
-	else
+	unlinkSaveFiles (&pp1data.write_save_file_state);
+	if (!QA_IN_PROGRESS && IniGetInt (INI_FILE, "KeepPplus1SaveFiles", 0) && w->nth_run <= 2)
 		pp1_save (&pp1data);
 
 /* Since we found a factor, then we may have performed less work than */

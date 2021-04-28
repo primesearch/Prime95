@@ -7828,8 +7828,10 @@ int selfTestInternal (
 restart_test:	dbltogw (&lldata.gwdata, 4.0, lldata.lldata);
 		g = lldata.lldata;
 
-/* Do Lucas-Lehmer iterations */
+/* Do Lucas-Lehmer iterations with error checking */
 
+		gwerror_checking (&lldata.gwdata, 1);
+		gwsetaddin (&lldata.gwdata, -2);
 		for (k = 0; k < ll_iters; k++) {
 			gwnum	prev;
 
@@ -7838,12 +7840,9 @@ restart_test:	dbltogw (&lldata.gwdata, 4.0, lldata.lldata);
 			prev = g;
 			if (num_gwnums > 1) g = gwarray[k % num_gwnums];
 
-/* One Lucas-Lehmer test with error checking */
+/* One Lucas-Lehmer iteration with error checking */
 
-			gwsetnormroutine (&lldata.gwdata, 0, 1, 0);
-			gwstartnextfft (&lldata.gwdata, k != ll_iters - 1);
-			gwsetaddin (&lldata.gwdata, -2);
-			gwsquare2 (&lldata.gwdata, prev, g, 0);
+			gwsquare2 (&lldata.gwdata, prev, g, GWMUL_STARTNEXTFFT_IF(k != ll_iters - 1) | GWMUL_ADDINCONST);
 
 /* If the sum of the output values is an error (such as infinity) */
 /* then raise an error. */
