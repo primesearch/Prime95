@@ -420,7 +420,8 @@ void *x87_prctab[] = { x87_explode(array_entry) NULL };
 #define	GWINIT_WAS_CALLED_VALUE	0xAA12BB34	/* Special value checked by gwsetup to ensure gwinit was called */
 #define GWFREEABLE		0x80000000	/* Flag set in the gwnum freeable field indicating aligned_free will work */
 #define GWFREED_TEMPORARILY	0x40000000	/* Special flag value set in the gwnum freeable field */
-#define GWFREEALLOC_INDEX	0x3FFFFFFF	/* Remainder of the freeable field -- index into the gwnum_alloc array */
+#define GWFREE_LARGE_PAGES	0x20000000	/* Flag set if gwnum was allocated using large pages */
+#define GWFREEALLOC_INDEX	0x1FFFFFFF	/* Remainder of the freeable field -- index into the gwnum_alloc array */
 
 /* Forward declarations */
 
@@ -1000,8 +1001,8 @@ int gwinfo (			/* Return zero-padded fft flag or error code */
 /* Precalculate some needed values */
 
 	log2k = log2 (k);
-	logbk = logb (k);
 	log2b = log2 (b);
+	logbk = log2k / log2b;
 	log2c = log2 (labs (c));
 	log2maxmulbyconst = log2 (gwdata->maxmulbyconst);
 
@@ -2735,12 +2736,9 @@ int internal_gwsetup (
 	}
 	info = gwdata->jmptab;
 
-/* Get pointer to fft info and allocate needed memory.  If we are */
-/* trying to allocate large pages, then also allocate space for the */
-/* one gwnum value that will be stored in large pages.  We allocate */
-/* a little extra space to align the gwnum on a cache line boundary */
-/* and because gwnum_size may not produce an accurate value prior */
-/* to gwsetup completing. */
+/* Get pointer to fft info and allocate needed memory.  If we are trying to allocate large pages, then also allocate space for */
+/* one gwnum value to reduce wasted space ever so slightly (1MB on average).  We allocate a little extra space to align the gwnum */
+/* on a cache line boundary and because gwnum_size may not produce an accurate value prior to gwsetup completing. */
 
 	tables = NULL;
 	gwdata->large_pages_ptr = NULL;
@@ -2796,7 +2794,7 @@ int internal_gwsetup (
 /* wraps around to the low FFT word) is 2*n for a zero pad FFT and logb(k) + n */
 /* otherwise. */	
 
-	gwdata->avg_num_b_per_word = (gwdata->ZERO_PADDED_FFT ? n * 2.0 : (logb (k) + n)) / gwdata->FFTLEN;
+	gwdata->avg_num_b_per_word = (gwdata->ZERO_PADDED_FFT ? n * 2.0 : (log (k) / log (b) + n)) / gwdata->FFTLEN;
 
 /* Calculate the number of base b's stored in each small FFT word. */
 
@@ -4369,7 +4367,7 @@ int internal_gwsetup (
 		num_b_in_third_top_word = gwdata->NUM_B_PER_SMALL_WORD;
 		if (is_big_word (gwdata, gwdata->FFTLEN-3)) num_b_in_third_top_word++;
 
-		num_b_in_k = (unsigned long) ceil (logb (k));
+		num_b_in_k = (unsigned long) ceil (log (k) / log (b));
 		asm_data->CARRY_ADJUST1 = pow ((double) b, num_b_in_k);
 		carry_adjust_1_mod_k = fltmod (asm_data->CARRY_ADJUST1, k);
 		asm_data->CARRY_ADJUST1_HI = floor (carry_adjust_1_mod_k / 131072.0);
@@ -4463,7 +4461,7 @@ int internal_gwsetup (
 		raw_gwsetaddin (gwdata, gwdata->FFTLEN/2-3, 0.0);
 		asm_data->HIGH_SCRATCH3_OFFSET = asm_data->ADDIN_OFFSET;
 
-		num_b_in_k = (unsigned long) ceil (logb (k));
+		num_b_in_k = (unsigned long) ceil (log (k) / log (b));
 		num_b_in_word_0 = gwdata->NUM_B_PER_SMALL_WORD; if (is_big_word (gwdata, 0)) num_b_in_word_0++;
 		num_b_in_word_1 = gwdata->NUM_B_PER_SMALL_WORD; if (is_big_word (gwdata, 1)) num_b_in_word_1++;
 		num_b_in_word_2 = gwdata->NUM_B_PER_SMALL_WORD; if (is_big_word (gwdata, 2)) num_b_in_word_2++;
@@ -4663,6 +4661,7 @@ int internal_gwsetup (
 
 	gwdata->GW_FFT1 = NULL;
 	gwdata->FFT1_state = 0;
+	gwdata->FFT1_user_allocated = 0;
 	if (gwdata->cpu_flags & CPU_AVX512F) { if (gwdata->PASS1_SIZE && gwdata->k == 1.0 && gwdata->FFTLEN % 7 != 0) gwdata->FFT1_state = 2; }
 	else if (gwdata->cpu_flags & CPU_AVX) { if (gwdata->k == 1.0) gwdata->FFT1_state = 2; }
 
@@ -6542,8 +6541,11 @@ void gwdone (
 			char	*p;
 			int32_t	freeable;
 			p = (char *) gwdata->gwnum_alloc[i];
-			freeable = * (int32_t *) (p - 32) & GWFREEABLE;
-			if (freeable) aligned_free ((char *) p - GW_HEADER_SIZE);
+			freeable = * (int32_t *) (p - 32);
+			if (freeable & GWFREEABLE) {
+				if (freeable & GWFREE_LARGE_PAGES) aligned_large_pages_free ((char *) p - GW_HEADER_SIZE);
+				else aligned_free ((char *) p - GW_HEADER_SIZE);
+			}
 		}
 		free (gwdata->gwnum_alloc);
 		gwdata->gwnum_alloc = NULL;
@@ -6605,30 +6607,51 @@ gwnum gwalloc (
 
 	size = gwnum_datasize (gwdata);
 	aligned_size = (size + GW_HEADER_SIZE + 127) & ~127;
+	p = NULL;
+
+/* First option is the one gwnum that was allocated along with the sin/cos tables */
+
 	if (gwdata->large_pages_gwnum != NULL) {
 		p = (char *) gwdata->large_pages_gwnum;
 		gwdata->large_pages_gwnum = NULL;
 		p += -GW_HEADER_SIZE & 127;
 		freeable = 0;
 	}
-	else if (gwdata->GW_BIGBUF_SIZE >= size + aligned_size) {
+
+/* Second option is allocating from the kludgy big buffer (torture testing) */
+
+	else if (gwdata->GW_BIGBUF_SIZE >= aligned_size) {
 		p = gwdata->GW_BIGBUF;
 		gwdata->GW_BIGBUF += aligned_size;
 		gwdata->GW_BIGBUF_SIZE -= aligned_size;
 		p += -GW_HEADER_SIZE & 127;
 		freeable = 0;
 	}
-/* FreeBSD supports supports large pages (superpages) automatically.  Allocate the */
-/* first gwnum on a 4MB to minimize fragmentation across superpage boundaries.  The */
-/* theory is this will maximize the number of superpage promotions. */
+
+/* Third option is to allocate using large pages */
+
+	else if (gwdata->use_large_pages) {
+		// Randomize the starting cache line in 64KB blocks.  Perhaps that will help with potential 64KB cache collisions.
+		int	alignment = gwdata->GW_ALIGNMENT;
+		int	alignment_mod = (GW_HEADER_SIZE - gwdata->GW_ALIGNMENT_MOD) & (gwdata->GW_ALIGNMENT - 1);
+		if (alignment < 65536 && 65536 % alignment == 0) {
+			alignment_mod += (rand () % (65536 / alignment)) * alignment;
+			alignment = 65536;
+		}
+		p = (char *) aligned_offset_large_pages_malloc (size + GW_HEADER_SIZE, alignment, alignment_mod);
+		freeable = GWFREEABLE + GWFREE_LARGE_PAGES;
+	}
+
+/* Fourth option is to use plain old malloc with alignment (used as a fallback to failed large pages alloc) */
+/* FreeBSD supports supports large pages (superpages) automatically.  Allocate the first gwnum with a 4MB alignment to minimize */
+/* fragmentation across superpage boundaries.  The theory is this will maximize the number of superpage promotions. */
 #ifdef __FreeBSD__
-	else if (size >= 0x400000 && gwdata->gwnum_alloc_count == 0) {
+	if (p == NULL && size >= 0x400000 && gwdata->gwnum_alloc_count == 0) {
 		p = (char *) aligned_offset_malloc (size + GW_HEADER_SIZE, 0x400000, (GW_HEADER_SIZE - gwdata->GW_ALIGNMENT_MOD) & 0x3FFFFF);
-		if (p == NULL) return (NULL);
 		freeable = GWFREEABLE;
 	}
 #endif
-	else {
+	if (p == NULL) {
 		p = (char *) aligned_offset_malloc (size + GW_HEADER_SIZE, gwdata->GW_ALIGNMENT,
 						    (GW_HEADER_SIZE - gwdata->GW_ALIGNMENT_MOD) & (gwdata->GW_ALIGNMENT - 1));
 		if (p == NULL) return (NULL);
@@ -6649,7 +6672,7 @@ gwnum gwalloc (
 /* Initialize the header */
 
 	* (uint32_t *) (q - 8) = size;					/* Size in bytes */
-	* (uint32_t *) (q - 4) = 1;					/* Unnormalized adds count */
+	unnorms (q) = 0.0f;						/* Unnormalized adds count */
 	* (uint32_t *) (q - 28) = 0;					/* Has-been-pre-ffted flag */
 	* (int32_t *) (q - 32) = freeable + gwdata->gwnum_alloc_count;	/* Mem should be freed flag / gwnum_alloc index */
 	* (double *) (q - 16) = 0.0;
@@ -6671,22 +6694,24 @@ void gwfree_freeable (
 	gwnum	q)
 {
 	gwnum	moved_gwnum;
-	int32_t	freeable, alloc_index;
+	int32_t	freeable, moved_freeable, alloc_index;
 
-	ASSERTG (* (int32_t *) ((char *) q - 32) & GWFREEABLE);
-	ASSERTG (! (* (int32_t *) ((char *) q - 32) & GWFREED_TEMPORARILY));
+	freeable = * (int32_t *) ((char *) q - 32);
+	ASSERTG (freeable & GWFREEABLE);
+	ASSERTG (! (freeable & GWFREED_TEMPORARILY));
 
 	// Move the last entry in the gwnum_alloc array to the slot we are about to free
-	alloc_index = * (int32_t *) ((char *) q - 32) & GWFREEALLOC_INDEX;
+	alloc_index = freeable & GWFREEALLOC_INDEX;
 	moved_gwnum = gwdata->gwnum_alloc[--gwdata->gwnum_alloc_count];
 	gwdata->gwnum_alloc[alloc_index] = moved_gwnum;
 	// Patch the alloc_index of the moved gwnum
-	freeable = * (int32_t *) ((char *) moved_gwnum - 32);
-	freeable &= ~GWFREEALLOC_INDEX;
-	freeable |= alloc_index;
-	* (int32_t *) ((char *) moved_gwnum - 32) = freeable;
+	moved_freeable = * (int32_t *) ((char *) moved_gwnum - 32);
+	moved_freeable &= ~GWFREEALLOC_INDEX;
+	moved_freeable |= alloc_index;
+	* (int32_t *) ((char *) moved_gwnum - 32) = moved_freeable;
 	// Free the gwnum
-	aligned_free ((char *) q - GW_HEADER_SIZE);
+	if (freeable & GWFREE_LARGE_PAGES) aligned_large_pages_free ((char *) q - GW_HEADER_SIZE);
+	else aligned_free ((char *) q - GW_HEADER_SIZE);
 }
 
 /* Free or cache a gwnum */
@@ -6710,6 +6735,25 @@ void gwfree (
 /* Cache the gwnum for quicker gwallocs in the future */
 
 	gwdata->gwnum_free[gwdata->gwnum_free_count++] = q;
+}
+
+/* Free cached gwnums */
+
+void gwfree_cached (
+	gwhandle *gwdata)	/* Handle initialized by gwsetup */
+{
+	int	i;
+
+/* Free the cached gwnums that are freeable */
+
+	for (i = 0; i < (int) gwdata->gwnum_free_count; i++) {
+		gwnum	q = gwdata->gwnum_free[i];
+		int32_t	freeable = * (int32_t *) ((char *) q - 32);
+		if ((freeable & GWFREEABLE) && !(freeable & GWFREED_TEMPORARILY)) {
+			gwfree_freeable (gwdata, q);
+			gwdata->gwnum_free[i--] = gwdata->gwnum_free[--gwdata->gwnum_free_count];
+		}
+	}
 }
 
 /* Typeless gwalloc and gwfree routines for giants code to call */
@@ -7574,7 +7618,7 @@ unsigned long gwmap_to_estimated_size (
 /* Speed of other AVX processors compared to a Sandy Bridge */
 
 #define REL_BULLDOZER_SPEED	1.9	/* Bulldozer is slower than Sandy Bridge */
-#define REL_ZEN_SPEED		1.4	/* Zen is likely slower than Sandy Bridge which has true 256-bit AVX support whereas Zen has FMA3 */
+#define REL_ZEN_SPEED		0.8	/* Zen is better than Haswell */
 
 /* Make a guess as to how long a squaring will take.  If the number cannot */
 /* be handled, then kludgily return 100.0.  Does not use benchmarking data. */
@@ -9294,11 +9338,11 @@ void gwunfft (
 
 	if (FFT_state (s) == PARTIALLY_FFTed || FFT_state (s) == FULLY_FFTed) {
 		if (gwdata->GW_FFT1 != NULL) {
-			gwmul3 (gwdata, s, gwdata->GW_FFT1, d, GWMUL_PRESERVE_S1);
+			gwmul3 (gwdata, s, gwdata->GW_FFT1, d, 0);
 		}
 		else if (s != d) {
 			dbltogw (gwdata, 1.0, d);
-			gwmul3 (gwdata, s, d, d, GWMUL_PRESERVE_S1);
+			gwmul3 (gwdata, s, d, d, 0);
 		} else {
 			gwnum	tmp = gwalloc (gwdata);
 			dbltogw (gwdata, 1.0, tmp);
@@ -9449,10 +9493,28 @@ void init_FFT1 (		/* Calculate GW_FFT1 if necessary */
 
 /* Allocate and calculate FFT(1) */
 
-	gwdata->GW_FFT1 = gwalloc (gwdata);
-	dbltogw (gwdata, 1.0, gwdata->GW_FFT1);
-	gwfft (gwdata, gwdata->GW_FFT1, gwdata->GW_FFT1);
+	if (gwdata->GW_FFT1 == NULL) {	// FFT(1) may already be allocated at user's request
+		gwdata->GW_FFT1 = gwalloc (gwdata);
+		dbltogw (gwdata, 1.0, gwdata->GW_FFT1);
+		gwfft (gwdata, gwdata->GW_FFT1, gwdata->GW_FFT1);
+	}
 	gwdata->FFT1_state = 1;
+}
+
+/* Init GW_FFT1 at user's request */
+
+void gwuser_init_FFT1 (		/* Calculate GW_FFT1 at user's request */
+	gwhandle *gwdata)	/* Handle initialized by gwsetup */
+{
+
+/* Allocate and calculate FFT(1) */
+
+	if (gwdata->GW_FFT1 == NULL) {	// FFT(1) may already be allocated for FMA operations
+		gwdata->GW_FFT1 = gwalloc (gwdata);
+		dbltogw (gwdata, 1.0, gwdata->GW_FFT1);
+		gwfft (gwdata, gwdata->GW_FFT1, gwdata->GW_FFT1);
+	}
+	gwdata->FFT1_user_allocated = 1;
 }
 
 /* Special multiply routine that multiplies two numbers and adds/subtracts a third. */
@@ -10311,17 +10373,21 @@ void gw_random_number (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	gwnum	x)
 {
-	struct mt_state rand_info;
+static	int	genrand_initialized = FALSE;
+static	struct mt_state rand_info;
 	stackgiant(g,4);
 	int	bitlen;
 
 /* Init the random generator to a reproducible state for gwsquare_carefully. */
 /* For other users of this routine, initialize to a more random state. */
 
-	if (x == gwdata->GW_RANDOM)
+	if (x == gwdata->GW_RANDOM) {
 		init_genrand (&rand_info, 5489);
-	else
+		genrand_initialized = FALSE;
+	} else if (!genrand_initialized) {
 		init_genrand (&rand_info, (unsigned long) time (NULL));
+		genrand_initialized = TRUE;
+	}
 
 /* Generate a random number.  Start with a 128-bit random odd number and square it several times. */
 
@@ -10728,6 +10794,7 @@ void gwadd3o (			/* Add two numbers normalizing if needed */
 /* If either input is partially or fully FFTed, we cannot normalize the result.  Use a different assembly routine. */
 
 	if (FFT_state (s1) != NOT_FFTed || FFT_state (s2) != NOT_FFTed) {
+		ASSERTG (!(options & GWADD_FORCE_NORMALIZE));
 
 /* If the two FFT states are not the same, make them so */
 
@@ -10863,6 +10930,7 @@ void gwsub3o (			/* Compute s1 - s2 normalizing if needed */
 /* If either input is partially or fully FFTed, we cannot normalize the result.  Use a different assembly routine. */
 
 	if (FFT_state (s1) != NOT_FFTed || FFT_state (s2) != NOT_FFTed) {
+		ASSERTG (!(options & GWADD_FORCE_NORMALIZE));
 
 /* If the two FFT states are not the same, make them so */
 
@@ -11140,15 +11208,19 @@ void gwsmalladd (
 /* that any carry can successfully spread over 3 FFT words. */
 
 	if (gwdata->GWPROCPTRS[8] == NULL || gwdata->k > 1.0 || gwdata->NUM_B_PER_SMALL_WORD < 1 || cant_handle) {
+		float	norm_count = unnorms (g);
+		int	add_options = (gwdata->k > 1.0 && labs(gwdata->c) > 1) ? GWADD_FORCE_NORMALIZE : GWADD_DELAY_NORMALIZE; 
 		gwnum	tmp = gwalloc (gwdata);
 		if (addin >= 0.0) {
 			dbltogw (gwdata, addin, tmp);
-			gwadd3o (gwdata, g, tmp, g, GWADD_DELAY_NORMALIZE);
+			gwadd3o (gwdata, g, tmp, g, add_options);
 		} else {
 			dbltogw (gwdata, -addin, tmp);
-			gwsub3o (gwdata, g, tmp, g, GWADD_DELAY_NORMALIZE);
+			gwsub3o (gwdata, g, tmp, g, add_options);
 		}
 		gwfree (gwdata, tmp);
+		// When k=1 or abs(c)=1 only a few words in the tmp addin value were non-zero so do not change the unnormalized add count
+		if (add_options == GWADD_DELAY_NORMALIZE) unnorms (g) = norm_count;
 	}
 
 /* The assembler optimized version */

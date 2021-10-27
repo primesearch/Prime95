@@ -1,8 +1,10 @@
 /*--------------------------------------------------------------------------
-| Copyright 2020 Mersenne Research, Inc.  All rights reserved
+| Copyright 2020-2021 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines to upload one proof file to the Primenet server
 +--------------------------------------------------------------------------*/
+
+#include "cJSON.h"
 
 /* This routine archives or deletes a proof file */
 

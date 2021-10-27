@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
 | Author:  George Woltman
 | Email: woltman@alum.mit.edu
 |
@@ -547,7 +547,12 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 			 (family == 6 && model == 108) ||		// Core i3/i5/i7, Ice Lake
 			 (family == 6 && model == 125) ||		// Core i3/i5/i7, Ice Lake
 			 (family == 6 && model == 126) ||		// Core i3/i5/i7, Ice Lake
-			 (family == 6 && model == 140))			// Core i3/i5/i7, Tiger Lake
+			 (family == 6 && model == 143) ||		// Core i3/i5/i7, Sapphire Rapids
+			 (family == 6 && model == 140) ||		// Core i3/i5/i7, Tiger Lake
+			 (family == 6 && model == 141) ||		// Core i3/i5/i7, Rocket Lake
+			 (family == 6 && model == 167) ||		// Core i3/i5/i7, Tiger Lake
+			 (family == 6 && model == 154) ||		// Core i3/i5/i7, Alder Lake
+			 (family == 6 && model == 151))			// Core i3/i5/i7, Alder Lake
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_CORE_I7;
 		else if ((family == 6 && model == 28) ||
 			 (family == 6 && model == 38) ||
@@ -563,7 +568,10 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 			 (family == 6 && model == 92) ||		// Goldmont
 			 (family == 6 && model == 95) ||
 			 (family == 6 && model == 122) ||		// Goldmont+
-			 (family == 6 && model == 134))			// Tremont
+			 (family == 6 && model == 134) ||		// Tremont
+			 (family == 6 && model == 138) ||
+			 (family == 6 && model == 150) ||
+			 (family == 6 && model == 156))
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_ATOM;
 		else if ((family == 6 && model == 87) ||		// Knight's Landing
 			 (family == 6 && model == 133))			// Knight's Mill

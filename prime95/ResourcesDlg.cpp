@@ -1,5 +1,7 @@
 // ResourcesDlg.cpp : implementation file
 //
+// Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
+//
 
 #include "stdafx.h"
 #include "Prime95.h"
@@ -190,8 +192,8 @@ void CResourcesAdvancedDlg::DoDataExchange(CDataExchange* pDX)
 	c_archive_dir.EnableWindow (m_can_upload);
 	c_cert_cpu_text.EnableWindow (m_can_download);
 	c_cert_cpu.EnableWindow (m_can_download);
-	c_hyper_tf.EnableWindow (CPU_HYPERTHREADS > 1);
-	c_hyper_ll.EnableWindow (CPU_HYPERTHREADS > 1);
+	c_hyper_tf.EnableWindow (HW_NUM_CORES != HW_NUM_THREADS);
+	c_hyper_ll.EnableWindow (HW_NUM_CORES != HW_NUM_THREADS);
 }
 
 

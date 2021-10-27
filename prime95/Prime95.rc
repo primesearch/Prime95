@@ -271,8 +271,8 @@ STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Test a Specific Exponent"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
-    LTEXT           "&Worker number:",IDC_THREAD_TEXT,7,10,64,10
-    EDITTEXT        IDC_THREAD,87,7,22,12
+    LTEXT           "&Worker number:",IDC_WORKER_TEXT,7,10,64,10
+    EDITTEXT        IDC_WORKER,87,7,22,12
     LTEXT           "&Exponent to test:",IDC_STATIC,7,25,55,10
     EDITTEXT        IDC_P,68,24,42,12,ES_NUMBER
     DEFPUSHBUTTON   "OK",IDOK,117,7,50,14
@@ -479,8 +479,8 @@ STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Factor Number Using ECM"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
-    LTEXT           "&Worker number:",IDC_THREAD_TEXT,7,9,54,10
-    EDITTEXT        IDC_THREAD,64,7,22,12
+    LTEXT           "&Worker number:",IDC_WORKER_TEXT,7,9,54,10
+    EDITTEXT        IDC_WORKER,64,7,22,12
     LTEXT           "&Number to factor:",-1,7,25,51,10
     EDITTEXT        IDC_P4,59,23,33,12,ES_RIGHT
     LTEXT           "*",-1,96,26,8,8
@@ -503,8 +503,8 @@ STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Factor Number Using P-1"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
-    LTEXT           "&Worker number:",IDC_THREAD_TEXT,7,10,64,10
-    EDITTEXT        IDC_THREAD,64,7,22,12
+    LTEXT           "&Worker number:",IDC_WORKER_TEXT,7,10,64,10
+    EDITTEXT        IDC_WORKER,64,7,22,12
     LTEXT           "&Number to factor:",-1,7,29,51,10
     EDITTEXT        IDC_P4,59,27,33,12,ES_RIGHT
     LTEXT           "*",-1,96,30,8,8
@@ -554,8 +554,9 @@ STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Run a Torture Test"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
-    LTEXT           "Number of torture test &threads to run:",IDC_THREAD_TEXT,8,9,119,10
-    EDITTEXT        IDC_THREAD,132,7,36,12
+    LTEXT           "Number of cores to &torture test:",IDC_CORES_TEXT,8,9,104,10
+    EDITTEXT        IDC_CORES,114,7,20,12
+    CONTROL         "Use hyperthreading (more stressful)",IDC_HYPERTHREADING,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,142,9,152,10
     CONTROL         "Smallest FFTs (tests L1/L&2 caches, high power/heat/CPU stress)",IDC_L2_CACHE,
                     "Button",BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,7,23,282,10
     CONTROL         "Small FFTs (tests L1/L2/L&3 caches, maximum power/heat/CPU stress)",IDC_L3_CACHE,
@@ -590,21 +591,22 @@ BEGIN
     PUSHBUTTON      "Cancel",IDCANCEL,295,24,50,14
 END
 
-IDD_WORKER_THREADS DIALOGEX 0, 0, 309, 130
+IDD_WORKER_THREADS DIALOGEX 0, 0, 309, 143
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Worker Windows"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
-    LTEXT           "Number of worker &windows to run:",IDC_THREAD_TEXT,7,18,112,10
-    EDITTEXT        IDC_THREAD,126,16,36,12
-    GROUPBOX        "Worker-specific options",IDC_WORKGROUP,3,40,302,70
-    LTEXT           "Worker &number:",IDC_THREADNUM_TEXT,9,55,57,8
+    LTEXT           "Number of worker &windows to run:",IDC_WORKER_TEXT,7,18,112,10
+    EDITTEXT        IDC_WORKER,126,16,36,12
+    GROUPBOX        "Worker-specific options",IDC_WORKGROUP,3,40,302,83
+    LTEXT           "Worker &number:",IDC_WORKERNUM_TEXT,9,55,57,8
     COMBOBOX        IDC_COMBO1,90,53,105,84,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     LTEXT           "Type of work to &get:",IDC_WORK_TYPE_TEXT,9,73,66,8
     COMBOBOX        IDC_COMBO2,90,71,200,81,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     LTEXT           "&CPU cores to use (multithreading):",IDC_NUMCPUS_TEXT,9,91,118,8
     EDITTEXT        IDC_NUMCPUS,129,89,36,12
-    CONTROL         "Get occasional &proof certification work",IDC_CERT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,115,200,10
+    LTEXT           "Minimum number of CPU cores is based on work preference and hours per day settings",IDC_STATIC,9,106,289,8
+    CONTROL         "Get occasional &proof certification work",IDC_CERT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,128,200,10
     DEFPUSHBUTTON   "OK",IDOK,255,7,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,255,24,50,14
 END
@@ -615,8 +617,8 @@ CAPTION "Start one or all workers"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
     CONTROL         "&Start all workers",IDC_RADIO1,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,13,89,10
-    LTEXT           "&Worker number to start:",IDC_THREAD_TEXT,7,30,76,10
-    EDITTEXT        IDC_THREAD,87,29,22,12
+    LTEXT           "&Worker number to start:",IDC_WORKER_TEXT,7,30,76,10
+    EDITTEXT        IDC_WORKER,87,29,22,12
     DEFPUSHBUTTON   "OK",IDOK,117,7,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,117,24,50,14
 END
@@ -627,8 +629,8 @@ CAPTION "Stop one or all workers"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
     CONTROL         "&Stop all workers",IDC_RADIO1,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,13,89,10
-    LTEXT           "&Worker number to stop:",IDC_THREAD_TEXT,7,30,76,10
-    EDITTEXT        IDC_THREAD,87,29,22,12
+    LTEXT           "&Worker number to stop:",IDC_WORKER_TEXT,7,30,76,10
+    EDITTEXT        IDC_WORKER,87,29,22,12
     DEFPUSHBUTTON   "OK",IDOK,117,7,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,117,24,50,14
 END
@@ -640,8 +642,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 30,6,1,0
- PRODUCTVERSION 30,6,0,0
+ FILEVERSION 30,7,1,0
+ PRODUCTVERSION 30,7,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -657,12 +659,12 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "FileDescription", "PRIME95 Application"
-            VALUE "FileVersion", "30, 6, 1, 0"
+            VALUE "FileVersion", "30, 7, 1, 0"
             VALUE "InternalName", "PRIME95"
             VALUE "LegalCopyright", "Copyright © 1996-2021, Mersenne Research Inc."
             VALUE "OriginalFilename", "PRIME95.EXE"
             VALUE "ProductName", "PRIME95 Application"
-            VALUE "ProductVersion", "30, 6, 0, 0"
+            VALUE "ProductVersion", "30, 7, 0, 0"
         END
     END
     BLOCK "VarFileInfo"

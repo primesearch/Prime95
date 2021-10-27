@@ -1,9 +1,18 @@
 /* Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved */
 
+#ifndef _COMMONC_H
+#define _COMMONC_H
+
+/* This is used by C and C++ code.  If used in a C++ program, don't let the C++ compiler mangle names. */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Constants */
 
-#define VERSION		"30.6"
-#define BUILD_NUM	"4"
+#define VERSION		"30.7"
+#define BUILD_NUM	"7"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -135,6 +144,7 @@ extern char RESFILE[260];		/* Name of the results file */
 extern char RESFILEBENCH[260];		/* Name of the results.bench file */
 extern char SPOOL_FILE[260];		/* Name of the spool file */
 extern char LOGFILE[260];		/* Name of the server log file */
+extern int NO_GUI;			/* True if there is no graphical user interface */
 
 extern char USERID[21];			/* User's ID */
 extern char COMPID[21];			/* Computer name */
@@ -217,16 +227,13 @@ extern int THROTTLE_PCT;		/* Percent CPU time prog should run */
 
 extern int STARTUP_IN_PROGRESS;		/* TRUE if startup dialogs are up */
 
-extern unsigned long NUM_CPUS;		/* Number of CPUs/Cores in computer */
-
 extern int LAUNCH_TYPE;			/* Type of worker threads launched */
 extern unsigned int WORKER_THREADS_ACTIVE;/* Num worker threads running */
 extern int WORKER_THREADS_STOPPING;	/* TRUE iff worker threads stopping */
 
 extern unsigned int WORKTODO_COUNT;	/* Count of valid work lines */
 
-extern int GIMPS_QUIT;			/* TRUE if we just successfully */
-					/* quit the GIMPS project */
+extern int GIMPS_QUIT;			/* TRUE if we just successfully quit the GIMPS project */
 
 extern gwthread COMMUNICATION_THREAD;	/* Handle for comm thread.  Set when comm thread is active. */
 extern gwthread UPLOAD_THREAD;		/* Handle for proof file upload thread */
@@ -247,10 +254,24 @@ extern uint32_t CPU_NUM_L4_CACHES;	/* Number of L4 caches as determined by hwloc
 extern int	CPU_L2_CACHE_INCLUSIVE;	/* 1 if inclusive, 0 if exclusive, -1 if not known */
 extern int	CPU_L3_CACHE_INCLUSIVE;	/* 1 if inclusive, 0 if exclusive, -1 if not known */
 extern int	CPU_L4_CACHE_INCLUSIVE;	/* 1 if inclusive, 0 if exclusive, -1 if not known */
-extern unsigned int NUM_NUMA_NODES;	/* Number of NUMA nodes in the computer */
-extern unsigned int NUM_THREADING_NODES;/* Number of nodes where it might be beneficial to keep a worker's threads in the same node */
 extern int OS_CAN_SET_AFFINITY;		/* hwloc supports setting CPU affinity (known exception is Apple) */
 void topology_print_children (hwloc_obj_t obj, int);
+
+/* New in 30.7, HW_ globals to describe the underlying hardware.  Earlier versions of prime95 did not deal well with asymmetric cores/threads/caches. */
+
+extern uint32_t HW_NUM_CORES;		/* Total number of cores (physical processors) available */
+extern uint32_t HW_NUM_THREADS;		/* Total number of threads (logical processors) available */
+extern uint32_t HW_NUM_COMPUTE_CORES;	/* Number of high-performance cores that a program like ours should use (i.e. not AlderLake efficiency cores) */
+extern uint32_t HW_NUM_THREADING_NODES;	/* Total number of nodes where it should be beneficial to assign a worker's cores within the same node */
+extern uint32_t HW_NUM_COMPUTE_THREADING_NODES;	/* Same as HW_NUM_THREADING_NODES but only counting nodes governing compute cores */
+extern uint32_t HW_NUM_NUMA_NODES;	/* Total number of NUMA nodes in the computer */
+
+struct hw_core_info {
+	uint16_t num_threads;		/* Number of threads (logical processors) running on this physical processor */
+	uint16_t ranking;		/* For now, only two values are supported for Alder Lake.  1=compute, 0=efficiency. */
+};
+extern struct hw_core_info *HW_CORES;	/* Information on every core */
+
 
 /* Common routines */
 
@@ -403,8 +424,8 @@ void tempFileName (struct work_unit *, char *);
 int fileExists (const char *);
 void DirPlusFilename (char *, const char *);
 
-int read_array (int fd, char *buf, unsigned long len, unsigned long *sum);
-int write_array (int fd, const char *buf, unsigned long len, unsigned long *sum);
+int read_array (int fd, char *buf, size_t len, unsigned long *sum);
+int write_array (int fd, const char *buf, size_t len, unsigned long *sum);
 int read_gwnum (int fd, gwhandle *gwdata, gwnum g, unsigned long *sum);
 int write_gwnum (int fd, gwhandle *gwdata, gwnum g, unsigned long *sum);
 int read_short (int fd, short *val);
@@ -414,10 +435,12 @@ int read_slong (int fd, long *val, unsigned long *sum);
 int write_slong (int fd, long val, unsigned long *sum);
 int read_int (int fd, int *val, unsigned long *sum);
 int write_int (int fd, int val, unsigned long *sum);
-int read_longlong (int fd, uint64_t *val, unsigned long *sum);
-int write_longlong (int fd, uint64_t val, unsigned long *sum);
 int read_double (int fd, double *val, unsigned long *sum);
 int write_double (int fd, double dbl, unsigned long *sum);
+int read_uint32 (int fd, uint32_t *val, unsigned long *sum);
+int write_uint32 (int fd, uint32_t val, unsigned long *sum);
+int read_uint64 (int fd, uint64_t *val, unsigned long *sum);
+int write_uint64 (int fd, uint64_t val, unsigned long *sum);
 int read_magicnum (int fd, unsigned long magicnum);
 int read_header (int fd, unsigned long *version, struct work_unit *w, unsigned long *sum);
 int write_header (int fd, unsigned long magicnum, unsigned long version, struct work_unit *w);
@@ -510,3 +533,9 @@ time_t timed_event_fire_time (
 #define TE_THROTTLE_FREQ	 5	/* Throttle every 5 sec. */
 #define TE_ROLLING_AVERAGE_FREQ	 12*60*60 /* Adjust rolling every 12 hr. */
 #define TE_BENCH_FREQ		 21*60*60 /* Generate auto-benchmark data every 21 hrs. */
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

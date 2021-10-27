@@ -303,7 +303,7 @@ Output from the timings code at the end of this document show decent savings:
 	gwaddmul4 with startnextfft: 40806.980000, or 1.15 * baseline
 	emulated gwaddmul4 with startnextfft: 46180.100000, or 1.30 * baseline
 
-The second pair of combo routines, gwmuladd4 and gwmulsub4, not only can it save a read/write it can save a normalized add.  These routines
+The second pair of combo routines, gwmuladd4 and gwmulsub4, not only can save a read/write they can save a normalized add.  These routines
 multiply two gwnums and add or subtract a third gwnum producing a normalized result.  The third source will be FFTed and thus it is preferred
 but not required that the third source is already fully FFTed.
 
@@ -318,7 +318,7 @@ The savings here are harder to calculate.  This is partly because the above two 
 partially or fully FFTed then gwadd3o is illegal if the add_options would result in a normalized add.  Doing an unnormalized add could affect
 whether future gwadd3o operations would require a normalization.  Further complications are because some moduli (primarily k != 1 in k*b^n+c)
 require reading a pre-calculated gwnum holding FFT(1).  If c is not FFTed, the combo version costs one or two reads and one write.  If c is
-partially FFTed, the combo version is costs zero or one reads and zero writes.  If c is fully FFTed, the combo version saves zero or one reads
+partially FFTed, the combo version costs zero or one reads and zero writes.  If c is fully FFTed, the combo version saves zero or one reads
 and one write.  As with gwaddmul, the fact that c is fully FFTed as a by-product may sway your decision toward using the combo version.
 
 Given the above, as a general rule of thumb, always use the combo version if c is already fully FFTed.  If c is partially FFTed, use the

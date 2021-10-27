@@ -2,6 +2,7 @@
 /* Code courtesy of Mihai Preda */
 /* Modified to work on non-Mersennes and P+1 factoring (variable takeAwaybits) */
 
+#include "common.h"
 #include "pm1prob.h"
 
 // Table of values of Dickman's "rho" function for argument from 2 in steps of 1/20.
@@ -122,7 +123,7 @@ double pm1prob(double takeAwayBits, unsigned factoredUpTo, double B1, double B2)
 
   // The middle point of the slice is (2^n + 2^(n+SLICE_WIDTH))/2,
   // so log2(middle) is n + log2(1 + 2^SLICE_WIDTH) - 1.
-  const double MIDDLE_SHIFT = _log2(1 + exp2(SLICE_WIDTH)) - 1;
+  const double MIDDLE_SHIFT = log2(1 + exp2(SLICE_WIDTH)) - 1;
   
   // The bit-size of a representative factor from the current slice.
   double bitsFactor = factoredUpTo + MIDDLE_SHIFT - takeAwayBits;

@@ -967,7 +967,7 @@ int primenet_parse_page (char *response_buf, short operation, void *pkt)
 
 {
 	char	*s;
-	char	buf[400], errtxt[2000];
+	char	buf[4096], errtxt[4096];
 	int32_t	res;
 
 /* Get result code, which is always first */

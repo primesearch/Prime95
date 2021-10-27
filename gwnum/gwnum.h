@@ -52,9 +52,9 @@ typedef double *gwnum;
 /* are new prime95 versions without any changes in the gwnum code.  This version number is also embedded in the assembly code and */
 /* gwsetup verifies that the version numbers match.  This prevents bugs from accidentally linking in the wrong gwnum library. */
 
-#define GWNUM_VERSION		"30.6"
+#define GWNUM_VERSION		"30.7"
 #define GWNUM_MAJOR_VERSION	30
-#define GWNUM_MINOR_VERSION	6
+#define GWNUM_MINOR_VERSION	7
 
 /* Error codes returned by the three gwsetup routines */
 
@@ -242,9 +242,18 @@ void gwfreeall (
 /* There may be some internal gwnum memory that can be safely freed. */
 #define gwfree_internal_memory(h) { \
 		gwfree((h), (h)->GW_RANDOM), (h)->GW_RANDOM = NULL; \
-		if ((h)->FFT1_state == 1) { gwfree((h), (h)->GW_FFT1), (h)->GW_FFT1 = NULL; (h)->FFT1_state = 0; } \
+		if ((h)->FFT1_state == 1 && !(h)->FFT1_user_allocated) { gwfree((h), (h)->GW_FFT1), (h)->GW_FFT1 = NULL; (h)->FFT1_state = 0; } \
 		if ((h)->to_radix_gwdata != NULL) gwdone ((h)->to_radix_gwdata), free ((h)->to_radix_gwdata), (h)->to_radix_gwdata = NULL; \
 		if ((h)->from_radix_gwdata != NULL) gwdone ((h)->from_radix_gwdata), free ((h)->from_radix_gwdata), (h)->from_radix_gwdata = NULL; }
+
+/* Empty cache of freed gwnums.  Call this to minimize gwnum library's memory footprint when no more gwallocs are anticipated anytime soon. */
+void gwfree_cached (
+	gwhandle *gwdata);	/* Handle initialized by gwsetup */
+
+/* Highly specialized routine!  Allocates and initializes FFT(1).  Internally FFT(1) is used by gwmuladd4, gwmulsub4, and gwunfft.  Should */
+/* the user also need FFT(1) this let's you avoid allocating a second gwnum that holds the same value. */
+void gwuser_init_FFT1 (		/* Calculate GW_FFT1 at user's request */
+	gwhandle *gwdata);	/* Handle initialized by gwsetup */
 
 /*---------------------------------------------------------------------+
 |                        GWNUM CONVERSION ROUTINES                     |
@@ -445,7 +454,7 @@ void gwmulmulsub5 (		/* Calculate (s1*s2)-(s3*s4) */
 /* This is complicated stuff.  Reading tutorial.txt is highly recommended! */
 #define GWADD_SQUARE_INPUT		0x0001	/* Result will eventually be input to gwsquare */
 #define GWADD_MANY_INPUTS		0x0001	/* Result will be input to gwmul or gwaddmul where multiple arguments come from the output of gwadd */
-#define GWADD_MUL_INPUT			0x0002	/* Result will eventually be input to gwmul3 */   
+#define GWADD_MUL_INPUT			0x0002	/* Result will eventually be input to gwmul3 */
 #define GWADD_ADD_INPUT			0x0004	/* Result will eventually be input to one of the first two arguments of gwaddmul4 or gwsubmul4 */
 #define GWADD_NON_RANDOM_DATA		0x0010	/* Two add inputs are correlated (like adding number to itself) which has much worse impact on roundoff */
 #define GWADD_GUARANTEED_OK		0x2000	/* Do not normalize the result.  Treat result like a fully normalized number. */
@@ -490,6 +499,8 @@ void gwset_carefully_count (
 /* if k != 1 and abs(c) != 1 in k*b^n+c then emulation occurs.  If you also use the mul-by-const option, the multiply is done after the addition. */
 /* I think an add-in as large as 40 or 45 bits ought to work, but this is not tested. */
 void gwsetaddin (gwhandle *, long);
+/* Returns TRUE if gwsetaddin and GWMUL_ADDINCONST must be emulated with a gwmuladd4.  Caller may have a faster alternative if this is the case. */
+#define is_gwsetaddin_emulated(h)	((h)->k != 1.0 && labs ((h)->c) != 1)
 /* Prime95 uses the the specialized gwsetaddinatpowerofb.  k must be 1 and abs(c) must be 1.  This is not emulated. */
 void gwsetaddinatpowerofb (gwhandle *, long, unsigned long);
 
@@ -725,10 +736,10 @@ int gwtogiant (gwhandle *, gwnum, giant);
 /* gwsquare2_carefully(s,d)	DEPRECATED - use gwmul3_carefully */
 /* gwmul_carefully(s,d)		DEPRECATED - use gwmul3_carefully */
 /* gwadd3(s1,s2,d)		DEPRECATED - use gwadd3o.  Adds two numbers */
-/* gwsub3(s1,s2,d)		DEPRECATED - use gwasub3o.  Subtracts second number from first */
+/* gwsub3(s1,s2,d)		DEPRECATED - use gwsub3o.  Subtracts second number from first */
 /* gwaddsub4(s1,s2,d1,d2)	DEPRECATED - use gwaddsub4o.  Like gwaddsub4o */
 /* gwadd3quick(s1,s2,d)		DEPRECATED - use gwadd3o.  Adds two numbers WITHOUT normalizing */
-/* gwsub3quick(s1,s2,d)		DEPRECATED - use gwasub3o.  Subtracts second number from first WITHOUT normalizing */
+/* gwsub3quick(s1,s2,d)		DEPRECATED - use gwsub3o.  Subtracts second number from first WITHOUT normalizing */
 /* gwaddsub4quick(s1,s2,d1,d2)	DEPRECATED - use gwaddsub4o.  Like gwaddsub4 but WITHOUT normalizing */
 /* force_normalize(x)		DEPRECATED - use GWADD_FORCE_NORMALIZE option.  Was used on destination of gwadd3, gwsub3, or gwaddsub4 in version 30.4 */
 
@@ -1020,7 +1031,9 @@ struct gwhandle_struct {
 	gwnum	GW_RANDOM;		/* A random number used in gwmul3_carefully. */
 	gwnum	GW_ADDIN;		/* The gwsetaddin value when we need to emulate GWMUL3_ADDINCONST. */
 	gwnum	GW_FFT1;		/* The number 1 FFTed.  Sometimes need by gwmuladd4 and gwmulsub4. */
-	int	FFT1_state;		/* 0 = uninitialized, 1 = FFT(1) is needed, 2 = FFT(1) is itself one. */
+	char	FFT1_state;		/* 0 = FFT(1) needed for FMA but not yet allocated, 1 = FFT(1) needed for FMA and allocated, */
+					/* 2 = FFT(1) is not needed for FMA. */
+	char	FFT1_user_allocated;	/* TRUE if FFT(1) was allocated at user's request */
 	unsigned long saved_copyz_n;	/* Used to reduce COPYZERO calculations */
 	char	GWSTRING_REP[60];	/* The gwsetup modulo number as a string. */
 	unsigned int NORMNUM;		/* The post-multiply normalize routine index */
