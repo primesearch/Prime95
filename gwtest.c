@@ -215,6 +215,20 @@ void gen_data (gwhandle *gwdata, gwnum x, giant g)
 	}
 //	len = 1; g->n[0] = 30000;
 	g->sign = len;
+
+	// Read an LLR cert file
+	if (0) {
+		int fd;
+		fd = _open ("foo", _O_BINARY | _O_RDONLY);
+		if (fd > 0) {
+		_read (fd, g->n, 16); //ignore 16 bytes
+		_read (fd, &len, 4); //length in bytes
+		_read (fd, g->n, len); //data
+		memset ((char*) g->n + len, 0, 8);
+		g->sign = divide_rounding_up (len, 4);
+		}
+	}
+
 	specialmodg (gwdata, g);
 	gianttogw (gwdata, g, x);
 }
@@ -531,9 +545,6 @@ void test_it (
 	g2 = popg (&gwdata->gdata, ((unsigned long) gwdata->bit_length >> 4) + 20);
 	g3 = popg (&gwdata->gdata, ((unsigned long) gwdata->bit_length >> 4) + 20);
 	g4 = popg (&gwdata->gdata, ((unsigned long) gwdata->bit_length >> 4) + 20);
-	gen_data (gwdata, x, g);
-	if (CHECK_OFTEN) compare (thread_num, gwdata, x, g);
-	gwcopy (gwdata, x, x2); gtog (g, g2);
 
 /* Test single, double, and triple FFT words.  Handy when first developing an FFT. */
 
@@ -603,6 +614,10 @@ void test_it (
 		specialmodg (gwdata, g);
 		compare_with_text_and_int (thread_num, gwdata, x, g, "ExtraTest", 4);
 	}
+
+	gen_data (gwdata, x, g);
+	if (CHECK_OFTEN) compare (thread_num, gwdata, x, g);
+	gwcopy (gwdata, x, x2); gtog (g, g2);
 
 /* Test 50 squarings */	
 

@@ -11305,11 +11305,13 @@ int readPRPSaveFile (
 		if (!read_long (fd, &savefile_prp_base, &sum)) goto err;
 		if (!read_long (fd, &ps->units_bit, &sum)) goto err;
 		if (!read_long (fd, &savefile_two_power_opt, &sum)) goto err;
-		ps->two_power_opt = savefile_two_power_opt;
+		// This test causes PRP test to restart from scratch if PRPStraightForward option is changed.
+		// Alternatively we could re-init PRP code with two_power_opt toggled.
+		if (ps->two_power_opt != savefile_two_power_opt) goto err;
 	} else {
 		savefile_prp_base = 3;
 		ps->units_bit = 0;
-		ps->two_power_opt = FALSE;
+		if (ps->two_power_opt) goto err;		// Alternatively we could re-init PRP code with two_power_opt off
 	}
 
 	// Validate save file's PRP base is the desired PRP base

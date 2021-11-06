@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "gwnum.h"		// GWnum FFT library
 #include "gmp.h"		// GMP library
 #ifndef NO_HWLOC
