@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2022 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -11,7 +11,7 @@
 | Commonc contains information used during setup and execution
 +---------------------------------------------------------------------*/
 
-static const char JUNK[]="Copyright 1996-2021 Mersenne Research, Inc. All rights reserved";
+static const char JUNK[]="Copyright 1996-2022 Mersenne Research, Inc. All rights reserved";
 
 char	INI_FILE[260] = {0};
 char	LOCALINI_FILE[260] = {0};
@@ -2781,15 +2781,12 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 			float	tests_saved;
 			tests_saved = 0.0;
 			q = strchr (value, ','); *q = 0; w->k = atof (value);
-			sscanf (q+1, "%lu,%lu,%ld,%f,%f",
-				&w->b, &w->n, &w->c, &sieve_depth,
-				&tests_saved);
+			sscanf (q+1, "%lu,%lu,%ld,%f,%f", &w->b, &w->n, &w->c, &sieve_depth, &tests_saved);
 			w->sieve_depth = sieve_depth;
 			w->tests_saved = tests_saved;
 		} else {				/* Old style */
 			int	dblchk;
-			sscanf (value, "%lu,%f,%d",
-				&w->n, &sieve_depth, &dblchk);
+			sscanf (value, "%lu,%f,%d", &w->n, &sieve_depth, &dblchk);
 			w->sieve_depth = sieve_depth;
 			w->tests_saved = dblchk ? 1.0 : 2.0;
 		}
@@ -2807,9 +2804,9 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		sscanf (q+1, "%lu,%lu,%ld", &w->b, &w->n, &w->c);
 		for (i = 1; i <= 3; i++)
 			if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-		w->B1 = atof (q+1);
+		w->B1 = (uint64_t) atof (q+1);
 		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-		w->B2 = atof (q+1);
+		w->B2 = (uint64_t) atof (q+1);
 		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
 		w->curves_to_do = atoi (q+1);
 		q = strchr (q+1, ',');
@@ -2820,8 +2817,7 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		}
 		w->B2_start = w->B1;
 		if (q != NULL && q[1] != '"') {
-			double j;
-			j = atof (q+1);
+			uint64_t j = (uint64_t) atof (q+1);
 			if (j > w->B1) w->B2_start = j;
 			q = strchr (q+1, ',');
 		}
@@ -2842,23 +2838,20 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		if ((q = strchr (value, ',')) == NULL) goto illegal_line;
 		sscanf (q+1, "%lu,%lu,%ld", &w->b, &w->n, &w->c);
 		for (i = 1; i <= 3; i++) if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-		w->B1 = atof (q+1);
+		w->B1 = (uint64_t) atof (q+1);
 		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-		w->B2 = atof (q+1);
+		w->B2 = (uint64_t) atof (q+1);
 		q = strchr (q+1, ',');
 		w->sieve_depth = 0.0;
 		if (q != NULL && q[1] != '"') {
-			double	j;
-			j = atof (q+1);
-			if (j < 100.0) {
-				w->sieve_depth = j;
-				q = strchr (q+1, ',');
-			}
+			double j = atof (q+1);
+			if (j <= 300.0) w->sieve_depth = j;
+			q = strchr (q+1, ',');
 		}
 		w->B2_start = 0;
 		if (q != NULL && q[1] != '"') {
-			double	j;
-			j = atof (q+1);
+			uint64_t j;
+			j = (uint64_t) atof (q+1);
 			if (j > w->B1) w->B2_start = j;
 			q = strchr (q+1, ',');
 		}
@@ -2880,9 +2873,9 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		if ((q = strchr (value, ',')) == NULL) goto illegal_line;
 		sscanf (q+1, "%lu,%lu,%ld", &w->b, &w->n, &w->c);
 		for (i = 1; i <= 3; i++) if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-		w->B1 = atof (q+1);
+		w->B1 = (uint64_t) atof (q+1);
 		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-		w->B2 = atof (q+1);
+		w->B2 = (uint64_t) atof (q+1);
 		q = strchr (q+1, ',');
 		w->nth_run = 1;
 		if (q != NULL && q[1] != '"') {
@@ -2892,10 +2885,8 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		}
 		w->sieve_depth = 0.0;
 		if (q != NULL && q[1] != '"') {
-			double	j;
-			j = atof (q+1);
-			if (j >= 100.0) j = 0.0;
-			w->sieve_depth = j;
+			double j = atof (q+1);
+			if (j <= 300.0) w->sieve_depth = j;
 			q = strchr (q+1, ',');
 		}
 		if (q != NULL && q[1] == '"') {
@@ -2997,19 +2988,19 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		OutputBoth (MAIN_THREAD_NUM, buf);
 		goto illegal_line;
 	    }
-	    if ((w->work_type == WORK_TEST ||
-	         w->work_type == WORK_DBLCHK ||
-	         w->work_type == WORK_ADVANCEDTEST) &&
+	    if ((w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK || w->work_type == WORK_ADVANCEDTEST) &&
 	        (w->n < MIN_PRIME ||
 		 (w->minimum_fftlen == 0 &&
-		  w->n > (unsigned long) (CPU_FLAGS & CPU_FMA3 ? MAX_PRIME_FMA3 :
-					  (CPU_FLAGS & (CPU_AVX | CPU_SSE2) ? MAX_PRIME_SSE2 : MAX_PRIME))))) {
+		  w->n > (unsigned long) ((CPU_FLAGS & CPU_AVX512F) ? MAX_PRIME_AVX512 :
+					  (CPU_FLAGS & CPU_FMA3) ? MAX_PRIME_FMA3 :
+					  (CPU_FLAGS & CPU_AVX) ? MAX_PRIME_AVX :
+					  (CPU_FLAGS & CPU_SSE2) ? MAX_PRIME_SSE2 : MAX_PRIME)))) {
 		char	buf[80];
 		sprintf (buf, "Error: Worktodo.txt file contained bad LL exponent: %ld\n", w->n);
 		OutputBoth (MAIN_THREAD_NUM, buf);
 		goto illegal_line;
 	    }
-	    if (w->work_type == WORK_FACTOR && w->n < 20000) {
+	    if (w->work_type == WORK_FACTOR && w->n < 200000) {
 		char	buf[100];
 		sprintf (buf, "Error: Use ECM instead of trial factoring for exponent: %ld\n", w->n);
 		OutputBoth (MAIN_THREAD_NUM, buf);
@@ -3297,31 +3288,23 @@ int writeWorkToDoFile (
 			break;
 
 		case WORK_ECM:
-			sprintf (buf, "ECM2=%s%.0f,%lu,%lu,%ld,%.0f,%.0f,%u", idbuf, w->k, w->b, w->n, w->c, w->B1, w->B2, w->curves_to_do);
-			if (w->B2_start > w->B1)
-				sprintf (buf + strlen (buf), ",%.0f,%.0f", w->curve, w->B2_start);
-			else if (w->curve)
-				sprintf (buf + strlen (buf), ",%.0f", w->curve);
-			if (w->known_factors != NULL)
-				sprintf (buf + strlen (buf), ",\"%s\"", w->known_factors);
+			sprintf (buf, "ECM2=%s%.0f,%lu,%lu,%ld,%" PRIu64 ",%" PRIu64 ",%u", idbuf, w->k, w->b, w->n, w->c, w->B1, w->B2, w->curves_to_do);
+			if (w->B2_start > w->B1) sprintf (buf + strlen (buf), ",%.0f,%" PRIu64, w->curve, w->B2_start);
+			else if (w->curve) sprintf (buf + strlen (buf), ",%.0f", w->curve);
+			if (w->known_factors != NULL) sprintf (buf + strlen (buf), ",\"%s\"", w->known_factors);
 			break;
 
 		case WORK_PMINUS1:
-			sprintf (buf, "Pminus1=%s%.0f,%lu,%lu,%ld,%.0f,%.0f", idbuf, w->k, w->b, w->n, w->c, w->B1, w->B2);
-			if (w->sieve_depth > 0.0)
-				sprintf (buf + strlen (buf), ",%.0f", w->sieve_depth);
-			if (w->B2_start > w->B1)
-				sprintf (buf + strlen (buf), ",%.0f", w->B2_start);
-			if (w->known_factors != NULL)
-				sprintf (buf + strlen (buf), ",\"%s\"", w->known_factors);
+			sprintf (buf, "Pminus1=%s%.0f,%lu,%lu,%ld,%" PRIu64 ",%" PRIu64, idbuf, w->k, w->b, w->n, w->c, w->B1, w->B2);
+			if (w->sieve_depth > 0.0) sprintf (buf + strlen (buf), ",%.0f", w->sieve_depth);
+			if (w->B2_start > w->B1) sprintf (buf + strlen (buf), ",%" PRIu64, w->B2_start);
+			if (w->known_factors != NULL) sprintf (buf + strlen (buf), ",\"%s\"", w->known_factors);
 			break;
 
 		case WORK_PPLUS1:
-			sprintf (buf, "Pplus1=%s%.0f,%lu,%lu,%ld,%.0f,%.0f,%d", idbuf, w->k, w->b, w->n, w->c, w->B1, w->B2, w->nth_run);
-			if (w->sieve_depth > 0.0)
-				sprintf (buf + strlen (buf), ",%.0f", w->sieve_depth);
-			if (w->known_factors != NULL)
-				sprintf (buf + strlen (buf), ",\"%s\"", w->known_factors);
+			sprintf (buf, "Pplus1=%s%.0f,%lu,%lu,%ld,%" PRIu64 ",%" PRIu64 ",%d", idbuf, w->k, w->b, w->n, w->c, w->B1, w->B2, w->nth_run);
+			if (w->sieve_depth > 0.0) sprintf (buf + strlen (buf), ",%.0f", w->sieve_depth);
+			if (w->known_factors != NULL) sprintf (buf + strlen (buf), ",\"%s\"", w->known_factors);
 			break;
 
 		case WORK_PRP:
@@ -3331,8 +3314,7 @@ int writeWorkToDoFile (
 				if (w->prp_base || w->prp_residue_type)
 					sprintf (buf + strlen (buf), ",%u,%d", w->prp_base, w->prp_residue_type);
 			}
-			if (w->known_factors != NULL)
-				sprintf (buf + strlen (buf), ",\"%s\"", w->known_factors);
+			if (w->known_factors != NULL) sprintf (buf + strlen (buf), ",\"%s\"", w->known_factors);
 			break;
 
 		case WORK_CERT:
@@ -3666,19 +3648,13 @@ double work_estimate (
 
 	if (w->work_type == WORK_PMINUS1 || w->work_type == WORK_PFACTOR) {
 		int	stage;
-		double	B1, B2;
+		uint64_t B1, B2;
 		double	stage1_time, stage2_time;
 
 		if (w->work_type == WORK_PFACTOR) {
-			unsigned long guess_B1, guess_B2;
-			unsigned long squarings;
+			uint64_t squarings;
 			double	prob;
-			guess_pminus1_bounds (thread_num, w->k, w->b, w->n, w->c,
-					      w->sieve_depth, w->tests_saved,
-					      &guess_B1, &guess_B2,
-					      &squarings, &prob);
-			B1 = guess_B1;
-			B2 = guess_B2;
+			guess_pminus1_bounds (thread_num, w->k, w->b, w->n, w->c, w->sieve_depth, w->tests_saved, &B1, &B2, &squarings, &prob);
 		} else {
 			B1 = w->B1;
 			B2 = w->B2 ? w->B2 : 40 * w->B1;
@@ -3688,8 +3664,8 @@ double work_estimate (
 		else stage = 0;
 
 		timing = gwmap_to_timing (w->k, w->b, w->n, w->c);
-		stage1_time = timing * (1.4545 * B1);
-		stage2_time = (B2 >= B1) ? timing * (0.06154 * (B2 - B1)) * 1.285 : 0.0;
+		stage1_time = timing * (1.4545 * (double) B1);
+		stage2_time = (B2 >= B1) ? timing * (0.06154 * (double) (B2 - B1)) * 1.285 : 0.0;
 
 		if (stage == 0) est = stage1_time + stage2_time;
 		if (stage == 1) est = stage1_time * (1.0 - pct_complete) + stage2_time;
@@ -3700,7 +3676,7 @@ double work_estimate (
 
 	if (w->work_type == WORK_PPLUS1) {
 		int	stage;
-		double	B1, B2;
+		uint64_t B1, B2;
 		double	stage1_time, stage2_time;
 
 		B1 = w->B1;
@@ -3710,8 +3686,8 @@ double work_estimate (
 		else stage = 0;
 
 		timing = gwmap_to_timing (w->k, w->b, w->n, w->c);
-		stage1_time = timing * (1.4545 * 1.52 * B1);
-		stage2_time = (B2 >= B1) ? timing * (0.06154 * (B2 - B1)) * 1.285 : 0.0;
+		stage1_time = timing * (1.4545 * 1.52 * (double) B1);
+		stage2_time = (B2 >= B1) ? timing * (0.06154 * (double) (B2 - B1)) * 1.285 : 0.0;
 
 		if (stage == 0) est = stage1_time + stage2_time;
 		if (stage == 1) est = stage1_time * (1.0 - pct_complete) + stage2_time;
@@ -4265,6 +4241,55 @@ int write_array (
 	return (TRUE);
 }
 
+/* Routines to read and write a giant from and to a save file */
+
+int read_giant (
+	int	fd,
+	giant	g,
+	unsigned long *sum)
+{
+	unsigned long i, len, bytes;
+
+	if (!read_long (fd, &len, sum)) return (FALSE);
+	if (len == 0) return (FALSE);
+
+	bytes = len * sizeof (uint32_t);
+	if (_read (fd, g->n, bytes) != bytes) return (FALSE);
+	if (len && g->n[len-1] == 0) return (FALSE);
+	g->sign = len;
+	*sum = (uint32_t) (*sum + len);
+	for (i = 0; i < len; i++) *sum = (uint32_t) (*sum + g->n[i]);
+	return (TRUE);
+}
+
+int write_giant (
+	int	fd,
+	giant	g,
+	unsigned long *sum)
+{
+	unsigned long i, len, bytes;
+
+	len = g->sign;
+	if (len == 0) {
+		OutputBoth (MAIN_THREAD_NUM, "In write_giant, unexpected len == 0 failure\n");
+		return (FALSE);
+	}
+	if (!write_long (fd, len, sum)) {
+		OutputBoth (MAIN_THREAD_NUM, "In write_giant, unexpected write_long failure\n");
+		return (FALSE);
+	}
+	bytes = len * sizeof (uint32_t);
+	if (_write (fd, g->n, bytes) != bytes) {
+		char	buf[200];
+		sprintf (buf, "In write_giant, unexpected write failure len = %lu\n", len);
+		OutputBoth (MAIN_THREAD_NUM, buf);
+		return (FALSE);
+	}
+	*sum = (uint32_t) (*sum + len);
+	for (i = 0; i < len; i++) *sum = (uint32_t) (*sum + g->n[i]);
+	return (TRUE);
+}
+
 /* Routines to read and write a gwnum from and to a save file */
 
 int read_gwnum (
@@ -4274,32 +4299,19 @@ int read_gwnum (
 	unsigned long *sum)
 {
 	giant	tmp;
-	unsigned long i, len, giantlen, bytes;
 
-	if (!read_long (fd, &len, sum)) return (FALSE);
-	if (len == 0) return (FALSE);
-
-	giantlen = ((int) gwdata->bit_length >> 5) + 10;
-	if (len > giantlen) return (FALSE);
-	tmp = popg (&gwdata->gdata, giantlen);
+	tmp = popg (&gwdata->gdata, ((int) gwdata->bit_length >> 5) + 10);
 	if (tmp == NULL) return (FALSE);	// BUG - we should return some other error code
 						// otherwise caller will likely delete save file.
 
-	bytes = len * sizeof (uint32_t);
-	if (_read (fd, tmp->n, bytes) != bytes) goto errexit;
-	if (len && tmp->n[len-1] == 0) goto errexit;
-	tmp->sign = len;
-	*sum = (uint32_t) (*sum + len);
-	for (i = 0; i < len; i++) *sum = (uint32_t) (*sum + tmp->n[i]);
+	if (!read_giant (fd, tmp, sum)) {
+		pushg (&gwdata->gdata, 1);
+		return (FALSE);
+	}
+
 	gianttogw (gwdata, tmp, g);
 	pushg (&gwdata->gdata, 1);
 	return (TRUE);
-
-// Free memory and return failure
-
-errexit:
-	pushg (&gwdata->gdata, 1);
-	return (FALSE);
 }
 
 int write_gwnum (
@@ -4311,7 +4323,6 @@ int write_gwnum (
 	giant	tmp;
 	gwnum	tmp_gwnum = NULL;
 	int	retcode;
-	unsigned long i, len, bytes;
 
 	tmp = popg (&gwdata->gdata, ((int) gwdata->bit_length >> 5) + 10);
 	if (tmp == NULL) {
@@ -4334,24 +4345,7 @@ int write_gwnum (
 		OutputBoth (MAIN_THREAD_NUM, buf);
 		goto err;
 	}
-	len = tmp->sign;
-	if (len == 0) {
-		OutputBoth (MAIN_THREAD_NUM, "In write_gwnum, unexpected len == 0 failure\n");
-		goto err;
-	}
-	if (!write_long (fd, len, sum)) {
-		OutputBoth (MAIN_THREAD_NUM, "In write_gwnum, unexpected write_long failure\n");
-		goto err;
-	}
-	bytes = len * sizeof (uint32_t);
-	if (_write (fd, tmp->n, bytes) != bytes) {
-		char	buf[200];
-		sprintf (buf, "In write_gwnum, unexpected write failure len = %lu\n", len);
-		OutputBoth (MAIN_THREAD_NUM, buf);
-		goto err;
-	}
-	*sum = (uint32_t) (*sum + len);
-	for (i = 0; i < len; i++) *sum = (uint32_t) (*sum + tmp->n[i]);
+	if (!write_giant (fd, tmp, sum)) goto err;
 	pushg (&gwdata->gdata, 1);
 	gwfree (gwdata, tmp_gwnum);
 	return (TRUE);
@@ -5311,10 +5305,8 @@ void readMessage (
 
 	for ( ; ; ) {
 		*offset = _lseek (fd, 0, SEEK_CUR);
-		if (_read (fd, msgType, sizeof (short)) != sizeof (short))
-			break;
-		if (_read (fd, &datalen, sizeof (short)) != sizeof (short))
-			break;
+		if (_read (fd, msgType, sizeof (short)) != sizeof (short)) break;
+		if (_read (fd, &datalen, sizeof (short)) != sizeof (short)) break;
 
 /* Read the body of the message */
 
@@ -5323,6 +5315,15 @@ void readMessage (
 /* Loop if message has already been sent */
 
 		if (*msgType == -1) continue;
+
+/* Patch pre-v30.8 spool files where B1/B2 was stored as a double rather than a uint64_t. */
+/* If top bit is on, assume the data is a double and convert it to a uint64_t. */
+
+		if (*msgType == PRIMENET_ASSIGNMENT_RESULT) {
+			struct primenetAssignmentResult *ar_msg = (struct primenetAssignmentResult *) msg;
+			if (ar_msg->B1 >> 63) ar_msg->B1 = (uint64_t) *((double *) &ar_msg->B1);
+			if (ar_msg->B2 >> 63) ar_msg->B2 = (uint64_t) *((double *) &ar_msg->B2);
+		}
 
 /* Return if msgType is one we expected. */
 

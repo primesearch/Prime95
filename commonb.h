@@ -61,6 +61,7 @@ struct PriorityInfo {
 	uint32_t verbosity;		/* Output affinity messages to the worker window */
 	uint32_t aux_thread_num;	/* Set when gwnum launches auxiliary threads */
 	bool	aux_hyperthread;	/* Set when gwnum launches auxiliary prefetching hyperthread */
+	bool	aux_polymult;		/* Set when polymult launches auxiliary threads */
 	union {
 		struct {		/* Normal work info */
 			int	normal_work_hyperthreading;	/* True if worker will use hyperthreading */

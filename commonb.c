@@ -11,6 +11,7 @@
 +---------------------------------------------------------------------*/
 
 #include "ecm.h"
+#include "exponentiate.h"
 
 /* Globals for error messages */
 
@@ -510,8 +511,10 @@ void SetPriority (
 
 		if (worker_core_count < HW_NUM_COMPUTE_CORES && HW_NUM_COMPUTE_CORES == HW_NUM_CORES) {
 			bind_type = 0;			// Set affinity to a specific physical CPU core
-			// Map prime95 core number and auxiliary thread number to hwloc core number
-			core = map_aux_to_core (cores_used_by_lower_workers + 1, info->aux_thread_num, info->normal_work_hyperthreading);
+			// Map prime95 core number and auxiliary thread number to hwloc core number.
+			// Normally this works great, but now P-1 can request extra threads (in case hyperthreading helps in polymult) which lets
+			// aux_thread_num exceed the number of cores.  Thus, we do a modulo to make the core numbering work out OK.
+			core = map_aux_to_core (cores_used_by_lower_workers + 1, info->aux_thread_num % HW_NUM_CORES, info->normal_work_hyperthreading);
 			break;
 		}
 
@@ -519,8 +522,10 @@ void SetPriority (
 
 		if (worker_core_count <= HW_NUM_CORES) {
 			bind_type = 0;			// Set affinity to a specific physical CPU core
-			// Map prime95 core number and auxiliary thread number to hwloc core number
-			core = map_aux_to_core (cores_used_by_lower_workers, info->aux_thread_num, info->normal_work_hyperthreading);
+			// Map prime95 core number and auxiliary thread number to hwloc core number.
+			// Normally this works great, but now P-1 can request extra threads (in case hyperthreading helps in polymult) which lets
+			// aux_thread_num exceed the number of cores.  Thus, we do a modulo to make the core numbering work out OK.
+			core = map_aux_to_core (cores_used_by_lower_workers, info->aux_thread_num % HW_NUM_CORES, info->normal_work_hyperthreading);
 			break;
 		}
 
@@ -542,7 +547,7 @@ void SetPriority (
 /*	(3,5,7),(4,6)	Run main worker thread on logical CPUs #3, #5, & #7, run aux thread on logical CPUs #4 & #6 */
 /*	[3,5-7],(4,6)	Run main worker thread on logical CPUs #3, #5, #6, & #7, run aux thread on logical CPUs #4 & #6 */
 
-	if (bind_type == 2) {		// Find the subset of the logical CPU string for this auxillary thread
+	if (bind_type == 2) {		// Find the subset of the logical CPU string for this auxilary thread
 		uint32_t i;
 		const char *p;
 		for (i = 0, p = logical_CPU_string; i <= info->aux_thread_num && *p; i++) {
@@ -579,6 +584,7 @@ void SetPriority (
 
 	if (HW_NUM_CORES > 1 && info->verbosity >= 1) {
 		if (info->aux_hyperthread) sprintf (buf, "Setting affinity to run prefetching hyperthread on ");
+		else if (info->aux_polymult) sprintf (buf, "Setting affinity to run polymult helper thread on ");
 		else if (info->aux_thread_num == 0) strcpy (buf, "Setting affinity to run worker on ");
 		else sprintf (buf, "Setting affinity to run helper thread %d on ", info->aux_thread_num);
 		if (bind_type == 0) sprintf (buf+strlen(buf), "CPU core #%d\n", core+1);
@@ -701,17 +707,18 @@ void SetAuxThreadPriority (int aux_thread_num, int action, void *data)
 
 /* Handle thread start and hyperthread start action.  Set the thread priority. */
 
-	if (action == 0 || action == 10) {
+	if (action == 0 || action == 10 || action == 20) {
 		struct PriorityInfo sp_info;
 		memcpy (&sp_info, data, sizeof (struct PriorityInfo));
 		sp_info.aux_thread_num = aux_thread_num;
 		sp_info.aux_hyperthread = (action == 10);
+		sp_info.aux_polymult = (action == 20);
 		SetPriority (&sp_info);
 	}
 
 /* Handle thread terminate and hyperthread terminate action.  Remove thread handle from list of active worker threads. */
 
-	if (action == 1 || action == 11) {
+	if (action == 1 || action == 11 || action == 21) {
 		registerThreadTermination ();
 	}
 }
@@ -1122,9 +1129,9 @@ void read_mem_info (void)
 		p = p + 6;
 	}
 
-/* Get the maximum number of workers that can use lots of memory.  Default is AVAIL_MEM / 1GB rounded off. */
+/* Get the maximum number of workers that can use lots of memory.  Default is one. */
 
-	MAX_HIGH_MEM_WORKERS = IniGetTimedInt (LOCALINI_FILE, "MaxHighMemWorkers", (AVAIL_MEM + 500) / 1000, &seconds);
+	MAX_HIGH_MEM_WORKERS = IniGetTimedInt (LOCALINI_FILE, "MaxHighMemWorkers", 1, &seconds);
 	if (seconds && (seconds_until_reread == 0 || seconds < seconds_until_reread)) seconds_until_reread = seconds;
 	if (MAX_HIGH_MEM_WORKERS < 1) MAX_HIGH_MEM_WORKERS = 1;
 
@@ -10602,7 +10609,6 @@ abort_proof:
 	ps->proof_power = 0;
 }
 
-#include "exponentiate.c"
 #include "proof_hash.c"
 
 // Read a residue from the big residues file or emergency memory

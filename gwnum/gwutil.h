@@ -30,6 +30,7 @@ extern "C" {
 #define round_to_cache_line(p)		(void *) (((intptr_t)(p) + 63) & ~63)
 #define intmin(a,b)			(((int)(a) < (int)(b)) ? (int)(a) : (int)(b))
 #define intmax(a,b)			(((int)(a) > (int)(b)) ? (int)(a) : (int)(b))
+#define fltmax(a,b)			(((double)(a) > (double)(b)) ? (double)(a) : (double)(b))
 
 /* MSVC6 has trouble with the pow function using integer arguments. */
 /* For example, "(unsigned long) pow (5.0, 7.0)" returns 78124 instead */
