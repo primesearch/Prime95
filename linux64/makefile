@@ -6,7 +6,7 @@
 #	make install
 #
 # Hwloc can be downloaded from https://www.open-mpi.org/projects/hwloc/
-# Configure hwloc with --enable-static --disable-shared --disable-pci --disable-cuda --disable-gl --disable-opencl
+# Configure hwloc with --enable-static --disable-shared --disable-pci --disable-cuda --disable-gl --disable-opencl --disable-rsmi
 #
 #  Ugh, different linux variants require different makefiles.
 #  The current makefile is for CentOS 7.  We prefer to link against older Linux versions because linking on the latest, greatest version

@@ -1,4 +1,4 @@
-; Copyright 2011-2021 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2022 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -787,7 +787,7 @@ zmult7	MACRO	src1, src2
 
 	mov	al, mul4_opcode		;; Load gwmul4 opcode
 	cmp	al, 5			;; 5 = unfft
-	je	done
+	je	unfft
 
 	vmovsd	xmm8, Q [src2-88]	;; Load copy of input FFT word at halfway - 3
 	vmovsd	xmm9, Q [src2-80]	;; Load copy of input FFT word at halfway - 2

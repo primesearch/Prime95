@@ -162,13 +162,13 @@ void askU64 (
 {
 	char	buf[80];
 	uint64_t newval;
-	printf ("%s (%g): ", str, *val);
+	printf ("%s (%" PRIu64 "): ", str, *val);
 loop:	get_line (buf);
 	if (buf[0] == 0) return;
 	newval = (uint64_t) atof (buf);
 	if (min != 0.0 || max != 0.0) {
 		if (newval < min || newval > max) {
-			printf ("Please enter a value between %g and %g. ", min, max);
+			printf ("Please enter a value between %" PRIu64 " and %" PRIu64 ". ", min, max);
 			goto loop;
 		}
 	}

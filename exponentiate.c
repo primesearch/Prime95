@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 2020-2021 Mersenne Research, Inc.  All rights reserved
+| Copyright 2020-2022 Mersenne Research, Inc.  All rights reserved
 |
 | Auxiliary routines to exponentiate gwnums
 +---------------------------------------------------------------------*/
@@ -214,7 +214,7 @@ void exponentiate_array (gwhandle *gwdata, gwnum x, uint64_t *power, int arrayle
 		for (bitlen = arraylen * 64; !is_bit_set (power, bitlen-1); bitlen--);
 
 		// Three random starting points for binary searching
-		expcost (best[0], 8);
+		expcost (best[0], 4);
 		expcost (best[1], 250);
 		expcost (best[2], 500);
 

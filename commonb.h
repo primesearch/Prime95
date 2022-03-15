@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2022 Mersenne Research, Inc.  All rights reserved
 +---------------------------------------------------------------------*/
 
 #ifndef _COMMONB_H
@@ -254,10 +254,9 @@ unsigned int active_workers_count (void);
 
 /* "pause while running" routines */
 
-extern char **PAUSE_WHILE_RUNNING;	/* An array of program names that, */
-					/* if running, prime95 should pause. */
-extern int PAUSE_WHILE_RUNNING_FREQ;	/* How often prime95 should check */
-					/* the pause-while-running list */
+extern int PAUSEABLE_WORKERS_RUNNING;	/* One or more workers are paused because another program is running */
+extern char **PAUSE_WHILE_RUNNING;	/* An array of program names that, if running, prime95 should pause. */
+extern int PAUSE_WHILE_RUNNING_FREQ;	/* How often prime95 should check the pause-while-running list */
 void read_pause_info (void);
 void checkPauseWhileRunning (void);
 void implement_pause (int thread_num);

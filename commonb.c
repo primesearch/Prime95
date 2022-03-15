@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2022 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -508,8 +508,11 @@ void SetPriority (
 /* If total num worker cores < num compute cores we will give each worker its own CPU.  There is some weak anecdotal */
 /* evidence that CPU 0 is reserved for interrupt processing on some OSes and architectures without efficiency cores, */
 /* so we leave CPU #0 unused (hoping hwloc assigns CPU numbers the same way the OS does). */
+/* This post, https://www.mersenneforum.org/showpost.php?p=599873&postcount=387, reports downsides to reserving core 0 for OS use. */
+/* Basically, reserving core 0 might cause a worker to be spread across multiple L2 caches rather than a single shared L2 cache. */
+/* In version 30.8 build 11, I've switched to making reserving core 0 optional rather than the default. */
 
-		if (worker_core_count < HW_NUM_COMPUTE_CORES && HW_NUM_COMPUTE_CORES == HW_NUM_CORES) {
+		if (worker_core_count < HW_NUM_COMPUTE_CORES && HW_NUM_COMPUTE_CORES == HW_NUM_CORES && IniGetInt (INI_FILE, "ReserveCore0", 0)) {
 			bind_type = 0;			// Set affinity to a specific physical CPU core
 			// Map prime95 core number and auxiliary thread number to hwloc core number.
 			// Normally this works great, but now P-1 can request extra threads (in case hyperthreading helps in polymult) which lets

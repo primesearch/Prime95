@@ -2,7 +2,7 @@
 | This file contains various utility routines that may be used by gwnum
 | routines, prime95, or other consumers of gwnum.
 | 
-|  Copyright 2004-2021 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2004-2022 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWUTIL_H
@@ -66,6 +66,9 @@ void truncated_strcpy_with_len (char *buf, unsigned int bufsize, const char *val
 /* Utility time routine available in Linux but not Windows */
 
 #ifdef _WIN32
+#if defined (__MINGW32__) || defined (__MINGW64__)
+#include <sys/time.h>
+#endif
 int gettimeofday (struct timeval *tp, void *tzp);
 #endif
 

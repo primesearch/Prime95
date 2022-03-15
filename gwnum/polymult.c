@@ -3,7 +3,7 @@
 |
 | This file contains the C routines for fast polynomial multiplication
 | 
-|  Copyright 2021 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2021-2022 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -21,39 +21,29 @@
 
 // TO DO:
 // 1) Support non-power-of-two FFTs below 32?  Support FFT size requiring a radix-2 step?
-// 2) Zero padded gwnums.  Test all FFT sizes and FFT types -- especially funky PFA ffts.
-// 7) Variable GW_HEADER_SIZE.
 // 9) Is a fast convert-gwnum-to-larger-FFT feasible? necessary?
 // 10) Tune for Brute / Karatsuba / FFT crossovers.
 // 12) Tune routine that returns needed safety margin needed for given poly sizes
-// 14) Compressed gwnums.  Does it pay off?
 // 15) Add polymult to gwtest or as a standalone program
 // 16) Handle out-of-memory gracefully
 // 17) Right collection of PFA FFT sizes?
 // 19) For large ffts, use Pavel's idea of copying the complex values to a gwnum and use an unweighted FFT with a special no-carry-propagation norm routine.
 //     Perhaps only do this for most common architectures, such as AVX-512 and FMA 64-bit.
-// 21) Should polymult be its own library or a part of the gwnum library?
 // 22) Can we add asserts that polymult isn't violating EXTRA_BITS?
 // 25) Optimize.  Read/write several cache lines at a time (fill up L2 cache?).  Prefetch future cache lines.
 // 28) Optimize brute_force to do less compute when outvec entries are NULL.
 // 28) Optimize brute_force to do less compute when one or both invec entries are RLPs.
-// 29) monic polynomials are tricky if FFT(1) is not all ones.  Use GW_FFT1 and treat as non-monic?
-// 30) option to negate outputs??
 // 32) If monic input and polymult is doing an FFT and there is zero padding going on, then pad with one (or GW_FFT1) rather than use monic_add.  Be careful
 //	that this does not cause any unwanted wrapping of data!
 // 33) Are there cases with brute/Karatsuba would benefit from using a bigger poly rather than using monic_add?
-// 34) Support GWMUL_BY_CONST, GWMUL_ADD_CONST option in gwunfft2.
-// 35) A monic 1024 times monic 1024 using length 2048 FFT could apply the two ones in the FFT vectors and patch outvec[0] (possibly with gwsetaddin(-1)).
+// 34) Support GWMUL_BY_CONST, GWMUL_ADD_CONST option in gwunfft2.  No, use the no_UNFFT2 option (requires user to know where 1*1 took place)??
+// 35) A monic 1024 times monic 1024 using length 2048 FFT could apply the two ones in the FFT vectors and patch outvec[0] (possibly with gwsetaddin(-1))??how?
 //	A monic 1023 times monic 1023 using length 2048 FFT could apply the two ones in the FFT vectors with no patching rather than monic  post-processing.
 //	That should be a little faster.  Other monic combinations have similar optimizations.
-// 36) For cached FFTs, is there a way to avoid the transpose(write_line/read_line) step?
-// 37) If transpose is expensive, can we offer a way to "pre-transpose" invec1 for use multiple times?  With compression of exponent field in double??
-//	Compression still needs semi-random/sequential access to invec1 for multi-threading.
 // 38)  For poly #2, is there a quick block compression we can do where the extra read/write cost will be more than compensated by the few more extra
 //	gwnums we can add to poly #2?
 // 39)  Think more on unbalanced poly mults.  Is a 100 x 200 mult better done as two 100 x 100 multiplies?  Answer: Never for brute force, maybe for FFT.
 //	If we can save the smaller RLP in FFTed state using smaller FFT size that might influence our decision.
-// 40) Is invec1_negate code OK when GW_FFT1 is not all ones?  I would think so.
 // 41) Add callback routine to check for ^C/ESC
 // 42) Transparent / or easy way to store gwnums on disk as part of input and/or output vectors.  Picture using 12GB memory and 50GB disk for really huge polys.
 // 43) Read_line/write_line that reads/writes data with stride=1?
@@ -61,130 +51,157 @@
 // 45) If twiddle_stride gets large, build a smaller twiddle table for smaller strides.
 // 46) Look for more FMA opportunities.
 // 48) Test if hyperthreading is beneficial
-// 49) Problems if FFT(1)!=1!!! The pointwise mul code ought to divide by FFT(1) OR have a special asm entry point for unfft that deals with data that
-//	has already had a pointwise mul.  Furthermore, the monic_adjustments code can't simply add data - it must add FFT(1)*data.
 // 51) Scratch area (like prime95) to avoid large strides,  Read_partial_line could populate the scratch area (makes monic_adjustment difficult)?
 // 52) Half-sized DCT for RLPs?  The DJB FFTs may make reordering DCT outputs for an inverse FFT tricky.
 // 53) Can P-1's circular monic-poly times monic-RLP be safely done without monic_adjustments allowing us to save the FFT'ed RLP that is half-sized due to DCT?
 // 54) Does monolithic two-forward-FFTs-pointmul-and-one-inverse-FFT routine suggest different preferred pass sizes (use half the L2 cache)?
-// 55) For VFMA machines, store twiddles as cos/sin, sin to allow a few more FMA opportunities
-// 56) Move mul by 1/FFTLEN to last unfft level (perhaps into the twiddle table itself).  Saves 65%+ of the multiplies if VFMA is available.
+// 56) Option to not mul by 1/FFTLEN?
 // 57) Option to save memory by processing AVX-512 data using FMA3.  (reduces sizeof(CVDT)).
+// 58) Should we multi-thread FFTing the polymult input arguments?  Should we multithread polymult_preprocess?
+// 59) monic_line_adjust could avoid complex mul by fft1 when k == 1.  Is it worthwhile?
+// 60) In polymult_line_preprocess, most cases do not need an invec1 allocation.  We can write directly into the output buffer.  I think only RLPs without
+//	POLYMULT_FFT are an issue.  Perhaps fix readline not to duplicate RLP data for when preprocessing without POLYMULT_FFT, or allocate a little more
+//	space in the output buffer.
+// 61) Can loop unrolling help in radix-3/4/5 sections?  Seems unlikely.
+// 62) Linux stage 2 timings vary widely from 6.7 to 7.0 sec.  What explains the 5% slower runs?  4KB/64KB alignments?
 
 // Forward declarations required for the SSE2, AVX, FMA, AVX512 compiles
 int next_line (pmhandle *pmdata);
 unsigned long cache_line_offset (gwhandle *gwdata, unsigned long i);
 void generate_sincos (pmhandle *pmdata, const unsigned int size);
+void zpad7_fft (gwhandle *gwdata, gwnum g);
+int compress_vec (char *buf, int size);
+void decompress_vec (char *inbuf, char *outbuf, int size);
+gwarray polymult_line_preprocess_sse2 (pmhandle *pmdata, gwnum *gw_invec1, int invec1_size, int invec2_size, int outvec_size, int options);
+gwarray polymult_line_preprocess_avx (pmhandle *pmdata, gwnum *gw_invec1, int invec1_size, int invec2_size, int outvec_size, int options);
+gwarray polymult_line_preprocess_fma (pmhandle *pmdata, gwnum *gw_invec1, int invec1_size, int invec2_size, int outvec_size, int options);
+gwarray polymult_line_preprocess_avx512 (pmhandle *pmdata, gwnum *gw_invec1, int invec1_size, int invec2_size, int outvec_size, int options);
 void polymult_line_sse2 (pmhandle *pmdata, gwnum *gw_invec1, int invec1_size, gwnum *gw_invec2, int invec2_size, gwnum *gw_outvec, int outvec_size, int options);
 void polymult_line_avx (pmhandle *pmdata, gwnum *gw_invec1, int invec1_size, gwnum *gw_invec2, int invec2_size, gwnum *gw_outvec, int outvec_size, int options);
 void polymult_line_fma (pmhandle *pmdata, gwnum *gw_invec1, int invec1_size, gwnum *gw_invec2, int invec2_size, gwnum *gw_outvec, int outvec_size, int options);
 void polymult_line_avx512 (pmhandle *pmdata, gwnum *gw_invec1, int invec1_size, gwnum *gw_invec2, int invec2_size, gwnum *gw_outvec, int outvec_size, int options);
 
-#define INVEC1_OPTIONS	(POLYMULT_INVEC1_MONIC | POLYMULT_INVEC1_RLP | POLYMULT_INVEC1_NEGATE | POLYMULT_INVEC1_FFTED)
-#define INVEC2_OPTIONS	(POLYMULT_INVEC2_MONIC | POLYMULT_INVEC2_RLP | POLYMULT_INVEC2_NEGATE | POLYMULT_INVEC2_FFTED)
+#define INVEC1_OPTIONS	(POLYMULT_INVEC1_MONIC | POLYMULT_INVEC1_RLP | POLYMULT_INVEC1_NEGATE)
+#define INVEC2_OPTIONS	(POLYMULT_INVEC2_MONIC | POLYMULT_INVEC2_RLP | POLYMULT_INVEC2_NEGATE)
 
 #if defined (AVX512)
-#define VLEN		512			// Vector is 256 bits wide
-#define VDT		__m512d			// Vector data type
-#define VFMA		1			// FMA is supported
-#define	read_line	read_line_avx512	// Naming extension for this option
-#define	write_line	write_line_avx512
-#define	brute_line	brute_line_avx512
-#define	karatsuba_line	karatsuba_line_avx512
-#define	fft_line	fft_line_avx512
-#define pick_pass_sizes	pick_pass_sizes_avx512
-#define	monic_line_add_hi monic_line_add_hi_avx512
-#define	monic_line_add_lo monic_line_add_lo_avx512
-#define	monic_line_adjustments monic_line_adjustments_avx512
-#define	polymult_line	polymult_line_avx512
-#define broadcastsd	_mm512_set1_pd
-#define addpd		_mm512_add_pd
-#define subpd		_mm512_sub_pd
-#define mulpd		_mm512_mul_pd
-#define fmaddpd		_mm512_fmadd_pd
-#define fmsubpd		_mm512_fmsub_pd
-#define fnmaddpd	_mm512_fnmadd_pd
+#define VLEN			512			// Vector is 256 bits wide
+#define VDT			__m512d			// Vector data type
+#define VFMA			1			// FMA is supported
+#define	read_line		read_line_avx512	// Naming extension for this option
+#define	read_preprocess_line	read_preprocess_line_avx512
+#define	write_line		write_line_avx512
+#define	brute_line		brute_line_avx512
+#define	karatsuba_line		karatsuba_line_avx512
+#define	fft_line		fft_line_avx512
+#define pick_pass_sizes		pick_pass_sizes_avx512
+#define	monic_line_add_hi	monic_line_add_hi_avx512
+#define	monic_line_add_lo	monic_line_add_lo_avx512
+#define	monic_line_adjustments	monic_line_adjustments_avx512
+#define	polymult_line_preprocess polymult_line_preprocess_avx512
+#define	polymult_line		polymult_line_avx512
+#define broadcastsd		_mm512_set1_pd
+#define addpd			_mm512_add_pd
+#define subpd			_mm512_sub_pd
+#define mulpd			_mm512_mul_pd
+#define divpd			_mm512_div_pd
+#define fmaddpd			_mm512_fmadd_pd
+#define fmsubpd			_mm512_fmsub_pd
+#define fnmaddpd		_mm512_fnmadd_pd
 #elif defined (FMA)
-#define VLEN		256			// Vector is 256 bits wide
-#define VDT		__m256d			// Vector data type
-#define VFMA		1			// FMA is supported
-#define	read_line	read_line_fma		// Naming extension for this option
-#define	write_line	write_line_fma
-#define	brute_line	brute_line_fma
-#define	karatsuba_line	karatsuba_line_fma
-#define	fft_line	fft_line_fma
-#define pick_pass_sizes	pick_pass_sizes_fma
-#define	monic_line_add_hi monic_line_add_hi_fma
-#define	monic_line_add_lo monic_line_add_lo_fma
-#define	monic_line_adjustments monic_line_adjustments_fma
-#define	polymult_line	polymult_line_fma
-#define broadcastsd	_mm256_set1_pd
-#define addpd		_mm256_add_pd
-#define subpd		_mm256_sub_pd
-#define mulpd		_mm256_mul_pd
-#define fmaddpd		_mm256_fmadd_pd
-#define fmsubpd		_mm256_fmsub_pd
-#define fnmaddpd	_mm256_fnmadd_pd
+#define VLEN			256			// Vector is 256 bits wide
+#define VDT			__m256d			// Vector data type
+#define VFMA			1			// FMA is supported
+#define	read_line		read_line_fma		// Naming extension for this option
+#define	read_preprocess_line	read_preprocess_line_fma
+#define	write_line		write_line_fma
+#define	brute_line		brute_line_fma
+#define	karatsuba_line		karatsuba_line_fma
+#define	fft_line		fft_line_fma
+#define pick_pass_sizes		pick_pass_sizes_fma
+#define	monic_line_add_hi	monic_line_add_hi_fma
+#define	monic_line_add_lo	monic_line_add_lo_fma
+#define	monic_line_adjustments	monic_line_adjustments_fma
+#define	polymult_line_preprocess polymult_line_preprocess_fma
+#define	polymult_line		polymult_line_fma
+#define broadcastsd		_mm256_set1_pd
+#define addpd			_mm256_add_pd
+#define subpd			_mm256_sub_pd
+#define mulpd			_mm256_mul_pd
+#define divpd			_mm256_div_pd
+#define fmaddpd			_mm256_fmadd_pd
+#define fmsubpd			_mm256_fmsub_pd
+#define fnmaddpd		_mm256_fnmadd_pd
 #elif defined (AVX)
-#define VLEN		256			// Vector is 256 bits wide
-#define VDT		__m256d			// Vector data type
-#define VFMA		0			// FMA not supported
-#define	read_line	read_line_avx		// Naming extension for this option
-#define	write_line	write_line_avx
-#define	brute_line	brute_line_avx
-#define	karatsuba_line	karatsuba_line_avx
-#define	fft_line	fft_line_avx
-#define pick_pass_sizes	pick_pass_sizes_avx
-#define	monic_line_add_hi monic_line_add_hi_avx
-#define	monic_line_add_lo monic_line_add_lo_avx
-#define	monic_line_adjustments monic_line_adjustments_avx
-#define	polymult_line	polymult_line_avx
-#define broadcastsd	_mm256_set1_pd
-#define addpd		_mm256_add_pd
-#define subpd		_mm256_sub_pd
-#define mulpd		_mm256_mul_pd
+#define VLEN			256			// Vector is 256 bits wide
+#define VDT			__m256d			// Vector data type
+#define VFMA			0			// FMA not supported
+#define	read_line		read_line_avx		// Naming extension for this option
+#define	read_preprocess_line	read_preprocess_line_avx
+#define	write_line		write_line_avx
+#define	brute_line		brute_line_avx
+#define	karatsuba_line		karatsuba_line_avx
+#define	fft_line		fft_line_avx
+#define pick_pass_sizes		pick_pass_sizes_avx
+#define	monic_line_add_hi	monic_line_add_hi_avx
+#define	monic_line_add_lo	monic_line_add_lo_avx
+#define	monic_line_adjustments	monic_line_adjustments_avx
+#define	polymult_line_preprocess polymult_line_preprocess_avx
+#define	polymult_line		polymult_line_avx
+#define broadcastsd		_mm256_set1_pd
+#define addpd			_mm256_add_pd
+#define subpd			_mm256_sub_pd
+#define mulpd			_mm256_mul_pd
+#define divpd			_mm256_div_pd
 #elif defined (SSE2)
-#define VLEN		128			// Vector is 256 bits wide
-#define VDT		__m128d			// Vector data type
-#define VFMA		0			// FMA not supported
-#define	read_line	read_line_sse2		// Naming extension for this option
-#define	write_line	write_line_sse2
-#define	brute_line	brute_line_sse2
-#define	karatsuba_line	karatsuba_line_sse2
-#define	fft_line	fft_line_sse2
-#define pick_pass_sizes	pick_pass_sizes_sse2
-#define	monic_line_add_hi monic_line_add_hi_sse2
-#define	monic_line_add_lo monic_line_add_lo_sse2
-#define	monic_line_adjustments monic_line_adjustments_sse2
-#define	polymult_line	polymult_line_sse2
-#define broadcastsd	_mm_set1_pd
-#define addpd		_mm_add_pd
-#define subpd		_mm_sub_pd
-#define mulpd		_mm_mul_pd
+#define VLEN			128			// Vector is 256 bits wide
+#define VDT			__m128d			// Vector data type
+#define VFMA			0			// FMA not supported
+#define	read_line		read_line_sse2		// Naming extension for this option
+#define	read_preprocess_line	read_preprocess_line_sse2
+#define	write_line		write_line_sse2
+#define	brute_line		brute_line_sse2
+#define	karatsuba_line		karatsuba_line_sse2
+#define	fft_line		fft_line_sse2
+#define pick_pass_sizes		pick_pass_sizes_sse2
+#define	monic_line_add_hi	monic_line_add_hi_sse2
+#define	monic_line_add_lo	monic_line_add_lo_sse2
+#define	monic_line_adjustments	monic_line_adjustments_sse2
+#define	polymult_line_preprocess polymult_line_preprocess_sse2
+#define	polymult_line		polymult_line_sse2
+#define broadcastsd		_mm_set1_pd
+#define addpd			_mm_add_pd
+#define subpd			_mm_sub_pd
+#define mulpd			_mm_mul_pd
+#define divpd			_mm_div_pd
 #else
-#define VLEN		64			// Vector is 256 bits wide
-#define VDT		double			// Vector data type
-#define VFMA		0			// FMA not supported
-#define	read_line	read_line_dbl		// Naming extension for this option
-#define	write_line	write_line_dbl
-#define	brute_line	brute_line_dbl
-#define	karatsuba_line	karatsuba_line_dbl
-#define	fft_line	fft_line_dbl
-#define pick_pass_sizes	pick_pass_sizes_dbl
-#define	monic_line_add_hi monic_line_add_hi_dbl
-#define	monic_line_add_lo monic_line_add_lo_dbl
-#define	monic_line_adjustments monic_line_adjustments_dbl
-#define	polymult_line	polymult_line_dbl
-#define broadcastsd	_mm64_set1_pd
-#define addpd		_mm64_add_pd
-#define subpd		_mm64_sub_pd
-#define mulpd		_mm64_mul_pd
+#define VLEN			64			// Vector is 256 bits wide
+#define VDT			double			// Vector data type
+#define VFMA			0			// FMA not supported
+#define	read_line		read_line_dbl		// Naming extension for this option
+#define	read_preprocess_line	read_preprocess_line_dbl
+#define	write_line		write_line_dbl
+#define	brute_line		brute_line_dbl
+#define	karatsuba_line		karatsuba_line_dbl
+#define	fft_line		fft_line_dbl
+#define pick_pass_sizes		pick_pass_sizes_dbl
+#define	monic_line_add_hi	monic_line_add_hi_dbl
+#define	monic_line_add_lo	monic_line_add_lo_dbl
+#define	monic_line_adjustments	monic_line_adjustments_dbl
+#define	polymult_line_preprocess polymult_line_preprocess_dbl
+#define	polymult_line		polymult_line_dbl
+#define broadcastsd		_mm64_set1_pd
+#define addpd			_mm64_add_pd
+#define subpd			_mm64_sub_pd
+#define mulpd			_mm64_mul_pd
+#define divpd			_mm64_div_pd
 // Emulate vector length 1 using Intel-style instrinsic naming conventions
 #define __m64d			double
 #define _mm64_set1_pd(a)	(a)
 #define _mm64_add_pd(a,b)	((a)+(b))
 #define _mm64_sub_pd(a,b)	((a)-(b))
 #define _mm64_mul_pd(a,b)	((a)*(b))
+#define _mm64_div_pd(a,b)	((a)/(b))
 #endif
 
 // Emulate FMA on CPUs that do not have an FMA instruction
@@ -200,25 +217,53 @@ typedef struct {
 	VDT	imag;
 } CVDT;
 #define cvload(a,b,c)		(a).real = broadcastsd (b), (a).imag = broadcastsd (c)
+#define cvrmul(a,const_d,c)	(a).real = mulpd (const_d, (c).real), (a).imag = mulpd (const_d, (c).imag)				// a = const_d*c
 #define cvadd(a,b,c)		(a).real = addpd ((b).real, (c).real), (a).imag = addpd ((b).imag, (c).imag)				// a = b + c
 #define cvsub(a,b,c)		(a).real = subpd ((b).real, (c).real), (a).imag = subpd ((b).imag, (c).imag)				// a = b - c
 #define cviadd(a,b,c)		(a).real = subpd ((b).real, (c).imag), (a).imag = addpd ((b).imag, (c).real)				// a = b + i*c
 #define cvisub(a,b,c)		(a).real = addpd ((b).real, (c).imag), (a).imag = subpd ((b).imag, (c).real)				// a = b - i*c
 #define cvaddfm(a,b,const_d,c)	(a).real = fmaddpd (const_d, (c).real, (b).real), (a).imag = fmaddpd (const_d, (c).imag, (b).imag)	// a = b + const_d*c
 #define cvsubfm(a,b,const_d,c)	(a).real = fnmaddpd (const_d, (c).real, (b).real), (a).imag = fnmaddpd (const_d, (c).imag, (b).imag)	// a = b - const_d*c
+#define cviaddfm(a,b,const_d,c)	(a).real = fnmaddpd (const_d, (c).imag, (b).real), (a).imag = fmaddpd (const_d, (c).real, (b).imag)	// a = b + i*const_d*c
+#define cvisubfm(a,b,const_d,c)	(a).real = fmaddpd (const_d, (c).imag, (b).real), (a).imag = fnmaddpd (const_d, (c).real, (b).imag)	// a = b - i*const_d*c
 #define cvmul(a,b,c)		(a).real = fmsubpd ((b).real, (c).real, mulpd ((b).imag, (c).imag)), \
 				(a).imag = fmaddpd ((b).imag, (c).real, mulpd ((b).real, (c).imag))					// a = b * c
 #define cvconjmul(a,b,c)	(a).real = fmaddpd ((b).real, (c).real, mulpd ((b).imag, (c).imag)), \
 				(a).imag = fmsubpd ((b).imag, (c).real, mulpd ((b).real, (c).imag))					// a = b * conjugate(c)
 
+// Structure for twiddle vector data type.
+// Twiddles aren't stored as real & imag.  Instead they are stored as cos & cos/sin (a.k.a. real & real/imag).  This provides more FMA opportunities.
+typedef struct {
+	VDT	cos_over_sin;
+	VDT	sin;
+} TVDT;
+#define twidload(t,b)		(t).cos_over_sin = broadcastsd ((b)[0]), (t).sin = broadcastsd ((b)[1])
+#define twidmul(a,b,t)		(a).real = mulpd (fmsubpd ((b).real, (t).cos_over_sin, (b).imag), (t).sin), \
+				(a).imag = mulpd (fmaddpd ((b).imag, (t).cos_over_sin, (b).real), (t).sin)		// a = b * t
+#define twidconjmul(a,b,t)	(a).real = mulpd (fmaddpd ((b).real, (t).cos_over_sin, (b).imag), (t).sin), \
+				(a).imag = mulpd (fmsubpd ((b).imag, (t).cos_over_sin, (b).real), (t).sin)		// a = b * conjugate(t)
+#define twidmuldelay(a,b,t)	(a).real = fmsubpd ((b).real, (t).cos_over_sin, (b).imag), \
+				(a).imag = fmaddpd ((b).imag, (t).cos_over_sin, (b).real)				// a = b * t, delay mul by sin
+#define twidconjmuldelay(a,b,t)	(a).real = fmaddpd ((b).real, (t).cos_over_sin, (b).imag), \
+				(a).imag = fmsubpd ((b).imag, (t).cos_over_sin, (b).real)				// a = b * conjugate(t), delay mul by sin
+
 #if !defined (SSE2) && !defined (AVX) && !defined (FMA) && !defined (AVX512)
 
 // Get the needed safety_margin required for an invec1_size by invec2_size polymult
 double polymult_safety_margin (int invec1_size, int invec2_size) {
+	// The smaller poly determines the number of partial products that are added together
 	int	n = (invec1_size < invec2_size) ? invec1_size : invec2_size;
-	// The number of EXTRA_BITS (output FFT bits) consumed by a polymult ~= log2(n)/2.  However, gwinit's safety margin parameter refers to
-	// input FFT bits.  Thus, divide by another 2.
-	return (log2 ((double) n) / 4.0);
+	// The larger poly approximates the FFT size of the polymult (assumes POLYMULT_CIRCULAR)
+	int	fft_size = (invec1_size > invec2_size) ? invec1_size : invec2_size;
+	// According to roe_gwnum.cpp, the number of EXTRA_BITS (output FFT bits) consumed by a polymult ~= log2(n)/2.  However, gwinit's safety margin
+	// parameter refers to input FFT bits.  Thus, divide by another 2.  However, in practice the formula fails for large polymults.  P-1 with AVX-512 FFT
+	// size 4608, and an RLP poly1 of size 320000 times poly2 of size 1.3M we get roundoff errors.  My theory is that while roe_gwnum.cpp accurately estimates
+	// the number of most significant bits needed to safely add 640000 partial products, it is not accurately estimating the rounding errors introduced
+	// to the least significant bits computing a 1.3M size FFT in fft_line.  Until we get more data points (the example got a 0.48+ roundoff where 0.4 should
+	// be the target maximum acceptable error -- that's log2(0.49/0.4)=0.3 extra output bits), adjust the needed expected bits by 0.3*log2(FFTsize)/log2(1.3M).
+	// 2022-02-05: AVX-512 FFT size 4608 on M76333 fails with poly1-size:322560, poly2-size:1339033.  Increasing to 0.4.
+	// 2022-03-02: FMA FFT size 640 on M10303 fails with poly1-size:9123840, poly2-size:37280030, roundoff: 0.4453.  Increasing to 0.45.
+	return ((log2 ((double) n) / 2.0 + 0.45 * log2 ((double) fft_size) / log2 (1300000.0)) / 2.0);
 }
 
 // Get the FFT size that will be used for an n = invec1_size + invec2_size polymult
@@ -263,6 +308,10 @@ void polymult_init (
 
 	// Set default cache size to optimize FFTs for
 	pmdata->L2_CACHE_SIZE = 256;
+
+	// Init FFT(1) if needed
+	if (pmdata->gwdata->k != 1.0) gwuser_init_FFT1 (pmdata->gwdata);
+	if (pmdata->gwdata->ZERO_PADDED_FFT) zpad7_fft (pmdata->gwdata, pmdata->gwdata->GW_FFT1);
 }
 
 // Terminate use of a polymult handle.  Free up memory.
@@ -381,6 +430,134 @@ unsigned long cache_line_offset (
 	return (addr);
 }
 
+//
+// Process the 7 values in the header of zero-padded FFT gwnums.  These seven values cannot be multiplied pointwise as is required by polymult.
+// The assembly code (see zmult7) multiplies the 7 values keeping the high half of the result.  An zero-padded 13-reals FFT of the 7 values allows
+// us to do pointwise multiplies.  A zero-padded FFT produces 1 real value and 6 complex values for a total of 13 doubles.  The extra 6 doubles need
+// to be stored somewhere in the gwnum header or a pad line in the gwnum.
+//
+
+// Roots of unity for radix-13 FFT
+const long double w1c = 0.8854560256532098959003755220151;	// cos(2*pi/13*1)
+const long double w1s = 0.4647231720437685456560153351331;	// sin(2*pi/13*1)
+const long double w2c = 0.56806474673115580251180755912752;	// cos(2*pi/13*2)
+const long double w2s = 0.82298386589365639457961742343938;	// sin(2*pi/13*2)
+const long double w3c = 0.12053668025532305334906768745254;	// cos(2*pi/13*3)
+const long double w3s = 0.99270887409805399280075164949252;	// sin(2*pi/13*3)
+const long double w4c = -0.35460488704253562596963789260002;	// cos(2*pi/13*4)
+const long double w4s = 0.93501624268541482343978459983783;	// sin(2*pi/13*4)
+const long double w5c = -0.74851074817110109863463059970135;	// cos(2*pi/13*5)
+const long double w5s = 0.66312265824079520237678549266677;	// sin(2*pi/13*5)
+const long double w6c = -0.97094181742605202715698227629379;	// cos(2*pi/13*6)
+const long double w6s = 0.23931566428755776714875372626021;	// sin(2*pi/13*6)
+const long double w7c = -0.97094181742605202715698227629379;	// cos(2*pi/13*7)
+const long double w7s = -0.23931566428755776714875372626021;	// sin(2*pi/13*7)
+const long double w8c = -0.74851074817110109863463059970135;	// cos(2*pi/13*8)
+const long double w8s = -0.66312265824079520237678549266677;	// sin(2*pi/13*8)
+const long double w9c = -0.35460488704253562596963789260002;	// cos(2*pi/13*9)
+const long double w9s = -0.93501624268541482343978459983783;	// sin(2*pi/13*9)
+const long double w10c = 0.12053668025532305334906768745254;	// cos(2*pi/13*10)
+const long double w10s = -0.99270887409805399280075164949252;	// sin(2*pi/13*10)
+const long double w11c = 0.56806474673115580251180755912752;	// cos(2*pi/13*11)
+const long double w11s = -0.82298386589365639457961742343938;	// sin(2*pi/13*11)
+const long double w12c = 0.8854560256532098959003755220151;	// cos(2*pi/13*12)
+const long double w12s = -0.4647231720437685456560153351331;	// sin(2*pi/13*12)
+
+// FFT the 7 zpad values
+void zpad7_fft (
+	gwhandle *gwdata,		// Handle for gwnum library
+	gwnum	g)			// gwnum to process the 7 zpad values in the header
+{
+	double r1, r2, r3, r4, r5, r6, r7;		// The 7 reals from the header (r7=MSW, r1=LSW)
+
+	// Load the zpad doubles from the header
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		r1 = g[-11];		// Load input FFT word at halfway - 3
+		r2 = g[-10];		// Load input FFT word at halfway - 2
+		r3 = g[-9];		// Load input FFT word at halfway - 1
+		r4 = g[-8];		// Load input FFT word at halfway + 0
+		r5 = g[-7];		// Load input FFT word at halfway + 1
+		r6 = g[-6];		// Load input FFT word at halfway + 2
+		r7 = g[-5];		// Load input FFT word at halfway + 3
+	} else {
+		r1 = g[-11];		// Load input FFT word at halfway - 3
+		r2 = g[-10];		// Load input FFT word at halfway - 2
+		r3 = g[-9];		// Load input FFT word at halfway - 1
+		r4 = g[-5];		// Load input FFT word at halfway + 0
+		r5 = g[-6];		// Load input FFT word at halfway + 1
+		r6 = g[-7];		// Load input FFT word at halfway + 2
+		r7 = g[-8];		// Load input FFT word at halfway + 3
+	}
+
+	// Brute force a zero padded 13-point FFT.  Hermetian symetry allows this to be stored in 7 complex values.
+	g[-12] = r1 + r2 + r3 + r4 + r5 + r6 + r7;
+	g[-13] = r1 + w1c*r2 +  w2c*r3 +  w3c*r4 +  w4c*r5 +  w5c*r6 +  w6c*r7;
+	g[-14] = r1 + w2c*r2 +  w4c*r3 +  w6c*r4 +  w8c*r5 + w10c*r6 + w12c*r7;
+	g[-15] = r1 + w3c*r2 +  w6c*r3 +  w9c*r4 + w12c*r5 +  w2c*r6 +  w5c*r7;
+	g[-16] = r1 + w4c*r2 +  w8c*r3 + w12c*r4 +  w3c*r5 +  w7c*r6 + w11c*r7;
+	g[-17] = r1 + w5c*r2 + w10c*r3 +  w2c*r4 +  w7c*r5 + w12c*r6 +  w4c*r7;
+	g[-18] = r1 + w6c*r2 + w12c*r3 +  w5c*r4 + w11c*r5 +  w4c*r6 + w10c*r7;
+	g[-19] =      w1s*r2 +  w2s*r3 +  w3s*r4 +  w4s*r5 +  w5s*r6 +  w6s*r7;
+	g[-20] =      w2s*r2 +  w4s*r3 +  w6s*r4 +  w8s*r5 + w10s*r6 + w12s*r7;
+	g[-21] =      w3s*r2 +  w6s*r3 +  w9s*r4 + w12s*r5 +  w2s*r6 +  w5s*r7;
+	g[-22] =      w4s*r2 +  w8s*r3 + w12s*r4 +  w3s*r5 +  w7s*r6 + w11s*r7;
+	g[-23] =      w5s*r2 + w10s*r3 +  w2s*r4 +  w7s*r5 + w12s*r6 +  w4s*r7;
+	g[-24] =      w6s*r2 + w12s*r3 +  w5s*r4 + w11s*r5 +  w4s*r6 + w10s*r7;
+}
+
+// Inverse FFT to reconstruct the 7 zpad values
+void zpad7_unfft (
+	gwhandle *gwdata,		// Handle for gwnum library
+	gwnum	g)			// gwnum to process the 7 zpad values in the header
+{
+const	double INV13 = 0.07692307692307692307692307692308;	// 1/13
+	double r1, r2, r3, r4, r5, r6, r7;			// The 7 FFTed reals
+	double i2, i3, i4, i5, i6, i7;				// The 7 FFTed imaginaries (first imaginary is zero)
+	double o[7];						// The 13 output reals (we don't need first 6 reals)
+
+	// Load FFT of the zpad doubles
+	r1 = g[-12];
+	r2 = g[-13];
+	r3 = g[-14];
+	r4 = g[-15];
+	r5 = g[-16];
+	r6 = g[-17];
+	r7 = g[-18];
+	i2 = g[-19];
+	i3 = g[-20];
+	i4 = g[-21];
+	i5 = g[-22];
+	i6 = g[-23];
+	i7 = g[-24];
+
+	// Brute force the padded 13-point inverse FFT discarding the lower 6 values
+	o[0] = r1 + 2.0 * ( w6c*r2 + w12c*r3 +  w5c*r4 + w11c*r5 +  w4c*r6 + w10c*r7 +  w6s*i2 + w12s*i3 +  w5s*i4 + w11s*i5 +  w4s*i6 + w10s*i7);
+	o[1] = r1 + 2.0 * ( w7c*r2 +  w1c*r3 +  w8c*r4 +  w2c*r5 +  w9c*r6 +  w3c*r7 +  w7s*i2 +  w1s*i3 +  w8s*i4 +  w2s*i5 +  w9s*i6 +  w3s*i7);
+	o[2] = r1 + 2.0 * ( w8c*r2 +  w3c*r3 + w11c*r4 +  w6c*r5 +  w1c*r6 +  w9c*r7 +  w8s*i2 +  w3s*i3 + w11s*i4 +  w6s*i5 +  w1s*i6 +  w9s*i7);
+	o[3] = r1 + 2.0 * ( w9c*r2 +  w5c*r3 +  w1c*r4 + w10c*r5 +  w6c*r6 +  w2c*r7 +  w9s*i2 +  w5s*i3 +  w1s*i4 + w10s*i5 +  w6s*i6 +  w2s*i7);
+	o[4] = r1 + 2.0 * (w10c*r2 +  w7c*r3 +  w4c*r4 +  w1c*r5 + w11c*r6 +  w8c*r7 + w10s*i2 +  w7s*i3 +  w4s*i4 +  w1s*i5 + w11s*i6 +  w8s*i7);
+	o[5] = r1 + 2.0 * (w11c*r2 +  w9c*r3 +  w7c*r4 +  w5c*r5 +  w3c*r6 +  w1c*r7 + w11s*i2 +  w9s*i3 +  w7s*i4 +  w5s*i5 +  w3s*i6 +  w1s*i7);
+	o[6] = r1 + 2.0 * (w12c*r2 + w11c*r3 + w10c*r4 +  w9c*r5 +  w8c*r6 +  w7c*r7 + w12s*i2 + w11s*i3 + w10s*i4 +  w9s*i5 +  w8s*i6 +  w7s*i7);
+
+	// Store the zpad doubles in the header
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		g[-11] = o[0] * INV13;	// Store output FFT word at halfway - 3
+		g[-10] = o[1] * INV13;	// Store output FFT word at halfway - 2
+		g[-9]  = o[2] * INV13;	// Store output FFT word at halfway - 1
+		g[-8]  = o[3] * INV13;	// Store output FFT word at halfway + 0
+		g[-7]  = o[4] * INV13;	// Store output FFT word at halfway + 1
+		g[-6]  = o[5] * INV13;	// Store output FFT word at halfway + 2
+		g[-5]  = o[6] * INV13;	// Store output FFT word at halfway + 3
+	} else {
+		g[-11] = o[0] * INV13;	// Store output FFT word at halfway - 3
+		g[-10] = o[1] * INV13;	// Store output FFT word at halfway - 2
+		g[-9]  = o[2] * INV13;	// Store output FFT word at halfway - 1
+		g[-5]  = o[3] * INV13;	// Store output FFT word at halfway + 0
+		g[-6]  = o[4] * INV13;	// Store output FFT word at halfway + 1
+		g[-7]  = o[5] * INV13;	// Store output FFT word at halfway + 2
+		g[-8]  = o[6] * INV13;	// Store output FFT word at halfway + 3
+	}
+}
 
 // Helper routines for FFT code
 
@@ -391,6 +568,7 @@ void generate_sincos (
 {
 	const long double twopi = 2.0L * 3.1415926535897932384626433L;
 	unsigned int size = fft_size;
+#define gen_twid(t,a)	{long double c,s; c=cosl(a); s=sinl(a)+1e-80; (t)[0]=(double)(c/s); (t)[1]=(double)s; }
 
 	// Return quickly if twiddles have already been initialized
 	if (pmdata->twiddles_initialized && pmdata->twiddles_initialized == size) return;
@@ -418,8 +596,7 @@ void generate_sincos (
 		pmdata->twiddles1 = (double *) aligned_malloc (size/3 * 2 * sizeof (double), 64);
 		for (unsigned int i = 0; i < size/3; i++) {
 			long double angle = twopi_over_size * (long double) i;
-			pmdata->twiddles1[2*i] = (double) cosl (angle);
-			pmdata->twiddles1[2*i+1] = (double) sinl (angle);
+			gen_twid (&pmdata->twiddles1[2*i], angle);
 		}
 		while (size % 3 == 0) size /= 3;
 	}
@@ -429,14 +606,229 @@ void generate_sincos (
 	pmdata->twiddles2 = (double *) aligned_malloc (size/4 * 2 * 2 * sizeof (double), 64);
 	for (unsigned int i = 0; i < size/4; i++) {
 		double long angle = twopi_over_size * (long double) i;
-		pmdata->twiddles2[2*(2*i)] = (double) cosl (angle);
-		pmdata->twiddles2[2*(2*i)+1] = (double) sinl (angle);
-		pmdata->twiddles2[2*(2*i+1)] = (double) cosl (2.0L*angle);
-		pmdata->twiddles2[2*(2*i+1)+1] = (double) sinl (2.0L*angle);
+		gen_twid (&pmdata->twiddles2[2*(2*i)], angle);
+		gen_twid (&pmdata->twiddles2[2*(2*i+1)], 2.0L*angle);
 	}
 
 	pmdata->twiddles_initialized = fft_size;
 	if (pmdata->num_threads > 1) gwmutex_unlock (&pmdata->poly_mutex);
+}
+
+// Compress a vector of doubles
+// The compression algorithm is pretty simple.  It relies on the observation that exponents in the double are clustered around a peak, dropping rapidly
+// in frequency as you move away from the peak.
+// The three exponents that constitute the peak are output with 2-bit values.
+// Three more exponents are output with 4-bit values (either 1 above the peak and 2 below the peak or 3 below the peak).
+// The next exponent below the peak is output with a 5-bit value.
+// The remaining exponents are output with a 5-bit escape code followed by the 11-bit exponent (many 11-bit exponents are "impossible" and we can
+// likely reduce this to a 5-bit escape code followed by a 6-bit exponent).
+int compress_vec (		// Returns size of the compressed buffer
+	char	*buf,		// Array of doubles to compress
+	int	size)		// Size of buffer in bytes
+{
+	short	counts[2048];
+	int	peak;			// The highest exponent in the set of three most common exponents
+	bool	above_peak_flag;	// TRUE if exponent above the peak is compressed
+
+//char *orig_buf = malloc (size);
+//memcpy(orig_buf, buf, size);
+
+	// Init the output queues
+	unsigned char *outptr = (unsigned char *) buf;
+	int	outval = 0;		// Compressed exponent and sign bits output in multiples of 8 bits
+	int	outlen = 0;		// Number of bits in outval
+	unsigned char mbuf[48];		// Mantissa buffer
+	int	mlen = 0;		// Number of chars in mbuf
+	int	last_m48len = 0;	// Number of chars in the last mantissa48 (either 0 or 6)
+#define put_bits(v,len)	outval = (outval << (len)) + (int)(v), outlen += len
+#define put_m48(m)	{ union {uint64_t a; char b[8];} x; x.a = m; memcpy (mbuf + mlen, x.b, 6); mlen += 6; last_m48len = 6; }
+#define emptyQ()	{ if (outlen>=8) outlen-=8, *outptr++ = (unsigned char)(outval>>outlen); \
+			  if (mlen > last_m48len) mlen-=last_m48len, memcpy(outptr,mbuf,mlen), outptr+=mlen, memcpy(mbuf,mbuf+mlen,last_m48len), mlen=last_m48len; \
+			  while (outlen>=8) outlen-=8, *outptr++ = (unsigned char)(outval>>outlen); \
+			  if (outlen == 0 && mlen) memcpy(outptr,mbuf,mlen), outptr+=mlen, mlen=0; \
+			  last_m48len = 0; }
+
+	// Sample 1000 doubles to find the most common exponents in the doubles
+//GW: count only expos between 960 an 1080  (a smaller array)
+	memset (&counts, 0, sizeof (counts));
+	for (int i = 0; i < size && i < 8000; i += 8) {
+		uint64_t expo;
+		expo = * (uint64_t *) (buf + i);
+		expo = (expo << 1) >> 53;	// strip off sign bit and mantissa
+		counts[expo]++;
+	}
+
+	// Find the set of three exponents that are most common
+	peak = 960;
+	for (int i = 961; i < 1080; i++)
+		if (counts[i-2] + counts[i-1]  + counts[i] > counts[peak-2] + counts[peak-1] + counts[peak]) peak = i;
+	ASSERTG (peak != 960);
+
+	// Determine expo just above the peak will be compressed (or output raw)
+	above_peak_flag = (counts[peak+1] > counts[peak-5]);
+
+	// Output header bits
+	put_bits (peak - 960, 7);
+	put_bits (above_peak_flag, 1);
+
+	// Loop compressing doubles
+	for (int i = 0; i < size; i += 8) {
+		uint64_t expo, sign, nibble, mantissa48;
+
+		// Parse the double
+		expo = * (uint64_t *) (buf + i);
+		sign = expo >> 63;
+		nibble = (expo << 12) >> 60;
+		mantissa48 = expo & 0xFFFFFFFFFFFFULL;
+		expo = (expo << 1) >> 53;	// strip off sign bit and mantissa
+
+		// Empty the output queues (as much as possible)
+		emptyQ ();
+
+		// Rare case of compressing FFTed data that contained lots of zeros.  The FFTed data may contain lots of really small exponent values (noise)
+		// that would greatly dimish our compression.  Turn the noise into zeros.
+		if (expo < peak - 50) expo = 0;
+
+		// Compress the exponent
+		if (expo == peak) put_bits (0, 2);
+		else if (expo == peak-1) put_bits (1, 2);
+		else if (expo == peak-2) put_bits (2, 2);
+		else if (expo == peak-3) put_bits (12, 4);
+		else if (expo == peak-4) put_bits (13, 4);
+		else if (above_peak_flag && expo == peak+1) put_bits (14, 4);
+		else if (above_peak_flag && expo == peak-5) put_bits (30, 5);
+		else if (!above_peak_flag && expo == peak-5) put_bits (14, 4);
+		else if (!above_peak_flag && expo == peak-6) put_bits (30, 5);
+		else {
+			put_bits (31, 5);
+			ASSERTG (expo == 0 || (expo >= peak-50 && expo <= peak-6) || (expo >= peak+1 && expo <= peak+18));
+			if (expo > peak) expo = expo - (peak+1) + 1;		// Handle up to 18 values above peak coded as 1 through 18
+			else if (expo > 0) expo = expo - (peak-50) + 19;	// Handle up to 45 values below peak coded as 19 through 63
+			ASSERTG (expo <= 63);
+			put_bits (expo, 6);
+		}
+
+		// Output the sign bit, high nibble of mantissa, and rest of the mantissa
+		if (expo != 0) { put_bits (sign, 1); put_bits (nibble, 4); put_m48 (mantissa48); }
+	}
+
+	// Empty the output queues
+	if (outlen & 7) put_bits (0, 8 - (outlen & 7));
+	emptyQ ();
+
+//char *xxx = malloc (size);
+//decompress_vec (buf, xxx, size);
+//int foo;
+//foo=memcmp(orig_buf, xxx, size);
+//free(xxx);
+//free(orig_buf);
+
+	// Return size of the compressed vector
+	return ((int) ((char *) outptr - buf));
+
+#undef put_bits
+#undef put_m48
+#undef emptyQ
+}
+
+// Decompress a vector of doubles
+void decompress_vec (
+	char	*inbuf,		// Compressed array of doubles
+	char	*outbuf,	// Decompressed array of doubles
+	int	size)		// Size of output buffer in bytes
+{
+	unsigned int inval, inbits;	// Queue to extract bits from inbuf
+	int	peak;			// The highest exponent in the set of three most common exponents
+	bool	above_peak_flag;	// TRUE if exponent above the peak is compressed
+
+	// Init input queue
+	unsigned char *inptr = (unsigned char *) inbuf;
+	inval = inbits = 0;
+#define get_bits(v,len)	{ if (inbits<len) inval=(inval<<8)+(*inptr++),inbits+=8; inbits-=len; v=(inval>>inbits)&((1<<(len))-1); }
+#define get_m48(v)	{ union {uint64_t a; char b[8];} x; x.a = 0; memcpy (x.b, inptr, 6); inptr += 6; v = x.a; }
+
+	// Read peak exponent and above-peak-flag
+	get_bits (peak, 7);  peak += 960;
+	get_bits (above_peak_flag, 1);
+
+#ifdef STRAIGHTFORWARD_IMPL
+	while (size) {
+		uint64_t expo, sign, nibble, mantissa48;
+		int	code;
+
+		// Decompress the exponent
+		get_bits (code, 2);
+		if (code <= 2) expo = peak - code;
+		else {
+			get_bits (code, 2);
+			if (code <= 1) expo = peak - 3 - code;
+			else if (code == 2) expo = above_peak_flag ? peak + 1 : peak - 5;
+			else {
+				get_bits (code, 1);
+				if (code == 0) expo = above_peak_flag ? peak - 5 : peak - 6;
+				else {
+					get_bits (code, 6);
+					if (code >= 19) expo = code - 19 + (peak-50);	// Handle up to 45 values below peak coded as 19 through 63
+					else if (code >= 1) expo = code - 1 + (peak+1);	// Handle up to 18 values above peak coded as 1 through 18
+					else expo = 0;
+				}
+			}
+		}
+
+		// Get the sign bit and mantissa
+		if (expo != 0) { get_bits (sign, 1); get_bits (nibble, 4); get_m48 (mantissa48); }
+		else sign = nibble = mantissa48 = 0;
+
+		// Output the uncompressed double, move onto next double
+		* (uint64_t *) outbuf = (sign << 63) + (expo << 52) + (nibble << 48) + mantissa48;
+		outbuf += sizeof (double);
+		size -= sizeof (double);
+	}
+
+#else		// This version is less readable but a little faster
+
+	for ( ; size; outbuf += sizeof (double), size -= sizeof (double)) {
+		int	code, more_code, expo, sign, nibble;
+
+		// We need to get at least 7 bits, cheaper to get them all at once.
+		// The goal is to decompress ~75% of the expos using just one get_bits call.
+		get_bits (code, 7);
+		
+		// Decompress the exponent
+		if (code < 0b1100000) expo = peak - (code >> 5);
+		else if (code < 0b1111000) {
+			if (code < 0b1110000) expo = peak - 3 - ((code & 0b0011000) >> 3);
+			else expo = above_peak_flag ? peak + 1 : peak - 5;
+			get_bits (more_code, 2);
+			code = (code << 2) + more_code;
+		} else if (code < 0b1111100) {
+			expo = above_peak_flag ? peak - 5 : peak - 6;
+			get_bits (more_code, 3);
+			code = (code << 3) + more_code;
+		} else {
+			get_bits (more_code, 4);
+			code = ((code & 0b0000011) << 4) + more_code;
+			if (code >= 19) expo = code - 19 + (peak-50);	// Handle up to 45 values below peak coded as 19 through 63
+			else if (code >= 1) expo = code - 1 + (peak+1);	// Handle up to 18 values above peak coded as 1 through 18
+			else { memset (outbuf, 0, sizeof (double)); continue; }
+			get_bits (code, 5);
+		}
+
+		// Get the sign bit and high nibble of mantissa
+		sign = code >> 4;
+		nibble = code & 0xF;
+
+		// Copy 6 mantissa bytes
+		memcpy (outbuf, inptr, 6), inptr += 6;
+
+		// Output the top two bytes of the double
+		uint16_t top2 = (uint16_t) ((sign << 15) + (expo << 4) + nibble);
+		memcpy (outbuf+6, &top2, 2);
+	}
+#endif
+
+#undef get_bits
+#undef get_m48
 }
 
 #endif
@@ -448,13 +840,18 @@ void generate_sincos (
 
 #if defined (AVX512)
 
-bool read_line_avx512 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options, bool post_process_monics)
+void read_line_avx512 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options, bool post_process_monics)
 {
+	int	orig_index = index;			// Save for a possible recursive call to read_line
+
 	// If not post-processing monics and the input is a monic RLP, then output a 1+0i
 	if (!post_process_monics && (options & (POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_MONIC)) && (options & (POLYMULT_INVEC1_RLP | POLYMULT_INVEC2_RLP))) {
-//GW: check if GW_FFT1 should be used instead
-		vec[0].real = broadcastsd (1.0);
-		vec[0].imag = broadcastsd (0.0);
+		if (gwdata->k == 1.0) {
+			vec[0].real = broadcastsd (1.0);
+			vec[0].imag = broadcastsd (0.0);
+		} else {
+			read_line (gwdata, &gwdata->GW_FFT1, 1, orig_index, vec, 0, FALSE);
+		}
 		vec++;
 	}
 
@@ -465,30 +862,31 @@ bool read_line_avx512 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT 
 	// Adjust index to handle the extra data point that must be returned for transformed real data.
 	if (!gwdata->ALL_COMPLEX_FFT) index--;
 
-	// Zero padded FFTs must also return for processing the 7 real values stored in the header
-	if (gwdata->ZERO_PADDED_FFT) index -= 7;
-//BUG-Zero-padded not handled yet.  Need bigger gwnum header (if we allow storing ffted polys)
-//BUG-current use of header location -10 conflicts with zero-padded use of location -10.
-
-	// If we've read all the gwnum data, return FALSE
-	if (index * 16 >= (int) gwdata->FFTLEN) return (FALSE);
+	// Check if we've read all the gwnum data
+	ASSERTG (index * 16 < (int) gwdata->FFTLEN);
 
 	// AVX512 implementation
-	if (index == -1) {			// First real-only value
+	if (index == -1) {			// First real-only value and optionally seven zero-pad values
 		for (int j = 0; j < size; j++) {
 			if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
-			vec[j].real = _mm512_set_pd (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, data[j][0]);
-//bug? return 0.0 instead of -11
-//			vec[j].imag = _mm512_set_pd (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, data[j][-11]);
-			vec[j].imag = _mm512_set_pd (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+			// Return the first real-only value
+			if (!gwdata->ZERO_PADDED_FFT) {
+				vec[j].real = _mm512_set_pd (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, data[j][0]);
+				vec[j].imag = broadcastsd (0.0);
+			}
+			// Zero padded FFTs also return the 7 FFTed values for the 7 real values stored in the header
+			else {
+				vec[j].real = _mm512_set_pd (data[j][-18], data[j][-17], data[j][-16], data[j][-15],
+							     data[j][-14], data[j][-13], data[j][-12], data[j][0]);
+				vec[j].imag = _mm512_set_pd (data[j][-24], data[j][-23], data[j][-22], data[j][-21],
+							     data[j][-20], data[j][-19], 0.0, 0.0);
+			}
 		}
 	}
-	else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {			// Second real-only value
+	else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {	// Second real-only value and 7 complex values
 		for (int j = 0; j < size; j++) {
 			if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 			vec[j].real = _mm512_set_pd (data[j][7], data[j][6], data[j][5], data[j][4], data[j][3], data[j][2], data[j][1], data[j][8]);
-//bug? return 0.0 instead of -10
-//			vec[j].imag = _mm512_set_pd (data[j][7], data[j][6], data[j][5], data[j][-10]);
 			vec[j].imag = _mm512_set_pd (data[j][15], data[j][14], data[j][13], data[j][12], data[j][11], data[j][10], data[j][9], 0.0);
 		}
 	}
@@ -518,13 +916,13 @@ bool read_line_avx512 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT 
 
 	// If not post-processing monics and the input is monic, then output a 1+0i
 	if (!post_process_monics && (options & (POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_MONIC))) {
-//GW: check if GW_FFT1 should be used instead
-		vec[size].real = broadcastsd (1.0);
-		vec[size].imag = broadcastsd (0.0);
+		if (gwdata->k == 1.0) {
+			vec[size].real = broadcastsd (1.0);
+			vec[size].imag = broadcastsd (0.0);
+		} else {
+			read_line (gwdata, &gwdata->GW_FFT1, 1, orig_index, &vec[size], 0, FALSE);
+		}
 	}
-
-	// Return success
-	return (TRUE);
 }
 
 void write_line_avx512 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options)
@@ -539,30 +937,41 @@ void write_line_avx512 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT
 	// Adjust index to handle the extra data point that must be returned for transformed real data.
 	if (!gwdata->ALL_COMPLEX_FFT) index--;
 
-	// Zero padded FFTs must also return for processing the 7 real values stored in the header
-	if (gwdata->ZERO_PADDED_FFT) index -= 7;
-//BUG-Zero-padded not handled yet.  Need bigger gwnum header (if we allow storing ffted polys)
-//BUG-current use of header location -10 conflicts with zero-padded use of location -10.
-
 	// AVX512 implementation
 	union {
 		VDT	a;
 		double	b[8];
 	} x;
-	if (index == -1) {			// First real-only value
+	if (index == -1) {			// First real-only value and optionally seven zero-pad values
 		for (int j = 0; j < size; j++) {
 			if (data[j] == NULL) continue;
-			x.a = vec[j].real, data[j][0] = x.b[0];
-//bug? return 0.0 instead of -11
-//			x.a = vec[j].imag, data[j][-11] = x.b[0];
+			// Return the first real-only value
+			x.a = vec[j].real;
+			data[j][0] = x.b[0];
+			// Zero padded FFTs also return the 7 real values stored in the header
+			if (gwdata->ZERO_PADDED_FFT) {
+				data[j][-18] = x.b[7];
+				data[j][-17] = x.b[6];
+				data[j][-16] = x.b[5];
+				data[j][-15] = x.b[4];
+				data[j][-14] = x.b[3];
+				data[j][-13] = x.b[2];
+				data[j][-12] = x.b[1];
+				x.a = vec[j].imag;
+				data[j][-24] = x.b[7];
+				data[j][-23] = x.b[6];
+				data[j][-22] = x.b[5];
+				data[j][-21] = x.b[4];
+				data[j][-20] = x.b[3];
+				data[j][-19] = x.b[2];
+			}
 		}
 	}
-	else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {			// Second real-only value
+	else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {	// Second real-only value and 7 complex values
 		for (int j = 0; j < size; j++) {
 			if (data[j] == NULL) continue;
 			x.a = vec[j].real, data[j][7] = x.b[7], data[j][6] = x.b[6], data[j][5] = x.b[5], data[j][4] = x.b[4],
 					   data[j][3] = x.b[3], data[j][2] = x.b[2], data[j][1] = x.b[1], data[j][8] = x.b[0];
-//bug? return 0.0 instead of -10
 			x.a = vec[j].imag, data[j][15] = x.b[7], data[j][14] = x.b[6], data[j][13] = x.b[5], data[j][12] = x.b[4],
 					   data[j][11] = x.b[3], data[j][10] = x.b[2], data[j][9] = x.b[1];
 		}
@@ -580,21 +989,28 @@ void write_line_avx512 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT
 #elif defined (FMA)				// FMA and AVX FFTs use the same memory layout
 
 #define read_line_fma		read_line_avx
+#define read_preprocess_line_fma read_preprocess_line_avx
 #define write_line_fma		write_line_avx
 #define pick_pass_sizes_fma	pick_pass_sizes_avx
-bool read_line_avx (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options, bool post_process_monics);
+void read_line_avx (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options, bool post_process_monics);
+void read_preprocess_line_avx (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options, bool post_process_monics);
 void write_line_avx (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options);
 void pick_pass_sizes_avx (pmhandle *pmdata, unsigned int fftsize, unsigned int *p1size, unsigned int *p2size);
 
 #elif defined (AVX)
 
-bool read_line_avx (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options, bool post_process_monics)
+void read_line_avx (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options, bool post_process_monics)
 {
+	int	orig_index = index;			// Save for a possible recursive call to read_line
+
 	// If not post-processing monics and the input is a monic RLP, then output a 1+0i
 	if (!post_process_monics && (options & (POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_MONIC)) && (options & (POLYMULT_INVEC1_RLP | POLYMULT_INVEC2_RLP))) {
-//GW: check if GW_FFT1 should be used instead
-		vec[0].real = broadcastsd (1.0);
-		vec[0].imag = broadcastsd (0.0);
+		if (gwdata->k == 1.0) {
+			vec[0].real = broadcastsd (1.0);
+			vec[0].imag = broadcastsd (0.0);
+		} else {
+			read_line (gwdata, &gwdata->GW_FFT1, 1, orig_index, vec, 0, FALSE);
+		}
 		vec++;
 	}
 
@@ -605,30 +1021,40 @@ bool read_line_avx (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *ve
 	// Adjust index to handle the extra data point that must be returned for transformed real data.
 	if (!gwdata->ALL_COMPLEX_FFT) index--;
 
-	// Zero padded FFTs must also return for processing the 7 real values stored in the header
-	if (gwdata->ZERO_PADDED_FFT) index -= 7;
-//BUG-Zero-padded not handled yet.  Need bigger gwnum header (if we allow storing ffted polys)
-//BUG-current use of header location -10 conflicts with zero-padded use of location -10.
+	// Zero padded FFTs return another cache line for processing the 7 real values stored in the header
+	if (gwdata->ZERO_PADDED_FFT) index--;
 
-	// If we've read all the gwnum data, return FALSE
-	if (index * 8 >= (int) gwdata->FFTLEN) return (FALSE);
+	// Check if we've read all the gwnum data
+	ASSERTG (index * 8 < (int) gwdata->FFTLEN);
 
 	// AVX implementation
-	if (index == -1) {			// First real-only value
+	if (index == -2) {			// Four of the seven FFTed zero pad header values
 		for (int j = 0; j < size; j++) {
 			if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
-			vec[j].real = _mm256_set_pd (0.0, 0.0, 0.0, data[j][0]);
-//bug? return 0.0 instead of -11
-//			vec[j].imag = _mm256_set_pd (0.0, 0.0, 0.0, data[j][-11]);
-			vec[j].imag = _mm256_set_pd (0.0, 0.0, 0.0, 0.0);
+			// Zero padded FFTs, return 4 of the FFTed values for the 7 real values stored in the header
+			vec[j].real = _mm256_set_pd (data[j][-18], data[j][-17], data[j][-16], data[j][-15]);
+			vec[j].imag = _mm256_set_pd (data[j][-24], data[j][-23], data[j][-22], data[j][-21]);
 		}
 	}
-	else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {			// Second real-only value
+	else if (index == -1) {			// First real-only value and optionally three of the seven FFTed zero-pad values
+		for (int j = 0; j < size; j++) {
+			if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
+			// Return the first real-only value
+			if (!gwdata->ZERO_PADDED_FFT) {
+				vec[j].real = _mm256_set_pd (0.0, 0.0, 0.0, data[j][0]);
+				vec[j].imag = broadcastsd (0.0);
+			}
+			// Zero padded FFTs also return 3 of the FFTed values for the 7 real values stored in the header
+			else {
+				vec[j].real = _mm256_set_pd (data[j][-14], data[j][-13], data[j][-12], data[j][0]);
+				vec[j].imag = _mm256_set_pd (data[j][-20], data[j][-19], 0.0, 0.0);
+			}
+		}
+	}
+	else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {	// Second real-only value and 3 complex values
 		for (int j = 0; j < size; j++) {
 			if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 			vec[j].real = _mm256_set_pd (data[j][3], data[j][2], data[j][1], data[j][4]);
-//bug? return 0.0 instead of -10
-//			vec[j].imag = _mm256_set_pd (data[j][7], data[j][6], data[j][5], data[j][-10]);
 			vec[j].imag = _mm256_set_pd (data[j][7], data[j][6], data[j][5], 0.0);
 		}
 	}
@@ -658,13 +1084,13 @@ bool read_line_avx (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *ve
 
 	// If not post-processing monics and the input is monic, then output a 1+0i
 	if (!post_process_monics && (options & (POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_MONIC))) {
-//GW: check if GW_FFT1 should be used instead
-		vec[size].real = broadcastsd (1.0);
-		vec[size].imag = broadcastsd (0.0);
+		if (gwdata->k == 1.0) {
+			vec[size].real = broadcastsd (1.0);
+			vec[size].imag = broadcastsd (0.0);
+		} else {
+			read_line (gwdata, &gwdata->GW_FFT1, 1, orig_index, &vec[size], 0, FALSE);
+		}
 	}
-
-	// Return success
-	return (TRUE);
 }
 
 void write_line_avx (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options)
@@ -679,30 +1105,51 @@ void write_line_avx (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *v
 	// Adjust index to handle the extra data point that must be returned for transformed real data.
 	if (!gwdata->ALL_COMPLEX_FFT) index--;
 
-	// Zero padded FFTs must also return for processing the 7 real values stored in the header
-	if (gwdata->ZERO_PADDED_FFT) index -= 7;
-//BUG-Zero-padded not handled yet.  Need bigger gwnum header (if we allow storing ffted polys)
-//BUG-current use of header location -10 conflicts with zero-padded use of location -10.
+	// Zero padded FFTs return another cache line for processing the 7 real values stored in the header
+	if (gwdata->ZERO_PADDED_FFT) index--;
 
 	// AVX implementation
 	union {
 		VDT	a;
 		double	b[4];
 	} x;
-	if (index == -1) {			// First real-only value
+	if (index == -2) {			// Four of the seven zero pad value in the header
 		for (int j = 0; j < size; j++) {
 			if (data[j] == NULL) continue;
-			x.a = vec[j].real, data[j][0] = x.b[0];
-//bug? return 0.0 instead of -11
-//			x.a = vec[j].imag, data[j][-11] = x.b[0];
+			x.a = vec[j].real;
+			data[j][-18] = x.b[3];
+			data[j][-17] = x.b[2];
+			data[j][-16] = x.b[1];
+			data[j][-15] = x.b[0];
+			x.a = vec[j].imag;
+			data[j][-24] = x.b[3];
+			data[j][-23] = x.b[2];
+			data[j][-22] = x.b[1];
+			data[j][-21] = x.b[0];
+		}
+	}
+	else if (index == -1) {			// First real-only value and optionally three of the seven zero-pad values
+		for (int j = 0; j < size; j++) {
+			if (data[j] == NULL) continue;
+			// Return the first real-only value
+			x.a = vec[j].real;
+			data[j][0] = x.b[0];
+			// Return 3 of the 7 real values stored in the header
+			if (gwdata->ZERO_PADDED_FFT) {
+				data[j][-14] = x.b[3];
+				data[j][-13] = x.b[2];
+				data[j][-12] = x.b[1];
+				x.a = vec[j].imag;
+				data[j][-20] = x.b[3];
+				data[j][-19] = x.b[2];
+			}
 		}
 	}
 	else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {			// Second real-only value
 		for (int j = 0; j < size; j++) {
 			if (data[j] == NULL) continue;
 			x.a = vec[j].real, data[j][3] = x.b[3], data[j][2] = x.b[2], data[j][1] = x.b[1], data[j][4] = x.b[0];
-//bug? return 0.0 instead of -10
-			x.a = vec[j].imag, data[j][7] = x.b[3], data[j][6] = x.b[2], data[j][5] = x.b[1] /*, data[j][-10] = x.b[0]*/ ;
+			x.a = vec[j].imag, data[j][7] = x.b[3], data[j][6] = x.b[2], data[j][5] = x.b[1];
 		}
 	}
 	else {				// Process complex values where imaginary part is in the high half of the cache line
@@ -717,13 +1164,18 @@ void write_line_avx (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *v
 
 #elif defined (SSE2)
 
-bool read_line_sse2 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options, bool post_process_monics)
+void read_line_sse2 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options, bool post_process_monics)
 {
+	int	orig_index = index;			// Save for a possible recursive call to read_line
+
 	// If not post-processing monics and the input is a monic RLP, then output a 1+0i
 	if (!post_process_monics && (options & (POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_MONIC)) && (options & (POLYMULT_INVEC1_RLP | POLYMULT_INVEC2_RLP))) {
-//GW: check if GW_FFT1 should be used instead
-		vec[0].real = broadcastsd (1.0);
-		vec[0].imag = broadcastsd (0.0);
+		if (gwdata->k == 1.0) {
+			vec[0].real = broadcastsd (1.0);
+			vec[0].imag = broadcastsd (0.0);
+		} else {
+			read_line (gwdata, &gwdata->GW_FFT1, 1, orig_index, vec, 0, FALSE);
+		}
 		vec++;
 	}
 
@@ -734,13 +1186,11 @@ bool read_line_sse2 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *v
 	// Adjust index to handle the extra data point that must be returned for transformed real data.
 	if (!gwdata->ALL_COMPLEX_FFT) index--;
 
-	// Zero padded FFTs must also return for processing the 7 real values stored in the header
-	if (gwdata->ZERO_PADDED_FFT) index -= 7;
-//BUG-Zero-padded not handled yet.  Need bigger gwnum header (if we allow storing ffted polys)
-//BUG-current use of header location -10 conflicts with zero-padded use of location -10.
+	// Zero padded FFTs return another 3 cache lines for processing the 7 real values stored in the header
+	if (gwdata->ZERO_PADDED_FFT) index -= 3;
 
-	// If we've read all the gwnum data, return FALSE
-	if (index * 4 >= (int) gwdata->FFTLEN) return (FALSE);
+	// Check if we've read all the gwnum data
+	ASSERTG (index * 4 < (int) gwdata->FFTLEN);
 
 	// Various SSE2 FFT implementations store the imaginary part of a complex number either 8, 16, or 32 bytes above the real part
 	int	imag_dist;
@@ -753,28 +1203,42 @@ bool read_line_sse2 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *v
 	else if (gwdata->PASS2_SIZE != 0 && gwdata->FFT_TYPE == 0 && (index <= 1 || index == 4 || index == 5)) imag_dist = 8;	// hg ffts
 	else imag_dist = 16;
 
-	// SSE2 instructions implementation
-	if (index == -1) {			// First real-only value
+	// SSE2 implementation
+	if (index <= -2) {			// Six of the seven zero pad header values
 		for (int j = 0; j < size; j++) {
 			if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
-			vec[j].real = _mm_set_pd (0.0, data[j][0]);
-//bug? return 0.0 instead of -11 ---- fix when we support FFTing invec
-			vec[j].imag = _mm_set_pd (0.0, 0.0);
+			// Zero padded FFTs, return 1 of the FFTed values for the 7 real values stored in the header
+			vec[j].real = _mm_set_pd (data[j][index*2-10], data[j][index*2-9]);
+			vec[j].imag = _mm_set_pd (data[j][index*2-16], data[j][index*2-15]);
 		}
 	}
-	else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {			// Second real-only value
+	else if (index == -1) {			// First real-only valueand optionally one of the seven zero-pad values
+		for (int j = 0; j < size; j++) {
+			if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
+			// Return the first real-only value
+			if (!gwdata->ZERO_PADDED_FFT) {
+				vec[j].real = _mm_set_pd (0.0, data[j][0]);
+				vec[j].imag = broadcastsd (0.0);
+			}
+			// Zero padded FFTs also return 1 of the FFTed values for the 7 real values stored in the header
+			else {
+				vec[j].real = _mm_set_pd (data[j][-12], data[j][0]);
+				vec[j].imag = broadcastsd (0.0);
+			}
+		}
+	}
+	else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {	// Second real-only value and one complex value
 		for (int j = 0; j < size; j++) {
 			if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 			if (imag_dist == 8) {
 				vec[j].real = _mm_set_pd (data[j][2], data[j][1]);
-				vec[j].imag = _mm_set_pd (data[j][3], 0.0); //data[j][-10];
+				vec[j].imag = _mm_set_pd (data[j][3], 0.0);
 			} else if (imag_dist == 16) {
 				vec[j].real = _mm_set_pd (data[j][1], data[j][2]);
-//bug? return 0.0 instead of -10.  How are we going to implement FFTed poly read?  Its own routine? It's own FFT state? Compressed?
-				vec[j].imag = _mm_set_pd (data[j][3], 0.0); //data[j][-10];
+				vec[j].imag = _mm_set_pd (data[j][3], 0.0);
 			} else {
 				vec[j].real = _mm_set_pd (data[j][1], data[j][4]);
-				vec[j].imag = _mm_set_pd (data[j][5], 0.0); //data[j][-10];
+				vec[j].imag = _mm_set_pd (data[j][5], 0.0);
 			}
 		}
 	}
@@ -812,13 +1276,13 @@ bool read_line_sse2 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *v
 
 	// If not post-processing monics and the input is monic, then output a 1+0i
 	if (!post_process_monics && (options & (POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_MONIC))) {
-//GW: check if GW_FFT1 should be used instead
-		vec[size].real = broadcastsd (1.0);
-		vec[size].imag = broadcastsd (0.0);
+		if (gwdata->k == 1.0) {
+			vec[size].real = broadcastsd (1.0);
+			vec[size].imag = broadcastsd (0.0);
+		} else {
+			read_line (gwdata, &gwdata->GW_FFT1, 1, orig_index, &vec[size], 0, FALSE);
+		}
 	}
-
-	// Return success
-	return (TRUE);
 }
 
 void write_line_sse2 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options)
@@ -833,10 +1297,8 @@ void write_line_sse2 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *
 	// Adjust index to handle the extra data point that must be returned for transformed real data.
 	if (!gwdata->ALL_COMPLEX_FFT) index--;
 
-	// Zero padded FFTs must also return for processing the 7 real values stored in the header
-	if (gwdata->ZERO_PADDED_FFT) index -= 7;
-//BUG-Zero-padded not handled yet.  Need bigger gwnum header (if we allow storing ffted polys)
-//BUG-current use of header location -10 conflicts with zero-padded use of location -10.
+	// Zero padded FFTs also return 3 extra cache lines for processing the 7 real values stored in the header
+	if (gwdata->ZERO_PADDED_FFT) index -= 3;
 
 	// Various SSE2 FFT implementations store the imaginary part of a complex number either 8, 16, or 32 bytes above the real part
 	int	imag_dist;
@@ -854,11 +1316,25 @@ void write_line_sse2 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *
 		VDT	a;
 		double	b[2];
 	} x;
-	if (index == -1) {			// First real-only value
+	if (index <= -2) {		// Six of the seven real values in the header
 		for (int j = 0; j < size; j++) {
 			if (data[j] == NULL) continue;
-			x.a = vec[j].real, data[j][0] = x.b[0];
-//			data[j][-11] = vec[j].imag;  //GW:bug?
+			x.a = vec[j].real;
+			data[j][index*2-10] = x.b[1];
+			data[j][index*2-9] = x.b[0];
+			x.a = vec[j].imag;
+			data[j][index*2-16] = x.b[1];
+			data[j][index*2-15] = x.b[0];
+		}
+	}
+	else if (index == -1) {		// First real-only value and optionally one of the seven zero-pad values
+		for (int j = 0; j < size; j++) {
+			if (data[j] == NULL) continue;
+			// Return the first real-only value
+			x.a = vec[j].real;
+			data[j][0] = x.b[0];
+			// Return 1 of the 7 real values stored in the header
+			if (gwdata->ZERO_PADDED_FFT) data[j][-12] = x.b[1];
 		}
 	}
 	else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {		// Second real-only value
@@ -875,7 +1351,6 @@ void write_line_sse2 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *
 				x.a = vec[j].real, data[j][1] = x.b[1], data[j][4] = x.b[0];
 				x.a = vec[j].imag, data[j][5] = x.b[1];
 			}
-//bug? return 0.0 instead of -10
 		}
 	}
 	else {				// Process complex values where imaginary part is 8 or 16 bytes above the real part
@@ -898,13 +1373,18 @@ void write_line_sse2 (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *
 
 #elif !defined (X86_64)				// x87 FFTs only supported in 32-bit mode
 
-bool read_line_dbl (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options, bool post_process_monics)
+void read_line_dbl (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options, bool post_process_monics)
 {
+	int	orig_index = index;			// Save for a possible recursive call to read_line
+
 	// If not post-processing monics and the input is a monic RLP, then output a 1+0i
 	if (!post_process_monics && (options & (POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_MONIC)) && (options & (POLYMULT_INVEC1_RLP | POLYMULT_INVEC2_RLP))) {
-//GW: check if GW_FFT1 should be used instead
-		vec[0].real = 1.0;
-		vec[0].imag = 0.0;
+		if (gwdata->k == 1.0) {
+			vec[0].real = broadcastsd (1.0);
+			vec[0].imag = broadcastsd (0.0);
+		} else {
+			read_line (gwdata, &gwdata->GW_FFT1, 1, orig_index, vec, 0, FALSE);
+		}
 		vec++;
 	}
 
@@ -917,19 +1397,24 @@ bool read_line_dbl (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *ve
 
 	// Zero padded FFTs must also return for processing the 7 real values stored in the header
 	if (gwdata->ZERO_PADDED_FFT) index -= 7;
-//BUG-Zero-padded not handled yet.  Need bigger gwnum header (if we allow storing ffted polys)
-//BUG-current use of header location -10 conflicts with zero-padded use of location -10.
 
-	// If we've read all the gwnum data, return FALSE
-	if (index * 2 >= (int) gwdata->FFTLEN) return (FALSE);
+	// Check if we've read all the gwnum data
+	ASSERTG (index * 2 < (int) gwdata->FFTLEN);
 
 	// No special instructions implementation
-	if (index == -1) {			// First real-only value
+	if (index <= -2) {			// Seven zero pad header values
+		for (int j = 0; j < size; j++) {
+			if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
+			// Zero padded FFTs return 1 of the FFTed values for the 7 real values stored in the header
+			vec[j].real = data[j][index-10];
+			vec[j].imag = data[j][index-17];
+		}
+	}
+	else if (index == -1) {			// First real-only value
 		for (int j = 0; j < size; j++) {
 			if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 			vec[j].real = data[j][0];
-//bug? return 0.0 instead of -11 ---- fix when we support FFTing invec
-			vec[j].imag = 0.0; //data[j][-11];
+			vec[j].imag = 0.0;
 		}
 	}
 	else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {			// Second real-only value
@@ -937,8 +1422,7 @@ bool read_line_dbl (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *ve
 			if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 			if (gwdata->PASS2_SIZE == 0) vec[j].real = data[j][1];
 			else vec[j].real = data[j][2];
-//bug? return 0.0 instead of -10.  How are we going to implement FFTed poly read?  Its own routine? It's own FFT state? Compressed?
-			vec[j].imag = 0.0; //data[j][-10];
+			vec[j].imag = 0.0;
 		}
 	}
 	else {				// Process complex values where imaginary part is 8 or 16 bytes above the real part
@@ -972,13 +1456,13 @@ bool read_line_dbl (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *ve
 
 	// If not post-processing monics and the input is monic, then output a 1+0i
 	if (!post_process_monics && (options & (POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_MONIC))) {
-//GW: check if GW_FFT1 should be used instead
-		vec[size].real = 1.0;
-		vec[size].imag = 0.0;
+		if (gwdata->k == 1.0) {
+			vec[size].real = broadcastsd (1.0);
+			vec[size].imag = broadcastsd (0.0);
+		} else {
+			read_line (gwdata, &gwdata->GW_FFT1, 1, orig_index, &vec[size], 0, FALSE);
+		}
 	}
-
-	// Return success
-	return (TRUE);
 }
 
 void write_line_dbl (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options)
@@ -995,15 +1479,19 @@ void write_line_dbl (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *v
 
 	// Zero padded FFTs must also return for processing the 7 real values stored in the header
 	if (gwdata->ZERO_PADDED_FFT) index -= 7;
-//BUG-Zero-padded not handled yet.  Need bigger gwnum header (if we allow storing ffted polys)
-//BUG-current use of header location -10 conflicts with zero-padded use of location -10.
 
 	// No special instructions implementation
-	if (index == -1) {			// First real-only value
+	if (index <= -2) {			// Seven zero pad header values
+		for (int j = 0; j < size; j++) {
+			if (data[j] == NULL) continue;
+			data[j][index-10] = vec[j].real;
+			data[j][index-17] = vec[j].imag;
+		}
+	}
+	else if (index == -1) {			// First real-only value
 		for (int j = 0; j < size; j++) {
 			if (data[j] == NULL) continue;
 			data[j][0] = vec[j].real;
-//			data[j][-11] = vec[j].imag;  //GW:bug?
 		}
 	}
 	else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {		// Second real-only value
@@ -1011,7 +1499,6 @@ void write_line_dbl (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *v
 			if (data[j] == NULL) continue;
 			if (gwdata->PASS2_SIZE == 0) data[j][1] = vec[j].real;
 			else data[j][2] = vec[j].real;
-//			data[j][-10] = vec[j].imag;	//GW:bug?
 		}
 	}
 	else {				// Process complex values where imaginary part is 8 or 16 bytes above the real part
@@ -1235,6 +1722,8 @@ void fft_line (
 	unsigned int inv_twiddle45_stride;	// Starting stride for the inverse FFT radix-4/5 twiddles data
 	unsigned int powers_of_two;
 	VDT	inv_fft_size = broadcastsd (1.0 / (double) fft_size);
+	VDT	inv_fft_size_707 = broadcastsd (0.70710678118654752440084436210485 / (double) fft_size);
+	bool	inv_fft_applied;		// Set to TRUE when all inverse FFT data has been multiplied by inv_fft_size
 
 	generate_sincos (pmdata, fft_size);
 
@@ -1335,38 +1824,46 @@ void fft_line (
 					CVDT b = src[instride1*(group + group_member + stride)];
 					CVDT c = src[instride1*(group + group_member + 2*stride)];
 
-					CVDT b_plus_c; cvadd (b_plus_c, b, c);				// b + c
+					CVDT	b_plus_c, b_minus_c, tmp23;
+					cvadd (b_plus_c, b, c);			// b + c
+					cvsub (b_minus_c, b, c);		// b - c
 
-#if !VFMA
-					VDT real_tmp23a = fnmaddpd (half, b_plus_c.real, a.real);	// a - 0.5 * (b + c)
-					VDT imag_tmp23a = fnmaddpd (half, b_plus_c.imag, a.imag);
-					VDT real_tmp23b = mulpd (_866, subpd (b.imag, c.imag));		// 0.866 * (b - c)
-					VDT imag_tmp23b = mulpd (_866, subpd (b.real, c.real));
-					b.real = subpd (real_tmp23a, real_tmp23b);			// combine 23a and 23b
-					b.imag = addpd (imag_tmp23a, imag_tmp23b);
-					c.real = addpd (real_tmp23a, real_tmp23b);
-					c.imag = subpd (imag_tmp23a, imag_tmp23b);
-#else
-					VDT real_tmp23a = fnmaddpd (half, b_plus_c.real, a.real);	// a - 0.5 * (b + c)
-					VDT imag_tmp23a = fnmaddpd (half, b_plus_c.imag, a.imag);
-					VDT real_tmp23b = subpd (b.imag, c.imag);			// 0.866 delayed * (b - c)
-					VDT imag_tmp23b = subpd (b.real, c.real);
-					b.real = fnmaddpd (_866, real_tmp23b, real_tmp23a);		// combine 23a and 23b
-					b.imag = fmaddpd  (_866, imag_tmp23b, imag_tmp23a);
-					c.real = fmaddpd  (_866, real_tmp23b, real_tmp23a);
-					c.imag = fnmaddpd (_866, imag_tmp23b, imag_tmp23a);
-#endif
+					cvsubfm (tmp23, a, half, b_plus_c);			// tmp23 = a - 0.5 * (b + c)
 
-					cvadd (a, a, b_plus_c);						// a + b + c
-					dest[outstride1*(group + group_member)] = a;
 					if (twiddle_idx == 0) {	// First group member's twiddles are 1+0i, skip twiddle multiply
+#if !VFMA
+						cvrmul (b_minus_c, _866, b_minus_c);
+						cviadd (b, tmp23, b_minus_c);			// b = tmp23 + i * .866 * (b - c)
+						cvisub (c, tmp23, b_minus_c);			// c = tmp23 - i * .866 * (b - c)
+#else
+						cviaddfm (b, tmp23, _866, b_minus_c);		// b = tmp23 + i * .866 * (b - c)
+						cvisubfm (c, tmp23, _866, b_minus_c);		// c = tmp23 - i * .866 * (b - c)
+#endif
+						cvadd (a, a, b_plus_c);				// a + b + c
+						dest[outstride1*(group + group_member)] = a;
 						dest[outstride1*(group + group_member + stride)]   = b;
 						dest[outstride1*(group + group_member + 2*stride)] = c;
 					}
 					else {			// Apply twiddles
-						CVDT twiddle1; cvload (twiddle1, pmdata->twiddles1[2*twiddle_idx], pmdata->twiddles1[2*twiddle_idx+1]);
-						cvmul     (dest[outstride1*(group + group_member + stride)], b, twiddle1);
-						cvconjmul (dest[outstride1*(group + group_member + 2*stride)], c, twiddle1);
+						TVDT twiddle1; twidload (twiddle1, &pmdata->twiddles1[2*twiddle_idx]);
+#if !VFMA
+						cvrmul (b_minus_c, _866, b_minus_c);
+						cvadd (a, a, b_plus_c);				// a + b + c
+						cviadd (b, tmp23, b_minus_c);			// b = tmp23 + i * .866 * (b - c)
+						cvisub (c, tmp23, b_minus_c);			// c = tmp23 - i * .866 * (b - c)
+						dest[outstride1*(group + group_member)] = a;
+						twidmul     (dest[outstride1*(group + group_member + stride)], b, twiddle1);
+						twidconjmul (dest[outstride1*(group + group_member + 2*stride)], c, twiddle1);
+#else
+						VDT sin866 = mulpd (_866, twiddle1.sin);
+						cvrmul (tmp23, twiddle1.sin, tmp23);
+						cvadd (a, a, b_plus_c);				// a + b + c
+						cviaddfm (b, tmp23, sin866, b_minus_c);		// b = tmp23 + i * .866 * (b - c)
+						cvisubfm (c, tmp23, sin866, b_minus_c);		// c = tmp23 - i * .866 * (b - c)
+						dest[outstride1*(group + group_member)] = a;
+						twidmuldelay     (dest[outstride1*(group + group_member + stride)], b, twiddle1);
+						twidconjmuldelay (dest[outstride1*(group + group_member + 2*stride)], c, twiddle1);
+#endif
 					}
 				}
 			    }
@@ -1399,63 +1896,72 @@ void fft_line (
 					CVDT d = src[instride1*(group + group_member + 3*stride)];
 					CVDT e = src[instride1*(group + group_member + 4*stride)];
 
-					CVDT b_plus_e; cvadd (b_plus_e, b, e);				// b + e
-					CVDT c_plus_d; cvadd (c_plus_d, c, d);				// c + d
-					CVDT b_minus_e; cvsub (b_minus_e, b, e);			// b - e
-					CVDT c_minus_d; cvsub (c_minus_d, c, d);			// c - d
+					CVDT b_plus_e, b_minus_e, c_plus_d, c_minus_d, tmp25a, tmp25b, tmp34a, tmp34b;
 
-#if !VFMA
-					VDT real_tmp25a = fmaddpd (_309, b_plus_e.real, fnmaddpd (_809, c_plus_d.real, a.real)); // a +.309*(b+e) -.809*(c+d)
-					VDT imag_tmp25a = fmaddpd (_309, b_plus_e.imag, fnmaddpd (_809, c_plus_d.imag, a.imag));
-					VDT real_tmp34a = fnmaddpd (_809, b_plus_e.real, fmaddpd (_309, c_plus_d.real, a.real)); // a -.809*(b+e) +.309*(c+d)
-					VDT imag_tmp34a = fnmaddpd (_809, b_plus_e.imag, fmaddpd (_309, c_plus_d.imag, a.imag));
-					VDT real_tmp25b = mulpd (_951, fmaddpd (_588_951, c_minus_d.imag, b_minus_e.imag));	// .951*(b-e) + 0.588*(c-d)
-					VDT imag_tmp25b = mulpd (_951, fmaddpd (_588_951, c_minus_d.real, b_minus_e.real));
-					VDT real_tmp34b = mulpd (_951, fmsubpd (_588_951, b_minus_e.imag, c_minus_d.imag));	// .588*(b-e) - 0.951*(c-d)
-					VDT imag_tmp34b = mulpd (_951, fmsubpd (_588_951, b_minus_e.real, c_minus_d.real));
-					b.real = subpd (real_tmp25a, real_tmp25b);				// combine 25a and 25b
-					b.imag = addpd (imag_tmp25a, imag_tmp25b);
-					e.real = addpd (real_tmp25a, real_tmp25b);
-					e.imag = subpd (imag_tmp25a, imag_tmp25b);
-					c.real = subpd (real_tmp34a, real_tmp34b);				// combine 34a and 34b
-					c.imag = addpd (imag_tmp34a, imag_tmp34b);
-					d.real = addpd (real_tmp34a, real_tmp34b);
-					d.imag = subpd (imag_tmp34a, imag_tmp34b);
-#else
-					VDT real_tmp25a = fmaddpd (_309, b_plus_e.real, fnmaddpd (_809, c_plus_d.real, a.real)); // a +.309*(b+e) -.809*(c+d)
-					VDT imag_tmp25a = fmaddpd (_309, b_plus_e.imag, fnmaddpd (_809, c_plus_d.imag, a.imag));
-					VDT real_tmp34a = fnmaddpd (_809, b_plus_e.real, fmaddpd (_309, c_plus_d.real, a.real)); // a -.809*(b+e) +.309*(c+d)
-					VDT imag_tmp34a = fnmaddpd (_809, b_plus_e.imag, fmaddpd (_309, c_plus_d.imag, a.imag));
-					VDT real_tmp25b = fmaddpd (_588_951, c_minus_d.imag, b_minus_e.imag);			// delayed .951*(b-e) + 0.588*(c-d)
-					VDT imag_tmp25b = fmaddpd (_588_951, c_minus_d.real, b_minus_e.real);
-					VDT real_tmp34b = fmsubpd (_588_951, b_minus_e.imag, c_minus_d.imag);			// delayed .588*(b-e) - 0.951*(c-d)
-					VDT imag_tmp34b = fmsubpd (_588_951, b_minus_e.real, c_minus_d.real);
-					b.real = fnmaddpd (_951, real_tmp25b, real_tmp25a);				// combine 25a and 25b
-					b.imag = fmaddpd  (_951, imag_tmp25b, imag_tmp25a);
-					e.real = fmaddpd  (_951, real_tmp25b, real_tmp25a);
-					e.imag = fnmaddpd (_951, imag_tmp25b, imag_tmp25a);
-					c.real = fnmaddpd (_951, real_tmp34b, real_tmp34a);				// combine 34a and 34b
-					c.imag = fmaddpd  (_951, imag_tmp34b, imag_tmp34a);
-					d.real = fmaddpd  (_951, real_tmp34b, real_tmp34a);
-					d.imag = fnmaddpd (_951, imag_tmp34b, imag_tmp34a);
-#endif
+					cvadd (b_plus_e, b, e);					// b + e
+					cvsub (b_minus_e, b, e);				// b - e
+					cvadd (c_plus_d, c, d);					// c + d
+					cvsub (c_minus_d, c, d);				// c - d
 
-					cvadd (a, a, b_plus_e);							// a + b + c + d + e
-					cvadd (a, a, c_plus_d);
-					dest[outstride1*(group + group_member)]   = a;
+					cvaddfm (tmp25a, a, _309, b_plus_e);
+					cvsubfm (tmp34a, a, _809, b_plus_e);
+					cvadd   (a, a, b_plus_e);
+					cvaddfm (tmp25b, b_minus_e, _588_951, c_minus_d);	// tmp25b = delayed .951*(b-e) + 0.588*(c-d)
+					cvsubfm (tmp34b, c_minus_d, _588_951, b_minus_e);	// tmp34b = delayed -.588*(b-e) + 0.951*(c-d)
+					cvsubfm (tmp25a, tmp25a, _809, c_plus_d);		// tmp25a = a +.309*(b+e) -.809*(c+d)
+					cvaddfm (tmp34a, tmp34a, _309, c_plus_d);		// tmp34a = a -.809*(b+e) +.309*(c+d)
+					cvadd   (a, a, c_plus_d);				// a + b + c + d + e
+
 					if (twiddle_idx == 0) {	// First group member's twiddles are 1+0i, skip twiddle multiply
+#if !VFMA
+						cvrmul (tmp25b, _951, tmp25b);			// tmp25b *= .951
+						cvrmul (tmp34b, _951, tmp34b);			// tmp34b *= .951
+						cviadd (b, tmp25a, tmp25b);			// b = tmp25a + i*tmp25b
+						cvisub (e, tmp25a, tmp25b);			// e = tmp25a - i*tmp25b
+						cvisub (c, tmp34a, tmp34b);			// c = tmp34a + i*tmp34b
+						cviadd (d, tmp34a, tmp34b);			// d = tmp34a - i*tmp34b
+#else
+						cviaddfm (b, tmp25a, _951, tmp25b);		// b = tmp25a + i*.951*tmp25b
+						cvisubfm (e, tmp25a, _951, tmp25b);		// e = tmp25a - i*.951*tmp25b
+						cvisubfm (c, tmp34a, _951, tmp34b);		// c = tmp34a + i*.951*tmp34b
+						cviaddfm (d, tmp34a, _951, tmp34b);		// d = tmp34a - i*.951*tmp34b
+#endif
+						dest[outstride1*(group + group_member)] = a;
 						dest[outstride1*(group + group_member + stride)]   = b;
 						dest[outstride1*(group + group_member + 2*stride)] = c;
 						dest[outstride1*(group + group_member + 3*stride)] = d;
 						dest[outstride1*(group + group_member + 4*stride)] = e;
 					}
 					else {			// Apply twiddles
-						CVDT twiddle1; cvload (twiddle1, pmdata->twiddles2[4*twiddle_idx], pmdata->twiddles2[4*twiddle_idx+1]);
-						CVDT twiddle2; cvload (twiddle2, pmdata->twiddles2[4*twiddle_idx+2], pmdata->twiddles2[4*twiddle_idx+3]);
-						cvmul     (dest[outstride1*(group + group_member + stride)], b, twiddle1);
-						cvmul     (dest[outstride1*(group + group_member + 2*stride)], c, twiddle2);
-						cvconjmul (dest[outstride1*(group + group_member + 3*stride)], d, twiddle2);
-						cvconjmul (dest[outstride1*(group + group_member + 4*stride)], e, twiddle1);
+						TVDT twiddle1; twidload (twiddle1, &pmdata->twiddles2[4*twiddle_idx]);
+						TVDT twiddle2; twidload (twiddle2, &pmdata->twiddles2[4*twiddle_idx+2]);
+#if !VFMA
+						cvrmul (tmp25b, _951, tmp25b);			// tmp25b *= .951
+						cvrmul (tmp34b, _951, tmp34b);			// tmp34b *= .951
+						cviadd (b, tmp25a, tmp25b);			// b = tmp25a + i*tmp25b
+						cvisub (e, tmp25a, tmp25b);			// e = tmp25a - i*tmp25b
+						cvisub (c, tmp34a, tmp34b);			// c = tmp34a + i*tmp34b
+						cviadd (d, tmp34a, tmp34b);			// d = tmp34a - i*tmp34b
+						dest[outstride1*(group + group_member)] = a;
+						twidmul     (dest[outstride1*(group + group_member + stride)], b, twiddle1);
+						twidmul     (dest[outstride1*(group + group_member + 2*stride)], c, twiddle2);
+						twidconjmul (dest[outstride1*(group + group_member + 3*stride)], d, twiddle2);
+						twidconjmul (dest[outstride1*(group + group_member + 4*stride)], e, twiddle1);
+#else
+						VDT sin1_951 = mulpd (_951, twiddle1.sin);
+						VDT sin2_951 = mulpd (_951, twiddle2.sin);
+						cvrmul   (tmp25a, twiddle1.sin, tmp25a);
+						cvrmul   (tmp34a, twiddle2.sin, tmp34a);
+						cviaddfm (b, tmp25a, sin1_951, tmp25b);		// b = tmp25a + i*.951*tmp25b
+						cvisubfm (e, tmp25a, sin1_951, tmp25b);		// e = tmp25a - i*.951*tmp25b
+						cvisubfm (c, tmp34a, sin2_951, tmp34b);		// c = tmp34a + i*.951*tmp34b
+						cviaddfm (d, tmp34a, sin2_951, tmp34b);		// d = tmp34a - i*.951*tmp34b
+						dest[outstride1*(group + group_member)] = a;
+						twidmuldelay     (dest[outstride1*(group + group_member + stride)], b, twiddle1);
+						twidmuldelay     (dest[outstride1*(group + group_member + 2*stride)], c, twiddle2);
+						twidconjmuldelay (dest[outstride1*(group + group_member + 3*stride)], d, twiddle2);
+						twidconjmuldelay (dest[outstride1*(group + group_member + 4*stride)], e, twiddle1);
+#endif
 					}
 				}
 			    }
@@ -1473,28 +1979,44 @@ void fft_line (
 					CVDT c = src[instride1*(group + group_member + 2*stride)];
 					CVDT d = src[instride1*(group + group_member + 3*stride)];
 
-					CVDT new_a; cvadd (new_a, a, c);			// a + c
 					CVDT new_c; cvsub (new_c, a, c);			// a - c
-					CVDT new_b; cvadd (new_b, b, d);			// b + d
 					CVDT new_d; cvsub (new_d, b, d);			// b - d
+					CVDT new_a; cvadd (new_a, a, c);			// a + c
+					CVDT new_b; cvadd (new_b, b, d);			// b + d
 
-					cvadd  (a, new_a, new_b);				// a + b
-					cvsub  (b, new_a, new_b);				// a - b
-					cviadd (c, new_c, new_d);				// c + id
-					cvisub (d, new_c, new_d);				// c - id
-
-					dest[outstride1*(group + group_member)] = a;
 					if (twiddle_idx == 0) {	// First group member's twiddles are 1+0i, skip twiddle multiply
+						cviadd (c, new_c, new_d);			// c + id
+						cvisub (d, new_c, new_d);			// c - id
+						cvadd  (a, new_a, new_b);			// a + b
+						cvsub  (b, new_a, new_b);			// a - b
+						dest[outstride1*(group + group_member)] = a;
 						dest[outstride1*(group + group_member + 1*stride)] = c;		// Do not bit-reverse outputs
 						dest[outstride1*(group + group_member + 2*stride)] = b;
 						dest[outstride1*(group + group_member + 3*stride)] = d;
 					}
 					else {			// Apply twiddles
-						CVDT twiddle1; cvload (twiddle1, pmdata->twiddles2[4*twiddle_idx], pmdata->twiddles2[4*twiddle_idx+1]);
-						CVDT twiddle2; cvload (twiddle2, pmdata->twiddles2[4*twiddle_idx+2], pmdata->twiddles2[4*twiddle_idx+3]);
-						cvmul     (dest[outstride1*(group + group_member + 1*stride)], c, twiddle1);
-						cvmul     (dest[outstride1*(group + group_member + 2*stride)], b, twiddle2);
-						cvconjmul (dest[outstride1*(group + group_member + 3*stride)], d, twiddle1);
+						TVDT twiddle1; twidload (twiddle1, &pmdata->twiddles2[4*twiddle_idx]);
+						TVDT twiddle2; twidload (twiddle2, &pmdata->twiddles2[4*twiddle_idx+2]);
+#if !VFMA
+						cviadd (c, new_c, new_d);			// c + id
+						cvisub (d, new_c, new_d);			// c - id
+						cvadd  (a, new_a, new_b);			// a + b
+						cvsub  (b, new_a, new_b);			// a - b
+						dest[outstride1*(group + group_member)] = a;
+						twidmul     (dest[outstride1*(group + group_member + 1*stride)], c, twiddle1);
+						twidmul     (dest[outstride1*(group + group_member + 2*stride)], b, twiddle2);
+						twidconjmul (dest[outstride1*(group + group_member + 3*stride)], d, twiddle1);
+#else
+						cvrmul   (new_c, twiddle1.sin, new_c);
+						cvadd  (a, new_a, new_b);			// a + b
+						cvsub  (b, new_a, new_b);			// a - b
+						cviaddfm (c, new_c, twiddle1.sin, new_d);	// c + id
+						cvisubfm (d, new_c, twiddle1.sin, new_d);	// c - id
+						dest[outstride1*(group + group_member)] = a;
+						twidmuldelay     (dest[outstride1*(group + group_member + 1*stride)], c, twiddle1);
+						twidmul          (dest[outstride1*(group + group_member + 2*stride)], b, twiddle2);
+						twidconjmuldelay (dest[outstride1*(group + group_member + 3*stride)], d, twiddle1);
+#endif
 					}
 				}
 			    }
@@ -1543,10 +2065,8 @@ void fft_line (
 					twid_h.real = addpd (h.real, h.imag);			// -twiddled h / .707
 					twid_h.imag = subpd (h.imag, h.real);
 #if !VFMA
-					twid_f.real = mulpd (_707, twid_f.real);		// twiddled f
-					twid_f.imag = mulpd (_707, twid_f.imag);
-					twid_h.real = mulpd (_707, twid_h.real);		// -twiddled h
-					twid_h.imag = mulpd (_707, twid_h.imag);
+					cvrmul (twid_f, _707, twid_f);				// twiddled f
+					cvrmul (twid_h, _707, twid_h);				// -twiddled h
 					cvadd (new_e, e, twid_f);				// e + (sqrthalf+sqrthalf*i)f
 					cvsub (new_f, e, twid_f);				// e - (sqrthalf+sqrthalf*i)f
 					cvsub (new_g, g, twid_h);				// g + (-sqrthalf+sqrthalf*i)h
@@ -1582,9 +2102,9 @@ void fft_line (
 		    for (unsigned int j = 0; j < pass_size; j++) {
 			CVDT x = invec1[blke * pass2_size + j];
 			CVDT y = invec2[blke * pass2_size + j];
-			outvec[blke * pass2_size + j].real = mulpd (fmsubpd (x.real, y.real, mulpd (x.imag, y.imag)), inv_fft_size);
-			outvec[blke * pass2_size + j].imag = mulpd (fmaddpd (x.real, y.imag, mulpd (x.imag, y.real)), inv_fft_size);
+			cvmul (outvec[blke * pass2_size + j], x, y);
 		    }
+		    inv_fft_applied = FALSE;
 		}
 
 // Inverse FFT
@@ -1615,7 +2135,6 @@ void fft_line (
 
 		// Radix-8 FFT (if needed it is the last radix block done in pass 2)
 		if (pass == 2 && powers_of_two & 1) {		// If odd number of powers of two do a radix-8 step
-			VDT _707 = broadcastsd (0.70710678118654752440084436210485);
 			twiddle45_stride /= 8;		// Next twiddle stride amount
 			for (unsigned int group = 0; group < pass_size; group += stride * 8) {
 				for (unsigned int group_member = 0; group_member < stride; group_member++) {
@@ -1629,8 +2148,17 @@ void fft_line (
 					CVDT h = src[group + group_member + 7*stride];
 
 					CVDT new_a, new_b, new_c, new_d, new_e, new_f, new_g, new_h, twid_f, twid_h;
+
+					// Do the distance = 4 round, mul by inv_fft_size as efficiently as possible
+					cvrmul (a, inv_fft_size, a);
+#if !VFMA
+					cvrmul (e, inv_fft_size, e);
 					cvadd (new_a, a, e);					// a + e
 					cvsub (new_e, a, e);					// a - e
+#else
+					cvaddfm (new_a, a, inv_fft_size, e);			// a + e
+					cvsubfm (new_e, a, inv_fft_size, e);			// a - e
+#endif
 					cvadd (new_b, b, f);					// b + f
 					cvsub (new_f, b, f);					// b - f
 					cvadd (new_c, c, g);					// c + g
@@ -1638,37 +2166,55 @@ void fft_line (
 					cvadd (new_d, d, h);					// d + h
 					cvsub (new_h, d, h);					// d - h
 
+					// Do the distance = 2 round, mul by inv_fft_size as efficiently as possible
+#if !VFMA
+					cvrmul (new_c, inv_fft_size, new_c);
+					cvrmul (new_g, inv_fft_size, new_g);
 					cvadd  (a, new_a, new_c);				// a + c
 					cvsub  (c, new_a, new_c);				// a - c
-					cvadd  (b, new_b, new_d);				// b + d
-					cvsub  (d, new_b, new_d);				// b - d
 					cvisub (e, new_e, new_g);				// e - ig
 					cviadd (g, new_e, new_g);				// e + ig
+#else
+					cvaddfm  (a, new_a, inv_fft_size, new_c);		// a + c
+					cvsubfm  (c, new_a, inv_fft_size, new_c);		// a - c
+					cvisubfm (e, new_e, inv_fft_size, new_g);		// e - ig
+					cviaddfm (g, new_e, inv_fft_size, new_g);		// e + ig
+#endif
+					cvadd  (b, new_b, new_d);				// b + d
+					cvsub  (d, new_b, new_d);				// b - d
 					cvisub (f, new_f, new_h);				// f - ih
 					cviadd (h, new_f, new_h);				// f + ih
 
+					// Do the distance = 1 round, mul by inv_fft_size as efficiently as possible
+#if !VFMA
+					cvrmul (b, inv_fft_size, b);
+					cvrmul (d, inv_fft_size, d);
 					cvadd  (new_a, a, b);					// a + b
 					cvsub  (new_b, a, b);					// a - b
 					cvisub (new_c, c, d);					// c - id
 					cviadd (new_d, c, d);					// c + id
+#else
+					cvaddfm  (new_a, a, inv_fft_size, b);			// a + b
+					cvsubfm  (new_b, a, inv_fft_size, b);			// a - b
+					cvisubfm (new_c, c, inv_fft_size, d);			// c - id
+					cviaddfm (new_d, c, inv_fft_size, d);			// c + id
+#endif
 					twid_f.real = addpd (f.real, f.imag);			// twiddled f / .707
 					twid_f.imag = subpd (f.imag, f.real);
 					twid_h.real = subpd (h.real, h.imag);			// -twiddled h / .707
 					twid_h.imag = addpd (h.real, h.imag);
 #if !VFMA
-					twid_f.real = mulpd (_707, twid_f.real);		// twiddled f
-					twid_f.imag = mulpd (_707, twid_f.imag);
-					twid_h.real = mulpd (_707, twid_h.real);		// -twiddled h
-					twid_h.imag = mulpd (_707, twid_h.imag);
+					cvrmul (twid_f, inv_fft_size_707, twid_f);		// twiddled f
+					cvrmul (twid_h, inv_fft_size_707, twid_h);		// -twiddled h
 					cvadd (new_e, e, twid_f);				// e + (sqrthalf-sqrthalf*i)f
 					cvsub (new_f, e, twid_f);				// e - (sqrthalf-sqrthalf*i)f
 					cvsub (new_g, g, twid_h);				// g + (-sqrthalf-sqrthalf*i)h
 					cvadd (new_h, g, twid_h);				// g - (-sqrthalf-sqrthalf*i)h
 #else
-					cvaddfm (new_e, e, _707, twid_f);			// e + (sqrthalf-sqrthalf*i)f
-					cvsubfm (new_f, e, _707, twid_f);			// e - (sqrthalf-sqrthalf*i)f
-					cvsubfm (new_g, g, _707, twid_h);			// g + (-sqrthalf-sqrthalf*i)h
-					cvaddfm (new_h, g, _707, twid_h);			// g - (-sqrthalf-sqrthalf*i)h
+					cvaddfm (new_e, e, inv_fft_size_707, twid_f);		// e + (sqrthalf-sqrthalf*i)f
+					cvsubfm (new_f, e, inv_fft_size_707, twid_f);		// e - (sqrthalf-sqrthalf*i)f
+					cvsubfm (new_g, g, inv_fft_size_707, twid_h);		// g + (-sqrthalf-sqrthalf*i)h
+					cvaddfm (new_h, g, inv_fft_size_707, twid_h);		// g - (-sqrthalf-sqrthalf*i)h
 #endif
 
 					dest[group + group_member] = new_a;			// Do not bit reverse outputs
@@ -1682,6 +2228,7 @@ void fft_line (
 				}
 			}
 			stride *= 8;			// Next stride amount
+			inv_fft_applied = TRUE;
 		}
 
 		// Radix-4 FFT, one fewer complex multiply than radix-2, does more work while data is in registers
@@ -1697,30 +2244,80 @@ void fft_line (
 					CVDT d = src[instride1*(group + group_member + 3*stride)];
 
 					// Special case first group member, no twiddles necessary
-					CVDT twiddled_b, twiddled_c, twiddled_d;
+					CVDT	new_a, new_b, new_c, new_d;
 					if (twiddle_idx == 0) {
-						twiddled_b = b;
-						twiddled_c = c;
-						twiddled_d = d;
+						if (inv_fft_applied) {
+							cvadd (new_a, a, c);		// a + c
+							cvsub (new_c, a, c);		// a - c
+							cvadd (new_b, b, d);		// b + d
+							cvsub (new_d, b, d);		// b - d
+
+							cvadd  (a, new_a, new_b);	// a + b
+							cvsub  (b, new_a, new_b);	// a - b
+							cvisub (c, new_c, new_d);	// c - id
+							cviadd (d, new_c, new_d);	// c + id
+						} else {
+							cvrmul (a, inv_fft_size, a);
+#if !VFMA
+							cvrmul (b, inv_fft_size, b);
+							cvrmul (c, inv_fft_size, c);
+							cvrmul (d, inv_fft_size, d);
+
+							cvadd (new_a, a, c);		// a + c
+							cvsub (new_c, a, c);		// a - c
+							cvadd (new_b, b, d);		// b + d
+							cvsub (new_d, b, d);		// b - d
+
+							cvadd  (a, new_a, new_b);	// a + b
+							cvsub  (b, new_a, new_b);	// a - b
+							cvisub (c, new_c, new_d);	// c - id
+							cviadd (d, new_c, new_d);	// c + id
+#else
+							cvaddfm (new_a, a, inv_fft_size, c);		// a + c
+							cvsubfm (new_c, a, inv_fft_size, c);		// a - c
+							cvadd   (new_b, b, d);				// b + d
+							cvsub   (new_d, b, d);				// b - d
+
+							cvaddfm  (a, new_a, inv_fft_size, new_b);	// a + b
+							cvsubfm  (b, new_a, inv_fft_size, new_b);	// a - b
+							cvisubfm (c, new_c, inv_fft_size, new_d);	// c - id
+							cviaddfm (d, new_c, inv_fft_size, new_d);	// c + id
+#endif
+						}
 					}
 					// Apply the CONJUGATE of the twiddle
 					else {
-						CVDT twiddle1; cvload (twiddle1, pmdata->twiddles2[4*twiddle_idx], pmdata->twiddles2[4*twiddle_idx+1]);
-						CVDT twiddle2; cvload (twiddle2, pmdata->twiddles2[4*twiddle_idx+2], pmdata->twiddles2[4*twiddle_idx+3]);
-						cvconjmul (twiddled_b, b, twiddle1);
-						cvconjmul (twiddled_c, c, twiddle2);
-						cvmul     (twiddled_d, d, twiddle1);
+						CVDT	twiddled_b, twiddled_c, twiddled_d;
+						TVDT twiddle1; twidload (twiddle1, &pmdata->twiddles2[4*twiddle_idx]);
+						TVDT twiddle2; twidload (twiddle2, &pmdata->twiddles2[4*twiddle_idx+2]);
+#if !VFMA
+						twidconjmul (twiddled_b, b, twiddle1);
+						twidconjmul (twiddled_c, c, twiddle2);
+						twidmul     (twiddled_d, d, twiddle1);
+						cvadd (new_a, a, twiddled_c);				// a + c
+						cvsub (new_c, a, twiddled_c);				// a - c
+						cvadd (new_b, twiddled_b, twiddled_d);			// b + d
+						cvsub (new_d, twiddled_b, twiddled_d);			// b - d
+
+						cvadd  (a, new_a, new_b);				// a + b
+						cvsub  (b, new_a, new_b);				// a - b
+						cvisub (c, new_c, new_d);				// c - id
+						cviadd (d, new_c, new_d);				// c + id
+#else
+						twidconjmuldelay (twiddled_b, b, twiddle1);
+						twidconjmuldelay (twiddled_c, c, twiddle2);
+						twidmuldelay     (twiddled_d, d, twiddle1);
+						cvaddfm (new_a, a, twiddle2.sin, twiddled_c);		// a + c
+						cvsubfm (new_c, a, twiddle2.sin, twiddled_c);		// a - c
+						cvadd (new_b, twiddled_b, twiddled_d);			// b + d
+						cvsub (new_d, twiddled_b, twiddled_d);			// b - d
+
+						cvaddfm  (a, new_a, twiddle1.sin, new_b);		// a + b
+						cvsubfm  (b, new_a, twiddle1.sin, new_b);		// a - b
+						cvisubfm (c, new_c, twiddle1.sin, new_d);		// c - id
+						cviaddfm (d, new_c, twiddle1.sin, new_d);		// c + id
+#endif
 					}
-
-					CVDT new_a; cvadd (new_a, a, twiddled_c);			// a + c
-					CVDT new_c; cvsub (new_c, a, twiddled_c);			// a - c
-					CVDT new_b; cvadd (new_b, twiddled_b, twiddled_d);		// b + d
-					CVDT new_d; cvsub (new_d, twiddled_b, twiddled_d);		// b - d
-
-					cvadd  (a, new_a, new_b);					// a + b
-					cvsub  (b, new_a, new_b);					// a - b
-					cvisub (c, new_c, new_d);					// c - id
-					cviadd (d, new_c, new_d);					// c + id
 
 					// Save results
 					dest[outstride1*(group + group_member)]            = a;		// Do not bit reverse outputs
@@ -1729,6 +2326,7 @@ void fft_line (
 					dest[outstride1*(group + group_member + 3*stride)] = d;
 				}
 			}
+			inv_fft_applied = TRUE;
 		}
 
 		// Radix-5 FFT
@@ -1759,65 +2357,56 @@ void fft_line (
 					CVDT e = src[instride1*(group + group_member + 4*stride)];
 
 					// Special case first group member, no twiddles necessary
-					CVDT twiddled_b, twiddled_c, twiddled_d, twiddled_e;
+					CVDT	b_plus_e, b_minus_e, c_plus_d, c_minus_d;
 					if (twiddle_idx == 0) {
-						twiddled_b = b;
-						twiddled_c = c;
-						twiddled_d = d;
-						twiddled_e = e;
+						cvadd (b_plus_e, b, e);				// b + e
+						cvsub (b_minus_e, b, e);			// b - e
+						cvadd (c_plus_d, c, d);				// c + d
+						cvsub (c_minus_d, c, d);			// c - d
 					}
 					// Apply the CONJUGATE of the twiddle
 					else {
-						CVDT twiddle1; cvload (twiddle1, pmdata->twiddles2[4*twiddle_idx], pmdata->twiddles2[4*twiddle_idx+1]);
-						CVDT twiddle2; cvload (twiddle2, pmdata->twiddles2[4*twiddle_idx+2], pmdata->twiddles2[4*twiddle_idx+3]);
-						cvconjmul (twiddled_b, b, twiddle1);
-						cvconjmul (twiddled_c, c, twiddle2);
-						cvmul     (twiddled_d, d, twiddle2);
-						cvmul     (twiddled_e, e, twiddle1);
+						CVDT twiddled_b, twiddled_c, twiddled_d, twiddled_e;
+						TVDT twiddle1; twidload (twiddle1, &pmdata->twiddles2[4*twiddle_idx]);
+						TVDT twiddle2; twidload (twiddle2, &pmdata->twiddles2[4*twiddle_idx+2]);
+						twidconjmul (twiddled_b, b, twiddle1);
+						twidconjmul (twiddled_c, c, twiddle2);
+#if !VFMA
+						twidmul (twiddled_d, d, twiddle2);
+						twidmul (twiddled_e, e, twiddle1);
+						cvadd (b_plus_e, twiddled_b, twiddled_e);			// b + e
+						cvsub (b_minus_e, twiddled_b, twiddled_e);			// b - e
+						cvadd (c_plus_d, twiddled_c, twiddled_d);			// c + d
+						cvsub (c_minus_d, twiddled_c, twiddled_d);			// c - d
+#else
+						twidmuldelay (twiddled_d, d, twiddle2);
+						twidmuldelay (twiddled_e, e, twiddle1);
+						cvaddfm (b_plus_e, twiddled_b, twiddle1.sin, twiddled_e);	// b + e
+						cvsubfm (b_minus_e, twiddled_b, twiddle1.sin, twiddled_e);	// b - e
+						cvaddfm (c_plus_d, twiddled_c, twiddle2.sin, twiddled_d);	// c + d
+						cvsubfm (c_minus_d, twiddled_c, twiddle2.sin, twiddled_d);	// c - d
+#endif
 					}
 
-					CVDT b_plus_e; cvadd (b_plus_e, twiddled_b, twiddled_e);			// b + e
-					CVDT c_plus_d; cvadd (c_plus_d, twiddled_c, twiddled_d);			// c + d
-					CVDT b_minus_e; cvsub (b_minus_e, twiddled_b, twiddled_e);			// b - e
-					CVDT c_minus_d; cvsub (c_minus_d, twiddled_c, twiddled_d);			// c - d
-
+					CVDT tmp25a, tmp25b, tmp34a, tmp34b;
+					cvaddfm (tmp25a, a, _309, b_plus_e); cvsubfm (tmp25a, tmp25a, _809, c_plus_d);	// tmp25a = a +.309*(b+e) -.809*(c+d)
+					cvsubfm (tmp34a, a, _809, b_plus_e); cvaddfm (tmp34a, tmp34a, _309, c_plus_d);	// tmp34a = a -.809*(b+e) +.309*(c+d)
+					cvaddfm (tmp25b, b_minus_e, _588_951, c_minus_d);				// tmp25b = delayed .951*(b-e) + 0.588*(c-d)
+					cvsubfm (tmp34b, c_minus_d, _588_951, b_minus_e);				// tmp34b = delayed -.588*(b-e) + 0.951*(c-d)
 #if !VFMA
-					VDT real_tmp25a = fmaddpd (_309, b_plus_e.real, fnmaddpd (_809, c_plus_d.real, a.real)); // a +.309*(b+e) -.809*(c+d)
-					VDT imag_tmp25a = fmaddpd (_309, b_plus_e.imag, fnmaddpd (_809, c_plus_d.imag, a.imag));
-					VDT real_tmp34a = fnmaddpd (_809, b_plus_e.real, fmaddpd (_309, c_plus_d.real, a.real)); // a -.809*(b+e) +.309*(c+d)
-					VDT imag_tmp34a = fnmaddpd (_809, b_plus_e.imag, fmaddpd (_309, c_plus_d.imag, a.imag));
-					VDT real_tmp25b = mulpd (_951, fmaddpd (_588_951, c_minus_d.imag, b_minus_e.imag));	// .951*(b-e) + 0.588*(c-d)
-					VDT imag_tmp25b = mulpd (_951, fmaddpd (_588_951, c_minus_d.real, b_minus_e.real));
-					VDT real_tmp34b = mulpd (_951, fmsubpd (_588_951, b_minus_e.imag, c_minus_d.imag));	// .588*(b-e) - 0.951*(c-d)
-					VDT imag_tmp34b = mulpd (_951, fmsubpd (_588_951, b_minus_e.real, c_minus_d.real));
-					b.real = addpd (real_tmp25a, real_tmp25b);				// combine 25a and 25b
-					b.imag = subpd (imag_tmp25a, imag_tmp25b);
-					e.real = subpd (real_tmp25a, real_tmp25b);
-					e.imag = addpd (imag_tmp25a, imag_tmp25b);
-					c.real = addpd (real_tmp34a, real_tmp34b);				// combine 34a and 34b
-					c.imag = subpd (imag_tmp34a, imag_tmp34b);
-					d.real = subpd (real_tmp34a, real_tmp34b);
-					d.imag = addpd (imag_tmp34a, imag_tmp34b);
+					cvrmul (tmp25b, _951, tmp25b);				// tmp25b *= .951
+					cvrmul (tmp34b, _951, tmp34b);				// tmp34b *= .951
+					cvisub (b, tmp25a, tmp25b);				// b = tmp25a - i*tmp25b
+					cviadd (e, tmp25a, tmp25b);				// e = tmp25a + i*tmp25b
+					cviadd (c, tmp34a, tmp34b);				// c = tmp34a - i*tmp34b
+					cvisub (d, tmp34a, tmp34b);				// d = tmp34a + i*tmp34b
 #else
-					VDT real_tmp25a = fmaddpd (_309, b_plus_e.real, fnmaddpd (_809, c_plus_d.real, a.real)); // a +.309*(b+e) -.809*(c+d)
-					VDT imag_tmp25a = fmaddpd (_309, b_plus_e.imag, fnmaddpd (_809, c_plus_d.imag, a.imag));
-					VDT real_tmp34a = fnmaddpd (_809, b_plus_e.real, fmaddpd (_309, c_plus_d.real, a.real)); // a -.809*(b+e) +.309*(c+d)
-					VDT imag_tmp34a = fnmaddpd (_809, b_plus_e.imag, fmaddpd (_309, c_plus_d.imag, a.imag));
-					VDT real_tmp25b = fmaddpd (_588_951, c_minus_d.imag, b_minus_e.imag);			// delayed .951*(b-e) + 0.588*(c-d)
-					VDT imag_tmp25b = fmaddpd (_588_951, c_minus_d.real, b_minus_e.real);
-					VDT real_tmp34b = fmsubpd (_588_951, b_minus_e.imag, c_minus_d.imag);			// delayed .588*(b-e) - 0.951*(c-d)
-					VDT imag_tmp34b = fmsubpd (_588_951, b_minus_e.real, c_minus_d.real);
-					b.real = fmaddpd  (_951, real_tmp25b, real_tmp25a);				// combine 25a and 25b
-					b.imag = fnmaddpd (_951, imag_tmp25b, imag_tmp25a);
-					e.real = fnmaddpd (_951, real_tmp25b, real_tmp25a);
-					e.imag = fmaddpd  (_951, imag_tmp25b, imag_tmp25a);
-					c.real = fmaddpd  (_951, real_tmp34b, real_tmp34a);				// combine 34a and 34b
-					c.imag = fnmaddpd (_951, imag_tmp34b, imag_tmp34a);
-					d.real = fnmaddpd (_951, real_tmp34b, real_tmp34a);
-					d.imag = fmaddpd  (_951, imag_tmp34b, imag_tmp34a);
+					cvisubfm (b, tmp25a, _951, tmp25b);			// b = tmp25a - i*.951*tmp25b
+					cviaddfm (e, tmp25a, _951, tmp25b);			// e = tmp25a + i*.951*tmp25b
+					cviaddfm (c, tmp34a, _951, tmp34b);			// c = tmp34a - i*.951*tmp34b
+					cvisubfm (d, tmp34a, _951, tmp34b);			// d = tmp34a + i*.951*tmp34b
 #endif
-
-					cvadd (a, a, b_plus_e);							// a + b + c + d + e
+					cvadd (a, a, b_plus_e);					// a + b + c + d + e
 					cvadd (a, a, c_plus_d);
 
 					// Save results
@@ -1848,41 +2437,38 @@ void fft_line (
 					CVDT c = src[instride1*(group + group_member + 2*stride)];
 
 					// Special case first group member, no twiddles necessary
-					CVDT twiddled_b, twiddled_c;
+					CVDT	b_plus_c, b_minus_c;
 					if (twiddle_idx == 0) {
-						twiddled_b = b;
-						twiddled_c = c;
+						cvadd (b_plus_c, b, c);			// b + c
+						cvsub (b_minus_c, b, c);		// b - c
 					}
 					// Apply the CONJUGATE of the twiddle
 					else {
-						CVDT twiddle1; cvload (twiddle1, pmdata->twiddles1[2*twiddle_idx], pmdata->twiddles1[2*twiddle_idx+1]);
-						cvconjmul (twiddled_b, b, twiddle1);
-						cvmul     (twiddled_c, c, twiddle1);
+						CVDT twiddled_b, twiddled_c;
+						TVDT twiddle1; twidload (twiddle1, &pmdata->twiddles1[2*twiddle_idx]);
+						twidconjmul  (twiddled_b, b, twiddle1);
+#if !VFMA
+						twidmul (twiddled_c, c, twiddle1);
+						cvadd (b_plus_c, twiddled_b, twiddled_c);			// b + c
+						cvsub (b_minus_c, twiddled_b, twiddled_c);			// b - c
+#else
+						twidmuldelay (twiddled_c, c, twiddle1);
+						cvaddfm (b_plus_c, twiddled_b, twiddle1.sin, twiddled_c);	// b + c
+						cvsubfm (b_minus_c, twiddled_b, twiddle1.sin, twiddled_c);	// b - c
+#endif
 					}
 
-					CVDT b_plus_c; cvadd (b_plus_c, twiddled_b, twiddled_c);			// b + c
-
+					CVDT tmp23; cvsubfm (tmp23, a, half, b_plus_c);			// tmp23 = a - 0.5 * (b + c)
 #if !VFMA
-					VDT real_tmp23a = fnmaddpd (half, b_plus_c.real, a.real);			// a - 0.5 * (b + c)
-					VDT imag_tmp23a = fnmaddpd (half, b_plus_c.imag, a.imag);
-					VDT real_tmp23b = mulpd (_866, subpd (twiddled_b.imag, twiddled_c.imag));	// 0.866 * (b - c)
-					VDT imag_tmp23b = mulpd (_866, subpd (twiddled_b.real, twiddled_c.real));
-					b.real = addpd (real_tmp23a, real_tmp23b);					// combine 23a and 23b
-					b.imag = subpd (imag_tmp23a, imag_tmp23b);
-					c.real = subpd (real_tmp23a, real_tmp23b);
-					c.imag = addpd (imag_tmp23a, imag_tmp23b);
+					cvrmul (b_minus_c, _866, b_minus_c);
+					cvisub (b, tmp23, b_minus_c);					// b = tmp23 - i * .866 * (b - c)
+					cviadd (c, tmp23, b_minus_c);					// c = tmp23 + i * .866 * (b - c)
 #else
-					VDT real_tmp23a = fnmaddpd (half, b_plus_c.real, a.real);			// a - 0.5 * (b + c)
-					VDT imag_tmp23a = fnmaddpd (half, b_plus_c.imag, a.imag);
-					VDT real_tmp23b = subpd (twiddled_b.imag, twiddled_c.imag);			// 0.866 delayed * (b - c)
-					VDT imag_tmp23b = subpd (twiddled_b.real, twiddled_c.real);
-					b.real = fmaddpd  (_866, real_tmp23b, real_tmp23a);				// combine 23a and 23b
-					b.imag = fnmaddpd (_866, imag_tmp23b, imag_tmp23a);
-					c.real = fnmaddpd (_866, real_tmp23b, real_tmp23a);
-					c.imag = fmaddpd  (_866, imag_tmp23b, imag_tmp23a);
+					cvisubfm (b, tmp23, _866, b_minus_c);				// b = tmp23 - i * .866 * (b - c)
+					cviaddfm (c, tmp23, _866, b_minus_c);				// c = tmp23 + i * .866 * (b - c)
 #endif
+					cvadd (a, a, b_plus_c);						// a + b + c
 
-					cvadd (a, a, b_plus_c);								// a + b + c
 					dest[outstride1*(group + group_member)] = a;
 					dest[outstride1*(group + group_member + stride)] = b;
 					dest[outstride1*(group + group_member + 2*stride)] = c;
@@ -1895,21 +2481,40 @@ void fft_line (
 }
 
 // outvec += input vector shifted the proper amount to create a monic polymult result
-void monic_line_add_hi (CVDT *invec, int invec_size, CVDT *outvec, int outvec_size)
+void monic_line_add_hi (CVDT *fft1, CVDT *invec, int invec_size, CVDT *outvec, int outvec_size)
 {
 	// Add words starting from the highest word
-	for (invec += invec_size-1, outvec += outvec_size-1; invec_size; invec--, outvec--, invec_size--) cvadd (outvec[0], outvec[0], invec[0]);
+	for (invec += invec_size-1, outvec += outvec_size-1; invec_size; invec--, outvec--, invec_size--) {
+		CVDT	tmp;
+		cvmul (tmp, *fft1, invec[0]);
+		cvadd (outvec[0], outvec[0], tmp);
+	}
 }
 
 // outvec += input vector shifted to the low part of outvec
-void monic_line_add_lo (CVDT *invec, int invec_size, CVDT *outvec, int outvec_size)
+void monic_line_add_lo (CVDT *fft1, CVDT *invec, int invec_size, CVDT *outvec, int outvec_size)
 {
-	for ( ; invec_size; invec++, outvec++, invec_size--) cvadd (outvec[0], outvec[0], invec[0]);
+	for ( ; invec_size; invec++, outvec++, invec_size--) {
+		CVDT	tmp;
+		cvmul (tmp, *fft1, invec[0]);
+		cvadd (outvec[0], outvec[0], tmp);
+	}
 }
 
 // Make adjustments to outvec for any monic input vectors
-void monic_line_adjustments (CVDT *invec1, int invec1_size, CVDT *invec2, int invec2_size, CVDT *outvec, int outvec_size, int options)
+void monic_line_adjustments (
+	gwhandle *gwdata,
+	CVDT	*invec1,
+	int	invec1_size,
+	CVDT	*invec2,
+	int	invec2_size,
+	CVDT	*outvec,
+	int	outvec_size,
+	int	line,
+	int	options)
 {
+	CVDT	fft1;
+
 	// If neither input is monic, no adjustments are necessary
 	if (! (options & POLYMULT_INVEC1_MONIC) && ! (options & POLYMULT_INVEC2_MONIC)) return;
 
@@ -1925,13 +2530,269 @@ void monic_line_adjustments (CVDT *invec1, int invec1_size, CVDT *invec2, int in
 	outvec_size++;
 	memset (&outvec[outvec_size-1], 0, sizeof (CVDT));
 
+	// If k != 1, we need to multiply the monic add-ins by FFT(1).
+	if (gwdata->k != 1.0) {
+		read_line (gwdata, &gwdata->GW_FFT1, 1, line, &fft1, 0, FALSE);
+	} else {
+		fft1.real = broadcastsd (1.0);
+		fft1.imag = broadcastsd (0.0);
+	}
+
 	// Adjust for an implied high coefficient of one -- add in the other poly in the high words
-	if (options & POLYMULT_INVEC1_MONIC) monic_line_add_hi (invec2, invec2_size, outvec, outvec_size);
-	if (options & POLYMULT_INVEC2_MONIC) monic_line_add_hi (invec1, invec1_size, outvec, outvec_size);
+	if (options & POLYMULT_INVEC1_MONIC) monic_line_add_hi (&fft1, invec2, invec2_size, outvec, outvec_size);
+	if (options & POLYMULT_INVEC2_MONIC) monic_line_add_hi (&fft1, invec1, invec1_size, outvec, outvec_size);
 
 	// Adjust for an implied low coefficient of one -- add in the other poly to the low words
-	if ((options & POLYMULT_INVEC1_MONIC) && (options & POLYMULT_INVEC1_RLP)) monic_line_add_lo (invec2, invec2_size, outvec, outvec_size);
-	if ((options & POLYMULT_INVEC2_MONIC) && (options & POLYMULT_INVEC2_RLP)) monic_line_add_lo (invec1, invec1_size, outvec, outvec_size);
+	if ((options & POLYMULT_INVEC1_MONIC) && (options & POLYMULT_INVEC1_RLP)) monic_line_add_lo (&fft1, invec2, invec2_size, outvec, outvec_size);
+	if ((options & POLYMULT_INVEC2_MONIC) && (options & POLYMULT_INVEC2_RLP)) monic_line_add_lo (&fft1, invec1, invec1_size, outvec, outvec_size);
+}
+
+// Read a line that was preprocessed by polymult_preprocess
+#ifndef FMA
+void read_preprocess_line (gwhandle *gwdata, gwnum *data, int size, int index, CVDT *vec, int options, bool post_process_monics)
+{
+	preprocessed_poly_header *hdr;  // Header of the preprocessed poly under construction
+	CVDT	*first_element;		// First element in the preprocessed poly array
+
+	// Typecast to access the preprocessed poly header
+	hdr = (preprocessed_poly_header *) ((char *) data - sizeof (gwarray_header));
+	first_element = (CVDT *) round_up_to_multiple_of ((intptr_t) hdr + sizeof (preprocessed_poly_header), 64);
+
+	// If preprocessed data is FFTed, then return the data "as is" optionally decompressing.  Ignore the passed in size, use the poly FFT size
+	// that was computed by polymult_line_preprocess.
+	if (hdr->options & POLYMULT_FFT) {
+		if (!(hdr->options & POLYMULT_COMPRESS)) memcpy (vec, (char *) first_element + (intptr_t) index * (intptr_t) hdr->padded_element_size, hdr->element_size);
+		else decompress_vec ((char *) first_element + (intptr_t) index * (intptr_t) hdr->padded_element_size, (char *) vec, hdr->fft_size * sizeof (CVDT));
+		return;
+	}
+
+	// If not post-processing monics and the input is a monic RLP, then output a 1+0i
+	if (!post_process_monics && (options & (POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_MONIC)) && (options & (POLYMULT_INVEC1_RLP | POLYMULT_INVEC2_RLP))) {
+		if (gwdata->k == 1.0) {
+			vec[0].real = broadcastsd (1.0);
+			vec[0].imag = broadcastsd (0.0);
+		} else {
+			read_line (gwdata, &gwdata->GW_FFT1, 1, index, vec, 0, FALSE);
+		}
+		vec++;
+	}
+
+	// If input is an RLP then read the data into the high half of vec.  We will duplicate the data as the last step.
+	if (options & (POLYMULT_INVEC1_RLP | POLYMULT_INVEC2_RLP)) vec += (size-1);
+
+	// If we've delayed splitting the two real values in !ALL_COMPLEX_FFT, then read the first array entry for the first two indexes
+	int	index_to_read = index;
+	if (!gwdata->ALL_COMPLEX_FFT && !gwdata->ZERO_PADDED_FFT) {
+		index_to_read--;
+		if (index_to_read < 0) index_to_read = 0;
+	}
+
+	// Test for valid index
+	ASSERTG (index_to_read < hdr->num_lines);
+
+	// Copy the preprocessed entry
+	ASSERTG ((hdr->options & POLYMULT_COMPRESS) || hdr->element_size == size * sizeof (CVDT));
+	if (!(hdr->options & POLYMULT_COMPRESS)) memcpy (vec, (char *) first_element + (intptr_t) index_to_read * (intptr_t) hdr->padded_element_size, hdr->element_size);
+	else decompress_vec ((char *) first_element + (intptr_t) index_to_read * (intptr_t) hdr->padded_element_size, (char *) vec, size * sizeof (CVDT));
+
+	// If we've delayed splitting the two real values in !ALL_COMPLEX_FFT turn the two reals into two complex values here
+	if (!gwdata->ALL_COMPLEX_FFT && !gwdata->ZERO_PADDED_FFT && index_to_read == 0) {
+		for (int j = 0; j < size; j++) {
+			union {
+				VDT	a;
+				double	b[VLEN / sizeof(double)];
+			} r, i;
+			r.a = vec[j].real;
+			i.a = vec[j].imag;
+			if (index == 0) {
+				double	tmp = r.b[0];
+				memset (&r, 0, sizeof (r));
+				memset (&i, 0, sizeof (i));
+				r.b[0] = tmp;
+			} else {
+				r.b[0] = i.b[0];
+				i.b[0] = 0.0;
+			}
+			vec[j].real = r.a;
+			vec[j].imag = i.a;
+		}
+	}
+
+	// Duplicate RLP data in reverse order
+	if (options & (POLYMULT_INVEC1_RLP | POLYMULT_INVEC2_RLP)) {
+		for (int j = 1; j < size; j++) vec[-j] = vec[j];
+	}
+
+	// If not post-processing monics and the input is monic, then output a 1+0i
+	if (!post_process_monics && (options & (POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_MONIC))) {
+		if (gwdata->k == 1.0) {
+			vec[size].real = broadcastsd (1.0);
+			vec[size].imag = broadcastsd (0.0);
+		} else {
+			read_line (gwdata, &gwdata->GW_FFT1, 1, index, &vec[size], 0, FALSE);
+		}
+	}
+}
+#endif
+
+/* Preprocess a poly that will be used in multiple polymult calls.  Preprocessing can reduce memory consumption or reduce CPU time. */
+/* Returns a massaged poly.  Caller should then free the unmassaged poly.  The massaged poly cannot be used in any gwnum calls, it can only be used */
+/* in future polymult calls with poly sizes and options that match those passed to this routine. */
+gwarray polymult_line_preprocess (	// Returns a plug-in replacement for the input poly
+	pmhandle *pmdata,		// Handle for polymult library
+	gwnum	*gw_invec1,		// First input poly
+	int	invec1_size,		// Size of the first input polynomial
+	int	invec2_size,		// Size of the second input polynomial
+	int	outvec_size,		// Size of the output polynomial
+	int	options)
+{
+	int	adjusted_invec1_size, adjusted_invec2_size, adjusted_outvec_size, fft_size, num_lines, element_size, padded_element_size, max_element_size;
+	bool	must_brute, must_fft, post_process_monics;
+	char	saved_all_complex_fft;
+	CVDT	*invec1, *scratch;
+	preprocessed_poly_header *hdr;  // Header of the preprocessed poly under construction
+	CVDT	*first_element;		// First element in the preprocessed poly array
+
+	// Save ALL_COMPLEX_FFT as we sometimes change it
+	saved_all_complex_fft = pmdata->gwdata->ALL_COMPLEX_FFT;
+
+	// Adjust sizes due to RLPs.  Calculate the output size assuming no monic inputs.
+	adjusted_invec1_size = (options & POLYMULT_INVEC1_RLP) ? 2 * invec1_size - 1 : invec1_size;
+	adjusted_invec2_size = (options & POLYMULT_INVEC2_RLP) ? 2 * invec2_size - 1 : invec2_size;
+	adjusted_outvec_size = adjusted_invec1_size + adjusted_invec2_size - 1;
+
+	// Sometimes we must (or it is beneficial) handle monic input polynomials as part of invec1/invec2 as opposed to a post-processing call to
+	// monic_line_adjustments.  Find those cases and adjust vector sizes.
+	if (options & POLYMULT_CIRCULAR) {
+//GW: Find more cases where monic processing would be better done this way
+		if (options & POLYMULT_INVEC1_MONIC) adjusted_invec1_size += (options & POLYMULT_INVEC1_RLP) ? 2 : 1;
+		if (options & POLYMULT_INVEC2_MONIC) adjusted_invec2_size += (options & POLYMULT_INVEC2_RLP) ? 2 : 1;
+		adjusted_outvec_size = outvec_size;
+		post_process_monics = FALSE;
+	} else
+		post_process_monics = TRUE;
+
+	// Allocate memory for polymult preprocessing
+	must_brute = (options & POLYMULT_CIRCULAR) && outvec_size != polymult_fft_size (outvec_size);
+	must_fft = FALSE;
+//GW: The POLYMULT_FFT option is not a commandment to pre-FFT the poly.  It a request to pre-FFT if polymult would normally choose to do an FFT multiply.
+//GW: Do we want a POLYMULT_FORCE_FFT option?  or have caller temporarily set BRUTE_BREAK and KARAT_BREAK?
+//	must_fft = options & POLYMULT_FORCE_FFT;
+	ASSERTG (!(must_fft && must_brute));
+	if (must_brute || (!must_fft && adjusted_outvec_size < pmdata->KARAT_BREAK)) {
+		invec1 = (CVDT *) aligned_malloc (adjusted_invec1_size * sizeof (CVDT), 64);
+		scratch = NULL;
+		options &= ~POLYMULT_FFT;
+	}
+	else if (!must_fft && !(options & POLYMULT_CIRCULAR) && adjusted_outvec_size < pmdata->FFT_BREAK) {
+		invec1 = (CVDT *) aligned_malloc (adjusted_invec1_size * sizeof (CVDT), 64);
+		scratch = NULL;
+		options &= ~POLYMULT_FFT;
+	}
+	else {
+		unsigned int pass1_size, pass2_size;
+		fft_size = (options & POLYMULT_CIRCULAR) ? outvec_size : polymult_fft_size (adjusted_outvec_size);
+		pick_pass_sizes (pmdata, fft_size, &pass1_size, &pass2_size);
+		invec1 = (CVDT *) aligned_malloc (fft_size * sizeof (CVDT), 64);
+		if (pass1_size > 1) scratch = (CVDT *) aligned_malloc (pass1_size * sizeof (CVDT), 64);
+		else scratch = NULL;
+	}
+
+// Allocate space for the preprocessed poly under construction
+
+	// If FFTing compute number of lines the same way polymult does
+	if (options & POLYMULT_FFT) {
+		num_lines = gwfftlen (pmdata->gwdata);
+		if (!pmdata->gwdata->ALL_COMPLEX_FFT) num_lines += 2;
+		if (pmdata->gwdata->ZERO_PADDED_FFT) num_lines += 14;
+	}
+	// Not FFTing.  To save memory, delay splitting the two real values in a !ALL_COMPLEX_FFT until read_processed_line.
+	// We temporarily set ALL_COMPLEX_FFT so that read_line does not split the two real values.
+	else {
+		num_lines = gwfftlen (pmdata->gwdata);
+		if (pmdata->gwdata->ZERO_PADDED_FFT) num_lines += 16;
+		else if (!pmdata->gwdata->ALL_COMPLEX_FFT) pmdata->gwdata->ALL_COMPLEX_FFT = TRUE;
+	}
+	num_lines = divide_rounding_up (num_lines, sizeof (CVDT) / sizeof (double));
+
+	if (options & POLYMULT_FFT) element_size = sizeof (CVDT) * fft_size;
+	else element_size = sizeof (CVDT) * invec1_size;
+//GW:  shrink element-size if/when we support sparse non-ffted invec1
+	padded_element_size = round_up_to_multiple_of (element_size, 64);
+
+	hdr = (preprocessed_poly_header *) malloc (sizeof (preprocessed_poly_header) + 64 + (intptr_t) num_lines * (intptr_t) padded_element_size);
+	if (hdr == NULL) return (NULL);
+	memset (hdr, 0, sizeof (preprocessed_poly_header));
+	hdr->num_lines = num_lines;
+	hdr->element_size = element_size;
+	hdr->padded_element_size = padded_element_size;
+	hdr->options = options;
+	if (options & POLYMULT_FFT) hdr->fft_size = fft_size;
+	first_element = (CVDT *) round_up_to_multiple_of ((intptr_t) hdr + sizeof (preprocessed_poly_header), 64);
+
+	// When compressing we need to track the size of the largest compressed vector (for resizing the array smaller)
+	max_element_size = 0;
+
+	// Grab a "line" of complex values from each gwnum coefficient.  Work that data set.  Then move onto remaining lines in the gwnums.
+	for (int line = 0; line < num_lines; line++) {
+
+		// Read the line.  If not-FFTing then set post_process_monics so that read_line won't add 1+0i to invec1.  We'll add 1+0i in read_preprocess_line.
+		if (!(options & POLYMULT_FFT)) post_process_monics = TRUE;
+		read_line (pmdata->gwdata, gw_invec1, invec1_size, line, invec1, options & INVEC1_OPTIONS, post_process_monics);
+
+		// Optionally forward FFT the line
+		if (options & POLYMULT_FFT) {
+			memset (invec1 + adjusted_invec1_size, 0, (fft_size - adjusted_invec1_size) * sizeof (CVDT));
+			fft_line (pmdata, invec1, NULL, NULL, scratch, fft_size, FORWARD_FFT_INVEC1 | FORWARD_FFT_ONLY);
+		}
+
+		// For non-FFTed RLPs, we only save the upper half of invec1.  Alternatively, we could make read_line not expand RLPs when preprocessing.
+		if ((options & POLYMULT_INVEC1_RLP) && !(options & POLYMULT_FFT)) invec1 += invec1_size-1;
+
+		// If compressing each line, compress the vector of doubles.  Track the maximum compressed vector size.
+		if (options & POLYMULT_COMPRESS) {
+			element_size = compress_vec ((char *) invec1, hdr->element_size);
+			ASSERTG (element_size <= hdr->element_size);
+			if (element_size > max_element_size) max_element_size = element_size;
+		}
+
+		// Copy line to the preprocessed poly under construction
+		memcpy ((char *) first_element + line * padded_element_size, invec1, element_size);
+
+		// Undo RLP pointer hack
+		if ((options & POLYMULT_INVEC1_RLP) && !(options & POLYMULT_FFT)) invec1 -= invec1_size-1;
+	}
+
+	// Free memory
+	aligned_free (invec1);
+	aligned_free (scratch);
+
+	// Restore ALL_COMPLEX_FFT
+	pmdata->gwdata->ALL_COMPLEX_FFT = saved_all_complex_fft;
+
+	// Shrink a compressed poly to its minimum possible size using realloc.
+	if (options & POLYMULT_COMPRESS) {
+		for (int line = 1; line < num_lines; line++) {
+			memmove ((char *) first_element + (intptr_t) line * (intptr_t) max_element_size,
+				 (char *) first_element + (intptr_t) line * (intptr_t) padded_element_size, max_element_size);
+		}
+		hdr = (preprocessed_poly_header *) realloc (hdr, sizeof (preprocessed_poly_header) + 64 + (intptr_t) num_lines * (intptr_t) max_element_size);
+		hdr->element_size = max_element_size;
+		hdr->padded_element_size = max_element_size;
+	}
+
+	// Link into gwnum's list of arrays to free when gwdone is called
+	hdr->linkage.next = pmdata->gwdata->array_list;		// Next in linked list of allocated arrays
+	hdr->linkage.prev = &pmdata->gwdata->array_list;	// Prev in linked list of allocated arrays
+	if (hdr->linkage.next != NULL) {			// Patch new next's prev pointer
+		gwarray_header *next_header = (gwarray_header *) ((char *) hdr->linkage.next - sizeof (gwarray_header));
+		next_header->prev = &hdr->linkage.next;
+	}
+	pmdata->gwdata->array_list = (gwarray) &hdr->self_ptr;	// New head of doubly linked list
+
+	// Return the address of the self_ptr that identifies this as a preprocessed poly
+	hdr->self_ptr = (gwnum *) &hdr->self_ptr;
+	return ((gwnum *) &hdr->self_ptr);
 }
 
 // Select from various polymult algorithms
@@ -1945,9 +2806,15 @@ void polymult_line (
 	int	outvec_size,		// Size of the output polynomial.  Should be invec1_size + invec2_size (less one if not monic).
 	int	options)
 {
-	int	adjusted_invec1_size, adjusted_invec2_size, adjusted_outvec_size, fft_size;
-	bool	must_brute, must_fft, post_process_monics;
+	int	adjusted_invec1_size, adjusted_invec2_size, adjusted_outvec_size, fft_size, fft_options, line, num_lines;
+	bool	invec1_preprocessed, invec1_pre_ffted, invec2_preprocessed, invec2_pre_ffted, must_brute, must_fft, post_process_monics;
 	CVDT	*invec1, *invec2, *outvec, *tmpvec, *scratch;
+
+	// Look for pre-processed input polys
+	invec1_preprocessed = is_preprocessed_poly (gw_invec1);
+	invec1_pre_ffted = invec1_preprocessed && is_preffted_poly (gw_invec1);
+	invec2_preprocessed = is_preprocessed_poly (gw_invec2);
+	invec2_pre_ffted = invec2_preprocessed && is_preffted_poly (gw_invec2);
 
 	// Adjust sizes due to RLPs.  Calculate the output size assuming no monic inputs.
 	adjusted_invec1_size = (options & POLYMULT_INVEC1_RLP) ? 2 * invec1_size - 1 : invec1_size;
@@ -1967,9 +2834,10 @@ void polymult_line (
 	} else
 		post_process_monics = TRUE;
 
-	// Polymult using AVX instructions.  Allocate memory.  For the output vector allocate two extra in case there are any monic RLP inputs.
+	// Allocate memory for polymult.  For the output vector allocate two extra in case there are any monic RLP inputs.
 	must_brute = (options & POLYMULT_CIRCULAR) && outvec_size != polymult_fft_size (outvec_size);
-	must_fft = !must_brute && (options & (POLYMULT_FORWARD_FFT | POLYMULT_INVEC1_FFTED | POLYMULT_INVEC2_FFTED));
+	must_fft = invec1_pre_ffted || invec2_pre_ffted;
+	ASSERTG (!(must_fft && must_brute));
 	if (must_brute || (!must_fft && adjusted_outvec_size < pmdata->KARAT_BREAK)) {
 		invec1 = (CVDT *) aligned_malloc (adjusted_invec1_size * sizeof (CVDT), 64);
 		invec2 = (CVDT *) aligned_malloc (adjusted_invec2_size * sizeof (CVDT), 64);
@@ -1986,10 +2854,10 @@ void polymult_line (
 	}
 	else {
 		unsigned int pass1_size, pass2_size;
-		fft_size = (options & (POLYMULT_FORWARD_FFT | POLYMULT_CIRCULAR)) ? outvec_size :
-			   (options & POLYMULT_INVEC1_FFTED) ? invec1_size :
-			   (options & POLYMULT_INVEC2_FFTED) ? invec2_size : polymult_fft_size (adjusted_outvec_size);
+		fft_size = (options & POLYMULT_CIRCULAR) ? outvec_size : polymult_fft_size (adjusted_outvec_size);
+		fft_options = (!invec1_pre_ffted ? FORWARD_FFT_INVEC1 : 0) | (!invec2_pre_ffted ? FORWARD_FFT_INVEC2 : 0);
 		pick_pass_sizes (pmdata, fft_size, &pass1_size, &pass2_size);
+//GW: if pre-ffted and not compressed find a clean way to use the preprocessed data without allocating or copying
 		tmpvec = (CVDT *) aligned_malloc (fft_size * sizeof (CVDT), 64);		// FFT of invec1 goes here
 		outvec = (CVDT *) aligned_malloc ((fft_size + 2) * sizeof (CVDT), 64) + 1;	// FFT of invec2 goes here as does outvec
 		if (post_process_monics && (options & POLYMULT_INVEC2_MONIC)) invec1 = (CVDT *) aligned_malloc (fft_size * sizeof (CVDT), 64);
@@ -2000,11 +2868,16 @@ void polymult_line (
 		else scratch = NULL;
 	}
 
-	// Grab four complex values from each gwnum coefficient.  Work that data set.  Then move onto remaining complex vals in gwnums.
-	for ( ; ; ) {
-		int line = next_line (pmdata);
-		if (!read_line (pmdata->gwdata, gw_invec1, invec1_size, line, invec1, options & INVEC1_OPTIONS, post_process_monics)) break;
-		read_line (pmdata->gwdata, gw_invec2, invec2_size, line, invec2, options & INVEC2_OPTIONS, post_process_monics);
+	// Grab a "line" of complex values from each gwnum coefficient.  Work that data set.  Then move onto remaining lines in the gwnums.
+	num_lines = gwfftlen (pmdata->gwdata);
+	if (!pmdata->gwdata->ALL_COMPLEX_FFT) num_lines += 2;
+	if (pmdata->gwdata->ZERO_PADDED_FFT) num_lines += 14;
+	num_lines = divide_rounding_up (num_lines, sizeof (CVDT) / sizeof (double));
+	while ((line = next_line (pmdata)) < num_lines) {
+		if (!invec1_preprocessed) read_line (pmdata->gwdata, gw_invec1, invec1_size, line, invec1, options & INVEC1_OPTIONS, post_process_monics);
+		else read_preprocess_line (pmdata->gwdata, gw_invec1, invec1_size, line, invec1, options & INVEC1_OPTIONS, post_process_monics);
+		if (!invec2_preprocessed) read_line (pmdata->gwdata, gw_invec2, invec2_size, line, invec2, options & INVEC2_OPTIONS, post_process_monics);
+		else read_preprocess_line (pmdata->gwdata, gw_invec2, invec2_size, line, invec2, options & INVEC2_OPTIONS, post_process_monics);
 
 		if (must_brute || (!must_fft && adjusted_outvec_size < pmdata->KARAT_BREAK)) {
 			brute_line (invec1, adjusted_invec1_size, invec2, adjusted_invec2_size, outvec, adjusted_outvec_size, options, gw_outvec);
@@ -2013,19 +2886,20 @@ void polymult_line (
 			karatsuba_line (pmdata, invec1, adjusted_invec1_size, invec2, adjusted_invec2_size, tmpvec, outvec);
 		}
 		else {
-			ASSERTG (!(options & POLYMULT_INVEC1_FFTED));	// Not supported yet
-			ASSERTG (!(options & POLYMULT_INVEC2_FFTED));	// Not supported yet
-			if (invec1 != tmpvec) memcpy (tmpvec, invec1, adjusted_invec1_size * sizeof (CVDT));
-			memset (tmpvec + adjusted_invec1_size, 0, (fft_size - adjusted_invec1_size) * sizeof (CVDT));
-//			if (options & POLYMULT_FORWARD_FFT) {
-//				write_line (pmdata->gwdata, gw_outvec, fft_size, line, tmpvec, 0);
-//				continue;
-//			}
-			if (invec2 != outvec) memcpy (outvec, invec2, adjusted_invec2_size * sizeof (CVDT));
-			memset (outvec + adjusted_invec2_size, 0, (fft_size - adjusted_invec2_size) * sizeof (CVDT));
-			fft_line (pmdata, tmpvec, outvec, outvec, scratch, fft_size, FORWARD_FFT_INVEC1 | FORWARD_FFT_INVEC2);
+			if (!invec1_pre_ffted) {
+				if (invec1 != tmpvec) memcpy (tmpvec, invec1, adjusted_invec1_size * sizeof (CVDT));
+				memset (tmpvec + adjusted_invec1_size, 0, (fft_size - adjusted_invec1_size) * sizeof (CVDT));
+			}
+			if (!invec2_pre_ffted) {
+				if (invec2 != outvec) memcpy (outvec, invec2, adjusted_invec2_size * sizeof (CVDT));
+				memset (outvec + adjusted_invec2_size, 0, (fft_size - adjusted_invec2_size) * sizeof (CVDT));
+			}
+			fft_line (pmdata, tmpvec, outvec, outvec, scratch, fft_size, fft_options);
 		}
-		if (post_process_monics) monic_line_adjustments (invec1, adjusted_invec1_size, invec2, adjusted_invec2_size, outvec, adjusted_outvec_size, options);
+		// Handle adjustments needed due to monic inputs
+		if (post_process_monics) monic_line_adjustments (pmdata->gwdata, invec1, adjusted_invec1_size, invec2, adjusted_invec2_size,
+								 outvec, adjusted_outvec_size, line, options);
+		// Copy outvec to the output gwnums
 		write_line (pmdata->gwdata, gw_outvec, outvec_size, line, outvec, options & POLYMULT_CIRCULAR ? 0 : options);
 	}
 
@@ -2078,9 +2952,11 @@ void polymult_thread (void *arg)
 		else if (!pmdata->helpers_doing_polymult)
 			(*pmdata->helper_callback) (thread_num, &cloned_gwdata, pmdata->helper_callback_data);
 		// Optimized routines for AVX512 instructions
+#ifdef X86_64
 		else if (pmdata->gwdata->cpu_flags & CPU_AVX512F)
 			polymult_line_avx512 (pmdata, pmdata->invec1, pmdata->invec1_size, pmdata->invec2, pmdata->invec2_size,
 					      pmdata->outvec, pmdata->outvec_size, pmdata->options);
+#endif
 		// Optimized routines for FMA3 instructions
 		else if (pmdata->gwdata->cpu_flags & CPU_FMA3)
 			polymult_line_fma (pmdata, pmdata->invec1, pmdata->invec1_size, pmdata->invec2, pmdata->invec2_size,
@@ -2184,8 +3060,44 @@ void polymult_wait_on_helpers (
 }
 
 /*--------------------------------------------------------------------------
-|			Polymult main routine
+|			Polymult main routines
 +-------------------------------------------------------------------------*/
+
+/* Preprocess a poly that will be used in multiple polymult calls.  Preprocessing can reduce memory consumption or reduce CPU time. */
+/* Returns a massaged poly.  Caller should then free the unmassaged poly.  The massaged poly cannot be used in any gwnum calls, it can only be used */
+/* in future polymult calls with poly sizes and options that match those passed to this routine. */
+gwarray polymult_preprocess (		// Returns a plug-in replacement for the input poly
+	pmhandle *pmdata,		// Handle for polymult library
+	gwnum	*invec1,		// Input poly
+	int	invec1_size,		// Size of the input polynomial
+	int	invec2_size,		// Size of the other polynomial that will be used in a future polymult call
+	int	outvec_size,		// Size of the output polynomial that will be used in a future polymult call
+	int	options)		// Future polymult options preprocessing options (FFT, compress -- see polymult.h)
+{
+	// Cannot preprocess an already preprocessed poly
+	ASSERTG (!is_preprocessed_poly(invec1));
+
+	// FFT inputs if needed.  FFT the 7 zero padded FFT values in the header.  Even though we are not allowed to change the input vectors, we
+	// can write to the 13 values values in the header reserved for use by the polymult library.
+	for (int j = 0; j < invec1_size; j++) {
+		if (invec1[j] == NULL) continue;
+		gwfft (pmdata->gwdata, invec1[j], invec1[j]);
+		if (pmdata->gwdata->ZERO_PADDED_FFT) zpad7_fft (pmdata->gwdata, invec1[j]);
+	}
+
+	// Call the instruction set specific version.
+#ifdef X86_64
+	if (pmdata->gwdata->cpu_flags & CPU_AVX512F) return (polymult_line_preprocess_avx512 (pmdata, invec1, invec1_size, invec2_size, outvec_size, options));
+	else
+#endif
+	if (pmdata->gwdata->cpu_flags & CPU_FMA3) return (polymult_line_preprocess_fma (pmdata, invec1, invec1_size, invec2_size, outvec_size, options));
+	else if (pmdata->gwdata->cpu_flags & CPU_AVX) return (polymult_line_preprocess_avx (pmdata, invec1, invec1_size, invec2_size, outvec_size, options));
+	else if (pmdata->gwdata->cpu_flags & CPU_SSE2) return (polymult_line_preprocess_sse2 (pmdata, invec1, invec1_size, invec2_size, outvec_size, options));
+#ifndef X86_64
+	else return (polymult_line_preprocess_dbl (pmdata, invec1, invec1_size, invec2_size, outvec_size, options));
+#endif
+	return (NULL);			// Can't happen but keeps compiler happy
+}
 
 /* Multiply two polynomials producing FFTed gwnums as output.  The output gwnums need to be normalized before use in further gwnum operations. */
 /* It is safe to use input gwnums in the output vector.  For a normal polynomial multiply outvec_size must be invec1_size + invec2_size - 1. */
@@ -2201,14 +3113,13 @@ void polymult (
 	int	outvec_size,		// Size of the output polynomial (or fft_size if POLYMULT_FORWARD_FFT or POLYMULT_CIRCULAR)
 	int	options)
 {
-	// Forward FFT not allowed on already FFTed polynomial
-	ASSERTG (! ((options & POLYMULT_FORWARD_FFT) && (options & POLYMULT_INVEC1_FFTED)));
-	// An already FFTed input cannot be multiplied with a monic polynomial
-	ASSERTG (! ((options & POLYMULT_INVEC1_FFTED) && !(options & POLYMULT_INVEC2_MONIC)));
-	ASSERTG (! ((options & POLYMULT_INVEC2_FFTED) && !(options & POLYMULT_INVEC1_MONIC)));
+	// An already FFTed input cannot be multiplied with a monic polynomial (unless it is circular or other case that does not do monic_adjust)
+//GW	ASSERTG (! ((options & POLYMULT_INVEC1_FFTED) && !(options & POLYMULT_INVEC2_MONIC)));
+//GW	ASSERTG (! ((options & POLYMULT_INVEC2_FFTED) && !(options & POLYMULT_INVEC1_MONIC)));
 	// An already FFTed input must be at least as big as the output vector
-	ASSERTG (! ((options & POLYMULT_INVEC1_FFTED) && invec1_size >= outvec_size));
-	ASSERTG (! ((options & POLYMULT_INVEC2_FFTED) && invec2_size >= outvec_size));
+//GW	ASSERTG (! ((options & POLYMULT_INVEC1_FFTED) && invec1_size >= outvec_size));
+//GW	ASSERTG (! ((options & POLYMULT_INVEC2_FFTED) && invec2_size >= outvec_size));
+//GW verify preprocessed vector matches how it was preprocessed?
 	// Verify output vector size when we know the input vector sizes (no pre-FFTed inputs)
 #define insz1	(invec1_size + !!(options & POLYMULT_INVEC1_MONIC))		// Adjust size for monic poly
 #define insz2	(invec2_size + !!(options & POLYMULT_INVEC2_MONIC))
@@ -2217,7 +3128,8 @@ void polymult (
 #define outsz	(insz1a + insz2a - 1)						// Output poly size
 #define outsz1	((options & POLYMULT_INVEC1_RLP && options & POLYMULT_INVEC2_RLP) ? (outsz + 1) / 2 : outsz)	// Output size adjusted for RLP
 #define outsz2	(outsz1 - !!(options & POLYMULT_INVEC1_MONIC && options & POLYMULT_INVEC2_MONIC))		// Output size adjusted for monic
-	ASSERTG ((options & (POLYMULT_FORWARD_FFT | POLYMULT_CIRCULAR | POLYMULT_INVEC1_FFTED | POLYMULT_INVEC2_FFTED) || outvec_size == outsz2));
+//GW	ASSERTG ((options & (POLYMULT_CIRCULAR | POLYMULT_INVEC1_FFTED | POLYMULT_INVEC2_FFTED) || outvec_size == outsz2));
+	ASSERTG ((options & POLYMULT_CIRCULAR) || outvec_size == outsz2);
 #undef insz1
 #undef insz2
 #undef insz1a
@@ -2226,9 +3138,22 @@ void polymult (
 #undef outsz1
 #undef outsz2
 
-	// FFT inputs if needed
-	if (!(options & POLYMULT_INVEC1_FFTED)) for (int j = 0; j < invec1_size; j++) if (invec1[j] != NULL) gwfft (pmdata->gwdata, invec1[j], invec1[j]);
-	if (!(options & POLYMULT_INVEC2_FFTED)) for (int j = 0; j < invec2_size; j++) if (invec2[j] != NULL) gwfft (pmdata->gwdata, invec2[j], invec2[j]);
+	// FFT inputs if needed.  FFT the 7 zero padded FFT values in the header.  Even though we are not allowed to change the input vectors, we
+	// can write to the 13 values values in the header reserved for use by the polymult library.
+	if (! is_preprocessed_poly (invec1)) {
+		for (int j = 0; j < invec1_size; j++) {
+			if (invec1[j] == NULL) continue;
+			gwfft (pmdata->gwdata, invec1[j], invec1[j]);
+			if (pmdata->gwdata->ZERO_PADDED_FFT) zpad7_fft (pmdata->gwdata, invec1[j]);
+		}
+	}
+	if (! is_preprocessed_poly (invec2)) {
+		for (int j = 0; j < invec2_size; j++) {
+			if (invec2[j] == NULL) continue;
+			gwfft (pmdata->gwdata, invec2[j], invec2[j]);
+			if (pmdata->gwdata->ZERO_PADDED_FFT) zpad7_fft (pmdata->gwdata, invec2[j]);
+		}
+	}
 
 	// Prepare for polymult in parallel
 	pmdata->invec1 = invec1;
@@ -2245,17 +3170,15 @@ void polymult (
 	polymult_launch_helpers (pmdata);
 
 	// This thread works on the polymult too.  Select which optimized routines to use.
-	if (pmdata->gwdata->cpu_flags & CPU_AVX512F)
-		polymult_line_avx512 (pmdata, invec1, invec1_size, invec2, invec2_size, outvec, outvec_size, options);
-	else if (pmdata->gwdata->cpu_flags & CPU_FMA3)
-		polymult_line_fma (pmdata, invec1, invec1_size, invec2, invec2_size, outvec, outvec_size, options);
-	else if (pmdata->gwdata->cpu_flags & CPU_AVX)
-		polymult_line_avx (pmdata, invec1, invec1_size, invec2, invec2_size, outvec, outvec_size, options);
-	else if (pmdata->gwdata->cpu_flags & CPU_SSE2)
-		polymult_line_sse2 (pmdata, invec1, invec1_size, invec2, invec2_size, outvec, outvec_size, options);
-#ifndef X86_64
+#ifdef X86_64
+	if (pmdata->gwdata->cpu_flags & CPU_AVX512F) polymult_line_avx512 (pmdata, invec1, invec1_size, invec2, invec2_size, outvec, outvec_size, options);
 	else
-		polymult_line_dbl (pmdata, invec1, invec1_size, invec2, invec2_size, outvec, outvec_size, options);
+#endif
+	if (pmdata->gwdata->cpu_flags & CPU_FMA3) polymult_line_fma (pmdata, invec1, invec1_size, invec2, invec2_size, outvec, outvec_size, options);
+	else if (pmdata->gwdata->cpu_flags & CPU_AVX) polymult_line_avx (pmdata, invec1, invec1_size, invec2, invec2_size, outvec, outvec_size, options);
+	else if (pmdata->gwdata->cpu_flags & CPU_SSE2) polymult_line_sse2 (pmdata, invec1, invec1_size, invec2, invec2_size, outvec, outvec_size, options);
+#ifndef X86_64
+	else polymult_line_dbl (pmdata, invec1, invec1_size, invec2, invec2_size, outvec, outvec_size, options);
 #endif
 
 	// Wait for all helper threads to complete
@@ -2265,7 +3188,6 @@ void polymult (
 	// Figure out which output entries (if any) need to get 1.0 added to the result because a monic poly is multiplied by a monic RLP poly.
 	// We used to add the FFT(1) in monic_adjustments but this led to excessive round off error as FFT(1) is NOT a random signal.  It only
 	// affects the least significant bits and is apt to get drowned out by the many multiplied signals.
-
 	int	addin1 = -1;
 	int	addin2 = -1;
 	if ((options & POLYMULT_INVEC1_MONIC) && (options & POLYMULT_INVEC2_MONIC) && (options & POLYMULT_INVEC2_RLP)) addin1 = outvec_size - (2 * invec2_size);
@@ -2273,22 +3195,14 @@ void polymult (
 	if (options & POLYMULT_INVEC2_MONIC_TIMES_MONIC_RLP_OK) addin2 = invec2_size;
 			
 	// Unfft all output coefficients
-	if (!(options & POLYMULT_FORWARD_FFT)) {
-		for (int j = 0; j < outvec_size; j++) {
-			if (outvec[j] == NULL) continue;
-			FFT_state (outvec[j]) = FULLY_FFTed;
-			if ((options & POLYMULT_NO_UNFFT) && j != addin1 && j != addin2) continue;
-			gwunfft2 (pmdata->gwdata, outvec[j], outvec[j], (j != addin1 && j != addin2 && (options & POLYMULT_STARTNEXTFFT)) ? GWMUL_STARTNEXTFFT : 0);
-			if (j == addin1) gwaddsmall (pmdata->gwdata, outvec[j], 1);
-			if (j == addin2) gwaddsmall (pmdata->gwdata, outvec[j], 1);
-		}
-	} else {
-		// Mark all results poly FFTed
-//		for (int j = 0; j < outvec_size; j++)
-//GW - set unnorm count too? Don't need to do that if always unffting.
-//GW - have a special FFT state for POLYMULT_FORWARD_FFT?
-//		ASSERTG (outvec[j] != NULL);
-//		FFT_state (outvec[j]) = FULLY_FFTed;
+	for (int j = 0; j < outvec_size; j++) {
+		if (outvec[j] == NULL) continue;
+		if (pmdata->gwdata->ZERO_PADDED_FFT) zpad7_unfft (pmdata->gwdata, outvec[j]);
+		FFT_state (outvec[j]) = (pmdata->gwdata->k == 1.0 ? FULLY_FFTed : FFTed_FOR_FMA);
+		if ((options & POLYMULT_NO_UNFFT) && j != addin1 && j != addin2) continue;
+		gwunfft2 (pmdata->gwdata, outvec[j], outvec[j], (j != addin1 && j != addin2 && (options & POLYMULT_STARTNEXTFFT)) ? GWMUL_STARTNEXTFFT : 0);
+		if (j == addin1) gwaddsmall (pmdata->gwdata, outvec[j], 1);
+		if (j == addin2) gwaddsmall (pmdata->gwdata, outvec[j], 1);
 	}
 }
 

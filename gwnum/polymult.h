@@ -4,7 +4,7 @@
 | This file contains the headers and definitions that are used in the
 | polynomial multiplication built upon the gwnum library.
 | 
-|  Copyright 2021 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2021-2022 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _POLYMULT_H
@@ -46,6 +46,16 @@ void polymult_init (
 void polymult_done (
 	pmhandle *pmdata);		// Handle for polymult library
 
+/* Preprocess a poly that will be used in multiple polymult calls.  Preprocessing can reduce memory consumption or reduce CPU time. */
+/* Returns a massaged poly.  Caller should then free the unmassaged poly.  The massaged poly cannot be used in any gwnum calls, it can only be used */
+/* in future polymult calls with poly sizes and options that match those passed to this routine. */
+gwarray polymult_preprocess (		// Returns a plug-in replacement for the input poly
+	pmhandle *pmdata,		// Handle for polymult library
+	gwnum	*invec1,		// Input poly
+	int	invec1_size,		// Size of the input polynomial
+	int	invec2_size,		// Size of the other polynomial that will be used in a future polymult call
+	int	outvec_size,		// Size of the output polynomial that will be used in a future polymult call
+	int	options);		// Future polymult options preprocessing options (FFT, compress -- see polymult.h)
 
 /* Multiply two polynomials.  It is safe to use input gwnums in the output vector.  For a normal polynomial multiply outvec_size must be */
 /* invec1_size + invec2_size - 1.  For monic polynomial multiply, the leading input coefficients of 1 are omitted as is the leading 1 output */
@@ -68,26 +78,24 @@ void polymult (
 #define POLYMULT_INVEC2_MONIC	0x2	// Invec2 is a monic polynomial.  Leading coefficient of one is implied.
 #define POLYMULT_INVEC1_RLP	0x4	// Invec1 is an RLP (Reciprocal Laurent Polynomial).  Needs only half the storage.
 #define POLYMULT_INVEC2_RLP	0x8	// Invec2 is an RLP (Reciprocal Laurent Polynomial).  Needs only half the storage.
-#define POLYMULT_INVEC1_NEGATE	0x10	// Invec1 coefficients are negated.  Implied one of a monic polynomial is not negated.
-#define POLYMULT_INVEC2_NEGATE	0x20	// Invec2 coefficients are negated.  Implied one of a monic polynomial is not negated.
-#define	POLYMULT_INVEC1_FFTED	0x40	// First polynomial has been forward FFTed
-#define	POLYMULT_INVEC2_FFTED	0x80	// Second polynomial has been forward FFTed
-#define	POLYMULT_FORWARD_FFT	0x100	// Forward FFT the first polynomial, the second polynomial is ignored.  FFT size is outvec_size.
+#define POLYMULT_INVEC1_MONIC_RLP	(POLYMULT_INVEC1_MONIC | POLYMULT_INVEC1_RLP)		// A shorthand
+#define POLYMULT_INVEC2_MONIC_RLP	(POLYMULT_INVEC2_MONIC | POLYMULT_INVEC2_RLP)		// A shorthand
+#define POLYMULT_INVEC1_NEGATE	0x10	// Invec1 coefficients are negated.  The implied one of a monic polynomial is not negated.
+#define POLYMULT_INVEC2_NEGATE	0x20	// Invec2 coefficients are negated.  The implied one of a monic polynomial is not negated.
 #define POLYMULT_CIRCULAR	0x200	// Circular convolution based on outvec_size.  Only makes sense for small outvec sizes or outvec_size that
 					// matches the FFT length used to multiply the polynomials.
-#define POLYMULT_NO_UNFFT	0x400	// Do not perform the required unfft on output coefficients.  Caller might do this to multithread this operation.
+#define POLYMULT_NO_UNFFT	0x400	// Do not perform the required unfft on output coefficients.  Caller might use this option to multithread this gwunfft calls.
 #define POLYMULT_STARTNEXTFFT	0x800	// Similar to GWMUL_STARTNEXTFFT.  Applied to all output coefficients.
 //#define GWMUL_ADDINCONST	0x1000		/* Addin the optional gwsetaddin value to the multiplication result */
 //#define GWMUL_MULBYCONST	0x2000		/* Multiply the final result by the small mulbyconst */
-#define POLYMULT_INVEC2_MONIC_TIMES_MONIC_RLP_OK 0x80000000 // Obscure prime95 option  that says it is OK to multiply a monic RLP poly #1 with a monic
-					// poly #2 using POLYMULT_CIRCULAR.  Normally this is dangerous because one time one is not safe from roundoff
-					// errors.  However, this instructs the library to treat poly #2 as non-monic and add one to the output affected
-					// output coefficient after gwunfft2.  When the implied one of monic poly #2 is not multiplied by any other
-					// poly #1 coefficient, the output is not needed (outvec entry is NULL).
-#define POLYMULT_INVEC1_MONIC_RLP	(POLYMULT_INVEC1_MONIC | POLYMULT_INVEC1_RLP)
-#define POLYMULT_INVEC2_MONIC_RLP	(POLYMULT_INVEC2_MONIC | POLYMULT_INVEC2_RLP)
-//GW: option to accept compressed poly inputs?
-//GW: invec1_ffted and invec2_ffted not needed if it is part of the FFT_STATE.
+#define POLYMULT_INVEC2_MONIC_TIMES_MONIC_RLP_OK 0x80000000 // Obscure prime95 option that says it is OK to multiply a monic RLP poly #1 with a monic
+					// poly #2 using POLYMULT_CIRCULAR.  Normally this is dangerous because one times one is not safe from roundoff
+					// errors.  However, this instructs the library to treat poly #2 as non-monic and add one to the affected
+					// output coefficient after gwunfft2.  The implied one of monic poly #2 is not multiplied by any other
+					// poly #1 coefficient (the output is not needed -- outvec entry is NULL).
+// The following options only apply to polymult_preprocess
+#define	POLYMULT_FFT		0x40	// Compute the forward FFT of preprocessed polynomial
+#define	POLYMULT_COMPRESS	0x80	// Compress each double in the preprocessed polynomial
 
 /* This routine launches the polymult helper threads.  The polymult library uses this routine to do multithreading, users can too! */
 void polymult_launch_helpers (
@@ -111,7 +119,6 @@ struct pmhandle_struct {
 	int	helpers_waiting_work;	// Count of helper threads thathave reached waiting for work_to_do
 	bool	termination_in_progress; // Flag for helper threads to exit
 	gwthread *thread_ids;		// Thread ids for the spawned threads
-//	bool	will_use_polymult_forward_fft;   Affects GW_HEADER_SIZE (thus a gwinit option rather than a polymult option?)
 	int	twiddles_initialized;	// size of the twiddle tables
 	double	*twiddles1;		// Sin/cos table for radix-3
 	double	*twiddles2;		// Sin/cos table for radix-4 and radix-5
@@ -135,6 +142,28 @@ struct pmhandle_struct {
 	int	saved_gwdata_num_threads; // Used internally to restore gwdata's multithreading after a user defined callback
 };
 
+// Header for a preprocessed poly.  Conceptually a preprocessed poly is an array of invec1 or invec2 as returned by read_line called from polymult_line.
+// Rather than pulling one cache line out of each gwnum, the cache lines are in contiguous memory (this reduces mem consumption by ~1.5% as it eliminates
+// 64 pad bytes every 4KB in most gwnums.  Contiguous memory ought to be quicker to access too.  Each invec1 or invec2 can optionally be FFTed (probably
+// increases memory consumption due to zero padding) to reduce CPU time in each future polymult call.  Each invec can also be compressed reducing memory
+// consumption by ~12.5% -- we can compress ~8 bits out of each 11-bit exponent in a double.
+typedef struct {
+	gwarray_header linkage;		// Used to put preprocessed polys on gwarray linked list.  Allows gwdone to free all preprocessed polys.
+	gwnum	*self_ptr;		// Ptr to itself.  A unique indicator that this is a preprocessed poly.
+	int	num_lines;		// Number of lines returned by read_line
+	int	element_size;		// Size of each invec in the array
+	int	padded_element_size;	// Size of each invec in the array rounded up to a multiple of 64 (not rounded when compressing)
+	int	options;		// Copy of options passed to polymult_line_preprocess
+	int	fft_size;		// If POLYMULT_FFT is set, this is the poly FFT size used during preprocessing
+//GW:	bool[]	sparse_bitvec?
+} preprocessed_poly_header;
+
+// Accessing the preprocessed header directly is frowned upon, several accessor macros follow
+#define is_preprocessed_poly(p)		(((preprocessed_poly_header *)((char *)(p)-sizeof(gwarray_header)))->self_ptr == p)
+#define is_preffted_poly(p)		(((preprocessed_poly_header *)((char *)(p)-sizeof(gwarray_header)))->options & POLYMULT_FFT)
+#define preprocessed_num_elements(p)	(((preprocessed_poly_header *)((char *)(p)-sizeof(gwarray_header)))->num_lines)
+#define preprocessed_element_size(p)	(intptr_t) (((preprocessed_poly_header *)((char *)(p)-sizeof(gwarray_header)))->padded_element_size)
+#define preprocessed_poly_size(p)	(preprocessed_num_elements(p) * preprocessed_element_size(p))
 
 #ifdef __cplusplus
 }
