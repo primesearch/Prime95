@@ -3637,11 +3637,8 @@ double work_estimate (
 			est += stage2_time * (1.0 - pct_complete);
 	}
 
-/* For P-1, estimate about 1.4545 * B1 squarings in stage 1 and 0.06154 * B2 */
-/* squarings in stage 2.  Note that the stage 2 estimate is quite */
-/* optimistic for large numbers as fewer temporaries will result in nearly */
-/* double the number of squarings.  Also, pass 2 squarings are 28.5% slower */
-/* (due to all the adds). */ 
+/* For P-1, estimate about 1.4545 * B1 squarings in stage 1.  Estimate stage 2 will take as long as stage 1.  The stage 2 estimate */
+/* is a very rough guess but the polymlut stage 2 makes it extremely difficult to make an accurate estimate. */ 
 
 	if (w->work_type == WORK_PMINUS1 || w->work_type == WORK_PFACTOR) {
 		int	stage;
@@ -3662,7 +3659,7 @@ double work_estimate (
 
 		timing = gwmap_to_timing (w->k, w->b, w->n, w->c);
 		stage1_time = timing * (1.4545 * (double) B1);
-		stage2_time = (B2 >= B1) ? timing * (0.06154 * (double) (B2 - B1)) * 1.285 : 0.0;
+		stage2_time = stage1_time;
 
 		if (stage == 0) est = stage1_time + stage2_time;
 		if (stage == 1) est = stage1_time * (1.0 - pct_complete) + stage2_time;

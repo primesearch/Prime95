@@ -10,14 +10,13 @@
 #ifndef _POLYMULT_H
 #define _POLYMULT_H
 
-/* This is a C library.  If used in a C++ program, don't let the C++ */
-/* compiler mangle names. */
+/* This is a C library.  If used in a C++ program, don't let the C++ compiler mangle names. */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// These routines can be used before polymult_init.  The information is used to select a gwnum FFT size with sufficient safety_margin
+// These routines can be used before polymult_init.  Use the information to select a gwnum FFT size with sufficient safety_margin
 // to do polymults of the desired size.
 
 // Get the needed safety_margin required for an invec1_size by invec2_size polymult
@@ -25,6 +24,9 @@ double polymult_safety_margin (int invec1_size, int invec2_size);
 
 // Get the FFT size that will be used for an n = invec1_size + invec2_size polymult
 int polymult_fft_size (int n);
+
+// Get the memory (in bytes) required for an FFT based polymult.  Use the information to ensure over-allocating memory does not occur.
+uint64_t polymult_mem_required (int invec1_size, int invec2_size, int options, int cpu_flags, int num_threads);
 
 
 /* Callers of the polymult routines must first allocate a pmhandle (on the heap or stack) and pass it to all polymult routines. */

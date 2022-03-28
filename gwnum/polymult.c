@@ -64,6 +64,7 @@
 //	space in the output buffer.
 // 61) Can loop unrolling help in radix-3/4/5 sections?  Seems unlikely.
 // 62) Linux stage 2 timings vary widely from 6.7 to 7.0 sec.  What explains the 5% slower runs?  4KB/64KB alignments?
+// 63) Multithread large poly FFTs to reduce memory usage
 
 // Forward declarations required for the SSE2, AVX, FMA, AVX512 compiles
 int next_line (pmhandle *pmdata);
@@ -283,6 +284,52 @@ int polymult_fft_size (int n)
 			if (fft_size >= n && (fft_size % 4 == 0 || fft_size % 2 == 1)) return (fft_size);  // Weed out fft sizes that would require a radix-2 step
 		}
 	}
+}
+
+// Get the memory (in bytes) required for an FFT based polymult.  Use the information to ensure over-allocating memory does not occur.
+uint64_t polymult_mem_required (
+	int	invec1_size,		// Size of poly #1
+	int	invec2_size,		// Size of poly #2
+	int	options,		// Polymult options
+	int	cpu_flags,		// CPU flags.  Vector size is determined by AVX-512, AVX, SSE2 settings.
+	int	num_threads)		// Each polymult thread allocates memory
+{
+	int	adjusted_invec1_size, adjusted_invec2_size, adjusted_outvec_size, pass1_size, vector_size;
+	bool	post_process_monics;
+	uint64_t fft_size, memory;
+
+	ASSERTG (num_threads >= 1);
+
+	// Determine the complex vector size
+	vector_size = (cpu_flags & CPU_AVX512F) ? 2*64 : (cpu_flags & CPU_AVX) ? 2*32 : (cpu_flags & CPU_SSE2) ? 2*16 : 2*8;
+	
+	// Adjust sizes due to RLPs.  Calculate the output size assuming no monic inputs.
+	adjusted_invec1_size = (options & POLYMULT_INVEC1_RLP) ? 2 * invec1_size - 1 : invec1_size;
+	adjusted_invec2_size = (options & POLYMULT_INVEC2_RLP) ? 2 * invec2_size - 1 : invec2_size;
+	adjusted_outvec_size = adjusted_invec1_size + adjusted_invec2_size - 1;
+	if (options & POLYMULT_CIRCULAR) {
+		if (options & POLYMULT_INVEC1_MONIC) adjusted_invec1_size += (options & POLYMULT_INVEC1_RLP) ? 2 : 1;
+		if (options & POLYMULT_INVEC2_MONIC) adjusted_invec2_size += (options & POLYMULT_INVEC2_RLP) ? 2 : 1;
+		// Assume circular size will be the larger of the input sizes rounded up to the next poly FFT size
+		adjusted_outvec_size = (adjusted_invec1_size > adjusted_invec2_size ? adjusted_invec1_size : adjusted_invec2_size);
+		post_process_monics = FALSE;
+	} else
+		post_process_monics = TRUE;
+
+	// Compute FFT size and memory usage
+	fft_size = polymult_fft_size (adjusted_outvec_size);
+	pass1_size = (int) sqrt ((double) fft_size);		// Assume pass1 size roughly equals pass2 size
+	memory = fft_size * vector_size;			// FFT of invec1
+	memory += (fft_size + 2) * vector_size;			// FFT of invec2/outvec
+	if (post_process_monics && (options & POLYMULT_INVEC2_MONIC)) memory += fft_size * vector_size;
+	if (post_process_monics && (options & POLYMULT_INVEC1_MONIC)) memory += fft_size * vector_size;
+	memory += pass1_size * vector_size;
+
+	// Each thread requires memory
+	memory *= num_threads;
+
+	// Also account for sin/cos tables
+	return (memory + (fft_size % 3 == 0 ? fft_size * 2 / 3 : fft_size) * sizeof (double));
 }
 
 // Initialize a polymult handle
