@@ -215,6 +215,10 @@ void gwdone (
 /* Prior to calling one of the gwsetup routines, you can tell the gwnum library that the polymult library will also be used. */
 #define gwset_using_polymult(h)		((h)->polymult = TRUE)
 
+/* Prior to calling one of the gwsetup routines, you can tell the gwnum library to do a faster partial setup.  You won't be able to do any math */
+/* operations, but you can call informational routines such as get FFT length, FFT description, gwnum size, etc. */
+#define gwset_information_only(h)	((h)->information_only = TRUE)
+
 /* Prior to calling one of the gwsetup routines, you can tell the library to use a hyperthread for memory prefetching. */
 /* Only implemented for AVX-512 FFTs.  Caller must ensure the compute thread and prefetching hyperthread are set to use */
 /* the same physical CPU core.  At present there are no known CPUs where this provides a benefit. */
@@ -1021,7 +1025,8 @@ struct gwhandle_struct {
 	char	use_benchmarks;		/* Use benchmark data in gwnum.txt to select fastest FFT implementations */
 	char	will_hyperthread;	/* Set if FFTs will use hyperthreading (affects select of fastest FFT implementation from gwnum.txt) */
 	char	will_error_check;	/* Set if FFTs will error check (affects select of fastest FFT implementation from gwnum.txt) */
-	char	unused_setup_flags[3];
+	char	information_only;	/* Set if doing a faster partial setup */
+	char	unused_setup_flags[2];
 	int	bench_num_cores;	/* Set to expected number of cores that will FFT (affects select fastest FFT implementation) */
 	int	bench_num_workers;	/* Set to expected number of workers that will FFT (affects select fastest FFT implementation) */
 	/* End of variables affecting gwsetup */

@@ -2645,19 +2645,14 @@ void read_preprocess_line (gwhandle *gwdata, gwnum *data, int size, int index, C
 	// If we've delayed splitting the two real values in !ALL_COMPLEX_FFT turn the two reals into two complex values here
 	if (!gwdata->ALL_COMPLEX_FFT && !gwdata->ZERO_PADDED_FFT && index_to_read == 0) {
 		for (int j = 0; j < size; j++) {
-			union {
-				VDT	a;
-				double	b[VLEN / sizeof(double)];
-			} r, i;
+			union { VDT a; double b[VLEN / sizeof(double)]; } r, i;
 			r.a = vec[j].real;
 			i.a = vec[j].imag;
 			if (index == 0) {
-				double	tmp = r.b[0];
 				memset (&r, 0, sizeof (r));
-				memset (&i, 0, sizeof (i));
-				r.b[0] = tmp;
-			} else {
 				r.b[0] = i.b[0];
+				memset (&i, 0, sizeof (i));
+			} else {
 				i.b[0] = 0.0;
 			}
 			vec[j].real = r.a;
@@ -2695,13 +2690,9 @@ gwarray polymult_line_preprocess (	// Returns a plug-in replacement for the inpu
 {
 	int	adjusted_invec1_size, adjusted_invec2_size, adjusted_outvec_size, fft_size, num_lines, element_size, padded_element_size, max_element_size;
 	bool	must_brute, must_fft, post_process_monics;
-	char	saved_all_complex_fft;
 	CVDT	*invec1, *scratch;
 	preprocessed_poly_header *hdr;  // Header of the preprocessed poly under construction
 	CVDT	*first_element;		// First element in the preprocessed poly array
-
-	// Save ALL_COMPLEX_FFT as we sometimes change it
-	saved_all_complex_fft = pmdata->gwdata->ALL_COMPLEX_FFT;
 
 	// Adjust sizes due to RLPs.  Calculate the output size assuming no monic inputs.
 	adjusted_invec1_size = (options & POLYMULT_INVEC1_RLP) ? 2 * invec1_size - 1 : invec1_size;
@@ -2747,26 +2738,19 @@ gwarray polymult_line_preprocess (	// Returns a plug-in replacement for the inpu
 
 // Allocate space for the preprocessed poly under construction
 
-	// If FFTing compute number of lines the same way polymult does
-	if (options & POLYMULT_FFT) {
-		num_lines = gwfftlen (pmdata->gwdata);
-		if (!pmdata->gwdata->ALL_COMPLEX_FFT) num_lines += 2;
-		if (pmdata->gwdata->ZERO_PADDED_FFT) num_lines += 14;
-	}
-	// Not FFTing.  To save memory, delay splitting the two real values in a !ALL_COMPLEX_FFT until read_processed_line.
-	// We temporarily set ALL_COMPLEX_FFT so that read_line does not split the two real values.
-	else {
-		num_lines = gwfftlen (pmdata->gwdata);
-		if (pmdata->gwdata->ZERO_PADDED_FFT) num_lines += 16;
-		else if (!pmdata->gwdata->ALL_COMPLEX_FFT) pmdata->gwdata->ALL_COMPLEX_FFT = TRUE;
-	}
+	// Compute number of lines the same way polymult does
+	num_lines = gwfftlen (pmdata->gwdata);
+	if (!pmdata->gwdata->ALL_COMPLEX_FFT) num_lines += 2;
+	if (pmdata->gwdata->ZERO_PADDED_FFT) num_lines += 14;
 	num_lines = divide_rounding_up (num_lines, sizeof (CVDT) / sizeof (double));
 
+	// Compute size of each line to be written
 	if (options & POLYMULT_FFT) element_size = sizeof (CVDT) * fft_size;
 	else element_size = sizeof (CVDT) * invec1_size;
 //GW:  shrink element-size if/when we support sparse non-ffted invec1
 	padded_element_size = round_up_to_multiple_of (element_size, 64);
 
+	// Allocate and init the preprocessed output
 	hdr = (preprocessed_poly_header *) malloc (sizeof (preprocessed_poly_header) + 64 + (intptr_t) num_lines * (intptr_t) padded_element_size);
 	if (hdr == NULL) return (NULL);
 	memset (hdr, 0, sizeof (preprocessed_poly_header));
@@ -2780,12 +2764,30 @@ gwarray polymult_line_preprocess (	// Returns a plug-in replacement for the inpu
 	// When compressing we need to track the size of the largest compressed vector (for resizing the array smaller)
 	max_element_size = 0;
 
-	// Grab a "line" of complex values from each gwnum coefficient.  Work that data set.  Then move onto remaining lines in the gwnums.
+	// If not-FFTing then set post_process_monics so that read_line won't add 1+0i to invec1.  We'll add 1+0i later in read_preprocess_line.
+	if (!(options & POLYMULT_FFT)) post_process_monics = TRUE;
+
+	// Grab a "line" of complex values from each gwnum coefficient.  Work and copy that data set.  Then move onto remaining lines in the gwnums.
+	char *outptr = (char *) first_element;
 	for (int line = 0; line < num_lines; line++) {
 
-		// Read the line.  If not-FFTing then set post_process_monics so that read_line won't add 1+0i to invec1.  We'll add 1+0i in read_preprocess_line.
-		if (!(options & POLYMULT_FFT)) post_process_monics = TRUE;
-		read_line (pmdata->gwdata, gw_invec1, invec1_size, line, invec1, options & INVEC1_OPTIONS, post_process_monics);
+		// Read a line.  If we're saving memory by delaying splitting the two reals, then combine the first two lines into one.
+		if (line == 0 && !pmdata->gwdata->ALL_COMPLEX_FFT && !pmdata->gwdata->ZERO_PADDED_FFT && !(options & POLYMULT_FFT)) {
+			CVDT *temp = (CVDT *) aligned_malloc (adjusted_invec1_size * sizeof (CVDT), 64);
+			read_line (pmdata->gwdata, gw_invec1, invec1_size, 0, temp, options & INVEC1_OPTIONS, post_process_monics);
+			read_line (pmdata->gwdata, gw_invec1, invec1_size, 1, invec1, options & INVEC1_OPTIONS, post_process_monics);
+			for (int j = 0; j < adjusted_invec1_size; j++) {
+				double	line0_real;
+				union { VDT a; double b[VLEN / sizeof(double)]; } x;
+				// Extract the real from line 0
+				x.a = temp[j].real; line0_real = x.b[0];
+				// Put line 0's real into invec1 from line 1
+				x.a = invec1[j].imag; x.b[0] = line0_real; invec1[j].imag = x.a;
+			}
+			line++;
+			aligned_free (temp);
+		} else
+			read_line (pmdata->gwdata, gw_invec1, invec1_size, line, invec1, options & INVEC1_OPTIONS, post_process_monics);
 
 		// Optionally forward FFT the line
 		if (options & POLYMULT_FFT) {
@@ -2804,8 +2806,9 @@ gwarray polymult_line_preprocess (	// Returns a plug-in replacement for the inpu
 		}
 
 		// Copy line to the preprocessed poly under construction
-		memcpy ((char *) first_element + line * padded_element_size, invec1, element_size);
-
+		memcpy (outptr, invec1, element_size);
+		outptr += padded_element_size;
+			    
 		// Undo RLP pointer hack
 		if ((options & POLYMULT_INVEC1_RLP) && !(options & POLYMULT_FFT)) invec1 -= invec1_size-1;
 	}
@@ -2813,9 +2816,6 @@ gwarray polymult_line_preprocess (	// Returns a plug-in replacement for the inpu
 	// Free memory
 	aligned_free (invec1);
 	aligned_free (scratch);
-
-	// Restore ALL_COMPLEX_FFT
-	pmdata->gwdata->ALL_COMPLEX_FFT = saved_all_complex_fft;
 
 	// Shrink a compressed poly to its minimum possible size using realloc.
 	if (options & POLYMULT_COMPRESS) {

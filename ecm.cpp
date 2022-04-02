@@ -3885,7 +3885,7 @@ double ecm_stage2_impl_given_numvals (
 	if (cost_data.gcd_cost < 100.0) cost_data.gcd_cost = 100.0;
 	cost_data.modinv_cost = 570.16 * log (ecmdata->gwdata.bit_length) - 6188.4;
 	if (cost_data.modinv_cost < 1.25 * cost_data.gcd_cost) cost_data.modinv_cost = 1.25 * cost_data.gcd_cost;
-	if (gwget_num_threads (&ecmdata->gwdata)) cost_data.gcd_cost *= 2.0, cost_data.modinv_cost *= 2.0;
+	if (gwget_num_threads (&ecmdata->gwdata) > 1) cost_data.gcd_cost *= 2.0, cost_data.modinv_cost *= 2.0;
 
 /* Find the least costly stage 2 plan looking at the four combinations of 2 vs. 4 FFT and pool type N^2 vs. 3-MULT vs. 3.44-MULT vs. 3.57-MULT. */
 
@@ -3962,7 +3962,8 @@ void ecm_choose_B2 (
 
 	while (best[0].efficiency > best[1].efficiency) {
 		best[2] = best[1];
-		kruppa (best[1], (best[0].i + best[2].i) / 2);
+		best[1] = best[0];
+		kruppa (best[0], best[0].i / 2);
 	}
 
 /* Handle case where midpoint has worse efficiency than the end point */
@@ -4464,6 +4465,7 @@ int ecm (
 	}
 	if (ecmdata.C == 0) ecmdata.C = ecmdata.B * 100;
 	if (ecmdata.C <= ecmdata.B) ecmdata.C = ecmdata.B;
+	if (IniGetInt (INI_FILE, "GmpEcmHook", 0)) ecmdata.C = ecmdata.B;
 	ecmdata.pct_mem_to_use = 1.0;				// Use as much memory as we can unless we get allocation errors
 
 /* Decide if we will calculate an optimal B2 when stage 2 begins */
@@ -4472,7 +4474,7 @@ int ecm (
 
 /* Little known option to use higher bounds than assigned by PrimeNet */
 
-	if (!QA_IN_PROGRESS) {
+	if (!QA_IN_PROGRESS && !IniGetInt (INI_FILE, "GmpEcmHook", 0)) {
 		int	mult = IniGetInt (INI_FILE, "ECMBoundsMultiplier", 1);
 		if (mult < 1) mult = 1;
 		if (mult > 20) mult = 20;
@@ -7206,7 +7208,7 @@ void pm1_choose_B2 (
 	double	takeAwayBits;			/* Bits we get for free in smoothness of P-1 factor */
 
 // Cost out a B2 value
-	max_B2mult = IniGetInt (INI_FILE, "MaxOptimalB2Multiplier", numvals * 100);	//GW: Is this default always reasonable?  Too liberal?
+	max_B2mult = IniGetInt (INI_FILE, "MaxOptimalB2Multiplier", numvals < 100000 ? numvals * 100 : 10000000);
 	cost_data.c.numvals = numvals;
 	cost_data.c.gwdata = &pm1data->gwdata;
 	cost_data.c.fftlen = gwfftlen (&pm1data->gwdata);
@@ -7612,7 +7614,7 @@ int pminus1 (
 	int	exp_initialized;
 	uint64_t stage0_limit;
 	unsigned int memused;
-	int	i, stage1_batch_size, stage1_temps;
+	int	i, stage1_batch_size, stage1_mem, stage1_temps;
 	unsigned long len;
 	int	maxerr_restart_count = 0;
 	unsigned long maxerr_fftlen = 0;
@@ -8039,21 +8041,12 @@ restart1:
 
 	stage1_batch_size = (int) ((double) IniGetInt (INI_FILE, "Stage1BatchSize", 150000) / ((double) pm1data.gwdata.FFTLEN / 4096.0));
 
-/* Most likely we are working on small exponents where 100MB of memory gives us all the temporaries we could possibly want.  If so, skip the variable */
-/* mem usage routines. */
+/* Most likely we are working on small exponents where 100MB of memory gives us all the temporaries we could possibly want. */
 
-	if (cvt_gwnums_to_mem (&pm1data.gwdata, 513) <= 100) {
-		stage1_temps = cvt_mem_to_gwnums (&pm1data.gwdata, 100);
-	} else {
-		unsigned int memory;
-		stop_reason = avail_mem (thread_num, cvt_gwnums_to_mem (&pm1data.gwdata, 8), cvt_gwnums_to_mem (&pm1data.gwdata, 150), &memory);
-		if (stop_reason) { pm1_save (&pm1data); goto exit;}
-		stage1_temps = cvt_mem_to_gwnums (&pm1data.gwdata, memory);
-	}
-	stage1_temps = IniGetInt (INI_FILE, "Stage1Temps", stage1_temps);
-
-	// We probably won't use more than 500 temps
-	set_memory_usage (thread_num, 0, cvt_gwnums_to_mem (&pm1data.gwdata, _intmin (stage1_temps, 500)));
+	stage1_mem = IniGetInt (INI_FILE, "Stage1Memory", 100);		// Get amount of memory in MB we are allowed to allocate in stage 1
+	stage1_temps = cvt_mem_to_gwnums (&pm1data.gwdata, stage1_mem);
+	if (stage1_temps > IniGetInt (INI_FILE, "Stage1MaxTemps", 512)) stage1_temps = IniGetInt (INI_FILE, "Stage1MaxTemps", 512);
+	set_memory_usage (thread_num, 0, cvt_gwnums_to_mem (&pm1data.gwdata, stage1_temps));
 
 	// Loop processing small batches of primes
 	for (pm1data.stage1_prime = sieve (pm1data.sieve_info); pm1data.stage1_prime < pm1data.interim_B; ) {
@@ -8410,6 +8403,7 @@ OutputStr (thread_num, buf); }
 			pm1data.V = NULL;
 			// Re-init gwnum with a larger FFT
 			gwinit (&pm1data.gwdata);
+			if (next_fftlen != best_fftlen) gwset_information_only (&pm1data.gwdata);
 			gwset_sum_inputs_checking (&pm1data.gwdata, SUM_INPUTS_ERRCHK);
 			if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pm1data.gwdata);
 			if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&pm1data.gwdata);

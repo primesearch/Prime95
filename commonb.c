@@ -2231,8 +2231,7 @@ void checkPauseWhileRunning (void)
 
 	checkPauseListCallback ();
 
-/* Examine pause info entries to see if a period of forced low memory usage */
-/* should be in effect. */
+/* Examine pause info entries to see if a period of forced low memory usage should be in effect. */
 
 	lowmem = NULL;
 	for (p = PAUSE_DATA; p != NULL; p = p->next) {
@@ -2243,10 +2242,14 @@ void checkPauseWhileRunning (void)
 	STOP_FOR_LOW_MEMORY = lowmem;
 	if (p == NULL && STOP_FOR_LOW_MEMORY != NULL) {
 		char	buf[150];
-		sprintf (buf, "Entering a period of low memory usage because %s is running.\n",
-			 lowmem->matching_program);
+		sprintf (buf, "Entering a period of low memory usage because %s is running.\n", lowmem->matching_program);
 		OutputStr (MAIN_THREAD_NUM, buf);
 		stop_high_memory_workers ();
+	}
+	if (p != NULL && STOP_FOR_LOW_MEMORY != NULL && p != STOP_FOR_LOW_MEMORY) {
+		char	buf[150];
+		sprintf (buf, "Now using little memory because %s is running.\n", lowmem->matching_program);
+		OutputStr (MAIN_THREAD_NUM, buf);
 	}
 	if (p != NULL && STOP_FOR_LOW_MEMORY == NULL) {
 		restart_high_memory_workers ();
@@ -2285,6 +2288,11 @@ void checkPauseWhileRunning (void)
 	for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
 		p = STOP_FOR_PAUSE[i];
 		STOP_FOR_PAUSE[i] = workers_to_pause[i];
+		if (p != NULL && STOP_FOR_PAUSE[i] != NULL && p != STOP_FOR_PAUSE[i]) {
+			char	buf[140];
+			sprintf (buf, "Now paused because %s is running.\n", STOP_FOR_PAUSE[i]->matching_program);
+			OutputStr (i, buf);
+		}
 		if (p != NULL && STOP_FOR_PAUSE[i] == NULL)
 			restart_one_waiting_worker (i, RESTART_END_PAUSE);
 	}
@@ -2299,8 +2307,7 @@ void checkPauseWhileRunning (void)
 }
 
 /* This routine is called by the OS-specific routine that gets the process */
-/* list.  It returns TRUE if an active process is in the pause-while-running */
-/* list. */
+/* list.  It returns TRUE if an active process is in the pause-while-running list. */
 
 void isInPauseList (
 	char	*program_name)
@@ -2311,8 +2318,8 @@ void isInPauseList (
 	strcpy (buf, program_name);
 	strupper (buf);
 	for (p = PAUSE_DATA; p != NULL; p = p->next) {
-		if (p->program_name != NULL &&
-		    strstr (buf, p->program_name) != NULL) {
+		if (p->program_name != NULL && p->matching_program[0] == 0 && strstr (buf, p->program_name) != NULL) {
+			strcpy (buf, program_name);		// Undo the strupper
 			buf[sizeof(p->matching_program)-1] = 0;
 			strcpy (p->matching_program, buf);
 		}
