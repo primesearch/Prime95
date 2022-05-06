@@ -9539,7 +9539,7 @@ int primeBenchMultipleWorkersInternal (
 					if (node == HW_NUM_COMPUTE_THREADING_NODES) {
 						nodes_left += HW_NUM_THREADING_NODES - HW_NUM_COMPUTE_THREADING_NODES;
 						cores_left += HW_NUM_CORES - HW_NUM_COMPUTE_CORES;
-						unused_cores_left += HW_NUM_CORES - cpus;
+						if (cpus > (int) HW_NUM_COMPUTE_CORES) unused_cores_left += HW_NUM_CORES - cpus;
 						workers_left += efficiency_workers;
 						if (efficiency_workers == 0 && cpus > (int) HW_NUM_COMPUTE_CORES) nodes_to_use = nodes_left;
 					}
@@ -9551,7 +9551,7 @@ int primeBenchMultipleWorkersInternal (
 
 				// Assign nodeset cores to the nodeset workers
 				for ( ; workers_this_nodeset; workers_this_nodeset--) {
-				    int	cores_to_use = cores_this_nodeset / workers_this_nodeset;
+				    int	cores_to_use = (cores_this_nodeset - unused_cores_this_nodeset) / workers_this_nodeset;
 				    info[worker_num].main_thread_num = thread_num;
 				    info[worker_num].fftlen = fftlen;
 				    info[worker_num].plus1 = plus1;
