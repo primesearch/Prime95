@@ -514,8 +514,8 @@ We've seen that some operations after an unnormalized add can be safe.  Thus, we
 	FFT(c)
 	FFT(d)
 	FFT(c*d) = point-wise multiplication of FFT(c) and FFT(d)
-	FFT(res) = FFT(a*b) + FFT(c*d)
-	res = inverse FFT
+	FFT(result) = FFT(a*b) + FFT(c*d)
+	result = inverse FFT
 Even better, several reads and writes are saved because the addition takes place while FFT data is already in CPU registers.
 Futhermore, the result is fully normalized whereas in the first method the result is unnormalized.
 

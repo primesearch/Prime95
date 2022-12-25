@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2022 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines to QA the gwnum FFT routines.
 | QA can be activated by using Advanced/Time menu choice on exponent 9900.
@@ -395,7 +395,7 @@ void test_it_all (
 		diff = fabs (gwsuminp (&gwdata, x) - gwsumout (&gwdata, x));
 		if (diff > maxdiff) maxdiff = diff;
 		gwmul_carefully (&gwdata, x, x);
-		gwfree (&gwdata, gwdata.GW_RANDOM); gwdata.GW_RANDOM = NULL;
+		gwfree_internal_memory (&gwdata);	// Free GW_RANDOM
 		diff = fabs (gwsuminp (&gwdata, x) - gwsumout (&gwdata, x));
 		if (diff > maxdiff) maxdiff = diff;
 		gwsetaddin (&gwdata, 0);
@@ -647,6 +647,9 @@ void test_it (
 			if (i & 1) gwmul3 (gwdata, x, x3, x4, 0);
 			else gwmul3 (gwdata, x3, x, x4, 0);
 			gwcopy (gwdata, x4, x);
+		} else if (i % 50 == 34) {				// Test postfft with unfft (zero padding had issues in past)
+			gwmul3 (gwdata, x, x, x4, GWMUL_STARTNEXTFFT);
+			gwunfft (gwdata, x4, x);
 		} else
 			gwsquare (gwdata, x);
 
@@ -799,7 +802,7 @@ void test_it (
 	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x, g, "square mul-const careful");
 
 	gwmul_carefully (gwdata, x, x);
-	gwfree (gwdata, gwdata->GW_RANDOM); gwdata->GW_RANDOM = NULL;
+	gwfree_internal_memory (gwdata);	// Free GW_RANDOM
 	diff = fabs (gwsuminp (gwdata, x) - gwsumout (gwdata, x));
 	if (diff > maxdiff) maxdiff = diff;
 	squaregi (&gwdata->gdata, g); imulg (3, g);

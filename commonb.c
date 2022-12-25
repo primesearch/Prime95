@@ -12,6 +12,7 @@
 
 #include "ecm.h"
 #include "exponentiate.h"
+#include "polymult.h"
 
 /* Globals for error messages */
 
@@ -387,7 +388,8 @@ uint32_t map_aux_to_core (
 {
 	ASSERTG (base_core_num < (int) HW_NUM_CORES);
 	// Without hyperthreading.  Aux-thread-num is same as core # since we are running one thread per core.  Map to hwloc core numbering.
-	if (!hyperthreading) return (get_ranked_core (base_core_num + aux_thread_num));
+	// With P-1 having an extra threads option to perhaps usefully take advantage of hyperthreads, we do a modulo so the extra threads return valid core numbers.
+	if (!hyperthreading) return (get_ranked_core ((base_core_num + aux_thread_num) % HW_NUM_CORES));
 	// With hyperthreading.  Use every thread on each core.  Map to hwloc core numbering.
 	uint32_t total_threads = 0;
 	uint32_t hwloc_core = 0;
@@ -515,20 +517,16 @@ void SetPriority (
 		if (worker_core_count < HW_NUM_COMPUTE_CORES && HW_NUM_COMPUTE_CORES == HW_NUM_CORES && IniGetInt (INI_FILE, "ReserveCore0", 0)) {
 			bind_type = 0;			// Set affinity to a specific physical CPU core
 			// Map prime95 core number and auxiliary thread number to hwloc core number.
-			// Normally this works great, but now P-1 can request extra threads (in case hyperthreading helps in polymult) which lets
-			// aux_thread_num exceed the number of cores.  Thus, we do a modulo to make the core numbering work out OK.
-			core = map_aux_to_core (cores_used_by_lower_workers + 1, info->aux_thread_num % HW_NUM_CORES, info->normal_work_hyperthreading);
+			core = map_aux_to_core (cores_used_by_lower_workers + 1, info->aux_thread_num, info->normal_work_hyperthreading);
 			break;
 		}
 
-/* If total num worker cores <= num cores, then there is an easy path forward.  Assign cores in ascending order.  This will assigne efficiency cores last. */
+/* If total num worker cores <= num cores, then there is an easy path forward.  Assign cores in ascending order.  This will assign efficiency cores last. */
 
 		if (worker_core_count <= HW_NUM_CORES) {
 			bind_type = 0;			// Set affinity to a specific physical CPU core
 			// Map prime95 core number and auxiliary thread number to hwloc core number.
-			// Normally this works great, but now P-1 can request extra threads (in case hyperthreading helps in polymult) which lets
-			// aux_thread_num exceed the number of cores.  Thus, we do a modulo to make the core numbering work out OK.
-			core = map_aux_to_core (cores_used_by_lower_workers, info->aux_thread_num % HW_NUM_CORES, info->normal_work_hyperthreading);
+			core = map_aux_to_core (cores_used_by_lower_workers, info->aux_thread_num, info->normal_work_hyperthreading);
 			break;
 		}
 
@@ -5710,7 +5708,7 @@ begin:	factor_found = 0;
 			writeResults (buf);
 
 /* Format a JSON version of the result.  An example follows: */
-/* {"status":"F", "exponent":45581713, "worktype":"TF", "factors":["430639100587696027847"], */
+/* {"status":"F", "exponent":45581713, "worktype":"TF", "factors":["430639100587696027847"], "bitlo":73, "bithi":74, "rangecomplete":false, */
 /* "program":{"name":"prime95", "version":"29.5", "build":"8"}, "timestamp":"2019-01-15 23:28:16", */
 /* "user":"gw_2", "cpu":"office_computer", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
 
@@ -5718,6 +5716,8 @@ begin:	factor_found = 0;
 			JSONaddExponent (JSONbuf, w);
 			strcat (JSONbuf, ", \"worktype\":\"TF\"");
 			sprintf (JSONbuf+strlen(JSONbuf), ", \"factors\":[\"%s\"]", str);
+			sprintf (JSONbuf+strlen(JSONbuf), ", \"bitlo\":%d", (int) ((bits < report_bits) ? w->sieve_depth : bits));
+			sprintf (JSONbuf+strlen(JSONbuf), ", \"bithi\":%d, \"rangecomplete\":false", end_bits);
 			JSONaddProgramTimestamp (JSONbuf);
 			JSONaddUserComputerAID (JSONbuf, w);
 			strcat (JSONbuf, "}\n");
@@ -5791,7 +5791,7 @@ nextpass:	;
 		writeResults (buf);
 
 /* Format a JSON version of the result.  An example follows: */
-/* {"status":"NF", "exponent":25000000, "worktype":"TF", "bitlo":73, "bithi":74, */
+/* {"status":"NF", "exponent":25000000, "worktype":"TF", "bitlo":73, "bithi":74, "rangecomplete":true, */
 /* "security-code":"C6B0B26C", "program":{"name":"prime95", "version":"29.5", "build":"8"}, "timestamp":"2019-01-15 23:28:16", */
 /* "user":"gw_2", "cpu":"laptop1", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
 
@@ -5799,7 +5799,7 @@ nextpass:	;
 		JSONaddExponent (JSONbuf, w);
 		strcat (JSONbuf, ", \"worktype\":\"TF\"");
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"bitlo\":%d", start_bits);
-		sprintf (JSONbuf+strlen(JSONbuf), ", \"bithi\":%d", end_bits);
+		sprintf (JSONbuf+strlen(JSONbuf), ", \"bithi\":%d, \"rangecomplete\":true", end_bits);
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC3 (p));
 		JSONaddProgramTimestamp (JSONbuf);
 		JSONaddUserComputerAID (JSONbuf, w);
@@ -6724,6 +6724,7 @@ begin:	gwinit (&lldata.gwdata);
 	gwset_num_threads (&lldata.gwdata, get_worker_num_threads (thread_num, HYPERTHREAD_LL));
 	gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
 	gwset_thread_callback_data (&lldata.gwdata, sp_info);
+	gwset_use_spin_wait (&lldata.gwdata, IniGetInt (INI_FILE, "SpinWait", 0));
 	stop_reason = lucasSetup (thread_num, p, w->minimum_fftlen, &lldata);
 	if (stop_reason) return (stop_reason);
 
@@ -7818,7 +7819,7 @@ int selfTestInternal (
 		gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
 		gwset_thread_callback_data (&lldata.gwdata, sp_info);
 		lldata.gwdata.GW_BIGBUF = (char *) bigbuf;
-		lldata.gwdata.GW_BIGBUF_SIZE = (bigbuf != NULL) ? (size_t) memory * (size_t) 1048576 : 0;
+		lldata.gwdata.GW_BIGBUF_SIZE = (bigbuf != NULL) ? (intptr_t) memory * (intptr_t) 1048576 : 0;
 		stop_reason = lucasSetup (thread_num, p, fftlen, &lldata);
 		if (stop_reason) return (stop_reason);
 		lldata.gwdata.MAXDIFF *= 2.0;
@@ -8265,7 +8266,7 @@ loop:	run_indefinitely = TRUE;
 	memory = IniGetInt (INI_FILE, "TortureMem", 8);
 	memory = memory / num_torture_workers;
 	while (memory > 8 && bigbuf == NULL) {
-		bigbuf = aligned_malloc ((size_t) memory * (size_t) 1048576, 128);
+		bigbuf = aligned_malloc ((intptr_t) memory * (intptr_t) 1048576, 128);
 		if (bigbuf == NULL) memory--;
 	}
 
@@ -8275,15 +8276,15 @@ loop:	run_indefinitely = TRUE;
 	num_large_lengths = 0;
 	disabled_cpu_flags = IniGetInt (INI_FILE, "TortureWeak", 0);
 	fftlen = gwmap_with_cpu_flags_to_fftlen (CPU_FLAGS & ~disabled_cpu_flags, 1.0, 2, 15 * min_fft, -1);
-	while (fftlen <= max_fft) {
+	while (fftlen && fftlen <= max_fft) {
 		unsigned long max_exponent = gwmap_with_cpu_flags_fftlen_to_max_exponent (CPU_FLAGS & ~disabled_cpu_flags, fftlen);
+		if (max_exponent == 0) break;			// Somethng went wrong, likely a CPU_ARCHITECTURE / BIF / jmptable inconsistency
 		if (fftlen >= min_fft && max_exponent > test_data[test_data_count-1].p) {
 			lengths[num_lengths] = fftlen;
 			data_index[num_lengths++] = 0;
 			if (fftlen > max_small_fftlen * 2) num_large_lengths++;
 		}
 		fftlen = gwmap_with_cpu_flags_to_fftlen (CPU_FLAGS & ~disabled_cpu_flags, 1.0, 2, max_exponent + 100, -1);
-		if (fftlen == 0) break;
 	}
 
 /* Raise error if no FFT lengths to test */
@@ -8347,7 +8348,7 @@ loop:	run_indefinitely = TRUE;
 				info[i].test_time = test_time;
 				info[i].torture_index = &data_index[index];
 				info[i].memory = memory / num_threads;
-				info[i].bigbuf = (bigbuf != NULL ? (char *) bigbuf + i * info[i].memory * 1048576 : NULL);
+				info[i].bigbuf = (bigbuf != NULL ? (char *) bigbuf + i * (intptr_t) info[i].memory * (intptr_t) 1048576 : NULL);
 				info[i].test_data = test_data;
 				info[i].test_data_count = test_data_count;
 				info[i].disabled_cpu_flags = disabled_cpu_flags;
@@ -8893,6 +8894,133 @@ static	int	time_all_complex = 0;	/* TRUE if we should time all-complex FFTs */
 		return (test_all_impl (thread_num, &sp_info));
 	}
 
+	// Time polymult code
+	if (p >= 8900 && p <= 8999) {
+		char	buf[200];
+
+//	* starting gwnum FFTLEN point 
+//	* starting gwnum poly FFTLEN point 
+
+		int polymem = IniGetInt (LOCALINI_FILE, "PolyMem", (long) (0.8 * physical_memory ()));
+		if (polymem > (int) physical_memory ()) polymem = (int) (0.9 * physical_memory ());
+
+		sprintf (buf, "Polymult timing using %d threads, %dMB\n", HW_NUM_CORES, polymem);
+		OutputBoth (thread_num, buf);
+
+		memset (&sp_info, 0, sizeof (sp_info));
+		sp_info.type = SET_PRIORITY_NORMAL_WORK;
+		sp_info.worker_num = thread_num;
+		sp_info.verbosity = IniGetInt (INI_FILE, "AffinityVerbosity", 1);
+		sp_info.normal_work_hyperthreading = FALSE;
+		SetPriority (&sp_info);
+
+// starting gwnum FFTLEN option 
+// starting poly FFTLEN option
+		// Loop working on bigger and bigger exponents
+		for (int EXP = 1000; EXP < 500000000; EXP *= 4) {
+			int iters = 100000 / EXP;	// A small number of iterations that won't take too long
+			// Loop working on bigger and bigger poly sizes (CNT is the output poly size which roughly equals the poly FFT size)
+			for (int CNT = 3125; CNT < 500000000; CNT *= 2, iters = iters / 2) {
+				// Check if we have enough memory
+				if ((double) CNT * (gwmap_to_estimated_size (1.0, 2, EXP, -1) + 64) +
+				    (double) polymult_mem_required (CNT/2, CNT/2, 0, CPU_FLAGS, HW_NUM_CORES) > polymem * 1048576.0) break;
+
+				bool	first_poly = TRUE;
+				bool	mt_polymult_line;		// Multi-thread polymult_line vs multi-thread fft_line_pass
+				bool	preprocess;			// TRUE if poly should be pre-processed
+				bool	preFFT;				// TRUE if poly should be pre-FFTed
+				bool	compress;			// TRUE if preprocessed poly s.b. compressed
+				bool	strided_write;			// TRUE if writes should be strided
+				bool	streamed_stores;		// TRUE if writes should be streamed
+				bool	scrambled;			// TRUE if output array is scrambled
+				for (int mm = 0; mm < 2; mm++) { mt_polymult_line = mm;		// original polymult = 0, new fft_line_pass = 1
+				for (int sc = 0; sc < 2; sc++) { scrambled = sc;
+				for (int sw = 0; sw < 2; sw++) { strided_write = sw;
+				for (int ss = 0; ss < 2; ss++) { streamed_stores = ss;
+				for (int pp = 0; pp < 5; pp++) {
+				preprocess = (pp != 0);	// not preprocessed=0, preprocessed=1, compressed=2, preFFTed=3, preFFTed and compresed=4
+				preFFT = (pp >= 3);
+				compress = (pp == 2) || (pp == 4);
+				if (p == 8900 && pp > 0) continue;
+				if (p == 8901 && sc > 0) continue;
+
+				// Check if we have enough memory
+				if (!preprocess && mt_polymult_line &&
+				    (double) CNT * (gwmap_to_estimated_size (1.0, 2, EXP, -1) + 64) +
+				    (double) polymult_mem_required (CNT/2, CNT/2, 0, CPU_FLAGS, 1) * HW_NUM_CORES > polymem * 1048576.0) continue;
+				if (preprocess && !preFFT &&
+				    (double) CNT * (gwmap_to_estimated_size (1.0, 2, EXP, -1) + 64) * 1.5 > polymem * 1048576.0) continue;
+				if (preprocess && preFFT &&
+				    (double) CNT * (gwmap_to_estimated_size (1.0, 2, EXP, -1) + 64) * 2.0 > polymem * 1048576.0) continue;
+
+				gwhandle gwdata;
+				pmhandle pmdata;
+				gwarray a, b;
+				gwinit (&gwdata); 
+				gwset_num_threads (&gwdata, HW_NUM_CORES);
+				gwset_thread_callback (&gwdata, SetAuxThreadPriority);
+				gwset_thread_callback_data (&gwdata, &sp_info);
+				gwset_use_spin_wait (&gwdata, 1);
+				gwsetup (&gwdata, 1.0, 2, EXP, -1);
+				if (stopCheck (thread_num)) { gwdone (&gwdata); return 1; }
+				polymult_init (&pmdata, &gwdata);
+				polymult_set_max_num_threads (&pmdata, HW_NUM_CORES);
+				pmdata.L3_CACHE_SIZE = mt_polymult_line ? 1000000000 : 1;
+				pmdata.enable_strided_writes = strided_write;
+				pmdata.enable_streamed_stores = streamed_stores;
+				a = b = gwalloc_array (&gwdata, CNT);
+				if (scrambled) {
+//					for (int i = 0; i < CNT; i++) {
+//						int j = rand () % CNT;
+//						gwswap (b[i], b[j]);
+//					}
+					unsigned int p1size, p2size;
+					pick_pass_sizes (&pmdata, polymult_fft_size (CNT), &p1size, &p2size);
+					intptr_t dist = (intptr_t) b[1] - (intptr_t) b[0];
+					int assigned = 0;
+					for (int p2 = 0; p2 < p2size; p2++) {
+					for (int p1 = 0; p1 < p1size; p1++) {
+						if ((int) (p1 * p2size + p2) >= CNT) break;
+						b[p1 * p2size + p2] = (gwnum) ((intptr_t) b[0] + assigned * dist);
+						assigned++;
+					}
+					}
+					ASSERTG (assigned == CNT);
+				}
+				dbltogw (&gwdata, 10001.0, a[0]);
+				for (int i = 1; i < CNT/2; i++) gwcopy (&gwdata, a[0], a[i]);
+				if (preprocess) a = polymult_preprocess (&pmdata, a, CNT/2, CNT/2, CNT-1, (preFFT ? POLYMULT_PRE_FFT : 0) + (compress ? POLYMULT_PRE_COMPRESS : 0));
+				clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
+				start_timer (timers, 0);
+				if (iters == 0) iters = 1;
+				for (int i = 0; i < iters; i++) {
+					polymult (&pmdata, a, CNT/2, a, CNT/2, b, (CNT/2)*2-1, POLYMULT_NEXTFFT);
+					//polymult (&pmdata, a, CNT/2, a, CNT/2, b, CNT, POLYMULT_INVEC1_MONIC_RLP | POLYMULT_INVEC2_MONIC_RLP | POLYMULT_NEXTFFT);
+				}
+				end_timer (timers, 0);
+				timers[0] /= iters;
+				if (first_poly) {
+					int aligned_gwnum_size = gwnum_datasize (&gwdata) + GW_HEADER_SIZE (&gwdata);
+					aligned_gwnum_size = round_up_to_multiple_of (aligned_gwnum_size, 64);
+					sprintf (buf, "Poly-size %d, gwnum FFT size %ld, gwnum size %d, mod 256 %d\n", CNT, gwdata.FFTLEN, aligned_gwnum_size, aligned_gwnum_size % 256);
+					OutputBoth (thread_num, buf);
+					first_poly = FALSE;
+				}
+				sprintf (buf, "  multithread %s, %s%s%s writes, Time: ",
+					 mt_polymult_line ? "lines" : "fft passes",
+					 !scrambled ? "" : "scrambled, ",
+					 !preprocess ? "" : !preFFT ? (!compress ? "preprocessed, " : "pre-compressed, ") : (!compress ? "pre-FFTed, " : "pre-FFT-compressed, "),
+					 !streamed_stores ? (strided_write ? "strided" : "standard") : (strided_write ? "strided streamed" : "standard streamed"));
+				print_timer (timers, 0, buf, TIMER_NL | TIMER_CLR | TIMER_MS);
+				OutputBoth (thread_num, buf);
+				polymult_done (&pmdata);
+				gwdone (&gwdata);
+				}}}}}
+			}
+		}
+		return (0);
+	}
+
 /* Set the process/thread priority */
 
 	memset (&sp_info, 0, sizeof (sp_info));
@@ -8963,6 +9091,7 @@ static	int	time_all_complex = 0;	/* TRUE if we should time all-complex FFTs */
 			gwset_num_threads (&lldata.gwdata, get_ranked_num_threads (0, num_cores, num_hyperthreads > 1));
 			gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
 			gwset_thread_callback_data (&lldata.gwdata, &sp_info);
+			gwset_use_spin_wait (&lldata.gwdata, IniGetInt (INI_FILE, "SpinWait", 0));
 			stop_reason = lucasSetup (thread_num, p, time_all_complex, &lldata);
 			if (stop_reason) return (stop_reason);
 			ASM_TIMERS = get_asm_timers (&lldata.gwdata);
@@ -9460,7 +9589,7 @@ int primeBenchMultipleWorkersInternal (
 
 			    if (! is_number_in_list (workers, bench_workers)) continue;
 			    if (cpus % workers != 0 && !bench_oddballs) continue;
-			    /* Only SSE2 code supports multi-threaded FFTs */
+			    /* Only SSE2 and later code supports multi-threaded FFTs */
 			    if ((cpus > workers || hypercpus > 1) && ! (CPU_FLAGS & CPU_SSE2)) continue;
 
 /* Output start message for this benchmark */
@@ -9825,9 +9954,11 @@ void autoBench (void)
 	if (BENCH_NUM_CORES)
 		num_cores = BENCH_NUM_CORES;		/* Use gwnum.txt override or default to all cores in use */
 	else {
-		num_cores = 0;
-		for (i = 0; i < (int) NUM_WORKER_THREADS; i++) num_cores += CORES_PER_TEST[i];
-		if (num_cores > (int) HW_NUM_CORES) num_cores = HW_NUM_CORES;
+		//num_cores = 0;
+		//for (i = 0; i < (int) NUM_WORKER_THREADS; i++) num_cores += CORES_PER_TEST[i];
+		//if (num_cores > (int) HW_NUM_CORES)
+		// Always auto-bench using all the cores.  Prime95 always calls gwset_bench_cores with HW_NUM_CORES.
+		num_cores = HW_NUM_CORES;
 	}
 	num_workers = BENCH_NUM_WORKERS ? BENCH_NUM_WORKERS : NUM_WORKER_THREADS; /* Use gwnum.txt override or default to all workers */
 
@@ -10124,7 +10255,7 @@ int primeBench (
 	    if (!OS_CAN_SET_AFFINITY && hypercpu > 1 && cores != HW_NUM_CORES) continue;
 	    /* Output a message if using multi-threaded FFT */
 	    if (cores > 1 || hypercpu > 1) {
-	      if (! (CPU_FLAGS & CPU_SSE2)) continue;  // Only SSE2 code supports multi-threaded FFTs
+	      if (! (CPU_FLAGS & CPU_SSE2)) continue;  // Only SSE2 and later code supports multi-threaded FFTs
 	      sprintf (buf, "Timing%s FFTs using %d core%s.\n", hypercpu > 1 ? " hyperthreaded" : "", cores, cores > 1 ? "s" : "");
 	      OutputBothBench (thread_num, buf);
 	    }
@@ -10155,6 +10286,7 @@ int primeBench (
 		  gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
 		  gwset_thread_callback_data (&lldata.gwdata, &sp_info);
 		  if (all_bench) lldata.gwdata.bench_pick_nth_fft = impl;
+		  gwset_use_spin_wait (&lldata.gwdata, IniGetInt (INI_FILE, "SpinWait", 0));
 		  stop_reason = lucasSetup (thread_num, fftlen * 17 + 1, fftlen + plus1, &lldata);
 		  if (stop_reason) {
 			/* An error during all_bench is expected.  Continue on to next FFT length. */
@@ -11103,9 +11235,9 @@ pfail_wont_get_better:
 		if (proofgen_waits > 2) proofgen_waits = 2;
 pfail:		if (fd >= 0) _close (fd);
 		if (fdout >= 0) {
+			_chsize_s (fdout, proof_file_start_offset);
 			_close (fdout);
 			if (proof_file_start_offset == 0) _unlink (tmp_proof_filename);
-			else _chsize_s (fd, proof_file_start_offset);
 		}
 		if (M != NULL) gwfree (gwdata, M);
 
@@ -11866,6 +11998,7 @@ begin:	N = exp = NULL;
 	gwset_thread_callback_data (&gwdata, sp_info);
 	gwset_minimum_fftlen (&gwdata, w->minimum_fftlen);
 	gwset_safety_margin (&gwdata, IniGetFloat (INI_FILE, "ExtraSafetyMargin", 0.0));
+	gwset_use_spin_wait (&gwdata, IniGetInt (INI_FILE, "SpinWait", 0));
 	res = gwsetup (&gwdata, w->k, w->b, w->n, w->c);
 
 /* If we were unable to init the FFT code, then print an error message */

@@ -8,7 +8,8 @@
 #	ldd mprime
 #
 # Hwloc can be downloaded from https://www.open-mpi.org/projects/hwloc/
-# Configure hwloc with --enable-static --disable-shared --disable-pci --disable-cuda --disable-gl --disable-opencl --disable-rsmi
+# Configure hwloc with --enable-static --disable-shared --disable-io
+#              or with --enable-static --disable-shared --disable-pci --disable-cuda --disable-gl --disable-opencl --disable-rsmi --disable-nvml
 #
 #  Ugh, different linux variants require different makefiles.
 #  The current makefile is for CentOS 7.  We prefer to link against older Linux versions because linking on the latest, greatest version
@@ -48,7 +49,7 @@ clean:
 	rm -f $(EXE) $(EXE2) $(LINUXOBJS)
 
 cJSON.o:
-	$(CC) $(CCFLAGS) -c ../cJSON.c
+	$(CC) $(CFLAGS) -c ../cJSON.c
 
 ecm.o:
 	$(CPP) $(CPPFLAGS) -c ../ecm.cpp
@@ -60,7 +61,7 @@ pair.o:
 	$(CPP) $(CPPFLAGS) -c ../pair.cpp
 
 pm1prob.o:
-	$(CC) $(CCFLAGS) -c ../pm1prob.c
+	$(CC) $(CFLAGS) -c ../pm1prob.c
 
 .c.o:
 	$(CC) $(CFLAGS) -c $<

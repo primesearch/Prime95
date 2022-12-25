@@ -2308,7 +2308,7 @@ void auxiliaryWorkUnitInit (
 
 /* Guard against wild tests_saved values.  Huge values will cause guess_pminus1_bounds to run for a very long time. */
 
-	if (w->tests_saved > 10) w->tests_saved = 10;
+	if (w->tests_saved > 100) w->tests_saved = 100;
 }
 
 /* Fill in a work unit's stage and percentage complete based on any save files. */
@@ -2764,10 +2764,12 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 		w->factor_to = factor_to;
 	    }
 
-/* Handle Pfactor= lines.  Old style is:				*/
-/*	Pfactor=exponent,how_far_factored,double_check_flag		*/
-/* New style is:							*/
-/*	Pfactor=k,b,n,c,how_far_factored,ll_tests_saved_if_factor_found	*/
+/* Handle Pfactor= lines.  Old style is:						*/
+/*	Pfactor=exponent,how_far_factored,double_check_flag				*/
+/* New style is:									*/
+/*	Pfactor=k,b,n,c,how_far_factored,ll_tests_saved_if_factor_found			*/
+/* Starting in 30.9:									*/
+/*	Pfactor=k,b,n,c,how_far_factored,ll_tests_saved_if_factor_found[,known_factors]	*/
 
 	    else if (_stricmp (keyword, "PFactor") == 0) {
 		float	sieve_depth;
@@ -2777,10 +2779,18 @@ illegal_line:	sprintf (buf, "Illegal line in worktodo.txt file: %s\n", line);
 			char	*q;
 			float	tests_saved;
 			tests_saved = 0.0;
-			q = strchr (value, ','); *q = 0; w->k = atof (value);
+			w->k = atof (value);
+			if ((q = strchr (value, ',')) == NULL) goto illegal_line;
 			sscanf (q+1, "%lu,%lu,%ld,%f,%f", &w->b, &w->n, &w->c, &sieve_depth, &tests_saved);
+			for (i = 1; i <= 4; i++) if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+			q = strchr (q+1, ',');
 			w->sieve_depth = sieve_depth;
 			w->tests_saved = tests_saved;
+			if (q != NULL && q[1] == '"') {
+				w->known_factors = (char *) malloc (strlen (q));
+				if (w->known_factors == NULL) goto nomem;
+				strcpy (w->known_factors, q+2);
+			}
 		} else {				/* Old style */
 			int	dblchk;
 			sscanf (value, "%lu,%f,%d", &w->n, &sieve_depth, &dblchk);
@@ -3282,6 +3292,7 @@ int writeWorkToDoFile (
 
 		case WORK_PFACTOR:
 			sprintf (buf, "Pfactor=%s%.0f,%lu,%lu,%ld,%g,%g", idbuf, w->k, w->b, w->n, w->c, w->sieve_depth, w->tests_saved);
+			if (w->known_factors != NULL) sprintf (buf + strlen (buf), ",\"%s\"", w->known_factors);
 			break;
 
 		case WORK_ECM:
@@ -4541,7 +4552,7 @@ int read_header (
 	unsigned long b, n;
 	long	c;
 	char	pad;
-	char	stage[11];
+	char	stage[10];
 	double	pct_complete;
 	unsigned long trash_sum;
 
@@ -4556,7 +4567,8 @@ int read_header (
 	if (!read_long (fd, &b, NULL)) return (FALSE);
 	if (!read_long (fd, &n, NULL)) return (FALSE);
 	if (!read_slong (fd, &c, NULL)) return (FALSE);
-	if (!read_array (fd, stage, 11, NULL)) return (FALSE);
+	if (!read_array (fd, stage, 10, NULL)) return (FALSE);
+	if (!read_array (fd, &pad, 1, NULL)) return (FALSE);
 	if (!read_array (fd, &pad, 1, NULL)) return (FALSE);
 	if (!read_double (fd, &pct_complete, NULL)) return (FALSE);
 	if (sum == NULL) sum = &trash_sum;
@@ -4568,7 +4580,7 @@ int read_header (
 
 /* Set the work unit's stage and pct_complete fields */
 
-	stage[10] = 0;
+	stage[9] = 0;
 	strcpy (w->stage, stage);
 	if (pct_complete < 0.0) pct_complete = 0.0;
 	if (pct_complete > 1.0) pct_complete = 1.0;
@@ -4594,7 +4606,8 @@ int write_header (
 	if (!write_long (fd, w->b, NULL)) return (FALSE);
 	if (!write_long (fd, w->n, NULL)) return (FALSE);
 	if (!write_slong (fd, w->c, NULL)) return (FALSE);
-	if (!write_array (fd, w->stage, 11, NULL)) return (FALSE);
+	if (!write_array (fd, w->stage, 10, NULL)) return (FALSE);
+	if (!write_array (fd, &pad, 1, NULL)) return (FALSE);
 	if (!write_array (fd, &pad, 1, NULL)) return (FALSE);
 	if (!write_double (fd, w->pct_complete, NULL)) return (FALSE);
 	if (!write_long (fd, sum, NULL)) return (FALSE);
@@ -6061,7 +6074,7 @@ retry:
 /* See if we can request certification work.  Certification work must be done ASAP to reduce disk space used by PrimeNet server. */
 /* Thus, it is priority work.  Some options turn off priority work which precludes getting certification work.  Part-time computers */
 /* are spared certifications.  We are only allowed one certification assignment at a time (part of our spread the load amongst many */
-/* users philosophy).  Also, by default do not get PRP cofactor certs (it annoys some people to interrupt there first time or */
+/* users philosophy).  Also, by default do not get PRP cofactor certs (it annoys some people to interrupt their first time or */
 /* double-checks to process quick work that they believe is not part of GIMPS main purpose).  If the user is doing cofactor work, */
 /* then by all means default to getting cert work on PRP cofactor proofs. */
 
@@ -6145,8 +6158,7 @@ retry:
 		if (pass == 0 && w->work_type != WORK_CERT) continue;
 		if (pass == 1 && w->work_type == WORK_CERT) continue;
 
-/* If we are quitting GIMPS or we have too much work queued up, */
-/* then return the assignment. */
+/* If we are quitting GIMPS or we have too much work queued up, then return the assignment. */
 
 		if (header_words[1] & HEADER_FLAG_QUIT_GIMPS ||
 		    (est >= work_to_get + unreserve_threshold &&
@@ -6644,7 +6656,7 @@ error_exit:
 	if (rc == PRIMENET_ERROR_OBSOLETE_CLIENT) {
 //bug - delete spool file?NO  write a messsage to screen/log/etc???
 //bug - log a useful message describing error and our remedial action?
-		OutputStr (MAIN_THREAD_NUM, "Client is obsolete.  Please upgrage.\n");
+		OutputStr (MAIN_THREAD_NUM, "Client is obsolete.  Please upgrade.\n");
 		obsolete_client = TRUE;
 	}
 

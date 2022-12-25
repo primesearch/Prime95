@@ -174,6 +174,7 @@ int cert (
 	gwset_thread_callback_data (&cs.gwdata, sp_info);
 	gwset_minimum_fftlen (&cs.gwdata, w->minimum_fftlen);
 	gwset_safety_margin (&cs.gwdata, IniGetFloat (INI_FILE, "CertificationSafetyMargin", 0.0));
+	gwset_use_spin_wait (&cs.gwdata, IniGetInt (INI_FILE, "SpinWait", 0));
 	res = gwsetup (&cs.gwdata, w->k, w->b, w->n, w->c);
 
 /* If we were unable to init the FFT code, then print an error message and return an error code. */

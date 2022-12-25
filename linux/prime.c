@@ -1,4 +1,4 @@
-/* Copyright 1995-2021 Mersenne Research, Inc. */
+/* Copyright 1995-2022 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -171,6 +171,10 @@ int main (
 /* No buffering of output */
 
 	setvbuf (stdout, NULL, _IONBF, 0);
+
+/* Change environment variable so that hwloc does not detect different core speeds as different kinds of performance cores */
+
+	putenv ("HWLOC_CPUKINDS_RANKING=coretype");
 
 /* Change to the executable's directory */
 /* NOTE:  This only changes the working directory if the user typed */

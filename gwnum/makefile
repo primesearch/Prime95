@@ -35,7 +35,7 @@ distclean: clean
 	rm -f $(LIB) $(POLYLIB)
 
 polymult_sse2.o: polymult.c polymult.h
-	$(CC) $(CFLAGS) -Dsse2 -msse2 -c -o polymult_sse2.o polymult.c
+	$(CC) $(CFLAGS) -DSSE2 -msse2 -c -o polymult_sse2.o polymult.c
 
 polymult_avx.o: polymult.c polymult.h
 	$(CC) $(CFLAGS) -DAVX -mavx -c -o polymult_avx.o polymult.c

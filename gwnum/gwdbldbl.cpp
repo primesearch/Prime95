@@ -9,13 +9,15 @@
  *  This is the only C++ routine in the gwnum library.  Since gwnum is
  *  a C based library, we declare all routines here as extern "C".
  *
- *  Copyright 2005-2021 Mersenne Research, Inc.  All rights reserved.
+ *  Copyright 2005-2022 Mersenne Research, Inc.  All rights reserved.
  *
  **************************************************************/
 
 /* Include files */
 
 #include "gwdbldbl.h"
+#include <cstring>
+#include <memory>
 
 /* Pick which doubledouble package we will use. */
 
@@ -793,6 +795,24 @@ extern "C"
 void *gwdbldbl_data_alloc (void)
 {
 	return (malloc (sizeof (struct gwdbldbl_constants)));
+}
+
+extern "C"
+void *gwdbldbl_data_clone (void *orig)
+{
+	void *dd_data_arg = malloc (sizeof (struct gwdbldbl_constants));
+	if (dd_data_arg != NULL) {
+		memcpy (dd_data_arg, orig, sizeof (struct gwdbldbl_constants));
+		// Clear some values in case orig was in an inconsistent state (mid-update)
+		dd_data->last_fft_base_j = 0;
+		dd_data->last_fft_base_result = 0;
+		dd_data->last_inv_sloppy_j = 0;
+		dd_data->last_inv_sloppy_result = 1.0;
+		dd_data->fast_inv_sloppy_multiplier = gwfft_weight_inverse (dd_data, 1);
+		dd_data->last_partial_sloppy_power[0] = dd_data->last_partial_sloppy_power[1] = 999.0;
+		dd_data->last_partial_inv_sloppy_power[0] = dd_data->last_partial_inv_sloppy_power[1] = 999.0;
+	}
+	return (dd_data_arg);
 }
 
 extern "C"

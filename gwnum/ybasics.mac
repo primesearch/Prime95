@@ -1,4 +1,4 @@
-; Copyright 2011-2021 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2022 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -876,8 +876,11 @@ orig:	vmulsd	xmm0, xmm1, xmm14	;; Result0 = word-3 * word3
 	vmovsd	ZPAD6, xmm6
 
 	mov	r10, SRC3ARG		;; Distance to FFT(1)
-	cmp	r10, 1			;; Do we have an FFT(1)
-	jne	short hard		;; Yes, do it the hard way
+	cmp	r10, 1			;; Is FFT(1) equal to 1?
+	je	nozpad			;; r10 = 1 means FFT(1) is 1.  Thus, no modification of ZPAD needed for the addin.
+	cmp	r10, 2			;; Do we have an FFTed_FOR_FMA addin
+	jne	short hard		;; No, go compute the addin adjustments for ZPAD values
+					;; Yes, fall through to load the pre-computed addin adjustments for ZPAD values
 
 	vmovsd	xmm0, Q [rsi+r9-88]	;; Load addin0
 	vmovsd	xmm1, Q [rsi+r9-80]	;; Load addin1
@@ -969,13 +972,13 @@ mulsub:	vsubsd	xmm0, xmm7, xmm0		;; Subtract the addins
 	vsubsd	xmm6, xmm13, xmm6
 	jmp	short done
 
-unfft:	vmovsd	xmm0, xmm1, xmm1		;; Copy the ZPADs (mul by 1)
-	vmovsd	xmm1, xmm2, xmm2
-	vmovsd	xmm2, xmm3, xmm3
-	vmovsd	xmm3, xmm4, xmm4
-	vmovsd	xmm4, xmm5, xmm5
-	vmovsd	xmm5, xmm6, xmm6
-	vmovsd	xmm6, xmm7, xmm7
+unfft:	vsubsd	xmm0, xmm0, xmm0		;; Copy the ZPADs (mul by 1)
+	vsubsd	xmm1, xmm1, xmm1
+	vsubsd	xmm2, xmm2, xmm2
+	vsubsd	xmm3, xmm3, xmm3
+	vsubsd	xmm4, xmm4, xmm4
+	vsubsd	xmm5, xmm5, xmm5
+	vsubsd	xmm6, xmm6, xmm6
 	;;jmp	short done
 
 done:	vmovsd	ZPAD0, xmm0

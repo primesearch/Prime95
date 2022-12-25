@@ -15,8 +15,8 @@ masm=uasm64 /c -coff -safeseh
 # Use the MSVC 8 C compiler
 
 cl=cl /GF /W3 /MT /D_CRT_SECURE_NO_DEPRECATE /O2 /c
-cld=cl /GF /W3 /MT /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Z7 /c
-cldo=cl /GF /W3 /MT /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Z7 /O2 /c
+cld=cl /GF /W3 /MTd /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Z7 /c
+cldo=cl /GF /W3 /MTd /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Z7 /O2 /c
 objconv=c:\objconv\objconv
 
 # List of all buildables in this makefile
@@ -150,11 +150,11 @@ release\gwtables.obj: gwtables.c gwnum.h
 debug\gwtables.obj: gwtables.c gwnum.h
     $(cld) /Fodebug\gwtables.obj gwtables.c
 
-release\gwthread.obj: gwthread.c gwthread.h
-    $(cl) /Forelease\gwthread.obj gwthread.c
+release\gwthread.obj: gwthread.cpp gwthread.h
+    $(cl) /Forelease\gwthread.obj gwthread.cpp
 
-debug\gwthread.obj: gwthread.c gwthread.h
-    $(cld) /Fodebug\gwthread.obj gwthread.c
+debug\gwthread.obj: gwthread.cpp gwthread.h
+    $(cldo) /Fodebug\gwthread.obj gwthread.cpp
 
 release\gwini.obj: gwini.c gwini.h
     $(cl) /Forelease\gwini.obj gwini.c
@@ -192,28 +192,28 @@ release\radix.obj: radix.c radix.h gwnum.h
 debug\radix.obj: radix.c radix.h gwnum.h
     $(cld) /Fodebug\radix.obj radix.c
 
-release\polymult\polymult.obj: polymult.c polymult.h
+release\polymult\polymult.obj: polymult.c polymult.h gwnum.h
     $(cl) /arch:IA32 /Forelease\polymult\polymult.obj polymult.c
 
-debug\polymult\polymult.obj: polymult.c polymult.h
+debug\polymult\polymult.obj: polymult.c polymult.h gwnum.h
     $(cld) /arch:IA32 /Fodebug\polymult\polymult.obj polymult.c
 
-release\polymult\polymult_sse2.obj: polymult.c polymult.h
+release\polymult\polymult_sse2.obj: polymult.c polymult.h gwnum.h
     $(cl) /arch:SSE2 /DSSE2 /Forelease\polymult\polymult_sse2.obj polymult.c
 
-debug\polymult\polymult_sse2.obj: polymult.c polymult.h
+debug\polymult\polymult_sse2.obj: polymult.c polymult.h gwnum.h
     $(cld) /arch:SSE2 /DSSE2 /Fodebug\polymult\polymult_sse2.obj polymult.c
 
-release\polymult\polymult_avx.obj: polymult.c polymult.h
+release\polymult\polymult_avx.obj: polymult.c polymult.h gwnum.h
     $(cl) /arch:AVX /DAVX /Forelease\polymult\polymult_avx.obj polymult.c
 
-debug\polymult\polymult_avx.obj: polymult.c polymult.h
+debug\polymult\polymult_avx.obj: polymult.c polymult.h gwnum.h
     $(cld) /arch:AVX /DAVX /Fodebug\polymult\polymult_avx.obj polymult.c
 
-release\polymult\polymult_fma.obj: polymult.c polymult.h
+release\polymult\polymult_fma.obj: polymult.c polymult.h gwnum.h
     $(cl) /arch:AVX2 /DFMA /Forelease\polymult\polymult_fma.obj polymult.c
 
-debug\polymult\polymult_fma.obj: polymult.c polymult.h
+debug\polymult\polymult_fma.obj: polymult.c polymult.h gwnum.h
     $(cld) /arch:AVX2 /DFMA /Fodebug\polymult\polymult_fma.obj polymult.c
 
 release\ecmstag1.obj: ecmstag1.c gwnum.h

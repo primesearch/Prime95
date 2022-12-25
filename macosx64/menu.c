@@ -964,7 +964,8 @@ void options_resources (void)
 		askStr ("Upload large files time period start", m_upload_start, 8);
 		askStr ("Upload large files time period end", m_upload_end, 8);
 	}
-	askNum ("Download limit for certification work in MB/day", &m_download_mb, 0, 999999);
+	if (IniGetInt (LOCALINI_FILE, "CertWork", 1))
+		askNum ("Download limit for certification work in MB/day", &m_download_mb, 0, 999999);
 
 	outputLongLine ("Skip advanced resource settings");
 	if (!askYesNo ('Y')) {
@@ -974,9 +975,8 @@ void options_resources (void)
 		askStr ("Optional directory to hold archived proofs", m_archive_dir, 511);
 		askFloat ("Max emergency memory in GB/worker", &m_emergency_mem, 0.0, max_emergency_mem);
 		askNum ("Priority -- 1 is highly recommended, see readme.txt", &m_priority, 1, 10);
-		if (m_download_mb) {
+		if (IniGetInt (LOCALINI_FILE, "CertWork", 1))
 			askNum ("Certification work limit in % of CPU time", &m_cert_cpu, 1, 100);
-		}
 		if (HW_NUM_CORES != HW_NUM_THREADS && OS_CAN_SET_AFFINITY) {
 			askYN ("Use hyperthreading for trial factoring (recommended)", &m_hyper_tf);
 			askYN ("Use hyperthreading for PRP, LL, P-1, P+1, ECM (not recommended)", &m_hyper_ll);

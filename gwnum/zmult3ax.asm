@@ -1,4 +1,4 @@
-; Copyright 2011-2019 Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2022 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 
@@ -940,7 +940,6 @@ gwzmulsrzp3 ENDP
 ;; Do final carry propagation for add/sub/addsub/smallmul operations
 ;;
 
-	; Irrational version
 PROCFL	gwz3_apply_carries
 	ad_prolog 0,0,rbx,rbp,rsi,rdi,r8,r9,r10,r12,r13,r14,r15,zmm6,zmm7,zmm8,zmm9,zmm10,zmm11,zmm12,zmm13,zmm14,zmm15
 	mov	rax, ZMM_OP_CARRIES_ROUTINE

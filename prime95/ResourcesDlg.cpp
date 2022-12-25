@@ -98,7 +98,7 @@ void CResourcesDlg::OnAdvanced()
 	dlg.m_hyper_tf = HYPERTHREAD_TF;
 	dlg.m_hyper_ll = HYPERTHREAD_LL;
 	dlg.m_can_upload = m_can_upload;
-	dlg.m_can_download = (m_download_mb != 0);
+	dlg.m_can_download = !!(IniGetInt (LOCALINI_FILE, "CertWork", 1));
 	if (dlg.DoModal () == IDOK) {
 		int	restart = FALSE;
 
@@ -182,7 +182,8 @@ void CResourcesAdvancedDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_CERT_CPU_TEXT, c_cert_cpu_text);
 	DDX_Control(pDX, IDC_CERT_CPU, c_cert_cpu);
 	DDX_Text(pDX, IDC_CERT_CPU, m_cert_cpu);
-	DDV_MinMaxUInt(pDX, m_cert_cpu, 1, 100);
+	if (IniGetInt (LOCALINI_FILE, "CertWork", 1)) DDV_MinMaxUInt(pDX, m_cert_cpu, 1, 100);
+	else DDV_MinMaxUInt(pDX, m_cert_cpu, 0, 100);
 	DDX_Check(pDX, IDC_HYPER_TF, m_hyper_tf);
 	DDX_Check(pDX, IDC_HYPER_LL, m_hyper_ll);
 	DDX_Control(pDX, IDC_HYPER_TF, c_hyper_tf);

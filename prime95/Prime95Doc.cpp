@@ -1166,10 +1166,10 @@ void CPrime95Doc::OnWelcome()
 
 void CPrime95Doc::OnUsrTorture() 
 {
-	int	num_threads;
-
-	num_threads = IniGetInt (INI_FILE, "TortureThreads", HW_NUM_THREADS);
-	LaunchTortureTest (num_threads, FALSE);
+	int num_cores = IniGetInt (INI_FILE, "TortureCores", HW_NUM_CORES);
+	if (num_cores < 1) num_cores = 1;
+	if (num_cores > (int) HW_NUM_CORES) num_cores = HW_NUM_CORES;
+	LaunchTortureTest (num_cores, FALSE);
 }
 
 /////////////////////////////////////////////////////////////////////////////

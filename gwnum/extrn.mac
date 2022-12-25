@@ -1,4 +1,4 @@
-; Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
+; Copyright 1995-2022 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -187,7 +187,7 @@ ZPAD3			EQU	QPTR [AD_BASE+48*SZPTR+536]
 ZPAD4			EQU	QPTR [AD_BASE+48*SZPTR+544]
 ZPAD5			EQU	QPTR [AD_BASE+48*SZPTR+552]
 ZPAD6			EQU	QPTR [AD_BASE+48*SZPTR+560]
-;;UNUSED_DOUBLES[1]	EQU	QPTR [AD_BASE+48*SZPTR+568]
+ZPAD_LSW_ADJUST		EQU	QPTR [AD_BASE+48*SZPTR+568]
 
 ;; AVX-512 counts.  Renamed from the counts above for better readability.
 

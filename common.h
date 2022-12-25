@@ -80,6 +80,7 @@
 #define isMersenne(k,b,n,c)		((k) == 1.0 && (b) == 2 && (c) == -1)
 #define isGeneralizedFermat(k,b,n,c)	((k) == 1.0 && isPowerOf2 (n) && (c) == 1)
 #define isPowerOf2(n)			(((n) & ((n)-1)) == 0)
+#define round_up_to_power_of_2(n)	(1ULL << (int) ceil(log2((double)(n))))
 
 /* Define a "safe" strcpy.  The official C runtime library says that overlapping */
 /* buffers produce undefined results.  This safe strcpy allows overlapping */

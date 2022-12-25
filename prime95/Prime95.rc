@@ -574,7 +574,7 @@ BEGIN
     EDITTEXT        IDC_MAXFFT,207,111,29,12
     CONTROL         "Run FFTs &in-place",IDC_IN_PLACE_FFT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,15,129,74,10
     RTEXT           "&Memory to use (in MB):",IDC_MEMORY_TEXT,125,130,77,8
-    EDITTEXT        IDC_MEMORY,208,128,29,12
+    EDITTEXT        IDC_MEMORY,208,128,29,12,ES_AUTOHSCROLL
     LTEXT           "&Time to run each FFT size (in minutes):",IDC_TIMEFFT_TEXT,15,145,122,8
     EDITTEXT        IDC_TIMEFFT,146,143,29,12
 #ifdef X86_64

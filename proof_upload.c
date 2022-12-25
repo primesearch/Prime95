@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------------
-| Copyright 2020-2021 Mersenne Research, Inc.  All rights reserved
+| Copyright 2020-2022 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines to upload one proof file to the Primenet server
 +--------------------------------------------------------------------------*/
@@ -447,6 +447,7 @@ void ProofUpload (char *filename)
 		if (item != NULL) {
 			sprintf (buf, "Proof file %s successfully uploaded\n", filename);
 			OutputBoth (COMM_THREAD_NUM, buf);
+			LogMsg (buf);
 			archiveOrDelete (&fd, filename, fileMD5);
 			goto end;
 		}
