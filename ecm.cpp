@@ -10,7 +10,7 @@
  *	Other important ideas courtesy of Peter Montgomery, Alex Kruppa, Mihai Preda, Pavel Atnashev.
  *
  *	c. 1997 Perfectly Scientific, Inc.
- *	c. 1998-2022 Mersenne Research, Inc.
+ *	c. 1998-2023 Mersenne Research, Inc.
  *	All Rights Reserved.
  *
  *************************************************************/
@@ -667,9 +667,19 @@ int map_D_to_index (int D)
 	ASSERTG (0);
 	return (0);
 }
+// Map a poly D value to the poly_D_data index
+int map_polyD_to_index (int D)
+{
+	int	i;
+	for (i = 0; i < NUM_D; i++) if (poly_D_data[i].D == D) return (i);
+	ASSERTG (0);
+	return (0);
+}
 
 // Return minimum number of relprimes for a D (same as number of relative primes less than D/2)
 #define map_D_to_numrels(D)	D_data[map_D_to_index(D)].numrels
+// Return first_missing_prime for a poly D
+#define map_polyD_to_first_missing_prime(D)	poly_D_data[map_polyD_to_index(D)].first_missing_prime
 
 /* Structure used to pass data to and return data from ECM, P-1, P+1 stage 2 costing routines */
 /* Originally this was only used for the prime pairing algorithm.  Now it also used to analyze polymult-based algorithms. */
@@ -677,14 +687,15 @@ int map_D_to_index (int D)
 struct common_cost_data {
 	/* Data sent to cost function follows */
 	gwhandle *gwdata;		/* Gwnum handle (not required) */
+	pmhandle *polydata;		/* Polymult handle.  If costing a polymult must be minimally initialized for polymult_mem_required. */
 	long	fftlen;			/* FFT length being used */
 	int	threads;		/* Number of threads used during FFTs */
-	int	numvals;		/* Maximum number of gwnum temporaries that can be allocated for relative prime data, pairmaps, */
+	uint64_t numvals;		/* Maximum number of gwnum temporaries that can be allocated for relative prime data, pairmaps, */
 					/* ECM pooling.  Additional gwnums needed by ECM/P-1/P+1 are not included in this maximum number. */
-	bool	only_cost_max_numvals;	/* Set to TRUE if there is no need to cost fewer than numvals.  That is, using maximum number of temporaries is always best. */
 	bool	extra_credit;		/* Set to TRUE if there is "extra credit" for going past B2_end */
 	bool	use_poly_D_data;	/* Set to TRUE if selecting from the alternate D_data designed for polymult */
 	bool	centers_on_Dmultiple;	/* Set to TRUE if pairing is centered on a multiple of D (as opposed to odd multiple of D/2) */
+	int	required_missing;	/* An interrupted polymult stage 2 relocated primes using this small prime.  New D must not be a multiple of this value. */
 	uint64_t gap_start;		/* last_relocatable or zero (when pairmaps are split, c_start to gap_start are the remaining relocatables to pair) */
 	uint64_t gap_end;		/* a.k.a C_done (when pairmaps are split, gap_end to C are the remaining primes to pair) */
 	/* Data returned from cost function follows */
@@ -711,7 +722,7 @@ struct common_cost_data {
 	double	est_init_polymult;	/* Estimated stage 2 init polymult cost (expressed as number of equivalent gwnum transforms) */
 	double	est_stage2_polymult;	/* Estimated stage 2 main loop polymult cost (expressed as number of equivalent gwnum transforms) */
 	double	est_stage2_stage1_ratio;/* Estimated stage 2 runtime / stage 1 runtime ratio */
-	int	stage2_numvals;		/* Returned total number of gwnum temporaries that will be used in stage 2 */
+	uint64_t stage2_numvals;	/* Returned total number of gwnum temporaries that will be used in stage 2 */
 };
 
 /* Select the best D value for the given the number of temporary gwnums that can be allocated.  We trade off more D steps vs. better */
@@ -721,7 +732,7 @@ struct common_cost_data {
 double best_stage2_impl_internal (
 	uint64_t C_start,		/* Starting point for bound #2 (usually B1, but can be different when multiple pairmaps are required) */
 	uint64_t C,			/* Bound #2 */
-	int	max_totrels,		/* Number of gwnum temporaries that can be used for storing relative prime data */
+	uint64_t max_numvals,		/* Number of gwnum temporaries that can be used.  Different than c->numvals when binary searching on numvals. */
 	double	(*cost_func)(void *),	/* ECM, P-1 or P+1 costing function */
 	void	*cost_func_data)	/* User-supplied data to pass to the costing function */
 {
@@ -752,7 +763,6 @@ double best_stage2_impl_internal (
 /* Try various values of D until we find the best one. */
 
 	    for (i = 0; i < num_d; i++) {
-		int	totrels;	/* Actual number of gwnum temporaries that used for storing relative prime data */
 
 /* On second pass only cost the best D from the first pass */
 
@@ -763,13 +773,7 @@ double best_stage2_impl_internal (
 
 /* Check if this D value would require using too many gwnum temporaries */
 
-		if (d_data[i].numrels > max_totrels) break;
-
-/* We only support relp_sets up to 20 entries. */
-
-		totrels = max_totrels;
-		if (!c->use_poly_D_data && totrels > 20 * d_data[i].numrels) totrels = 20 * d_data[i].numrels;
-		c->totrels = totrels;
+		if (d_data[i].numrels > max_numvals) break;
 
 /* We move the smaller primes to a composite value higher up in the B1 to B2 range to improve our pairing chances and */
 /* reduce the number of D sections to process.  Calculate B2_start - the first prime that cannot be relocated higher. */
@@ -800,14 +804,19 @@ double best_stage2_impl_internal (
 		}			
 		c->numDsections = (B2_end - c->B2_start) / D;
 
+/* Perform pairing-specific and polymult-specific initializations */
+
+		if (!c->use_poly_D_data) {
+
 /* When pairmaps are split, the last_relocatable set by the first pairmap restricts which D values can now be used */
 
-		if (c->gap_start && c->gap_start * d_data[i].first_missing_prime > B2_end) continue;
+			if (c->gap_start && c->gap_start * d_data[i].first_missing_prime > B2_end) continue;
 
 /* Estimate our prime pairing percentage and number of D sections that can fit in a pairing map */
 
-		if (!c->use_poly_D_data) {
-			estimate_pairing (d_data[i].second_missing_prime, C_start, C, totrels, d_data[i].numrels, &pairing_percentage, &pairing_runtime);
+			/* We only support relp_sets up to 20 entries */
+			c->totrels = (max_numvals > 20 * d_data[i].numrels) ? 20 * d_data[i].numrels : (int) max_numvals;
+			estimate_pairing (d_data[i].second_missing_prime, C_start, C, c->totrels, d_data[i].numrels, &pairing_percentage, &pairing_runtime);
 			c->est_pair_pct = pairing_percentage;
 			c->est_numpairs = (pairing_percentage * c->est_numprimes) / 2.0;
 			c->est_numsingles = c->est_numprimes - c->est_numpairs * 2.0;
@@ -815,7 +824,7 @@ double best_stage2_impl_internal (
 			c->max_pairmap_Dsections = estimate_max_pairmap_Dsections (c->max_pairmap_size, c->numDsections, est_totpairs);
 			c->numvals_consumed_by_pairmap = (int) ((est_totpairs > c->max_pairmap_size ? c->max_pairmap_size : est_totpairs) / (c->fftlen * sizeof (double)));
 			// Catch cases where not enough memory for totrels and the pairing map
-			if (totrels + c->numvals_consumed_by_pairmap > c->numvals) continue;
+			if (c->totrels + c->numvals_consumed_by_pairmap > max_numvals) continue;
 
 /* Estimate our cost of finding all the prime pairs.  These formulas came from running single threaded timings on 12K, 512K, 5760K FFTs on the */
 /* same machine that did the pairing runtimes.  Thus, this converts (roughly) pairing runtimes into an equivalent cost in number-of-transforms. */
@@ -831,8 +840,15 @@ double best_stage2_impl_internal (
 
 /* Pick the relp_sets to use.  Someday we should expand the options for which relp_sets are tried (don't limit to just the easy sets). */
 
-			c->multiplier = (double) totrels / (double) c->numrels;
+			c->multiplier = (double) c->totrels / (double) c->numrels;
 			c->relp_sets = relp_set_selection ((int) ceil (c->multiplier));
+		}
+
+/* When a polymult stage 2 starts, small primes are "moved" to a multiple of first_missing_prime.  When polymult stage 2 resumes, we cannot select a */
+/* D value that includes the original first_missing_prime as that would miss some of these moved small primes. */
+
+		else {
+			if (c->required_missing && D % c->required_missing == 0) continue;
 		}
 
 /* Calculate the cost of this stage 2 plan */
@@ -874,13 +890,13 @@ double best_stage2_impl (
 	uint64_t gap_start,		/* last_relocatable or zero (when pairmaps are split, c_start to gap_start are the remaining relocatables to pair) */
 	uint64_t gap_end,		/* a.k.a C_done (when pairmaps are split, gap_end to C are the remaining primes to pair) */
 	uint64_t C,			/* Bound #2 */
-	int	numvals,		/* Number of gwnum temporaries that can be used for storing relative prime data (or other uses such as pooling) */
+	uint64_t numvals,		/* Number of gwnum temporaries that can be used for storing relative prime data (or other uses such as pooling) */
 	double	(*cost_func)(void *),	/* ECM, P-1, or P+1 costing function */
 	void	*cost_func_data)	/* User-supplied data to pass to the costing function */
 {
 	struct common_cost_data *c = (struct common_cost_data *) cost_func_data;
 	struct best_stage2_cost {
-		int	totrels;
+		uint64_t numvals;
 		double	cost;
 	} best[3], midpoint;
 
@@ -911,20 +927,20 @@ double best_stage2_impl (
 	c->est_numprimes = primes_less_than (C) - primes_less_than (C_start);
 	if (gap_start) c->est_numprimes -= primes_less_than (gap_end) - primes_less_than (gap_start);
 
-/* If we do not need to do a binary search using fewer than the maximum numvals, then just do one call to best_stage2_impl_internal */
+/* When binary searching using on numvals is not needed (with poly stage 2 maximum numvals is always best), then just do one call to best_stage2_impl_internal */
 
-	if (c->only_cost_max_numvals) return (best_stage2_impl_internal (C_start, C, c->numvals, cost_func, cost_func_data));
+	if (c->use_poly_D_data) return (best_stage2_impl_internal (C_start, C, c->numvals, cost_func, cost_func_data));
 
 /* Prepare for a binary search looking for the lowest cost stage 2 implementation varying the number of gwnums available for relative primes data. */
 
-	best[0].totrels = 4;
-	best[0].cost = best_stage2_impl_internal (C_start, C, best[0].totrels, cost_func, cost_func_data);
+	best[0].numvals = 4;
+	best[0].cost = best_stage2_impl_internal (C_start, C, best[0].numvals, cost_func, cost_func_data);
 	if (numvals == 4) return (best[0].cost);
-	best[2].totrels = c->numvals;
-	best[2].cost = best_stage2_impl_internal (C_start, C, best[2].totrels, cost_func, cost_func_data);
+	best[2].numvals = c->numvals;
+	best[2].cost = best_stage2_impl_internal (C_start, C, best[2].numvals, cost_func, cost_func_data);
 	if (numvals == 5) return (best[2].cost);
-	best[1].totrels = (c->numvals + 4) / 2;
-	best[1].cost = best_stage2_impl_internal (C_start, C, best[1].totrels, cost_func, cost_func_data);
+	best[1].numvals = (c->numvals + 4) / 2;
+	best[1].cost = best_stage2_impl_internal (C_start, C, best[1].numvals, cost_func, cost_func_data);
 //for (int i = 200; i < 1685; i++) {
 //char buf[200];
 //double cost=	best_stage2_impl_internal (C_start, C, i, cost_func, cost_func_data);
@@ -934,7 +950,7 @@ double best_stage2_impl (
 
 /* Now do a binary search */
 
-	while (best[2].totrels - best[0].totrels > 2) {
+	while (best[2].numvals - best[0].numvals > 2) {
 		// If we've reached a rare localized high cost where the midpoint exceeds both endpoints, then pick the half with
 		// the lowest cost endpoint and hope that is the correct decision.
 		if (best[1].cost > best[0].cost && best[1].cost > best[2].cost) {
@@ -945,20 +961,20 @@ double best_stage2_impl (
 		if (best[1].cost > best[0].cost || best[1].cost == best[2].cost) {
 			ASSERTG (best[1].cost <= best[2].cost);
 			best[2] = best[1];
-			best[1].totrels = (best[0].totrels + best[2].totrels) / 2;
-			best[1].cost = best_stage2_impl_internal (C_start, C, best[1].totrels, cost_func, cost_func_data);
+			best[1].numvals = (best[0].numvals + best[2].numvals) / 2;
+			best[1].cost = best_stage2_impl_internal (C_start, C, best[1].numvals, cost_func, cost_func_data);
 		}
 		// If midpoint is worse than end point, make midpoint the new start point.
 		else if (best[1].cost > best[2].cost) {
 			ASSERTG (best[1].cost <= best[0].cost);
 			best[0] = best[1];
-			best[1].totrels = (best[0].totrels + best[2].totrels) / 2;
-			best[1].cost = best_stage2_impl_internal (C_start, C, best[1].totrels, cost_func, cost_func_data);
+			best[1].numvals = (best[0].numvals + best[2].numvals) / 2;
+			best[1].cost = best_stage2_impl_internal (C_start, C, best[1].numvals, cost_func, cost_func_data);
 		}
 		// Work on the bigger of the lower section and upper section
-		else if (best[1].totrels - best[0].totrels > best[2].totrels - best[1].totrels) {	// Work on lower section
-			midpoint.totrels = (best[0].totrels + best[1].totrels) / 2;
-			midpoint.cost = best_stage2_impl_internal (C_start, C, midpoint.totrels, cost_func, cost_func_data);
+		else if (best[1].numvals - best[0].numvals > best[2].numvals - best[1].numvals) {	// Work on lower section
+			midpoint.numvals = (best[0].numvals + best[1].numvals) / 2;
+			midpoint.cost = best_stage2_impl_internal (C_start, C, midpoint.numvals, cost_func, cost_func_data);
 			if (midpoint.cost < best[1].cost || best[1].cost == best[2].cost) {		// Make middle the new end point
 				best[2] = best[1];
 				best[1] = midpoint;
@@ -966,8 +982,8 @@ double best_stage2_impl (
 				best[0] = midpoint;
 			}
 		} else {							// Work on upper section
-			midpoint.totrels = (best[1].totrels + best[2].totrels) / 2;
-			midpoint.cost = best_stage2_impl_internal (C_start, C, midpoint.totrels, cost_func, cost_func_data);
+			midpoint.numvals = (best[1].numvals + best[2].numvals) / 2;
+			midpoint.cost = best_stage2_impl_internal (C_start, C, midpoint.numvals, cost_func, cost_func_data);
 			if (midpoint.cost < best[1].cost) {			// Make middle the new start point
 				best[0] = best[1];
 				best[1] = midpoint;
@@ -981,10 +997,10 @@ double best_stage2_impl (
 
 	if (best[2].cost < best[1].cost) best[1] = best[2];
 //{char buf[200];
-//double cost=	best_stage2_impl_internal (C_start, C, best[1].totrels, cost_func, cost_func_data);
-//sprintf (buf, "best %d, d: %d, cost: %g\n", best[1].totrels, c->D, cost);
+//double cost=	best_stage2_impl_internal (C_start, C, best[1].numvals, cost_func, cost_func_data);
+//sprintf (buf, "best %d, d: %d, cost: %g\n", best[1].numvals, c->D, cost);
 //writeResults (buf);}
-	return (best_stage2_impl_internal (C_start, C, best[1].totrels, cost_func, cost_func_data));
+	return (best_stage2_impl_internal (C_start, C, best[1].numvals, cost_func, cost_func_data));
 }
 
 /**********************************************************************************************************************/
@@ -1339,8 +1355,8 @@ typedef struct {
 	gwhandle gwdata;	/* GWNUM handle */
 	int	thread_num;	/* Worker thread number */
 	struct work_unit *w;	/* Worktodo.txt entry */
-	unsigned long curve;	/* Curve # starting with 1 */
-	int	state;		/* Curve state defined above */
+	uint32_t curve;		/* Curve # starting with 1 */
+	uint32_t state;		/* Curve state defined above */
 	double	sigma;		/* Sigma for the current curve */
 	uint64_t B;		/* Bound #1 (a.k.a. B1) */
 	uint64_t C;		/* Bound #2 (a.k.a. B2) */
@@ -1358,21 +1374,21 @@ typedef struct {
 	struct xz xz;		/* The stage 1 value being computed */
 	gwnum	gg;		/* The stage 2 accumulated value */
 
-	int	pool_type;	/* Modinv algorithm type to use */
-	int	pool_count;	/* Count values in the modinv pool */
-	int	poolz_count;	/* Count values in the modinv poolz */
+	int32_t	pool_type;	/* Modinv algorithm type to use */
+	uint32_t pool_count;	/* Count values in the modinv pool */
+	uint32_t poolz_count;	/* Count values in the modinv poolz */
 	gwnum	pool_modinv_value;/* Value we will eventually do a modinv on */
 	gwnum	*pool_values;	/* Array of values to normalize */
 	gwnum	*poolz_values;	/* Array of z values we are normalizing */
 	unsigned long modinv_count; /* Stats - count of modinv calls */
 
 	/* Stage 2 data common to prime pairing and polymult */
-	int	stage2_type;	/* Prime pairing or polymult stage 2 */
-	int	stage2_numvals;	/* Number of gwnums used in stage 2 */
+	int32_t	stage2_type;	/* Prime pairing or polymult stage 2 */
+	uint64_t stage2_numvals;/* Number of gwnums used in stage 2 */
 	uint64_t C_done;	/* Stage 2 completed thusfar (updated every D section that is completed) */
-	int	D;		/* Stage 2 loop increment */
-	int	E;		/* Number of mQx values to pool together into one stage 2 modular inverse */
-	int	numrels;	/* Number of relative primes less than D/2 (the number of relative primes in one full relp_set) */
+	uint32_t D;		/* Stage 2 loop increment */
+	uint32_t E;		/* Number of mQx values to pool together into one stage 2 modular inverse */
+	uint32_t numrels;	/* Number of relative primes less than D/2 (the number of relative primes in one full relp_set) */
 	uint64_t B2_start;	/* Starting point of first D section to be processed in stage 2 (an odd multiple of D/2) */
 	uint64_t numDsections;	/* Number of D sections to process in stage 2 */
 	uint64_t Dsection;	/* Current D section being processed in stage 2 */
@@ -1384,17 +1400,17 @@ typedef struct {
 	struct xz QD_Eover2;	/* Normalized value used for second and later mQx blocks in two-FFT stage 2 */
 	int	Qm_state;	/* For 4-FFT continuation, TRUE if Qm has been returned by mQ_next */
 	gwnum	*mQx;		/* Array of calculated D values when modular inverse pooling is active */
-	int	mQx_count;	/* Number of values remaining in the mQx array */
-	int	mQx_retcount;	/* Next mQx array entry to return */
-	giant	Ad4_binary;	/* Pre-computed value sed in doubling converted to binary */
-	giant	QDx_binary;	/* The stage 1 result - ready for writing to a save file */
-	giant	QDz_binary;	/* The stage 1 result inverse - ready for writing to a save file */
+	uint32_t mQx_count;	/* Number of values remaining in the mQx array */
+	uint32_t mQx_retcount;	/* Next mQx array entry to return */
+	giant	Ad4_binary;	/* Pre-computed choose12 value used in doubling converted to binary */
+	giant	Qx_binary;	/* The x value of stage 1 result - ready for writing to a save file */
+	giant	Qz_binary;	/* The z value of stage 1 result - ready for writing to a save file */
 	giant	gg_binary;	/* The stage 2 accmulator converted to binary (during stage 2 init) */
 
 	/* Prime pairing stage 2 data */
-	int	TWO_FFT_STAGE2;	/* Type of ECM stage 2 to execute */
-	int	totrels;	/* Number relatively prime nQx values used */
-	int	relp;		/* Last relative prime processed in the current D section */
+	int32_t	TWO_FFT_STAGE2;	/* Type of ECM stage 2 to execute */
+	uint32_t totrels;	/* Number relatively prime nQx values used */
+	int32_t	relp;		/* Last relative prime processed in the current D section */
 	int16_t relp_sets[32];	/* The relp sets we are using in stage 2 */
 	gwnum	*nQx;		/* Array of relative primes data used in stage 2 */
 	uint64_t max_pairmap_Dsections;	/* Number of D sections that can fit in a pairing map */
@@ -1403,13 +1419,15 @@ typedef struct {
 	uint8_t *pairmap_ptr;	/* Pointer to the next byte to process in the pairing map */
 
 	/* Polymult stage 2 data */
+	int32_t	required_missing; /* When B2_start exceeds B1, primes are moved to first_missing_prime * prime.  If a save file is created mid-stage 2 */
+				/* then resuming must pick a D value that does not eliminate multiples of first_missing_prime. */ 
 	pmhandle polydata;	/* Polymult data structure */
-	int	poly_size;	/* Size of F(X), G(X), H(X) polynomials */
+	uint64_t poly_size;	/* Size of F(X), G(X), H(X) polynomials */
 	gwarray	polyF;		/* Array of coefficients for poly F(X) */
 	gwarray	polyR;		/* Array of coefficients for poly 1/F(X), coefficients need to be negated */
 	gwarray	polyGH;		/* Array of coefficients for poly G(X) and H(X) */
 	gwarray	polyGaux;	/* Scratch array for use in filling up poly G(X) */
-	int	polyGaux_size;	/* Size of the polyGaux array */
+	uint64_t polyGaux_size;	/* Size of the polyGaux array */
 	bool	use_preallocated_norm_temps; /* TRUE when using polyGaux for all our normalization temps */
 	gwnum	norm_pool_temps[5]; /* Free gwnums for normalization to use.  These come from polyGaux. */
 	int	norm_pool_temps_count; /* Number of free gwnums in norm_pool_temps */
@@ -1432,22 +1450,32 @@ void mQ_term (ecmhandle *ecmdata);
 
 /* Perform cleanup functions */
 
-void ecm_cleanup (
+void ecm_mini_cleanup (
 	ecmhandle *ecmdata)
 {
 	normalize_pool_term (ecmdata);
 	free (ecmdata->mQx), ecmdata->mQx = NULL;
 	free (ecmdata->Ad4_binary), ecmdata->Ad4_binary = NULL;
-	free (ecmdata->QDx_binary), ecmdata->QDx_binary = NULL;
-	free (ecmdata->QDz_binary), ecmdata->QDz_binary = NULL;
+	free (ecmdata->Qx_binary), ecmdata->Qx_binary = NULL;
+	free (ecmdata->Qz_binary), ecmdata->Qz_binary = NULL;
 	free (ecmdata->gg_binary), ecmdata->gg_binary = NULL;
 	free (ecmdata->nQx), ecmdata->nQx = NULL;
 	free (ecmdata->pairmap), ecmdata->pairmap = NULL;
-	polymult_done (&ecmdata->polydata);
-	gwdone (&ecmdata->gwdata);
-	end_sieve (ecmdata->sieve_info), ecmdata->sieve_info = NULL;
-	free (ecmdata->N), ecmdata->N = NULL;
 	free (ecmdata->factor), ecmdata->factor = NULL;
+	end_sieve (ecmdata->sieve_info), ecmdata->sieve_info = NULL;
+	polymult_done (&ecmdata->polydata);
+	gwfreeall (&ecmdata->gwdata);
+	ecmdata->xz.x = NULL;
+	ecmdata->xz.z = NULL;
+	ecmdata->gg = NULL;
+}
+
+void ecm_cleanup (
+	ecmhandle *ecmdata)
+{
+	ecm_mini_cleanup (ecmdata);
+	free (ecmdata->N), ecmdata->N = NULL;
+	gwdone (&ecmdata->gwdata);
 }
 
 /**********************************************************************************************************************/
@@ -2158,7 +2186,7 @@ int normalize (
 
 int normalize_pool_init (
 	ecmhandle *ecmdata,
-	int	max_pool_size)
+	uint64_t max_pool_size)
 {
 	ecmdata->pool_count = 0;
 	ecmdata->poolz_count = 0;
@@ -2169,18 +2197,18 @@ int normalize_pool_init (
 
 /* Allocate memory for modular inverse pooling arrays of pointers to gwnums */
 
-	ecmdata->pool_values = (gwnum *) malloc (max_pool_size * sizeof (gwnum));
+	ecmdata->pool_values = (gwnum *) malloc ((size_t) (max_pool_size * sizeof (gwnum)));
 	if (ecmdata->pool_values == NULL) goto oom;
 	if (ecmdata->pool_type == POOL_3MULT) {		// 3MULT pooling requires 100% more gwnums
-		ecmdata->poolz_values = (gwnum *) malloc (max_pool_size * sizeof (gwnum));
+		ecmdata->poolz_values = (gwnum *) malloc ((size_t) (max_pool_size * sizeof (gwnum)));
 		if (ecmdata->poolz_values == NULL) goto oom;
 	}
 	if (ecmdata->pool_type == POOL_3POINT44MULT) {	// 3POINT44MULT pooling requires 33% plus a couple more gwnums
-		ecmdata->poolz_values = (gwnum *) malloc ((divide_rounding_up (max_pool_size, 3) + 2) * sizeof (gwnum));
+		ecmdata->poolz_values = (gwnum *) malloc ((size_t) ((divide_rounding_up (max_pool_size, 3) + 2) * sizeof (gwnum)));
 		if (ecmdata->poolz_values == NULL) goto oom;
 	}
 	if (ecmdata->pool_type == POOL_3POINT57MULT) {	// 3POINT57MULT pooling requires 14% plus 5 more gwnums
-		ecmdata->poolz_values = (gwnum *) malloc ((divide_rounding_up (max_pool_size, 7) + 5)* sizeof (gwnum));
+		ecmdata->poolz_values = (gwnum *) malloc ((size_t) ((divide_rounding_up (max_pool_size, 7) + 5) * sizeof (gwnum)));
 		if (ecmdata->poolz_values == NULL) goto oom;
 	}
 
@@ -2198,10 +2226,8 @@ oom:	return (OutOfMemory (ecmdata->thread_num));
 void normalize_pool_term (
 	ecmhandle *ecmdata)
 {
-	int	i;
-
 	if (ecmdata->poolz_values != NULL) {
-		if (!ecmdata->use_preallocated_norm_temps) for (i = 0; i < ecmdata->poolz_count; i++) gwfree (&ecmdata->gwdata, ecmdata->poolz_values[i]);
+		if (!ecmdata->use_preallocated_norm_temps) for (uint32_t i = 0; i < ecmdata->poolz_count; i++) gwfree (&ecmdata->gwdata, ecmdata->poolz_values[i]);
 		free (ecmdata->poolz_values); ecmdata->poolz_values = NULL;
 	}
 
@@ -2700,11 +2726,10 @@ int add_to_normalize_pool_ro (
 /* Otherwise, multiply a by the accumulated b values and multiply all previous a's by this b */
 
 		else {
-			int	i;
 			gwnum	tmp;
 			gwmul3 (&ecmdata->gwdata, ecmdata->pool_modinv_value, a, a, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
 			allocAndFFTb (tmp);
-			for (i = 0; i < ecmdata->pool_count; i++)
+			for (uint32_t i = 0; i < ecmdata->pool_count; i++)
 				gwmul3 (&ecmdata->gwdata, tmp, ecmdata->pool_values[i], ecmdata->pool_values[i], GWMUL_STARTNEXTFFT);
 			gwmul3 (&ecmdata->gwdata, tmp, ecmdata->pool_modinv_value, ecmdata->pool_modinv_value, GWMUL_STARTNEXTFFT);
 			normfree (tmp);
@@ -2729,7 +2754,7 @@ oom:	return (OutOfMemory (ecmdata->thread_num));
 int normalize_pool (
 	ecmhandle *ecmdata)
 {
-	int	i, stop_reason;
+	int	stop_reason;
 
 // Redefine normfree.  We do not need to track freed up gwnums when temps have been pre-allocated.
 #undef normfree
@@ -3151,7 +3176,7 @@ int normalize_pool (
 /* Implement 3 multiply algorithm */
 
 	case POOL_3MULT:
-		for (i = ecmdata->pool_count-1; ; i--) {
+		for (uint32_t i = ecmdata->pool_count-1; ; i--) {
 			gwmul3 (&ecmdata->gwdata, ecmdata->pool_modinv_value, ecmdata->pool_values[i], ecmdata->pool_values[i], GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
 			if (i == 0) break;
 			ecmdata->poolz_count--;
@@ -3163,9 +3188,10 @@ int normalize_pool (
 /* Implement 3.44 multiply algorithm */
 
 	case POOL_3POINT44MULT:
-		for (i = ecmdata->pool_count-1; i >= 0; i--) {
+		for (uint32_t i = ecmdata->pool_count-1; ; i--) {
 			// Invert one pooled value
 			gwmul3 (&ecmdata->gwdata, ecmdata->pool_modinv_value, ecmdata->pool_values[i], ecmdata->pool_values[i], GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
+			if (i == 0) break;
 			if (i < 4 || i % 3 != 1) continue;
 			// Compute inverse for next group of 4
 			ecmdata->poolz_count--;
@@ -3177,9 +3203,10 @@ int normalize_pool (
 /* Implement 3.57 multiply algorithm */
 
 	case POOL_3POINT57MULT:
-		for (i = ecmdata->pool_count-1; i >= 0; i--) {
+		for (uint32_t i = ecmdata->pool_count-1; ; i--) {
 			// Invert one pooled value
 			gwmul3 (&ecmdata->gwdata, ecmdata->pool_modinv_value, ecmdata->pool_values[i], ecmdata->pool_values[i], GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
+			if (i == 0) break;
 			if (i < 8 || i % 7 != 1) continue;
 			// Compute inverse for next group of 8
 			ecmdata->poolz_count--;
@@ -3191,7 +3218,7 @@ int normalize_pool (
 /* Implement N^2 algorithm */
 
 	case POOL_N_SQUARED:
-		for (i = 0; i < ecmdata->pool_count; i++)
+		for (uint32_t i = 0; i < ecmdata->pool_count; i++)
 			gwmul3 (&ecmdata->gwdata, ecmdata->pool_modinv_value, ecmdata->pool_values[i], ecmdata->pool_values[i], GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
 		break;
 	}
@@ -3358,14 +3385,13 @@ int mQ_init (
 /* Init the arrays and compute first pool of normalized mQx values */
 
 	if (ecmdata->TWO_FFT_STAGE2) {
-		int	i;
 
 /* Allocate the mQx pool array */
 
 //GW: Great place to use gwarray!
 		ecmdata->mQx = (gwnum *) malloc (ecmdata->E * sizeof (gwnum));
 		if (ecmdata->mQx == NULL) goto oom;
-		for (i = 0; i < ecmdata->E; i++) ecmdata->mQx[i] = NULL;
+		for (uint32_t i = 0; i < ecmdata->E; i++) ecmdata->mQx[i] = NULL;
 
 /* Batch up a bunch of Q^m values and normalize them. */
 // MEMPEAK occurs at mQx_count = E-2:  5 + nQx + E + pooling_cost (7 for QD,Qm,Qprevm,QD_Eover2.x + nQx + E-2 + pooling_cost)
@@ -3412,8 +3438,8 @@ int mQ_init (
 		gwfree_cached (&ecmdata->gwdata);
 		mallocFreeForOS ();
 
-/* QD is no longer needed except that we cannot delete it yet because ecm_save accesses QD if an error occurs during stage 2 init. */
-/* So for now, do not not free ecmdata.QD to QD^(E/2).  As the very last step of stage 2 init, we'll free ecmdata.QD. */
+		// QD is no longer needed
+		free_xz (ecmdata, &ecmdata->QD);
 
 		// Return first entry in the mQx array
 		ecmdata->mQx_retcount = 0;
@@ -3480,7 +3506,6 @@ int mQ_next (
 /* Obviously retz need not be returned since it is always one. */
 
 	if (ecmdata->mQx_count == 0) {
-		int	i;
 		ASSERTG (ecmdata->E % 2 == 0);
 
 		// Calculate new mQx_count
@@ -3490,7 +3515,7 @@ int mQ_next (
 		// Loop computing two mQx values
 		// MEMPEAK occurs at i=E/2-1: 4 + nQx + E + pooling_cost (QD_Eover2.x, i*2, nextQm, nextQm2, gg, nQx, pooling_cost)
 
-		for (i = 0; i < ecmdata->E/2; i++) {
+		for (uint32_t i = 0; i < ecmdata->E/2; i++) {
 			struct xz nextQm, nextQm2;
 
 			// If no more Qm's need to be calculated, break out of loop
@@ -3554,7 +3579,7 @@ void mQ_term (
 	free_xz (ecmdata, &ecmdata->QD);
 	free_xz (ecmdata, &ecmdata->QD_Eover2);
 	if (ecmdata->mQx != NULL) {
-		for (int i = 0; i < ecmdata->E; i++) gwfree (&ecmdata->gwdata, ecmdata->mQx[i]);
+		for (uint32_t i = 0; i < ecmdata->E; i++) gwfree (&ecmdata->gwdata, ecmdata->mQx[i]);
 		free (ecmdata->mQx); ecmdata->mQx = NULL;
 	}
 }
@@ -3651,9 +3676,8 @@ int mQ_init_array (
 	// From here on out, use polyGaux for all our normalize temporaries
 	ecmdata->use_preallocated_norm_temps = TRUE;
 
-//GW:???
-/* QD is no longer needed except that we cannot delete it yet because ecm_save accesses QD if an error occurs during stage 2 init. */
-/* So for now, do not not free ecmdata.QD to QD^(E/2).  As the very last step of stage 2 init, we'll free ecmdata.QD. */
+	// QD is no longer needed
+	free_xz (ecmdata, &ecmdata->QD);
 
 	// Return first entry in the mQx array
 	ecmdata->mQx_retcount = 0;
@@ -3682,7 +3706,7 @@ int mQ_next_array (
 	int	next_Gaux = 0;		// Next polyGaux entry to use when a gwnum temp is needed
 	int	stop_reason;
 
-//GW!!!
+//GW!!! Multithread?!!  Access to modinv pool will be tricky
 /* Polymult ECM peak memory usage occurs in this routine.  There are several options for computing next batch of mQx values. */
 //GW:  It might pay to double the number of modinvs, halving normalize pool memory requirements and making more 8 and 10 FFT ell_adds possible */
 
@@ -3690,14 +3714,14 @@ int mQ_next_array (
 	// On subsequent calls, the last G(X) values from the previous batch are normalized in polyGaux.  In either case, move the values to polyG.
 	// The movement is quirky for subsequent calls when polyGaux_size is odd (we must make sure we are properly overwriting polyG values).
 	if (ecmdata->Qm_state == 0) {
-		for (int i = 0; i < ecmdata->polyGaux_size; i++) gwswap (mQx_array[i], ecmdata->polyGaux[i]);
+		for (uint64_t i = 0; i < ecmdata->polyGaux_size; i++) gwswap (mQx_array[i], ecmdata->polyGaux[i]);
 	} else {
-		for (int i = 0; i < ecmdata->polyGaux_size; i++) gwswap (mQx_array[i], ecmdata->polyGaux[(i + (ecmdata->polyGaux_size & 1)) % ecmdata->polyGaux_size]);
+		for (uint64_t i = 0; i < ecmdata->polyGaux_size; i++) gwswap (mQx_array[i], ecmdata->polyGaux[(i + (ecmdata->polyGaux_size & 1)) % ecmdata->polyGaux_size]);
 	}
 
 	// Loop computing chains of mQx values
-	int initial_i = (ecmdata->Qm_state == 0 ? ecmdata->polyGaux_size : 0);
-	for (int i = initial_i; i < initial_i + ecmdata->polyGaux_size / 2; i++) {
+	uint64_t initial_i = (ecmdata->Qm_state == 0 ? ecmdata->polyGaux_size : 0);
+	for (uint64_t i = initial_i; i < initial_i + ecmdata->polyGaux_size / 2; i++) {
 		struct xz prevQm, Qm;
 
 		// On first call, set prevQm and Qm to the already computed values that were stored in polyGaux
@@ -3717,7 +3741,7 @@ int mQ_next_array (
 		}
 
 		// Loop computing values in this chain
-		for (int j = i; j < ecmdata->poly_size; j += ecmdata->polyGaux_size / 2) {
+		for (uint64_t j = i; j < ecmdata->poly_size; j += ecmdata->polyGaux_size / 2) {
 			struct xz nextQm;
 
 			// Compute next value in the chain
@@ -3794,10 +3818,10 @@ void ecm_stage1_memory_usage (
 
 /* Figure out the maximum safe poly2 size, where "safe" means "safe from gwnum roundoff errors" */
 
-int max_safe_poly2_size (
+uint64_t max_safe_poly2_size (
 	gwhandle *gwdata,
-	int	poly1_size,
-	int	desired_poly2_size)
+	uint64_t poly1_size,
+	uint64_t desired_poly2_size)
 {
 	// Let user adjust the safety margin for poly multiplications
 	double safety_adjust = IniGetFloat (INI_FILE, "PolySafetyMargin", (float) 0.0);
@@ -3805,9 +3829,9 @@ int max_safe_poly2_size (
 	if (gw_passes_safety_margin (gwdata, polymult_safety_margin (poly1_size, desired_poly2_size) + safety_adjust)) return (desired_poly2_size);
 	// Binary search for the maximum possible poly2 size (with poly1 size as a minimum)
 	if (!gw_passes_safety_margin (gwdata, polymult_safety_margin (poly1_size, poly1_size) + safety_adjust)) return (0);
-	int	known_safe_size = poly1_size;
+	uint64_t known_safe_size = poly1_size;
 	while (desired_poly2_size - known_safe_size >= 2) {
-		int midpoint = (known_safe_size + desired_poly2_size) / 2;
+		uint64_t midpoint = (known_safe_size + desired_poly2_size) / 2;
 		if (gw_passes_safety_margin (gwdata, polymult_safety_margin (poly1_size, midpoint) + safety_adjust)) known_safe_size = midpoint;
 		else desired_poly2_size = midpoint;
 	}
@@ -4105,10 +4129,10 @@ double ecm_stage2_cost (
 	    cost_data->c.est_stage2_stage1_ratio = cost / stage1_cost;
 	}
 
-/* Polymult stage 2 costs */
+/* Polymult stage 2 cost using all numvals */
 
 	else {
-		int	poly_size, cpu_flags;
+		uint64_t poly_size;
 		double	num_polys, mem_used_by_a_gwnum, mem_saved_by_compression, mem_used_by_polymult;
 
 		// If this FFT size cannot safely support multiplying two polys together return "infinite" cost.
@@ -4116,7 +4140,7 @@ double ecm_stage2_cost (
 		if (max_safe_poly2_size (cost_data->c.gwdata, poly_size, poly_size) < poly_size) return (1.0e99);
 
 //GW: this minimum may or may not be right, we do require at least 4 polyFtree levels
-if (cost_data->c.totrels < 6*32) return (1.0e99);
+if (cost_data->c.numvals < 6*32) return (1.0e99);
 
 		// Stage 2 polymult needs 4 polys (polyF, polyR, polyGH) plus two Ftree polys unless they are saved to disk plus 1/7 for modinv temps.
 		num_polys = (cost_data->saving_Ftree_to_disk ? 4.0 : 6.0) + 1.0 / 7.0;
@@ -4128,18 +4152,18 @@ if (cost_data->c.totrels < 6*32) return (1.0e99);
 
 //		if (cost_data->c.gwdata != NULL) {
 			mem_used_by_a_gwnum = (double) array_gwnum_size (cost_data->c.gwdata);
-//			max_poly2_size = max_safe_poly2_size (cost_data->c.gwdata, poly1_size*2, cost_data->c.totrels);
+//			max_poly2_size = max_safe_poly2_size (cost_data->c.gwdata, poly1_size*2, cost_data->numvals);
 //		} else {
 //			mem_used_by_a_gwnum = (double) cost_data->c.fftlen * sizeof (double) * 1.016;
-//			max_poly2_size = cost_data->c.totrels;
+//			max_poly2_size = cost_data->numvals;
 //		}
 //GW:		mem_saved_by_compression = 2 * (double) poly_size * mem_used_by_a_gwnum * (1.0 - cost_data->poly1_compression);		// PolyF and polyR
 //GW: if num_polyGs == 1, polyF and polyR are not compressed
 //GW: Factor in polymult_mem_required (like P-1)
-		cpu_flags = cost_data->c.gwdata->cpu_flags;
-		mem_used_by_polymult = (double) polymult_mem_required (poly_size, poly_size, POLYMULT_INVEC1_MONIC, cpu_flags, cost_data->c.threads);
+//		cpu_flags = cost_data->c.gwdata->cpu_flags;
+		mem_used_by_polymult = (double) polymult_mem_required (cost_data->c.polydata, poly_size, poly_size, POLYMULT_INVEC1_MONIC);
 //GW: Factor in max_safe same as P-1
-//GW: increase totrels based on compression savings
+//GW: increase Ftree polys in memory based on compression savings
 
 /* Loop increasing B2_start based on the fact that numDsections will be a multiple of poly_size.  In essence this gives a free increase in the B2 endpoint. */
 
@@ -4159,7 +4183,7 @@ if (cost_data->c.totrels < 6*32) return (1.0e99);
 
 		double	polymult_cost;		// Cost of a polymult (per coefficient) compared to a pass 1 transform
 		polymult_cost = 2.145 + 0.58 * log2 ((double) poly_size / 105.0);
-		double L2_cache_size = (CPU_NUM_L2_CACHES >= 0 ? CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES : 0) * 1024.0;
+		double L2_cache_size = (CPU_NUM_L2_CACHES > 0 ? CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES : 0) * 1024.0;
 		double polymult_mem_per_thread = mem_used_by_polymult / cost_data->c.threads;
 		if (polymult_mem_per_thread >= 8 * L2_cache_size) polymult_cost *= 2.05;
 		else if (polymult_mem_per_thread > L2_cache_size) polymult_cost *= 1.0 + 1.05 * (polymult_mem_per_thread - L2_cache_size) / (7 * L2_cache_size);
@@ -4213,7 +4237,7 @@ if (cost_data->c.totrels < 6*32) return (1.0e99);
 		int	num_Ftree_polys, Ftree_polys_in_mem, more_Ftree_polys_in_mem, total_Ftree_polys_in_mem, needing_rebuild;
 		num_Ftree_polys = (int) ceil (log2 ((double) poly_size));
 		Ftree_polys_in_mem = (cost_data->saving_Ftree_to_disk ? 0 : 2);
-		more_Ftree_polys_in_mem = divide_rounding_down (cost_data->c.totrels - cost_data->c.stage2_numvals, poly_size);
+		more_Ftree_polys_in_mem = (int) divide_rounding_down (cost_data->c.numvals - cost_data->c.stage2_numvals, poly_size);
 //gw		if (Ftree_polys_in_mem + more_Ftree_polys_in_mem > num_Ftree_polys) more_Ftree_polys_in_mem = num_Ftree_polys - Ftree_polys_in_mem;
 //gw: saving the 0/1 row will be tricky!
 if (Ftree_polys_in_mem + more_Ftree_polys_in_mem > num_Ftree_polys - 1) more_Ftree_polys_in_mem = num_Ftree_polys - Ftree_polys_in_mem - 1;
@@ -4233,8 +4257,8 @@ if (Ftree_polys_in_mem + more_Ftree_polys_in_mem > num_Ftree_polys - 1) more_Ftr
 /* Moving down the scaled remainder tree requires log2(polysize) iterations of two full-size times half-size polymults. */
 /* There are fewer output gwnum transforms thanks to POLYMULT_MULHI. */
 
-		cost_data->c.est_stage2_polymult += log2 (poly_size) * (3 * poly_size) * polymult_cost;
-		cost_data->c.est_stage2_transforms += log2 (poly_size) * poly_size * 2.0;
+		cost_data->c.est_stage2_polymult += log2 ((double) poly_size) * (3 * poly_size) * polymult_cost;
+		cost_data->c.est_stage2_transforms += log2 ((double) poly_size) * poly_size * 2.0;
 
 /* Finally we multiply all the H(X) coefficients together */
 
@@ -4269,7 +4293,7 @@ if (Ftree_polys_in_mem + more_Ftree_polys_in_mem > num_Ftree_polys - 1) more_Ftr
 
 double ecm_stage2_impl_given_numvals (
 	ecmhandle *ecmdata,
-	int	numvals,				/* Number of gwnum temporaries available */
+	uint64_t numvals,				/* Number of gwnum temporaries available */
 	int	forced_stage2_type,			/* 0 = cost pairing, 1 = cost poly, 99 = cost both */
 	struct ecm_stage2_cost_data *return_cost_data)	/* Returned extra data from ECM costing function */
 {
@@ -4301,11 +4325,12 @@ double ecm_stage2_impl_given_numvals (
 
 	best_cost = 1.0e99;
 	cost_data.c.numvals = numvals;
-	cost_data.c.only_cost_max_numvals = FALSE;
 	cost_data.c.extra_credit = FALSE;
 	cost_data.c.use_poly_D_data = FALSE;
 	cost_data.c.centers_on_Dmultiple = TRUE;
+	cost_data.c.required_missing = ecmdata->required_missing;
 	cost_data.c.gwdata = &ecmdata->gwdata;
+	cost_data.c.polydata = &ecmdata->polydata;
 	cost_data.c.fftlen = gwfftlen (&ecmdata->gwdata);
 	cost_data.c.threads = get_worker_num_threads (ecmdata->thread_num, HYPERTHREAD_LL) + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0);
 	for (int stage2_type = 0; stage2_type <= 1; stage2_type++) {	// Prime pairing vs. polymult
@@ -4331,7 +4356,6 @@ double ecm_stage2_impl_given_numvals (
 
 		cost_data.stage2_type = (stage2_type == 0 ? ECM_STAGE2_PAIRING : ECM_STAGE2_POLYMULT);
 		cost_data.impl = impl;
-		cost_data.c.only_cost_max_numvals = (stage2_type == 1);
 		cost_data.c.use_poly_D_data = (stage2_type == 1);
 		cost = best_stage2_impl (ecmdata->first_relocatable, ecmdata->last_relocatable, ecmdata->C_done, ecmdata->C, numvals - 9, &ecm_stage2_cost, &cost_data);
 		if (cost < best_cost) {
@@ -4353,7 +4377,7 @@ double ecm_stage2_impl_given_numvals (
 
 void ecm_choose_B2 (
 	ecmhandle *ecmdata,
-	unsigned long numvals,
+	uint64_t numvals,
 	int	forced_stage2_type,		/* 0 = cost pairing, 1 = cost poly, 99 = cost both */
 	char	*optimal_B2_msg)		/* Message to be output if this optimal B2 selection is used */
 {
@@ -4368,7 +4392,7 @@ void ecm_choose_B2 (
 // From Alex Kruppa, master of all things ECM, the following formula compensates for using B2 values that are not 100 * B1.
 // curve_worth = 0.11 + 0.89 * (log10(B2 / B1) / 2) ^ 1.5
 
-	max_B2mult = IniGetInt (INI_FILE, "MaxOptimalB2Multiplier", numvals < 100000 ? numvals * 100 : 10000000);
+	max_B2mult = IniGetInt (INI_FILE, "MaxOptimalB2Multiplier", (int) (numvals < 100000 ? numvals * 100 : 10000000));
 #define kruppa(x,B2mult)	x.i = B2mult; \
 				if (x.i > max_B2mult) x.i = max_B2mult; \
 				ecmdata->C = x.i * ecmdata->B; \
@@ -4449,7 +4473,7 @@ double ecm_stage2_impl (
 	int	forced_stage2_type,	/* 0 = cost pairing, 1 = cost poly, 99 = cost both */
 	char	*msgbuf)		/* Messages to output if we end up using this implementation plan */
 {
-	int	numvals;					/* Number of gwnums we can allocate */
+	uint64_t numvals;					/* Number of gwnums we can allocate */
 	struct ecm_stage2_cost_data cost_data;			/* Data passed to and returned from ECM costing function */
 
 /* Figure out how many gwnum values fit in our memory limit. */
@@ -4484,8 +4508,8 @@ double ecm_stage2_impl (
 /* If we are contemplating ditching the save file pairmap, figure out which non-relocatable primes are definitely included in the stage 2 */
 /* accumulator.  Set C_done appropriately, but do not change first_relocatable as there is no guarantee which relocatables are in the accumulator. */
 
-	if (ecmdata->state == ECM_STATE_STAGE2) {
-		int max_relp_set = (ecmdata->stage2_type == ECM_STAGE2_PAIRING) ? get_max_relp_set (ecmdata->relp_sets) : 0;
+	if (ecmdata->state == ECM_STATE_STAGE2 && ecmdata->stage2_type == ECM_STAGE2_PAIRING) {
+		int max_relp_set = get_max_relp_set (ecmdata->relp_sets);
 		if (ecmdata->Dsection > max_relp_set) ecmdata->C_done = ecmdata->B2_start + (ecmdata->Dsection - max_relp_set) * ecmdata->D;
 	}
 
@@ -4532,14 +4556,15 @@ double ecm_stage2_impl (
 	if (ecmdata->stage2_type == ECM_STAGE2_PAIRING) {
 		ecmdata->TWO_FFT_STAGE2 = cost_data.TWO_FFT_STAGE2;
 		ecmdata->E = cost_data.E;
-		ecmdata->totrels = cost_data.c.totrels;
+		ecmdata->totrels = (int) cost_data.c.totrels;
 		memcpy (ecmdata->relp_sets, cost_data.c.relp_sets, sizeof (ecmdata->relp_sets));
 		ecmdata->max_pairmap_Dsections = cost_data.c.max_pairmap_Dsections;
+		if (ecmdata->state < ECM_STATE_STAGE2 || ecmdata->last_relocatable > ecmdata->B2_start) ecmdata->last_relocatable = ecmdata->B2_start;
 	} else {
 		ecmdata->poly_size = cost_data.c.numrels;
 		ecmdata->Ftree_polys_in_mem = cost_data.Ftree_polys_in_mem;
+		if (ecmdata->B2_start > ecmdata->C_done) ecmdata->required_missing = cost_data.c.first_missing_prime;
 	}
-	if (ecmdata->state < ECM_STATE_STAGE2 || ecmdata->last_relocatable > ecmdata->B2_start) ecmdata->last_relocatable = ecmdata->B2_start;
 
 /* Output data regarding our cost estimates so user can make adjustments when our estimates are wildly off the mark */
 
@@ -4575,86 +4600,100 @@ double ecm_stage2_impl (
 
 #define ECM_MAGICNUM	0x1725bcd9
 //#define ECM_VERSION	2			// Version 30.4.  Better pairing using relative primes above D/2. */
-#define ECM_VERSION	3			// Version 30.7.  Better pairing with relp_sets, compressed pairing map. */
+//#define ECM_VERSION	3			// Version 30.7.  Better pairing with relp_sets, compressed pairing map. */
+#define ECM_VERSION	4			// Version 30.10.  Polymult. */
 
 void ecm_save (
 	ecmhandle *ecmdata)
 {
 	int	fd;
 	struct work_unit *w = ecmdata->w;
-	unsigned long sum = 0;
+	uint32_t sum = 0;
 
 /* Create the intermediate file */
 
 	fd = openWriteSaveFile (&ecmdata->write_save_file_state);
 	if (fd < 0) return;
 
-/* Write the file header. */
+/* Write the file header */
 
 	if (! write_header (fd, ECM_MAGICNUM, ECM_VERSION, w)) goto writeerr;
 
 /* Write the file data */
 
-	if (! write_long (fd, ecmdata->curve, &sum)) goto writeerr;
+	if (! write_uint32 (fd, ecmdata->curve, &sum)) goto writeerr;
 	if (! write_uint64 (fd, ecmdata->average_B2, NULL)) goto writeerr;
-	if (! write_int (fd, ecmdata->state, &sum)) goto writeerr;
+	if (! write_uint32 (fd, ecmdata->state, &sum)) goto writeerr;
 	if (! write_double (fd, ecmdata->sigma, NULL)) goto writeerr;
 	if (! write_uint64 (fd, ecmdata->B, &sum)) goto writeerr;
 	if (! write_uint64 (fd, ecmdata->C, &sum)) goto writeerr;
 
+/* Write the stage-specific data */
+
 	if (ecmdata->state == ECM_STATE_STAGE1) {
 		if (! write_uint64 (fd, ecmdata->stage1_prime, &sum)) goto writeerr;
+		if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.x, &sum)) goto writeerr;
+		if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.z, &sum)) goto writeerr;
 	}
 
 	else if (ecmdata->state == ECM_STATE_MIDSTAGE) {
+		int32_t tmp;
+		if (! write_giant (fd, ecmdata->Qx_binary, &sum)) goto writeerr;
+		tmp = (ecmdata->Qz_binary != NULL);
+		if (! write_int32 (fd, tmp, &sum)) goto writeerr;
+		if (tmp && ! write_giant (fd, ecmdata->Qz_binary, &sum)) goto writeerr;
+		tmp = (ecmdata->gg_binary != NULL);
+		if (! write_int32 (fd, tmp, &sum)) goto writeerr;
+		if (tmp && ! write_giant (fd, ecmdata->gg_binary, &sum)) goto writeerr;
 	}
 
 	// Save everything necessary to restart stage 2 without calling ecm_stage2_impl again
 	else if (ecmdata->state == ECM_STATE_STAGE2) {
-		uint64_t remaining_pairmap_size;
-		if (! write_int (fd, ecmdata->stage2_numvals, &sum)) goto writeerr;
-		if (! write_int (fd, ecmdata->totrels, &sum)) goto writeerr;
-		if (! write_int (fd, ecmdata->D, &sum)) goto writeerr;
-		if (! write_int (fd, ecmdata->E, &sum)) goto writeerr;
-		if (! write_int (fd, ecmdata->TWO_FFT_STAGE2, &sum)) goto writeerr;
-		if (! write_int (fd, ecmdata->pool_type, &sum)) goto writeerr;
-		if (! write_uint64 (fd, ecmdata->first_relocatable, &sum)) goto writeerr;
-		if (! write_uint64 (fd, ecmdata->last_relocatable, &sum)) goto writeerr;
-		if (! write_uint64 (fd, ecmdata->B2_start, &sum)) goto writeerr;
-		if (! write_uint64 (fd, ecmdata->C_done, &sum)) goto writeerr;
-		if (! write_uint64 (fd, ecmdata->numDsections, &sum)) goto writeerr;
-		if (! write_uint64 (fd, ecmdata->Dsection, &sum)) goto writeerr;
-		if (! write_uint64 (fd, ecmdata->max_pairmap_Dsections, &sum)) goto writeerr;
-		if (! write_int (fd, ecmdata->relp, &sum)) goto writeerr;
-		if (! write_array (fd, (char *) ecmdata->relp_sets, 32 * sizeof (int16_t), &sum)) goto writeerr;
-		// Output the truncated pairmap
-//GW:  handle NULL pairmap?
-		remaining_pairmap_size = ecmdata->pairmap_size - (ecmdata->pairmap_ptr - ecmdata->pairmap);
-		if (! write_uint64 (fd, remaining_pairmap_size, &sum)) goto writeerr;
-		if (! write_array (fd, (char *) ecmdata->pairmap_ptr, (size_t) remaining_pairmap_size, &sum)) goto writeerr;
+		if (! write_int32 (fd, ecmdata->stage2_type, &sum)) goto writeerr;
+		if (ecmdata->stage2_type != ECM_STAGE2_POLYMULT) {	// Prime pairing stage 2
+			uint64_t remaining_pairmap_size;
+			if (! write_uint64 (fd, ecmdata->stage2_numvals, &sum)) goto writeerr;
+			if (! write_uint32 (fd, ecmdata->totrels, &sum)) goto writeerr;
+			if (! write_uint32 (fd, ecmdata->D, &sum)) goto writeerr;
+			if (! write_uint32 (fd, ecmdata->E, &sum)) goto writeerr;
+			if (! write_int32 (fd, ecmdata->TWO_FFT_STAGE2, &sum)) goto writeerr;
+			if (! write_int32 (fd, ecmdata->pool_type, &sum)) goto writeerr;
+			if (! write_uint64 (fd, ecmdata->first_relocatable, &sum)) goto writeerr;
+			if (! write_uint64 (fd, ecmdata->last_relocatable, &sum)) goto writeerr;
+			if (! write_uint64 (fd, ecmdata->B2_start, &sum)) goto writeerr;
+			if (! write_uint64 (fd, ecmdata->C_done, &sum)) goto writeerr;
+			if (! write_uint64 (fd, ecmdata->numDsections, &sum)) goto writeerr;
+			if (! write_uint64 (fd, ecmdata->Dsection, &sum)) goto writeerr;
+			if (! write_uint64 (fd, ecmdata->max_pairmap_Dsections, &sum)) goto writeerr;
+			if (! write_int32 (fd, ecmdata->relp, &sum)) goto writeerr;
+			if (! write_array (fd, (char *) ecmdata->relp_sets, 32 * sizeof (int16_t), &sum)) goto writeerr;
+			// Output the truncated pairmap
+			remaining_pairmap_size = ecmdata->pairmap_size - (ecmdata->pairmap_ptr - ecmdata->pairmap);
+			if (! write_uint64 (fd, remaining_pairmap_size, &sum)) goto writeerr;
+			if (! write_array (fd, (char *) ecmdata->pairmap_ptr, (size_t) remaining_pairmap_size, &sum)) goto writeerr;
+			// Output the gwnums
+//GW: safe to free Qx_binary and write_gwnum nQx[0]??
+			if (! write_giant (fd, ecmdata->Qx_binary, &sum)) goto writeerr;
+			if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->gg, &sum)) goto writeerr;
+		} else {						// Polymult stage 2
+			// Output how much of stage 2 is complete and the gwnums
+			int32_t tmp;
+			if (! write_int32 (fd, ecmdata->required_missing, &sum)) goto writeerr;
+			if (! write_uint64 (fd, ecmdata->C_done, &sum)) goto writeerr;
+//GW: safe to free Qx_binary and write_gwnum nQx[0]??
+			if (! write_giant (fd, ecmdata->Qx_binary, &sum)) goto writeerr;
+			ASSERTG (ecmdata->gg_binary == NULL || ecmdata->gg == NULL);
+			tmp = (ecmdata->gg_binary != NULL || ecmdata->gg != NULL);
+			if (! write_int32 (fd, tmp, &sum)) goto writeerr;
+			if (ecmdata->gg_binary != NULL && ! write_giant (fd, ecmdata->gg_binary, &sum)) goto writeerr;
+			if (ecmdata->gg != NULL && ! write_gwnum (fd, &ecmdata->gwdata, ecmdata->gg, &sum)) goto writeerr;
+		}
 	}
 
 	else if (ecmdata->state == ECM_STATE_GCD) {
-	}
-
-/* Write the data values, write_gwnum can handle FFTed or partially FFTed */
-
-	if (ecmdata->state == ECM_STATE_STAGE1) {
-		if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.x, &sum)) goto writeerr;
-		if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.z, &sum)) goto writeerr;
-	}
-	if (ecmdata->state == ECM_STATE_MIDSTAGE) {
-		if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->QD.x, &sum)) goto writeerr;
-		if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->QD.z, &sum)) goto writeerr;
-	}
-	if (ecmdata->state == ECM_STATE_STAGE2) {
-		if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->nQx[0], &sum)) goto writeerr;
 		if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->gg, &sum)) goto writeerr;
 	}
-	if (ecmdata->state == ECM_STATE_GCD) {
-		if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.x, &sum)) goto writeerr;
-		if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->gg, &sum)) goto writeerr;
-	}
+
 
 /* Write the checksum, we're done */
 
@@ -4672,16 +4711,15 @@ writeerr:
 int ecm_old_restore (			/* For version 25 save files */
 	ecmhandle *ecmdata,
 	int	fd,
-	unsigned long filesum)
+	uint32_t filesum)
 {
-	unsigned long state;
-	unsigned long sum = 0;
+	uint32_t state, sum = 0;
 	uint64_t savefile_B, unused64;
 
 /* Read the file data */
 
-	if (! read_long (fd, &state, &sum)) goto readerr;
-	if (! read_long (fd, &ecmdata->curve, &sum)) goto readerr;
+	if (! read_uint32 (fd, &state, &sum)) goto readerr;
+	if (! read_uint32 (fd, &ecmdata->curve, &sum)) goto readerr;
 	if (! read_double (fd, &ecmdata->sigma, NULL)) goto readerr;
 	if (! read_uint64 (fd, &savefile_B, &sum)) goto readerr;
 	if (! read_uint64 (fd, &ecmdata->stage1_prime, &sum)) goto readerr;
@@ -4699,20 +4737,25 @@ int ecm_old_restore (			/* For version 25 save files */
 
 	if (state == 0) {
 		ecmdata->state = ECM_STATE_STAGE1;
+		if (! alloc_xz (ecmdata, &ecmdata->xz)) goto readerr;
+		if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.x, &sum)) goto readerr;
+		if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.z, &sum)) goto readerr;
 	}
 	if (state == 1) {
 		ecmdata->state = ECM_STATE_MIDSTAGE;
+		ecmdata->Qx_binary = allocgiant (((int) ecmdata->gwdata.bit_length >> 5) + 10);
+		if (ecmdata->Qx_binary == NULL) goto readerr;
+		if (! read_giant (fd, ecmdata->Qx_binary, &sum)) goto readerr;
+		ecmdata->gg_binary = allocgiant (((int) ecmdata->gwdata.bit_length >> 5) + 10);
+		if (ecmdata->gg_binary == NULL) goto readerr;
+		if (! read_giant (fd, ecmdata->gg_binary, &sum)) goto readerr;
 		OutputStr (ecmdata->thread_num, "Old ECM save file was in stage 2.  Restarting stage 2 from scratch.\n");
+		free (ecmdata->gg_binary), ecmdata->gg_binary = NULL;
 	}
 
-/* Old save files did not store B2, assume all the curves were run with the current B2 */
+/* Old save files did not store average B2, assume all the curves were run with the current B2 */
 
 	ecmdata->average_B2 = ecmdata->C;
-
-/* Read the values */
-
-	if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.x, &sum)) goto readerr;
-	if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.z, &sum)) goto readerr;
 
 /* Read and compare the checksum */
 
@@ -4732,8 +4775,7 @@ int ecm_restore (			/* For version 30.4 and later save files */
 {
 	int	fd;
 	struct work_unit *w = ecmdata->w;
-	unsigned long version;
-	unsigned long sum = 0, filesum;
+	uint32_t version, sum = 0, filesum;
 	uint64_t savefile_B;
 
 /* Open the intermediate file */
@@ -4750,12 +4792,11 @@ int ecm_restore (			/* For version 30.4 and later save files */
 
 /* Read the file data */
 
-	if (! read_long (fd, &ecmdata->curve, &sum)) goto readerr;
+	if (! read_uint32 (fd, &ecmdata->curve, &sum)) goto readerr;
 	if (! read_uint64 (fd, &ecmdata->average_B2, NULL)) goto readerr;
-	if (! read_int (fd, &ecmdata->state, &sum)) goto readerr;
+	if (! read_uint32 (fd, &ecmdata->state, &sum)) goto readerr;
 	if (! read_double (fd, &ecmdata->sigma, NULL)) goto readerr;
 	if (! read_uint64 (fd, &savefile_B, &sum)) goto readerr;
-//GW: should we be overwriting C with savefile_C?
 	if (! read_uint64 (fd, &ecmdata->C, &sum)) goto readerr;
 
 /* Handle the case where we have a save file with a smaller bound #1 than the bound #1 we are presently working on. */
@@ -4766,69 +4807,94 @@ int ecm_restore (			/* For version 30.4 and later save files */
 		goto readerr;
 	}
 
+/* Pre-version 30.10 save files cannot continue stage 2 */
+
+	if (version == 2 && ecmdata->state == ECM_STATE_STAGE2) {
+		OutputStr (ecmdata->thread_num, "Old ECM save file was in stage 2.  Save file cannot be used.\n");
+		goto readerr;
+	}
+
 /* Read state dependent data */
 
 	if (ecmdata->state == ECM_STATE_STAGE1) {
 		if (! read_uint64 (fd, &ecmdata->stage1_prime, &sum)) goto readerr;
+		if (! alloc_xz (ecmdata, &ecmdata->xz)) goto readerr;
+		if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.x, &sum)) goto readerr;
+		if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.z, &sum)) goto readerr;
 	}
 
 	else if (ecmdata->state == ECM_STATE_MIDSTAGE) {
+		int32_t	tmp;
+
+		ecmdata->Qx_binary = allocgiant (((int) ecmdata->gwdata.bit_length >> 5) + 10);
+		if (ecmdata->Qx_binary == NULL) goto readerr;
+		if (! read_giant (fd, ecmdata->Qx_binary, &sum)) goto readerr;
+
+		if (! read_int32 (fd, &tmp, &sum)) goto readerr;
+		if (tmp) {
+			ecmdata->Qz_binary = allocgiant (((int) ecmdata->gwdata.bit_length >> 5) + 10);
+			if (ecmdata->Qz_binary == NULL) goto readerr;
+			if (! read_giant (fd, ecmdata->Qz_binary, &sum)) goto readerr;
+		}
+
+		if (! read_int32 (fd, &tmp, &sum)) goto readerr;
+		if (tmp) {
+			ecmdata->gg_binary = allocgiant (((int) ecmdata->gwdata.bit_length >> 5) + 10);
+			if (ecmdata->gg_binary == NULL) goto readerr;
+			if (! read_giant (fd, ecmdata->gg_binary, &sum)) goto readerr;
+		}
 	}
 
 	else if (ecmdata->state == ECM_STATE_STAGE2) {
-		if (! read_int (fd, &ecmdata->stage2_numvals, &sum)) goto readerr;
-		if (! read_int (fd, &ecmdata->totrels, &sum)) goto readerr;
-		if (! read_int (fd, &ecmdata->D, &sum)) goto readerr;
-		ecmdata->numrels = map_D_to_numrels (ecmdata->D);
-		if (! read_int (fd, &ecmdata->E, &sum)) goto readerr;
-		if (! read_int (fd, &ecmdata->TWO_FFT_STAGE2, &sum)) goto readerr;
-		if (! read_int (fd, &ecmdata->pool_type, &sum)) goto readerr;
-		if (! read_uint64 (fd, &ecmdata->first_relocatable, &sum)) goto readerr;
-		if (! read_uint64 (fd, &ecmdata->last_relocatable, &sum)) goto readerr;
-		if (! read_uint64 (fd, &ecmdata->B2_start, &sum)) goto readerr;
-		if (! read_uint64 (fd, &ecmdata->C_done, &sum)) goto readerr;
-		if (! read_uint64 (fd, &ecmdata->numDsections, &sum)) goto readerr;
-		if (! read_uint64 (fd, &ecmdata->Dsection, &sum)) goto readerr;
-		if (version == 2) {			// 30.4 save files
-			uint64_t bitarraymaxDsections, bitarrayfirstDsection, bitarray_numDsections, bitarray_start, bitarray_len;
-			char	*bitarray;
-			if (! read_uint64 (fd, &bitarraymaxDsections, &sum)) goto readerr;
-			if (! read_uint64 (fd, &bitarrayfirstDsection, &sum)) goto readerr;
-			// Read the truncated bitarray
-			bitarray_numDsections = ecmdata->numDsections - bitarrayfirstDsection;
-			if (bitarray_numDsections > bitarraymaxDsections) bitarray_numDsections = bitarraymaxDsections;
-			bitarray_len = divide_rounding_up (bitarray_numDsections * ecmdata->totrels, 8);
-			bitarray_start = divide_rounding_down ((ecmdata->Dsection - bitarrayfirstDsection) * ecmdata->totrels, 8);
-			bitarray = (char *) malloc ((size_t) bitarray_len);
-			if (bitarray == NULL) goto readerr;
-			if (! read_array (fd, bitarray, (size_t) (bitarray_len - bitarray_start), &sum)) goto readerr;
-			free (bitarray);
-		} else {				// 30.7 save files
+		int32_t	tmp;
+		if (! read_int32 (fd, &ecmdata->stage2_type, &sum)) goto readerr;
+		if (ecmdata->stage2_type != ECM_STAGE2_POLYMULT) {	// Prime pairing stage 2
+			if (! read_uint64 (fd, &ecmdata->stage2_numvals, &sum)) goto readerr;
+			if (! read_uint32 (fd, &ecmdata->totrels, &sum)) goto readerr;
+			if (! read_uint32 (fd, &ecmdata->D, &sum)) goto readerr;
+			ecmdata->numrels = map_D_to_numrels (ecmdata->D);
+			if (! read_uint32 (fd, &ecmdata->E, &sum)) goto readerr;
+			if (! read_int32 (fd, &ecmdata->TWO_FFT_STAGE2, &sum)) goto readerr;
+			if (! read_int32 (fd, &ecmdata->pool_type, &sum)) goto readerr;
+			if (! read_uint64 (fd, &ecmdata->first_relocatable, &sum)) goto readerr;
+			if (! read_uint64 (fd, &ecmdata->last_relocatable, &sum)) goto readerr;
+			if (! read_uint64 (fd, &ecmdata->B2_start, &sum)) goto readerr;
+			if (! read_uint64 (fd, &ecmdata->C_done, &sum)) goto readerr;
+			if (! read_uint64 (fd, &ecmdata->numDsections, &sum)) goto readerr;
+			if (! read_uint64 (fd, &ecmdata->Dsection, &sum)) goto readerr;
 			if (! read_uint64 (fd, &ecmdata->max_pairmap_Dsections, &sum)) goto readerr;
-			if (! read_int (fd, &ecmdata->relp, &sum)) goto readerr;
+			if (! read_int32 (fd, &ecmdata->relp, &sum)) goto readerr;
 			if (! read_array (fd, (char *) ecmdata->relp_sets, 32 * sizeof (int16_t), &sum)) goto readerr;
 			if (! read_uint64 (fd, &ecmdata->pairmap_size, &sum)) goto readerr;
 			ecmdata->pairmap = (uint8_t *) malloc ((size_t) ecmdata->pairmap_size);
 			if (ecmdata->pairmap == NULL) goto readerr;
 			if (! read_array (fd, (char *) ecmdata->pairmap, (size_t) ecmdata->pairmap_size, &sum)) goto readerr;
 			ecmdata->pairmap_ptr = ecmdata->pairmap;
+			ecmdata->Qx_binary = allocgiant (((int) ecmdata->gwdata.bit_length >> 5) + 10);
+			if (ecmdata->Qx_binary == NULL) goto readerr;
+			if (! read_giant (fd, ecmdata->Qx_binary, &sum)) goto readerr;
+			ecmdata->gg_binary = allocgiant (((int) ecmdata->gwdata.bit_length >> 5) + 10);
+			if (ecmdata->gg_binary == NULL) goto readerr;
+			if (! read_giant (fd, ecmdata->gg_binary, &sum)) goto readerr;
+		} else {						// Polynomial stage 2
+			if (! read_int32 (fd, &ecmdata->required_missing, &sum)) goto readerr;
+			if (! read_uint64 (fd, &ecmdata->C_done, &sum)) goto readerr;
+			ecmdata->Qx_binary = allocgiant (((int) ecmdata->gwdata.bit_length >> 5) + 10);
+			if (ecmdata->Qx_binary == NULL) goto readerr;
+			if (! read_giant (fd, ecmdata->Qx_binary, &sum)) goto readerr;
+			if (! read_int32 (fd, &tmp, &sum)) goto readerr;
+			if (tmp) {
+				ecmdata->gg_binary = allocgiant (((int) ecmdata->gwdata.bit_length >> 5) + 10);
+				if (ecmdata->gg_binary == NULL) goto readerr;
+				if (! read_giant (fd, ecmdata->gg_binary, &sum)) goto readerr;
+			}
 		}
 	}
 
 	else if (ecmdata->state == ECM_STATE_GCD) {
-	}
-
-/* Read the gwnum values (there are always two).  Caller will move them to where they need to be for each ECM state. */
-
-	if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.x, &sum)) goto readerr;
-	if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.z, &sum)) goto readerr;
-
-/* Version 30.4 save files cannot continue in stage 2 */
-
-	if (version == 2 && ecmdata->state == ECM_STATE_STAGE2) {
-		ecmdata->state = ECM_STATE_MIDSTAGE;
-		OutputStr (ecmdata->thread_num, "Old ECM save file was in stage 2.  Restarting stage 2 from scratch.\n");
-		dbltogw (&ecmdata->gwdata, 1.0, ecmdata->xz.z);
+		ecmdata->gg = gwalloc (&ecmdata->gwdata);
+		if (ecmdata->gg == NULL) goto readerr;
+		if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->gg, &sum)) goto readerr;
 	}
 
 /* Read and compare the checksum */
@@ -4840,6 +4906,10 @@ int ecm_restore (			/* For version 30.4 and later save files */
 /* An error occurred.  Cleanup and return FALSE. */
 
 readerr:
+	free_xz (ecmdata, &ecmdata->xz);
+	free (ecmdata->Qx_binary), ecmdata->Qx_binary = NULL;
+	free (ecmdata->Qz_binary), ecmdata->Qz_binary = NULL;
+	free (ecmdata->gg_binary), ecmdata->gg_binary = NULL;
 	_close (fd);
 err:
 	return (FALSE);
@@ -4881,7 +4951,7 @@ void ecm_helper (
 			int	counter, poly_base, next_poly_base, num_polys;
 
 			// Compute location (floor(i*poly_size/num_polys)) and number of polys
-			counter = atomic_fetch_incr (ecmdata->polydata.helper_counter);
+			counter = (int) atomic_fetch_incr (ecmdata->polydata.helper_counter);
 			poly_base = (int) ((counter * 4 * (uint64_t) ecmdata->poly_size) >> log2_num_polys);
 			if (poly_base >= ecmdata->poly_size) break;
 			next_poly_base = (int) (((counter + 1) * 4 * (uint64_t) ecmdata->poly_size) >> log2_num_polys);
@@ -4937,14 +5007,14 @@ void ecm_helper (
 
 		// Loop working on length 2, 3, or 4 polys
 		gwarray polyG = ecmdata->polyGH;
-		int	num_in_polyG = ecmdata->poly_size - ecmdata->polyGaux_size;		// Number of G(X) values in polyG vs. polyGaux
+		uint64_t num_in_polyG = ecmdata->poly_size - ecmdata->polyGaux_size;		// Number of G(X) values in polyG vs. polyGaux
 		int	log2_num_polys = (int) ceil (log2 ((double) ecmdata->poly_size));	// Number of Ftree levels with two or more polys
 
 		for ( ; ; ) {
 			int	counter, poly_base, next_poly_base, num_polys;
 
 			// Compute location (floor(i*poly_size/num_polys)) and number of polys
-			counter = atomic_fetch_incr (ecmdata->polydata.helper_counter);
+			counter = (int) atomic_fetch_incr (ecmdata->polydata.helper_counter);
 			poly_base = (int) ((counter * 4 * (uint64_t) ecmdata->poly_size) >> log2_num_polys);
 			if (poly_base >= ecmdata->poly_size) break;
 			next_poly_base = (int) (((counter + 1) * 4 * (uint64_t) ecmdata->poly_size) >> log2_num_polys);
@@ -5014,7 +5084,7 @@ void ecm_helper (
 		// Loop multiplying points from the output poly
 		for ( ; ; ) {
 			// Get one of the output polyH gwnums.  We accumulate here and later multiply with gg.
-			int j = atomic_fetch_incr (ecmdata->polydata.helper_counter);
+			int j = (int) atomic_fetch_incr (ecmdata->polydata.helper_counter);
 
 			// If the other helper threads have completed processing of the output poly, then we're done
 			if (j >= ecmdata->poly_size) break;
@@ -5054,7 +5124,7 @@ int ecm (
 	int	i;
 	unsigned int memused;
 	char	filename[32], ftree_filename[40], buf[255], JSONbuf[4000], fft_desc[200];
-	int	res, stop_reason, stage, first_iter_msg;
+	int	res, stop_reason, delayed_stop_reason, stage, first_iter_msg;
 	int	msglen, continueECM, prpAfterEcmFactor;
 	char	*str, *msg;
 	double	timers[10];
@@ -5478,57 +5548,42 @@ if (w->n == 604) {
 			break;
 		}
 
-/* Allocate memory to read gwnums from a save file.  We'll move the read in values to where they need to be depending on the ECM state. */
-
-		if (!alloc_xz (&ecmdata, &ecmdata.xz)) goto oom;
-		ecmdata.gg = NULL;
-
 /* Read in the save file.  If the save file is no good ecm_restore will have deleted it.  Loop trying to read a backup save file. */
 
 		if (! ecm_restore (&ecmdata)) {
-			free_xz (&ecmdata, &ecmdata.xz);
 			/* Close and rename the bad save file */
 			saveFileBad (&ecmdata.read_save_file_state);
 			continue;
 		}
 
-/* Compute Ad4 from sigma while ignoring the x,z starting point */
+/* Output a startup message */
 
 		curve_start_msg (&ecmdata);
-		stop_reason = choose12 (&ecmdata, NULL);
-		if (stop_reason) goto exit;
 
 /* Continue in the middle of stage 1 */
 
 		if (ecmdata.state == ECM_STATE_STAGE1) {
 			sieve_start = ecmdata.stage1_prime + 1;
+			stop_reason = choose12 (&ecmdata, NULL);	/* Compute Ad4 from sigma while ignoring the x,z starting point */
+			if (stop_reason) goto exit;
 			goto restart1;
 		}
 
-/* Continue if between stage 1 and stage 2.  Stage 2 init expects Q stored in QD.  Swap xz to QD. */
+/* Continue if between stage 1 and stage 2 */
 
 		if (ecmdata.state == ECM_STATE_MIDSTAGE) {
-			xzswap (ecmdata.xz, ecmdata.QD);
 			goto restart3;
 		}
 
-/* We've finished stage 1, resume stage 2.  Store normalized Q in QD.  Initialize the accumulator. */
+/* We've finished stage 1, resume stage 2.  The save file contained normalized Q and possibly the GCD accumulator. */
 
 		if (ecmdata.state == ECM_STATE_STAGE2) {
-			ecmdata.QD.x = ecmdata.xz.x;
-			ecmdata.gg = ecmdata.xz.z;
-			ecmdata.xz.x = NULL;
-			ecmdata.xz.z = NULL;
-			ecmdata.QD.z = gwalloc (&ecmdata.gwdata);
-			if (ecmdata.QD.z == NULL) goto oom;
-			dbltogw (&ecmdata.gwdata, 1.0, ecmdata.QD.z);
 			goto restart3;
 		}
 
 /* We've finished stage 2, but haven't done the GCD yet.  Place accumulator in gg, leave normalized Q in xz.x. */
 
 		ASSERTG (ecmdata.state == ECM_STATE_GCD);
-		gwswap (ecmdata.xz.z, ecmdata.gg);
 		goto restart4;
 	}
 
@@ -5577,7 +5632,7 @@ restart1:
 	ecmdata.state = ECM_STATE_STAGE1;
 	ecm_stage1_memory_usage (thread_num, &ecmdata);
 	one_over_B = 1.0 / (double) ecmdata.B;
-	sprintf (w->stage, "C%luS1", ecmdata.curve);
+	sprintf (w->stage, "C%" PRIu32 "S1", ecmdata.curve);
 	w->pct_complete = sieve_start * one_over_B;
 	start_timer_from_zero (timers, 0);
 	start_timer_from_zero (timers, 1);
@@ -5632,7 +5687,7 @@ restart1:
 
 		if (first_iter_msg ||
 		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
-			sprintf (buf, "%.*f%% of %s ECM curve %lu stage 1",
+			sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 1",
 				 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve);
 			title (thread_num, buf);
 			last_output_t = gw_get_fft_count (&ecmdata.gwdata);
@@ -5642,7 +5697,7 @@ restart1:
 
 		if (first_iter_msg ||
 		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
-			sprintf (buf, "%s curve %lu stage 1 at prime %" PRIu64 " [%.*f%%].",
+			sprintf (buf, "%s curve %" PRIu32 " stage 1 at prime %" PRIu64 " [%.*f%%].",
 				 gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve, ecmdata.stage1_prime, (int) PRECISION, trunc_percent (w->pct_complete));
 			end_timer (timers, 0);
 			if (first_iter_msg) {
@@ -5762,26 +5817,30 @@ skip_stage_2:	start_timer_from_zero (timers, 0);
 /* Change state to between stage 1 and 2 */
 
 	ecmdata.state = ECM_STATE_MIDSTAGE;
-	sprintf (w->stage, "C%luS2", ecmdata.curve);
+	sprintf (w->stage, "C%" PRIu32 "S2", ecmdata.curve);
 	w->pct_complete = 0.0;
 
-/* Throughout stage 2 init, ecmdata.QD will contain a multiple of Q suitable for saving.  We start QD with Q. */
+/* Convert xz to binary.  This is what restart3 expects when resuming from a save file.  We'll likely need to convert to binary anyway when we switch FFT sizes. */
 
-	xzswap (ecmdata.xz, ecmdata.QD);
+	ecmdata.Qx_binary = allocgiant (((int) ecmdata.gwdata.bit_length >> 5) + 10);
+	if (ecmdata.Qx_binary == NULL) goto oom;
+	gwtogiant (&ecmdata.gwdata, ecmdata.xz.x, ecmdata.Qx_binary);
+	ecmdata.Qz_binary = allocgiant (((int) ecmdata.gwdata.bit_length >> 5) + 10);
+	if (ecmdata.Qz_binary == NULL) goto oom;
+	gwtogiant (&ecmdata.gwdata, ecmdata.xz.z, ecmdata.Qz_binary);
+	free_xz (&ecmdata, &ecmdata.xz);
 
-/* Entry point for continuing stage 2 from a save file */
+/* No restrictions on polymult D value */
+
+	ecmdata.required_missing = 0;
+
+/* Entry point for continuing stage 2 from a save file.  When continuing from a stage 2 save file, we have either a normalized or unnormalized xz value */
+/* and possibly a GCD accumulator.  These values come in binary format.  There also may be restrictions on the D value selected. */
 
 restart3:
-	// Convert QD.x and QD.z to more compact giants format.  These are used to create save files during stage 2.
-//GW: pairing save files did not do this, polymult may not have a handy QD.x and QD.z equivalent alwas available
-//GW: I'd be scared of using anything other than the original QD.x & z to re-compute F(X) on using a save file
-	ecmdata.QDx_binary = allocgiant (((int) ecmdata.gwdata.bit_length >> 5) + 10);
-	if (ecmdata.QDx_binary == NULL) goto oom;
-	gwtogiant (&ecmdata.gwdata, ecmdata.QD.x, ecmdata.QDx_binary);
-	ecmdata.QDz_binary = allocgiant (((int) ecmdata.gwdata.bit_length >> 5) + 10);
-	if (ecmdata.QDz_binary == NULL) goto oom;
-	gwtogiant (&ecmdata.gwdata, ecmdata.QD.z, ecmdata.QDz_binary);
-// GW: convert gg for pairing and H(X) for poly (but only if switching fft len??
+	ASSERTG (ecmdata.xz.x == NULL && ecmdata.xz.x == NULL && ecmdata.gg == NULL);
+	Dmultiple_map.clear ();			// Map should already be clear
+	relp_set_map.clear ();			// Map should already be clear
 
 /* Make sure we will have enough memory to run stage 2 at some time.  We need at least 13 gwnums in stage 2 main loop. */
 
@@ -5796,7 +5855,7 @@ restart3:
 /* Output message, change window title */
 
 	start_timer_from_zero (timers, 0);
-	sprintf (buf, "%s ECM curve %lu stage 2 init", gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve);
+	sprintf (buf, "%s ECM curve %" PRIu32 " stage 2 init", gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve);
 	title (thread_num, buf);
 
 /* Cost several FFT sizes!  Polymult may require several EXTRA_BITS to safely accumulate products in FFT space. */
@@ -5814,8 +5873,18 @@ replan:	unsigned long original_fftlen, best_fftlen;
 	best_fails = 0;
 	best_poly_efficiency = 0.0;
 	msgbuf[0] = 0;
-//GW: Can we get here (old save files) with V set and one of x or invx not set?  If so, switching is an issue unless we convert V to binary.
 	for (bool found_best = FALSE; ; ) {
+
+/* Initialize the polymult library (needed for calling polymult_mem_required).  Let user override polymult tuning parameters. */
+
+		polymult_init (&ecmdata.polydata, &ecmdata.gwdata);
+		polymult_set_max_num_threads (&ecmdata.polydata, get_worker_num_threads (thread_num, HYPERTHREAD_LL) + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0));
+		polymult_default_tuning (&ecmdata.polydata,
+					 IniGetInt (INI_FILE, "PolymultCacheSize", CPU_NUM_L2_CACHES > 0 ? CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES : 256),
+					 IniGetInt (INI_FILE, "PolymultCacheSize2", CPU_NUM_L3_CACHES > 0 ? CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES : 6144));
+		ecmdata.gwdata.scramble_arrays = (char) IniGetInt (INI_FILE, "PolymultScramble", ecmdata.gwdata.scramble_arrays);
+		ecmdata.polydata.strided_writes_end = IniGetInt64 (INI_FILE, "PolymultStridedWritesEnd", ecmdata.polydata.strided_writes_end);
+		ecmdata.polydata.streamed_stores_start = IniGetInt64 (INI_FILE, "PolymultStreamStores", 0); // Default is always stream stores because of POLYMULT_NOUNFFT
 
 /* When recovering from a roundoff error, only cost FFT lengths larger than the FFT length that generated the roundoff error. */
 
@@ -5869,7 +5938,7 @@ replan:	unsigned long original_fftlen, best_fftlen;
 			efficiency = cost / (double) (ecmdata.B2_start + ecmdata.numDsections * ecmdata.D - ecmdata.B) * 1.0e9;
 if (IniGetInt (INI_FILE, "PolyVerbose", 0)) {
 if (cost == 0.0) sprintf (buf, "FFT: %d no stage 2 plan works\n", (int) gwfftlen (&ecmdata.gwdata));
-else sprintf (buf, "FFT: %d, B2: %" PRIu64 "/%" PRIu64 ", numvals: %d/%d, poly: %d, efficiency: %.0f\n", (int) gwfftlen (&ecmdata.gwdata), ecmdata.C,
+else sprintf (buf, "FFT: %d, B2: %" PRIu64 "/%" PRIu64 ", numvals: %" PRIu64 "/%d, poly: %" PRIu64 ", efficiency: %.0f\n", (int) gwfftlen (&ecmdata.gwdata), ecmdata.C,
 		ecmdata.B2_start + ecmdata.numDsections * ecmdata.D,
 		ecmdata.stage2_numvals, (int) cvt_mem_to_gwnums_adj (&ecmdata.gwdata, memory, 0.0), ecmdata.poly_size, efficiency);
 OutputStr (thread_num, buf); }
@@ -5898,7 +5967,7 @@ OutputStr (thread_num, buf); }
 		if (best_fftlen && (double) memory * 1000000.0 / (double) array_gwnum_size (&ecmdata.gwdata) < 60.0) found_best = TRUE;
 
 		// If we fail to get a new best efficient poly twice in a row, then we've found our best poly plan
-//GW: Likely costing overkill -- do we need a faster gwsetup (no computing weights and sin/cos?)
+//GW: Likely costing overkill
 		if (best_poly_efficiency != 0.0) best_fails++;
 		if (best_fails == 3) found_best = TRUE;
 
@@ -5915,12 +5984,10 @@ OutputStr (thread_num, buf); }
 				ecmdata.Ad4_binary = allocgiant (((int) ecmdata.gwdata.bit_length >> 5) + 10);
 				if (ecmdata.Ad4_binary == NULL) goto oom;
 				gwtogiant (&ecmdata.gwdata, ecmdata.Ad4, ecmdata.Ad4_binary);
+				ecmdata.Ad4 = NULL;
 			}
+			polymult_done (&ecmdata.polydata);
 			gwdone (&ecmdata.gwdata);
-			ecmdata.Ad4 = NULL;
-			ecmdata.QD.x = NULL;
-			ecmdata.QD.z = NULL;
-//GW:??			ecmdata.gg = NULL;
 			// Re-init gwnum with a larger FFT
 			gwinit (&ecmdata.gwdata);
 			if (next_fftlen != best_fftlen) gwset_information_only (&ecmdata.gwdata);
@@ -5964,29 +6031,30 @@ OutputStr (thread_num, buf); }
 
 	OutputStr (thread_num, msgbuf);
 
-// Restore the QD.x, QD.z, Ad4, gg, and H(X) values.  Costing different FFT lengths may have deleted these gwnums.
+// Restore the xz.x, xz.z, and Ad4 values.  Don't delete the Qx and Qz binaries - we'll use them to create save files.
 
-//GW: polymult optimization: we don't need to restore gg, but do need H(X)
-
-	if (ecmdata.QD.x == NULL) {
-		ecmdata.QD.x = gwalloc (&ecmdata.gwdata);
-		if (ecmdata.QD.x == NULL) goto oom;
-		gianttogw (&ecmdata.gwdata, ecmdata.QDx_binary, ecmdata.QD.x);
-	}
-	if (ecmdata.QD.z == NULL) {
-		ecmdata.QD.z = gwalloc (&ecmdata.gwdata);
-		if (ecmdata.QD.z == NULL) goto oom;
-		gianttogw (&ecmdata.gwdata, ecmdata.QDz_binary, ecmdata.QD.z);
-	}
+	if (!alloc_xz (&ecmdata, &ecmdata.xz)) goto lowmem;
+	gianttogw (&ecmdata.gwdata, ecmdata.Qx_binary, ecmdata.xz.x);
+	if (ecmdata.Qz_binary == NULL) dbltogw (&ecmdata.gwdata, 1.0, ecmdata.xz.z);
+	else gianttogw (&ecmdata.gwdata, ecmdata.Qz_binary, ecmdata.xz.z);
 	if (ecmdata.Ad4 == NULL) {
-//GW: Should we just re-compute Ad4 rather than convert to/from binary??
-		ecmdata.Ad4 = gwalloc (&ecmdata.gwdata);
-		if (ecmdata.Ad4 == NULL) goto oom;
-		gianttogw (&ecmdata.gwdata, ecmdata.Ad4_binary, ecmdata.Ad4);
-		free (ecmdata.Ad4_binary), ecmdata.Ad4_binary = NULL;
+		if (ecmdata.Ad4_binary != NULL) {
+			ecmdata.Ad4 = gwalloc (&ecmdata.gwdata);
+			if (ecmdata.Ad4 == NULL) goto lowmem;
+			gianttogw (&ecmdata.gwdata, ecmdata.Ad4_binary, ecmdata.Ad4);
+			free (ecmdata.Ad4_binary), ecmdata.Ad4_binary = NULL;
+			gwfft (&ecmdata.gwdata, ecmdata.Ad4, ecmdata.Ad4);
+		} else {
+			stop_reason = choose12 (&ecmdata, NULL);
+			if (stop_reason) goto possible_lowmem;
+		}
 	}
-//GW:restore gg, H(X)?
-	
+
+/* For historical reasons, swap the stage 1 xz value to QD */
+//GW: change this?
+
+	xzswap (ecmdata.xz, ecmdata.QD);
+
 /* Record the amount of memory this thread will be using in stage 2 */
 
 	memused = cvt_array_gwnums_to_mem (&ecmdata.gwdata, ecmdata.stage2_numvals);
@@ -6007,6 +6075,10 @@ OutputStr (thread_num, buf); }
 /*---------------------------------------------------------------------
 |	Traditional prime pairing stage 2
 +---------------------------------------------------------------------*/
+
+/* We won't be using polymult in prime pairing stage 2 */
+
+	polymult_done (&ecmdata.polydata);
 
 /* Output a useful message regarding memory usage */
 
@@ -6029,7 +6101,6 @@ OutputStr (thread_num, buf); }
 
 /* Do preliminary processing of the relp_sets */
 
-	gw_set_max_allocs (&ecmdata.gwdata, ecmdata.stage2_numvals);
 	process_relp_sets (ecmdata.totrels, ecmdata.numrels, ecmdata.relp_sets, relp_set_map, Dmultiple_map);
 
 /* Output a useful message regarding memory usage and ECM stage 2 implementation */
@@ -6089,7 +6160,8 @@ OutputStr (thread_num, buf); }
 	if (!ecmdata.TWO_FFT_STAGE2 || ecmdata.D % 3 != 0) {
 		struct xz t1, t2, t3, t4;
 		struct xz *Q1, *Q2, *Q3, *Qi, *Qiminus2, *Qscratch;
-		int	have_QD, totrels;
+		int	have_QD;
+		uint32_t totrels;
 
 /* Allocate memory and init values for computing nQx.  We need Q^1, Q^2, Q^3. */
 
@@ -6098,9 +6170,7 @@ OutputStr (thread_num, buf); }
 		if (!alloc_xz (&ecmdata, &t3)) goto lowmem;
 		t4.x = NULL; t4.z = NULL;					// Only needed if Q2 is needed after QD is calculated
 
-/* Compute Q^2 and place in ecmdata.QD.  This is the value we will save if init is aborted and we create a save file. */
-/* Q^2 will be replaced by Q^D later on in this loop.  At all times ecmdata.QD will be a save-able value! */
-/* Remember Q^1 as the first nQx value.  After the first stage 2 init, xz.x is already normalized. */
+/* Compute Q^2 and place in ecmdata.QD.  Q^2 will be replaced by Q^D later on in this loop.  Remember Q^1 as the first nQx value. */
 
 		xzswap (t1, ecmdata.QD);					// Move Q^1 from QD to t1
 		Q1 = &t1;							// Q^1
@@ -6215,7 +6285,8 @@ OutputStr (thread_num, buf); }
 			int	Qi_is_relp;
 			int	Qi_minus6_is_relp;
 		} Q1mod6, Q5mod6, *curr, *notcurr;
-		int	i_gap, have_QD, totrels;
+		int	have_QD;
+		uint32_t totrels;
 
 /* Allocate memory and init values for computing nQx.  We need Q^1, Q^5, Q^6, Q^7, Q^11. */
 /* We also need Q^4 to compute Q^D in the middle of the nQx init loop. */
@@ -6226,9 +6297,7 @@ OutputStr (thread_num, buf); }
 		if (!alloc_xz (&ecmdata, &t4)) goto lowmem;
 		if (!alloc_xz (&ecmdata, &t5)) goto lowmem;
 
-/* Compute Q^2 and place in ecmdata.QD.  This is the value we will save if init is aborted and we create a save file. */
-/* Q^2 will be replaced by Q^D later on in this loop.  At all times ecmdata.QD will be a save-able value! */
-/* After the first stage 2 init, QD.x is already normalized, but we do not take advantage of this fact. */
+/* Compute Q^2 and place in ecmdata.  Q^2 will be replaced by Q^D later on in this loop. */
 
 		ell_dbl_xz_scr (&ecmdata, &ecmdata.QD, &t1, &t5);		// Q2 = 2 * Q1, scratch = t5
 		xzswap (t1, ecmdata.QD);					// Move Q^1 from QD to t1
@@ -6285,7 +6354,7 @@ OutputStr (thread_num, buf); }
 
 		Qnext_i = &t6;
 		have_QD = FALSE;
-		for (i = 7, i_gap = 4; ; i += i_gap, i_gap = 6 - i_gap) {
+		for (uint32_t i = 7, i_gap = 4; ; i += i_gap, i_gap = 6 - i_gap) {
 			int	next_i_is_relp;
 
 /* Point to the i, i-6 pair to work on */
@@ -6424,7 +6493,6 @@ OutputStr (thread_num, buf); }
 		stop_reason = stopCheck (thread_num);
 		if (stop_reason) goto possible_lowmem;
 	}
-//GW: are xz buffers allocated by Dmultiple map properly cleaned up (especially in oom case)?  use class to do it? 
 
 /* For the 2-FFT stage 2, mQ_preinit wants the QD^(E/2) value normalized.  Do so now that we've computed the value. */
 
@@ -6435,7 +6503,6 @@ OutputStr (thread_num, buf); }
 	}
 
 /* There will be no more ell_dbl calls, so free Ad4 */
-//GW: the last ell_dbl call may have happened before the last dmult calculation (free earlier if that makes a MEMPEAK difference)
 
 	gwfree (&ecmdata.gwdata, ecmdata.Ad4);
 	ecmdata.Ad4 = NULL;
@@ -6551,6 +6618,15 @@ OutputStr (thread_num, buf); }
 
 	if (ecmdata.factor != NULL) goto bingo;
 
+/* We now have a normalized Qx value that we can write to a save file */
+
+//GW: Is nQx[0] FFTed?  Can we convert to binary prior to nQx[0] being FFTed?
+	if (ecmdata.Qz_binary != NULL) {
+		ASSERTG (ecmdata.Qx_binary != NULL);
+		gwtogiant (&ecmdata.gwdata, ecmdata.nQx[0], ecmdata.Qx_binary);
+		free (ecmdata.Qz_binary), ecmdata.Qz_binary = NULL;
+	}
+
 /* Init code that computes Q^m, where m is the first D section we are working on */
 /* 2FFT MEMPEAK: 5 + nQx + E + pooling cost (see mQ_init) + another one for gg if resuming a stage 2 */
 /* 4FFT MEMPEAK: 6 + nQx (6 for computing mQx, nQx) + another one for gg if resuming a stage 2 */
@@ -6562,24 +6638,23 @@ OutputStr (thread_num, buf); }
 /* 2FFT MEMUSED: 2 + nQx + E (QD_Eover2.x, gg, nQx, mQx) */
 /* 4FFT MEMUSED: 7 + nQx gwnums (6 for computing mQx, gg, nQx values) */
 
-	if (ecmdata.gg == NULL) {
-		ecmdata.gg = gwalloc (&ecmdata.gwdata);
-		if (ecmdata.gg == NULL) goto lowmem;
+	ASSERTG (ecmdata.gg == NULL);
+	ecmdata.gg = gwalloc (&ecmdata.gwdata);
+	if (ecmdata.gg == NULL) goto lowmem;
+	if (ecmdata.gg_binary != NULL) {
+		gianttogw (&ecmdata.gwdata, ecmdata.gg_binary, ecmdata.gg);
+		free (ecmdata.gg_binary), ecmdata.gg_binary = NULL;
+	} else
 		dbltogw (&ecmdata.gwdata, 1.0, ecmdata.gg);
-	}
 
 /* Last chance to create a save file that doesn't lock us into a particular stage 2 implementation.  Check for user requesting a stop. */
 
 	stop_reason = stopCheck (thread_num);
 	if (stop_reason) goto possible_lowmem;
 
-/* For 2-FFT stage 2, mQ_init wanted to free QD but could not because of potential ecm_save issues.  Now that stage 2 init is finished, free QD. */
-
-	if (ecmdata.TWO_FFT_STAGE2) free_xz (&ecmdata, &ecmdata.QD);
-
 /* Initialization of stage 2 complete */
 
-	sprintf (buf, "%.*f%% of %s ECM curve %lu stage 2 (using %uMB)",
+	sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 2 (using %uMB)",
 		 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve, memused);
 	title (thread_num, buf);
 
@@ -6619,11 +6694,11 @@ OutputStr (thread_num, buf); }
 
 /* Make a quick check for end of the pairmap and no more pairmaps needed (i.e. we're done with stage 2) */
 
-		if (ecmdata.relp >= ecmdata.totrels && ecmdata.Dsection + ecmdata.relp / ecmdata.totrels >= ecmdata.numDsections) break;
+		if (ecmdata.relp >= (int32_t) ecmdata.totrels && ecmdata.Dsection + ecmdata.relp / ecmdata.totrels >= ecmdata.numDsections) break;
 
 /* Move to next D section when appropriate */
 
-		while (ecmdata.relp >= ecmdata.totrels) {
+		while (ecmdata.relp >= (int32_t) ecmdata.totrels) {
 			ecmdata.Dsection++;
 			ecmdata.relp -= ecmdata.totrels;
 
@@ -6702,7 +6777,7 @@ OutputStr (thread_num, buf); }
 
 		if (first_iter_msg ||
 		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
-			sprintf (buf, "%.*f%% of %s ECM curve %lu stage 2 (using %uMB)",
+			sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 2 (using %uMB)",
 				 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve, memused);
 			title (thread_num, buf);
 			last_output_t = gw_get_fft_count (&ecmdata.gwdata);
@@ -6712,7 +6787,7 @@ OutputStr (thread_num, buf); }
 
 		if (first_iter_msg ||
 		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
-			sprintf (buf, "%s curve %lu stage 2 at B2=%" PRIu64 " [%.*f%%].",
+			sprintf (buf, "%s curve %" PRIu32 " stage 2 at B2=%" PRIu64 " [%.*f%%].",
 				 gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve,
 				 ecmdata.B2_start + ecmdata.Dsection * ecmdata.D + ecmdata.D / 2,
 				 (int) PRECISION, trunc_percent (w->pct_complete));
@@ -6745,7 +6820,7 @@ OutputStr (thread_num, buf); }
 	mQ_term (&ecmdata);
 	normalize_pool_term (&ecmdata);
 	ecmdata.xz.x = ecmdata.nQx[0];
-	for (i = 1; i < ecmdata.totrels; i++) gwfree (&ecmdata.gwdata, ecmdata.nQx[i]);
+	for (uint32_t i = 1; i < ecmdata.totrels; i++) gwfree (&ecmdata.gwdata, ecmdata.nQx[i]);
 	free (ecmdata.nQx); ecmdata.nQx = NULL;
 	free (ecmdata.pairmap); ecmdata.pairmap = NULL;
 
@@ -6767,24 +6842,19 @@ OutputStr (thread_num, buf); }
 
 ecm_polymult:
 	start_timer_from_zero (timers, 1);
+//GW: foobar?
 int foobar; foobar = ecmdata.gwdata.num_threads;
-
-//GW: We don't need gg, we possibly need the full H(X) from a save file.  Wow, thats a lot of disk.  Might have to invest the CPU time reducing H(X) to
-// to create a save file.
 
 // Polymult stage 2 does not need a prime sieve
 
-//GW: should we end the sieve - it might be re-usable in next curve
+//GW: should we end the sieve - it might be re-usable in next curve  (do we call start sieve with corrent ending p value?)
 	end_sieve (ecmdata.sieve_info), ecmdata.sieve_info = NULL;
 
 /* Output a useful message regarding memory usage */
 
-	sprintf (buf, "Using %uMB of memory.  D: %d, degree-%d polynomials.  Ftree polys in memory: %d\n",
+	sprintf (buf, "Using %uMB of memory.  D: %d, degree-%" PRIu64 " polynomials.  Ftree polys in memory: %d\n",
 		 memused, ecmdata.D, ecmdata.poly_size, ecmdata.Ftree_polys_in_mem);
 	OutputStr (thread_num, buf);
-
-//GW: does this make sense when we are allocating arrays?
-	gw_set_max_allocs (&ecmdata.gwdata, ecmdata.poly_size * 2);	//GW: was ecmdata.stage2_numvals);
 
 // We must outer loop at least twice, otherwise H(X) will be monic -- the current descent of Ftree code can't handle that.
 //GW:  Someday allow ecmdata.numDsections to be ecmdata.poly_size -- dont alloc mem for H(X)
@@ -6792,12 +6862,14 @@ int foobar; foobar = ecmdata.gwdata.num_threads;
 /* Allocate nQx array of pointers to relative prime gwnums.  Allocate an array large enough to hold x & z values for all relp. */
 /* This is much more than we will need once stage 2 init completes. */
 
-	ecmdata.nQx = (gwnum *) malloc (ecmdata.numrels * 2 * sizeof (gwnum));
+//GW: use gwalloc_array, carefully convert freeing nQx!  Make this code common with prime pairing?  Multithread using polymult tools?
+	ecmdata.nQx = (gwnum *) malloc (ecmdata.numrels * sizeof (gwnum));
 	if (ecmdata.nQx == NULL) goto lowmem;
 
 /* Allocate some of the memory for modular inverse pooling */
 
-	stop_reason = normalize_pool_init (&ecmdata, ecmdata.poly_size * 2);	// GW: Shouldn't be more than a handfull above poly_size
+//GW: Are there costs to calling this with too large a value?  Not very much.  Malloc the pool on-demand rather than upfront?
+	stop_reason = normalize_pool_init (&ecmdata, ecmdata.poly_size * 2);	// GW: Shouldn't be more than a handful above poly_size
 	if (stop_reason) goto possible_lowmem;
 
 /* This is a fast 1,5 mod 6 nQx initialization */
@@ -6805,70 +6877,67 @@ int foobar; foobar = ecmdata.gwdata.num_threads;
 start_timer_from_zero (timers, 0);
 	ASSERTG (ecmdata.D % 3 == 0);
 	{
-	struct xz t1, t2, t3, t4, t5, t6;
-	struct xz *Q1, *Q2, *Q3, *Q5, *Q6, *Q7, *Q11, *Qnext_i;
-	struct {
-		struct xz *Qi;
-		struct xz *Qi_minus6;
-		int	Qi_is_relp;
-		int	Qi_minus6_is_relp;
-	} Q1mod6, Q5mod6, *curr;
-	int	i_gap, have_QD, totrels;
+		struct xz t1, t2, t3, t4, t5, t6;
+		struct xz *Q1, *Q2, *Q3, *Q5, *Q6, *Q7, *Q11, *Qnext_i;
+		struct {
+			struct xz *Qi;
+			struct xz *Qi_minus6;
+			int	Qi_is_relp;
+			int	Qi_minus6_is_relp;
+		} Q1mod6, Q5mod6, *curr;
+		int	i_gap, have_QD;
+		uint32_t totrels;
 
 /* Allocate memory and init values for computing nQx.  We need Q^1, Q^5, Q^6, Q^7, Q^11. */
 /* We also need Q^4 to compute Q^D in the middle of the nQx init loop. */
 
-	if (!alloc_xz (&ecmdata, &t1)) goto lowmem;
-	if (!alloc_xz (&ecmdata, &t2)) goto lowmem;
-	if (!alloc_xz (&ecmdata, &t3)) goto lowmem;
-	if (!alloc_xz (&ecmdata, &t4)) goto lowmem;
-	if (!alloc_xz (&ecmdata, &t5)) goto lowmem;
+		if (!alloc_xz (&ecmdata, &t1)) goto lowmem;
+		if (!alloc_xz (&ecmdata, &t2)) goto lowmem;
+		if (!alloc_xz (&ecmdata, &t3)) goto lowmem;
+		if (!alloc_xz (&ecmdata, &t4)) goto lowmem;
+		if (!alloc_xz (&ecmdata, &t5)) goto lowmem;
 
-/* Compute Q^2 and place in ecmdata.QD.  This is the value we will save if init is aborted and we create a save file. */
-/* Q^2 will be replaced by Q^D later on in this loop.  At all times ecmdata.QD will be a save-able value! */
-/* After the first stage 2 init, QD.x is already normalized, but we do not take advantage of this fact. */
+/* Compute Q^2 and place in ecmdata.QD.  Q^2 will be replaced by Q^D later on in this loop. */
 
-	ell_dbl_xz_scr (&ecmdata, &ecmdata.QD, &t1, &t5);		// Q2 = 2 * Q1, scratch = t5
-	xzswap (t1, ecmdata.QD);					// Move Q^1 from QD to t1
-	Q1 = &t1;							// Q^1
-	Q2 = &ecmdata.QD;
+		ell_dbl_xz_scr (&ecmdata, &ecmdata.QD, &t1, &t5);		// Q2 = 2 * Q1, scratch = t5
+		xzswap (t1, ecmdata.QD);					// Move Q^1 from QD to t1
+		Q1 = &t1;							// Q^1
+		Q2 = &ecmdata.QD;
 
 /* Compute Q^5, Q^6, Q^7, Q^11 */
 
-	Q3 = &t2;
-	ell_add_xz (&ecmdata, Q2, Q1, Q1, Q3);				// Q3 = Q2 + Q1 (diff Q1)
+		Q3 = &t2;
+		ell_add_xz (&ecmdata, Q2, Q1, Q1, Q3);				// Q3 = Q2 + Q1 (diff Q1)
 
-	Q5 = &t3;
-	ell_add_xz (&ecmdata, Q3, Q2, Q1, Q5);				// Q5 = Q3 + Q2 (diff Q1)
+		Q5 = &t3;
+		ell_add_xz (&ecmdata, Q3, Q2, Q1, Q5);				// Q5 = Q3 + Q2 (diff Q1)
 
-	Q6 = Q3;
-	ell_dbl_xz_scr (&ecmdata, Q3, Q6, &t5);				// Q6 = 2 * Q3, scratch = t5, Q3 no longer needed
+		Q6 = Q3;
+		ell_dbl_xz_scr (&ecmdata, Q3, Q6, &t5);				// Q6 = 2 * Q3, scratch = t5, Q3 no longer needed
 
-	Q7 = &t4;
-	ell_add_xz (&ecmdata, Q6, Q1, Q5, Q7);				// Q7 = Q6 + Q1 (diff Q5)
+		Q7 = &t4;
+		ell_add_xz (&ecmdata, Q6, Q1, Q5, Q7);				// Q7 = Q6 + Q1 (diff Q5)
 
-	Q11 = &t5;
-	ell_add_xz (&ecmdata, Q6, Q5, Q1, Q11);				// Q11 = Q6 + Q5 (diff Q1)
+		Q11 = &t5;
+		ell_add_xz (&ecmdata, Q6, Q5, Q1, Q11);				// Q11 = Q6 + Q5 (diff Q1)
 
 /* Init structures used in the loop below */
 
-	Q1mod6.Qi_minus6 = Q1;
-	Q1mod6.Qi_minus6_is_relp = 1;
-	Q5mod6.Qi_minus6 = Q5;
-	Q5mod6.Qi_minus6_is_relp = relatively_prime (5, ecmdata.D);
-	Q1mod6.Qi = Q7;
-	Q1mod6.Qi_is_relp = relatively_prime (7, ecmdata.D);
-	Q5mod6.Qi = Q11;
-	Q5mod6.Qi_is_relp = relatively_prime (11, ecmdata.D);
+		Q1mod6.Qi_minus6 = Q1;
+		Q1mod6.Qi_minus6_is_relp = 1;
+		Q5mod6.Qi_minus6 = Q5;
+		Q5mod6.Qi_minus6_is_relp = relatively_prime (5, ecmdata.D);
+		Q1mod6.Qi = Q7;
+		Q1mod6.Qi_is_relp = relatively_prime (7, ecmdata.D);
+		Q5mod6.Qi = Q11;
+		Q5mod6.Qi_is_relp = relatively_prime (11, ecmdata.D);
 
-/* For relprimes, we remember the .x value in the nQx pool.  In the loop below, we will relinquish ownership of the .z value */
-/* when we call add_to_normalize_pool. */
+/* For relprimes, we remember the .x value in the nQx pool.  In the loop below, we relinquish ownership of the .z value when we call add_to_normalize_pool_ro. */
 
-	z_offset = ecmdata.numrels;
-	ecmdata.nQx[0] = Q1->x; ecmdata.nQx[z_offset] = Q1->z; totrels = 1;
-	if (Q5mod6.Qi_minus6_is_relp) { ecmdata.nQx[totrels] = Q5->x; ecmdata.nQx[totrels+z_offset] = Q5->z; totrels++; }
-	if (Q1mod6.Qi_is_relp) { ecmdata.nQx[totrels] = Q7->x; ecmdata.nQx[totrels+z_offset] = Q7->z; totrels++; }
-	if (Q5mod6.Qi_is_relp) { ecmdata.nQx[totrels] = Q11->x; ecmdata.nQx[totrels+z_offset] = Q11->z; totrels++; }
+		ecmdata.nQx[0] = Q1->x; totrels = 1;
+		if (Q5mod6.Qi_minus6_is_relp) { ecmdata.nQx[totrels] = Q5->x; totrels++; }
+		if (Q1mod6.Qi_is_relp) { ecmdata.nQx[totrels] = Q7->x; totrels++; }
+		if (Q5mod6.Qi_is_relp) { ecmdata.nQx[totrels] = Q11->x; totrels++; }
 
 #define normalize_or_free(xz,is_relp)	{ if (is_relp) { stop_reason = add_to_normalize_pool_ro (&ecmdata, xz->x, xz->z); \
 							 if (stop_reason) goto possible_lowmem; \
@@ -6877,82 +6946,81 @@ start_timer_from_zero (timers, 0);
 
 /* Compute the rest of the nQx values below D (Q^i for i >= 7) */
 
-	Qnext_i = &t6;
-	have_QD = FALSE;
-	for (i = 7, i_gap = 4; ; i += i_gap, i_gap = 6 - i_gap) {
-		int	next_i_is_relp;
+		Qnext_i = &t6;
+		have_QD = FALSE;
+		for (i = 7, i_gap = 4; ; i += i_gap, i_gap = 6 - i_gap) {
+			int	next_i_is_relp;
 
 /* Point to the i, i-6 pair to work on */
 
-		curr = (i_gap == 4) ? &Q1mod6 : &Q5mod6;
+			curr = (i_gap == 4) ? &Q1mod6 : &Q5mod6;
 
 /* See if we are about to compute the next relative prime */
 
-		next_i_is_relp = (relatively_prime (i+6, ecmdata.D) && totrels < ecmdata.numrels);
+			next_i_is_relp = (relatively_prime (i+6, ecmdata.D) && totrels < ecmdata.numrels);
 
 /* Get next i value.  Don't destroy Qi_minus6 in case it is an nQx value. */
 
-		if (!alloc_xz (&ecmdata, Qnext_i)) goto lowmem;
-		ell_add_xz (&ecmdata, curr->Qi, Q6, curr->Qi_minus6, Qnext_i);		// Next_Qi = Qi + Q6 (diff Q{i-6})
+			if (!alloc_xz (&ecmdata, Qnext_i)) goto lowmem;
+			ell_add_xz (&ecmdata, curr->Qi, Q6, curr->Qi_minus6, Qnext_i);		// Next_Qi = Qi + Q6 (diff Q{i-6})
 
 /* We no longer need Qi_minus6.  Normalize it or free it */
 
-		normalize_or_free (curr->Qi_minus6, curr->Qi_minus6_is_relp);
+			normalize_or_free (curr->Qi_minus6, curr->Qi_minus6_is_relp);
 
 /* Shuffle i values along */
 
-		struct xz *shuffle;
-		shuffle = curr->Qi_minus6;
-		curr->Qi_minus6 = curr->Qi;
-		curr->Qi_minus6_is_relp = curr->Qi_is_relp;
-		curr->Qi = Qnext_i;
-		curr->Qi_is_relp = next_i_is_relp;
-		Qnext_i = shuffle;
+			struct xz *shuffle;
+			shuffle = curr->Qi_minus6;
+			curr->Qi_minus6 = curr->Qi;
+			curr->Qi_minus6_is_relp = curr->Qi_is_relp;
+			curr->Qi = Qnext_i;
+			curr->Qi_is_relp = next_i_is_relp;
+			Qnext_i = shuffle;
 
 /* Compute Q^D which we will need in mQ_init.  Do this with a single ell_add_xz call when we reach two values that are 2 or 4 apart that add to D. */
 
-		if ((i+6) + (i+i_gap) == ecmdata.D) {
-			struct xz tmp;
-			struct xz *Qgap = Q2;
-			ASSERTG (Qgap == &ecmdata.QD);
-			if (!alloc_xz (&ecmdata, &tmp)) goto lowmem;
-			if (6 - i_gap == 4) ell_dbl_xz_scr (&ecmdata, Q2, Qgap, &tmp);		  // Qgap = Q4 = 2 * Q2, Q2 no longer needed
-			ell_add_xz_scr (&ecmdata, Q1mod6.Qi, Q5mod6.Qi, Qgap, &ecmdata.QD, &tmp); // QD = i+6 + i+i_gap (diff Qgap), Qgap no longer needed
-			free_xz (&ecmdata, &tmp);
-			have_QD = TRUE;
-		}
+			if ((i+6) + (i+i_gap) == ecmdata.D) {
+				struct xz tmp;
+				struct xz *Qgap = Q2;
+				ASSERTG (Qgap == &ecmdata.QD);
+				if (!alloc_xz (&ecmdata, &tmp)) goto lowmem;
+				if (6 - i_gap == 4) ell_dbl_xz_scr (&ecmdata, Q2, Qgap, &tmp);		  // Qgap = Q4 = 2 * Q2, Q2 no longer needed
+				ell_add_xz_scr (&ecmdata, Q1mod6.Qi, Q5mod6.Qi, Qgap, &ecmdata.QD, &tmp); // QD = i+6 + i+i_gap (diff Qgap), Qgap no longer needed
+				free_xz (&ecmdata, &tmp);
+				have_QD = TRUE;
+			}
 
 /* If the newly computed i is a relative prime, then remember .x for a later add_to_nomalize */
 
-		if (next_i_is_relp) {
-			ecmdata.nQx[totrels] = curr->Qi->x;
-			ecmdata.nQx[totrels + z_offset] = curr->Qi->z;
-			totrels++;
-		}
+			if (next_i_is_relp) {
+				ecmdata.nQx[totrels] = curr->Qi->x;
+				totrels++;
+			}
 
 /* Break out of loop when we have all our nQx values less than D */
 
-		if (have_QD && totrels == ecmdata.numrels) break;
+			if (have_QD && totrels == ecmdata.numrels) break;
 
 /* Check for errors, user abort, restart for mem changed, etc. */
 
-		if (gw_test_for_error (&ecmdata.gwdata) || gw_get_maxerr (&ecmdata.gwdata) > allowable_maxerr) goto err;
-		stop_reason = stopCheck (thread_num);
-		if (stop_reason) goto possible_lowmem;
-	}
+			if (gw_test_for_error (&ecmdata.gwdata) || gw_get_maxerr (&ecmdata.gwdata) > allowable_maxerr) goto err;
+			stop_reason = stopCheck (thread_num);
+			if (stop_reason) goto possible_lowmem;
+		}
 
 /* Free memory used in computing nQx values */
 
-	normalize_or_free (Q1mod6.Qi, Q1mod6.Qi_is_relp);
-	normalize_or_free (Q1mod6.Qi_minus6, Q1mod6.Qi_minus6_is_relp);
-	normalize_or_free (Q5mod6.Qi, Q5mod6.Qi_is_relp);
-	normalize_or_free (Q5mod6.Qi_minus6, Q5mod6.Qi_minus6_is_relp);
-	free_xz (&ecmdata, Q6);
+		normalize_or_free (Q1mod6.Qi, Q1mod6.Qi_is_relp);
+		normalize_or_free (Q1mod6.Qi_minus6, Q1mod6.Qi_minus6_is_relp);
+		normalize_or_free (Q5mod6.Qi, Q5mod6.Qi_is_relp);
+		normalize_or_free (Q5mod6.Qi_minus6, Q5mod6.Qi_minus6_is_relp);
+		free_xz (&ecmdata, Q6);
 	}
+	#undef normalize_or_free
 
 /* Add Q^D computed above to the D-multiples map */
 
-//GW: we deleted the code that cleared DMult map
 	{
 		auto it_Dmult = Dmultiple_map.find (1);
 		if (it_Dmult == Dmultiple_map.end()) it_Dmult = Dmultiple_map.insert({1, {0, 1}}).first;
@@ -6960,22 +7028,20 @@ start_timer_from_zero (timers, 0);
 	}
 
 /* Allocate scratch space for computing mQx values that will be written to G(X). */
-/* Init code that computes Q^m, where m is the first D section we are working on. */
 
 //GW: formula might be different for other 1%7 vaules  (and we don't know why + 5 does not work!
+//GW: round up to multiple of num_threads when we implement multithreading?
 	ecmdata.polyGaux_size = divide_rounding_up (ecmdata.poly_size - 1, 7) + 6;	// Assumes 3.57MULT normalization
 	ecmdata.polyGaux = gwalloc_array (&ecmdata.gwdata, ecmdata.polyGaux_size);
 	if (ecmdata.polyGaux == NULL) goto lowmem;
 
-/* Init for computing Q^(multiples of D).  We simply add the starting multiples of D that need to be computed to the D-multiples map. */
+/* Init for computing Q^(multiples of D).  This adds the needed starting multiples of D to the D-multiples map. */
 
 	stop_reason = mQ_preinit_array (&ecmdata, Dmultiple_map);
 	if (stop_reason) goto possible_lowmem;
 
-// Calculate all the needed Q^(multiples-of-D).  This is needed even if multiplier<=2 case (Q^mD and Q^(m+1)D are needed) so we must be memory conscious.
+// Calculate all the needed Q^(multiples-of-D)
 
-//GW: use the dmult map code below?  make it a subroutine?  add b2_start and b2_start + 1 (did mQ_preinit do that)?
-//GW: recode using code from 29.8?			
 	process_Dmult_map (Dmultiple_map);
 	for (auto this_Dmult = Dmultiple_map.begin(); this_Dmult != Dmultiple_map.end(); ++this_Dmult) {
 		// Ignore the already computed Q^D
@@ -7011,9 +7077,8 @@ start_timer_from_zero (timers, 0);
 		if (stop_reason) goto possible_lowmem;
 	}
 	Dmultiple_map.clear ();
-//GW: are xz buffers allocated by Dmultiple map properly cleaned up (especially in oom case)?  use class to do it? 
 
-/* For the 2-FFT stage 2, mQ_preinit wants the QD^(E/2) value normalized.  Do so now that we've computed the value. */
+/* For subsequent polyGs, mQ_preinit wants the QD^(polyGaux_size/2) value normalized.  Do so now that we've computed the value. */
 
 	if (ecmdata.QD_Eover2.x != NULL) {
 		stop_reason = add_to_normalize_pool_ro (&ecmdata, ecmdata.QD_Eover2.x, ecmdata.QD_Eover2.z);
@@ -7023,7 +7088,6 @@ start_timer_from_zero (timers, 0);
 
 /* There will be no more ell_dbl calls, so free Ad4 */
 
-//GW: Can't/shouldn't free Ad4 if we rebuild F(X) from scratch at end
 	gwfree (&ecmdata.gwdata, ecmdata.Ad4);
 	ecmdata.Ad4 = NULL;
 end_timer (timers, 0);
@@ -7037,49 +7101,37 @@ start_timer_from_zero (timers, 0);
 //GW: ???
 	gwfree_internal_memory (&ecmdata.gwdata);
 
-/* Normalize all the nQx values */
-
-// mQ_init_array does this normalize
-//	stop_reason = normalize_pool (&ecmdata);
-//	if (stop_reason) goto possible_lowmem;
-
-/* If we found a factor, we're done */
-
-//	if (ecmdata.factor != NULL) goto bingo;
-
-/* Init code that computes Q^m, where m is the first D section we are working on. */
+/* Init code that computes Q^m, where m is the first D section we are working on.  This normalizes the normalize_pool. */
 
 	stop_reason = mQ_init_array (&ecmdata);
 	if (stop_reason) goto possible_lowmem;
 	if (ecmdata.factor != NULL) goto bingo;
+
+/* We now have a normalized Qx value that we can write to a save file */
+
+//GW: Is nQx[0] FFTed?  Can we convert to binary prior to nQx[0] being FFTed?
+	if (ecmdata.Qz_binary != NULL) {
+		ASSERTG (ecmdata.Qx_binary != NULL);
+		gwtogiant (&ecmdata.gwdata, ecmdata.nQx[0], ecmdata.Qx_binary);
+		free (ecmdata.Qz_binary), ecmdata.Qz_binary = NULL;
+	}
 
 /* Last chance to create a save file that doesn't lock us into a particular stage 2 implementation.  Check for user requesting a stop. */
 
 	stop_reason = stopCheck (thread_num);
 	if (stop_reason) goto possible_lowmem;
 
-/* For 2-FFT stage 2, mQ_init wanted to free QD but could not because of potential ecm_save issues.  Now that stage 2 init is finished, free QD. */
-//GW: we're fixing these save file issues, right?
-	free_xz (&ecmdata, &ecmdata.QD);
-
-/* Initialize the polymult library */
-
-	polymult_init (&ecmdata.polydata, &ecmdata.gwdata);
-	polymult_set_max_num_threads (&ecmdata.polydata, get_worker_num_threads (thread_num, HYPERTHREAD_LL) + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0));
-	polymult_set_cache_size (&ecmdata.polydata, IniGetInt (INI_FILE, "PolymultCacheSize", 256));
-	ecmdata.polydata.L3_CACHE_SIZE = IniGetInt (INI_FILE, "PolymultCacheSize2", 6144);
-	ecmdata.polydata.enable_strided_writes = IniGetInt (INI_FILE, "PolymultStridedWrites", 0);
-	bool use_polymult_multithreading;		// TRUE if we should use polymult multithreading instead of gwnum multithreading
+//	bool use_polymult_multithreading;		// TRUE if we should use polymult multithreading instead of gwnum multithreading
 //GW: unused
-	use_polymult_multithreading = ecmdata.polydata.num_threads > 1 && ecmdata.poly_size > ecmdata.polydata.num_threads &&
-				      (int) gwfftlen (&ecmdata.gwdata) <= IniGetInt (INI_FILE, "PolyThreadingFFTlength", 256) * 1024;
-	if (use_polymult_multithreading) {
+//	use_polymult_multithreading = ecmdata.polydata.num_threads > 1 && ecmdata.poly_size > ecmdata.polydata.num_threads &&
+//				      (int) gwfftlen (&ecmdata.gwdata) <= IniGetInt (INI_FILE, "PolyThreadingFFTlength", 256) * 1024;
+//	if (use_polymult_multithreading) {
 //		pm1data.helper_count = pm1data.polydata.num_threads;
 //		pm1data.polydata.helper_callback = &pm1_helper;
 //		pm1data.polydata.helper_callback_data = &pm1data;
-	} else {
+//	} else {
 //		pm1data.helper_count = 1;
-	}
+//	}
 //	ecmdata.helper_count = ecmdata.polydata.num_threads;
 
 // Open file for saving up to two Ftree rows
@@ -7222,7 +7274,7 @@ start_timer_from_zero (timers, 0);
 
 //	ecmdata.xz.x = ecmdata.nQx[0];
 	if (ecmdata.Ftree_polys_in_mem < 2) {
-		for (i = 0; i < ecmdata.numrels; i++) gwfree (&ecmdata.gwdata, ecmdata.nQx[i]);
+		for (uint32_t i = 0; i < ecmdata.numrels; i++) gwfree (&ecmdata.gwdata, ecmdata.nQx[i]);
 		free (ecmdata.nQx); ecmdata.nQx = NULL;
 	}
 
@@ -7239,9 +7291,9 @@ start_timer_from_zero (timers, 0);
 	ecmdata.polydata.twiddle_cache_additions_disabled = TRUE;
 
 	// Compute 1/F(X) roughly doubling the number of terms each iteration
-	for (int terms = 2; terms < ecmdata.poly_size; ) {	// Terms is the number of coefficients computed in F_recip (including the monic one term)
+	for (uint64_t terms = 2; terms < ecmdata.poly_size; ) {	// Terms is the number of coefficients computed in F_recip (including the monic one term)
 		// Determine if we are doubling the number of terms or doubling minus one.
-		int terms_to_compute;
+		uint64_t terms_to_compute;
 		for (terms_to_compute = ecmdata.poly_size + 1; terms_to_compute > 2 * terms; terms_to_compute = (terms_to_compute + 1) / 2);
 		terms_to_compute -= terms;
 		// Let g0 = current_recip.  Compute F(x)*g0.  Let e = F(x)*g0 - 1 (simply remove "monic flag" from the result)
@@ -7304,13 +7356,9 @@ print_timer (timers, 0, buf, TIMER_NL);
 OutputStr (thread_num, buf); gw_clear_maxerr (&ecmdata.gwdata);
 start_timer_from_zero (timers, 0);
 
-//GW:test code: F(X) * 1/F(X)
-//polymult (&ecmdata.polydata, ecmdata.polyF, ecmdata.poly_size, ecmdata.polyR, ecmdata.poly_size, polyG, 2*ecmdata.poly_size,
-//	  POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_MONIC_NEGATE);
-
 /* We're nearing peak memory usage, free any cached gwnums */
 
-//GW: DANGER, DANGER - freeing internal memory can delete gwnums (GW_FFT1, GW_RANDOM, etc.) that clones are pointing to!  re-init clones?
+//GW: DANGER, DANGER - freeing internal memory can delete gwnums (GW_FFT1, GW_RANDOM, etc.) that clones are pointing to!  gwnum handles this!
 	gwfree_internal_memory (&ecmdata.gwdata);
 	mallocFreeForOS ();
 
@@ -7325,7 +7373,7 @@ start_timer_from_zero (timers, 0);
 
 /* Initialization of stage 2 complete */
 
-	sprintf (buf, "%.*f%% of %s ECM curve %lu stage 2 (using %uMB)",
+	sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 2 (using %uMB)",
 		 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve, memused);
 	title (thread_num, buf);
 
@@ -7347,6 +7395,7 @@ start_timer_from_zero (timers, 0);
 	start_timer_from_zero (timers, 0);
 	start_timer_from_zero (timers, 1);
 	last_output = last_output_t = 0;
+	delayed_stop_reason = 0;
 	for (int outer_loop_counter = 1; ; outer_loop_counter++) {
 
 // Compute G(X).  mQ_next calculations require some temporary memory to do normalizations, the polyGaux array is used for this.  PolyGaux is 1/7th the size
@@ -7354,13 +7403,17 @@ start_timer_from_zero (timers, 0);
 // The memory required to save the entire polyG array is better used to choose larger poly sizes.  However, we can save 1/7th of polyG in polyGaux to get some
 // of the improved speeds.  To avoid unnecessary gwcopys, 6/7 of polyG is filled in and the caller must get the last 1/7th from polyGaux.
 
-//GW: Idea: precompute all the D values and write them to disk.  Saves memory, likely reduces modinvs as we can do this before F,G,H are allocated
+//GW: Figure out a way to multithread this!  Each thread with its own normalize pool (since modinv) is not multithreaded?
 		stop_reason = mQ_next_array (&ecmdata, polyG);
 		if (stop_reason) {
-			// In case stop_reason is out-of-memory, free some up before calling ecm_save.
-			mQ_term_array (&ecmdata);
-			ecm_save (&ecmdata);
-			goto exit;
+			// If we've run out of memory, or we haven't made much progress in stage 2, then save stage 1 state and exit
+			if (stop_reason == STOP_OUT_OF_MEM || outer_loop_counter <= 2) {
+				ecm_save (&ecmdata);
+				goto exit;
+			}
+			if (delayed_stop_reason == 0) OutputStr (thread_num, "Stopping.  Please be patient.\n");
+			delayed_stop_reason = stop_reason;
+			goto polydown;
 		}
 		if (ecmdata.factor != NULL) goto bingo;
 
@@ -7428,7 +7481,16 @@ start_timer_from_zero (timers, 0);
 
 			// Periodic checks for user stop request
 			stop_reason = stopCheck (thread_num);
-			if (stop_reason) goto possible_lowmem;
+			if (stop_reason) {
+				// If we've run out of memory, or we haven't made much progress in stage 2, then save stage 1 state and exit
+				if (stop_reason == STOP_OUT_OF_MEM || outer_loop_counter <= 2) {
+					ecm_save (&ecmdata);
+					goto exit;
+				}
+				if (delayed_stop_reason == 0) OutputStr (thread_num, "Stopping.  Please be patient.\n");
+				delayed_stop_reason = stop_reason;
+				goto polydown;
+			}
 		}
 strcpy (buf, "PolyG built.  Time: ");
 end_timer (timers, 0);
@@ -7439,7 +7501,7 @@ start_timer_from_zero (timers, 0);
 // First loop iteration do nothing.  On subsequent loop iterations, H(X) = G(X) * H(X) mod F(X).  The first time we do this H(X) is monic.
 // It might appear that doing just one loop could be advantageous -- we wouldn't need memory for an H(X) poly.  However, increasing the D
 // value has both extra costs (polyF, polyR, scaled remainder costs all go up) and savings (G(X) and H(X) costs go down due to fewer D values).
-// The happy balance seems to be around four iterations of this loop.
+// The happy balance seems to be around four iterations of the outer loop.
 
 		if (outer_loop_counter > 1) {
 			// Compute tmp = G(X) * H(X).  We can store tmp in polyGH.
@@ -7460,20 +7522,13 @@ OutputStr (thread_num, buf);
 start_timer_from_zero (timers, 0);
 		}
 
-// Check for ESC before doing expensive polymult
-//		stop_reason = stopCheck (thread_num);
-//		if (stop_reason) { ecm_save (&ecmdata); goto exit; }
-
 if (ecmdata.Dsection==0 && IniGetInt (INI_FILE, "PolyVerbose", 0)) {
 sprintf (buf, "Round off: %.10g\n", gw_get_maxerr (&ecmdata.gwdata));
 OutputStr (thread_num, buf); gw_clear_maxerr (&ecmdata.gwdata);}
 
-// Check for errors, user esc, restart for mem changed, saving, etc.
+/* Test for errors */
 
-		if (gw_test_for_error (&ecmdata.gwdata)) goto err;
-		stop_reason = stopCheck (thread_num);
-saving=0;//GW:		saving = testSaveFilesFlag (thread_num);
-//GW: Skip accumulating gg if stopping?  Save file prior to accumulating ggs??  All depends on how fast we think these gg accumulates will be
+		if (gw_test_for_error (&ecmdata.gwdata) || gw_get_maxerr (&ecmdata.gwdata) > allowable_maxerr) goto err;
 
 // Keep track of the sections processed thusfar
 
@@ -7483,10 +7538,6 @@ saving=0;//GW:		saving = testSaveFilesFlag (thread_num);
 /* Calculate stage 2 percentage. */
 
 		w->pct_complete = base_pct_complete + (1.0 - base_pct_complete) * (double) ecmdata.Dsection / (double) ecmdata.numDsections;
-
-/* Test for errors */
-
-		if (gw_test_for_error (&ecmdata.gwdata) || gw_get_maxerr (&ecmdata.gwdata) > allowable_maxerr) goto err;
 
 /* Output the title every so often */
 
@@ -7522,20 +7573,20 @@ saving=0;//GW:		saving = testSaveFilesFlag (thread_num);
 
 /* Periodicly write a save file */
 
-		if (stop_reason || saving) {
+		if (testSaveFilesFlag (thread_num)) {
 			ecm_save (&ecmdata);
-			if (stop_reason) goto exit;
+			saving = FALSE;
 		}
+
+/* If we are delaying stopping until we've worked down the poly tree, don't do more polyG outer loops */
+
+		if (delayed_stop_reason) break;
 	}
 
 /* Now work on H(X) down the F(X) tree using Bernstein's scaled remainders paper */
 
-//dbltogw(&ecmdata.gwdata, 1.0, ecmdata.polyH[0]);
-//dbltogw(&ecmdata.gwdata, 4.0, ecmdata.polyH[1]);
-//dbltogw(&ecmdata.gwdata, 1.0, ecmdata.polyH[2]);
-//dbltogw(&ecmdata.gwdata, 3.0, ecmdata.polyH[3]);
-
 	// Multiply H(X) by 1/F(X) to make scaled remainders
+polydown:
 	polymult (&ecmdata.polydata, polyH, ecmdata.poly_size, ecmdata.polyR, ecmdata.poly_size,
 		  polyH, ecmdata.poly_size, POLYMULT_INVEC2_MONIC_NEGATE | POLYMULT_MULHI | POLYMULT_NEXTFFT);
 strcpy (buf, "H(X) scaled.  Time: ");
@@ -7552,19 +7603,19 @@ start_timer_from_zero (timers, 0);
 	gwfree_array (&ecmdata.gwdata, ecmdata.polyF), ecmdata.polyF = NULL;
 	gwfree_array (&ecmdata.gwdata, ecmdata.polyR), ecmdata.polyR = NULL;
 	// Now allocate all the gwnums we will need below and gather all our free gwnums into one big array for use below.
-	int	gwnums_needed;
+	uint64_t gwnums_needed;
 	gwnums_needed = (num_tree_levels - 3) * divide_rounding_up (ecmdata.poly_size, 8);	// Pass 2 needs a 1/8th sized poly for each level
 	if (gwnums_needed < 3 * ecmdata.poly_size) gwnums_needed = 3 * ecmdata.poly_size;	// Pass 1 needs 3 full-sized polys
 //GW: Allocate enough gwnums or match the previous mem peak.  Verify we've calculated this right.
 //GW: When we combine a length 0 and length 1 poly (no-op) we copy the gwnum -- we're likely overcounting the needed gwnums in pass 2
 	ecmdata.polyF = gwalloc_array (&ecmdata.gwdata, gwnums_needed - (ecmdata.poly_size + ecmdata.polyGaux_size));
 	if (ecmdata.polyF == NULL) goto lowmem;
-	Ftree = (gwarray) malloc (gwnums_needed * sizeof (gwnum));
+	Ftree = (gwarray) malloc ((size_t) (gwnums_needed * sizeof (gwnum)));
 	if (Ftree == NULL) goto lowmem;
 //GW: if num_polyGs == 1, polyG and polyH are the same  -- allocate a bigger polyF and don't copy polyG?
-	memcpy (Ftree, polyG, ecmdata.poly_size * sizeof (gwnum));
-	memcpy (Ftree + ecmdata.poly_size, ecmdata.polyGaux, ecmdata.polyGaux_size * sizeof (gwnum));
-	memcpy (Ftree + ecmdata.poly_size + ecmdata.polyGaux_size, ecmdata.polyF, (gwnums_needed - (ecmdata.poly_size + ecmdata.polyGaux_size)) * sizeof (gwnum));
+	memcpy (Ftree, polyG, (size_t) (ecmdata.poly_size * sizeof (gwnum)));
+	memcpy (Ftree + ecmdata.poly_size, ecmdata.polyGaux, (size_t) (ecmdata.polyGaux_size * sizeof (gwnum)));
+	memcpy (Ftree + ecmdata.poly_size + ecmdata.polyGaux_size, ecmdata.polyF, (size_t) ((gwnums_needed - (ecmdata.poly_size + ecmdata.polyGaux_size)) * sizeof (gwnum)));
 
 	// Use two passes.  The first pass does only 3 levels operating on the entire H(X) poly.  The second pass does the remaining levels operating
 	// on 1/8th of H(X) at a time.
@@ -7764,16 +7815,22 @@ start_timer_from_zero (timers, 0);
 		if (ecmdata.polyGH[i] == NULL) continue;
 		if (ecmdata.polyGH[0] == NULL) ecmdata.polyGH[0] = ecmdata.polyGH[i];
 		else gwmul3 (&ecmdata.gwdata, ecmdata.polyGH[0], ecmdata.polyGH[i], ecmdata.polyGH[0],
-			     (i != ecmdata.polydata.num_threads - 1 || ecmdata.gg != NULL) ? GWMUL_STARTNEXTFFT : 0);
+			     (i != ecmdata.polydata.num_threads - 1 || ecmdata.gg_binary != NULL) ? GWMUL_STARTNEXTFFT : 0);
 	}
 
-/* Now multiply in the accumulator read from a continuation file */
-//GW: It could have come from a save file if it started off doing prime pairing and switched to poly (or we allow save files in stage 2)
-//GW: Is gg ever not null here???
+/* Now multiply in the accumulator read from a save file */
 
 ASSERTG (foobar == ecmdata.gwdata.num_threads);
-	if (ecmdata.gg != NULL) gwmul3 (&ecmdata.gwdata, ecmdata.polyGH[0], ecmdata.gg, ecmdata.polyGH[0], 0);
-
+ASSERTG (ecmdata.gg == NULL);
+	if (ecmdata.gg_binary != NULL) {
+//GW: Can't we find a spare gwnum here rather than a gwalloc?
+		gwnum tmp = gwalloc (&ecmdata.gwdata);
+		if (tmp == NULL) goto oom;
+		gianttogw (&ecmdata.gwdata, ecmdata.gg_binary, tmp);
+		free (ecmdata.gg_binary), ecmdata.gg_binary = NULL;
+		gwmul3 (&ecmdata.gwdata, ecmdata.polyGH[0], tmp, ecmdata.polyGH[0], 0);
+		gwfree (&ecmdata.gwdata, tmp);
+	}
 	ecmdata.gg = ecmdata.polyGH[0];
 strcpy (buf, "gg = mul H(X).  Time: ");
 end_timer (timers, 0);
@@ -7781,9 +7838,18 @@ print_timer (timers, 0, buf, TIMER_NL);
 OutputStr (thread_num, buf);
 start_timer_from_zero (timers, 0);
 
-/* Set C_done for the final save file and the Kruppa adjustment */
+/* Set C and C_done for the delayed or final save file and the Kruppa adjustment */
 
-	ecmdata.C = ecmdata.C_done = ecmdata.B2_start + ecmdata.Dsection * ecmdata.D;
+	ecmdata.C_done = ecmdata.B2_start + ecmdata.Dsection * ecmdata.D;
+	ecmdata.C = ecmdata.B2_start + ecmdata.numDsections * ecmdata.D;
+
+/* If we've delayed stopping until gg is calculated, then create the save file and exit */
+
+	if (delayed_stop_reason) {
+		ecm_save (&ecmdata);
+		stop_reason = delayed_stop_reason;
+		goto exit;
+	}
 
 /* Cleanup and free poly gwnums before GCD.  GCD can use significant amounts of memory. */
 
@@ -7808,7 +7874,7 @@ stage2_done:
 		ecmdata.average_B2 = kruppa_unadjust (total_B2 / ecmdata.curve, ecmdata.B);
 	}
 
-/* Stage 2 is complete */
+/* Stage 2 is complete.  Free memory so that other high memory workers can begin. */
 
 	gwfree_internal_memory (&ecmdata.gwdata);
 	mallocFreeForOS ();
@@ -7832,7 +7898,7 @@ stage2_done:
 
 restart4:
 	ecmdata.state = ECM_STATE_GCD;
-	sprintf (w->stage, "C%luS2", ecmdata.curve);
+	sprintf (w->stage, "C%" PRIu32 "S2", ecmdata.curve);
 	w->pct_complete = 1.0;
 	start_timer_from_zero (timers, 0);
 	stop_reason = gcd (&ecmdata.gwdata, thread_num, ecmdata.gg, ecmdata.N, &ecmdata.factor);
@@ -7849,10 +7915,7 @@ restart4:
 /* Check if more curves need to be done */
 
 more_curves:
-	gwfreeall (&ecmdata.gwdata);
-	ecmdata.xz.x = NULL;
-	ecmdata.xz.z = NULL;
-	ecmdata.gg = NULL;
+	ecm_mini_cleanup (&ecmdata);		// Free all memory except N and gwdata
 	mallocFreeForOS ();
 	if (++ecmdata.curve <= w->curves_to_do) {
 		// If necessary, switch back to the stage 1 FFT length
@@ -7887,7 +7950,7 @@ more_curves:
 			sprintf (msgbuf, "Switching back to %s\n", fft_desc);
 			OutputStr (thread_num, msgbuf);
 		} else
-			gwsetaddin (&ecmdata.gwdata, 0);		// This should not be necessary
+			gwsetaddin (&ecmdata.gwdata, 0);	// This should not be necessary, just in case there is code still using the old gwnum interface
 		goto restart0;
 	}
 
@@ -7975,7 +8038,7 @@ oom:	stop_reason = OutOfMemory (thread_num);
 /* Print a message, we found a factor! */
 
 bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_STATE_STAGE1_INIT) ? 1 : 0;
-	sprintf (buf, "ECM found a factor in curve #%lu, stage #%d\n", ecmdata.curve, stage);
+	sprintf (buf, "ECM found a factor in curve #%" PRIu32 ", stage #%d\n", ecmdata.curve, stage);
 	writeResults (buf);
 	sprintf (buf, "Sigma=%.0f, B1=%" PRIu64 ", B2=%" PRIu64 ".\n", ecmdata.sigma, ecmdata.B, ecmdata.C);
 	writeResults (buf);
@@ -8003,7 +8066,7 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 
 /* Output the validated factor */
 
-	sprintf (msg, "%s has a factor: %s (ECM curve %lu, B1=%" PRIu64 ", B2=%" PRIu64 ")\n",
+	sprintf (msg, "%s has a factor: %s (ECM curve %" PRIu32 ", B1=%" PRIu64 ", B2=%" PRIu64 ")\n",
 		 gwmodulo_as_string (&ecmdata.gwdata), str, ecmdata.curve, ecmdata.B, ecmdata.C);
 	OutputStr (thread_num, msg);
 	formatMsgForResultsFile (msg, w);
@@ -8023,7 +8086,7 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%" PRIu64 ", \"b2\":%" PRIu64, ecmdata.B, ecmdata.C);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"sigma\":%.0f", ecmdata.sigma);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"stage\":%d", stage);
-	sprintf (JSONbuf+strlen(JSONbuf), ", \"curves\":%lu", ecmdata.curve);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"curves\":%" PRIu32, ecmdata.curve);
 	if (ecmdata.optimal_B2 && ecmdata.average_B2 != ecmdata.C) sprintf (JSONbuf+strlen(JSONbuf), ", \"average-b2\":%" PRIu64, ecmdata.average_B2);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", ecmdata.gwdata.FFTLEN);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, ecmdata.B, ecmdata.C));
@@ -8266,7 +8329,7 @@ typedef struct {
 	giant	invx_binary;	/* The stage 1 result inverse - ready for writing to a save file */
 	giant	gg_binary;	/* The stage 2 accmulator converted to binary (during stage 2 init) */
 	int	stage2_type;	/* Prime pairing or polymult stage 2 */
-	int	stage2_numvals;	/* Number of gwnums used in stage 2 */
+	uint64_t stage2_numvals; /* Number of gwnums used in stage 2 */
 	int	D;		/* Stage 2 loop size */
 	int	numrels;	/* Number of relative primes less than D/2 (the number of relative primes in one full relp_set) */
 	gwnum	*nQx;		/* Array of relprime data or polymult coefficients used in stage 2 */
@@ -8290,10 +8353,12 @@ typedef struct {
 	int	relp;		/* Last relative prime processed in the current D section */
 
 	/* Polymult stage 2 data */
+	int32_t	required_missing; /* When B2_start exceeds B1, primes are moved to first_missing_prime * prime.  If a save file is created mid-stage 2 */
+				/* then resuming must pick a D value that does not eliminate multiples of first_missing_prime. */ 
 	pmhandle polydata;	/* Polymult data structure */
-	int	poly1_size;	/* Size of the first RLP poly */
-	int	poly2_size;	/* Size of the second RLP that evaluates poly #1 at multiple points */
-	int	num_points;	/* Number of points (multiples of D) that can be evalualted with each polymult. */
+	uint64_t poly1_size;	/* Size of the first RLP poly */
+	uint64_t poly2_size;	/* Size of the second RLP that evaluates poly #1 at multiple points */
+	uint64_t num_points;	/* Number of points (multiples of D) that can be evalualted with each polymult. */
 	gwnum	diff1;		/* Used in finite differences to compute poly #2 coefficients */
 	gwnum	r_squared;	/* Used in finite differences to compute poly #2 coefficients */
 	gwnum	r_2helper;	/* r^(2*helper_count).  Used in multi-threaded finite differences to compute poly #2 coefficients */
@@ -8301,7 +8366,7 @@ typedef struct {
 	int	helper_work;	/* Type of work helper routine should perform */
 	int	helper_count;	/* Total number of threads including main thread doing helper work */
 	gwnum	*poly2;		/* Array of poly2 coefficients for helper routine to compute */
-	int	remaining_poly2_size; /* Number of poly2 coefficients to compute */
+	uint64_t remaining_poly2_size; /* Number of poly2 coefficients to compute */
 	gwnum	*points;	/* Array of evaluated points for helper routine to accumulate into gg for later GCD */
 } pm1handle;
 
@@ -8406,14 +8471,15 @@ oom:	return (OutOfMemory (pm1data->thread_num));
 //#define PM1_VERSION	4				/* Complete overhaul in 30.4.  New stage 2 code with Preda optimizations */
 //#define PM1_VERSION	5				/* Stage 2 overhaul in 30.7.  P+1 style stage 2, pairing with relp_sets, compressed pairing map */
 //#define PM1_VERSION	6				/* Version 30.8 pre-beta.  Max_stage0_prime and stage0_bitnum stored as uint64_t. */
-#define PM1_VERSION	7				/* Stage 2 overhaul in 30.8.  Polymult. */
+//#define PM1_VERSION	7				/* Stage 2 overhaul in 30.8.  Polymult. */
+#define PM1_VERSION	8				/* 30.10 added required_missing */
 
 void pm1_save (
 	pm1handle *pm1data)
 {
 	int	fd;
 	struct work_unit *w = pm1data->w;
-	unsigned long sum = 0;
+	uint32_t sum = 0;
 
 /* Create the intermediate file */
 
@@ -8452,6 +8518,7 @@ void pm1_save (
 		if (! write_uint64 (fd, pm1data->C_done, &sum)) goto writeerr;
 		if (! write_uint64 (fd, pm1data->interim_C, &sum)) goto writeerr;
 		if (! write_int (fd, pm1data->stage2_type, &sum)) goto writeerr;
+//GW: ECM has a much cleaner save file for polymult stage 2!  Clean this up?
 		if (! write_int (fd, pm1data->D, &sum)) goto writeerr;
 		if (! write_int (fd, pm1data->numrels, &sum)) goto writeerr;
 		if (! write_uint64 (fd, pm1data->B2_start, &sum)) goto writeerr;
@@ -8460,16 +8527,17 @@ void pm1_save (
 		if (! write_uint64 (fd, pm1data->first_relocatable, &sum)) goto writeerr;
 		if (! write_uint64 (fd, pm1data->last_relocatable, &sum)) goto writeerr;
 		if (pm1data->stage2_type == PM1_STAGE2_PAIRING) {
-			if (! write_int (fd, pm1data->stage2_numvals, &sum)) goto writeerr;
+			if (! write_int (fd, (int) pm1data->stage2_numvals, &sum)) goto writeerr;
 			if (! write_int (fd, pm1data->totrels, &sum)) goto writeerr;
 			if (! write_uint64 (fd, pm1data->max_pairmap_Dsections, &sum)) goto writeerr;
 			if (! write_int (fd, pm1data->relp, &sum)) goto writeerr;
 			if (! write_array (fd, (char *) pm1data->relp_sets, 32 * sizeof (int16_t), &sum)) goto writeerr;
 			// Output the truncated pairmap
-//GW:  handle NULL pairmap?
 			remaining_pairmap_size = pm1data->pairmap_size - (pm1data->pairmap_ptr - pm1data->pairmap);
 			if (! write_uint64 (fd, remaining_pairmap_size, &sum)) goto writeerr;
 			if (! write_array (fd, (char *) pm1data->pairmap_ptr, (size_t) remaining_pairmap_size, &sum)) goto writeerr;
+		} else {
+			if (! write_int32 (fd, pm1data->required_missing, &sum)) goto writeerr;
 		}
 	}
 
@@ -8531,9 +8599,9 @@ int pm1_old_restore (
 	pm1handle *pm1data,
 	int	fd,
 	unsigned long version,
-	unsigned long filesum)
+	uint32_t filesum)
 {
-	unsigned long sum = 0;
+	uint32_t sum = 0;
 	unsigned long state, bitarray_len, unused;
 	uint64_t processed, B_done, B, C_done, unused64;
 
@@ -8637,8 +8705,7 @@ int pm1_restore (			/* For version 30.4 and later save files */
 {
 	int	fd;
 	struct work_unit *w = pm1data->w;
-	unsigned long version;
-	unsigned long sum = 0, filesum;
+	uint32_t version, sum = 0, filesum;
 
 /* Open the intermediate file */
 
@@ -8709,7 +8776,9 @@ int pm1_restore (			/* For version 30.4 and later save files */
 		if (! read_uint64 (fd, &pm1data->first_relocatable, &sum)) goto readerr;
 		if (! read_uint64 (fd, &pm1data->last_relocatable, &sum)) goto readerr;
 		if (pm1data->stage2_type == PM1_STAGE2_PAIRING) {
-			if (! read_int (fd, &pm1data->stage2_numvals, &sum)) goto readerr;
+			int	temp;
+			if (! read_int (fd, &temp, &sum)) goto readerr;
+			pm1data->stage2_numvals = temp;
 			if (! read_int (fd, &pm1data->totrels, &sum)) goto readerr;
 			if (! read_uint64 (fd, &pm1data->max_pairmap_Dsections, &sum)) goto readerr;
 			if (! read_int (fd, &pm1data->relp, &sum)) goto readerr;
@@ -8719,6 +8788,12 @@ int pm1_restore (			/* For version 30.4 and later save files */
 			if (pm1data->pairmap == NULL) goto readerr;
 			if (! read_array (fd, (char *) pm1data->pairmap, (size_t) pm1data->pairmap_size, &sum)) goto readerr;
 			pm1data->pairmap_ptr = pm1data->pairmap;
+		} else {
+			if (version <= 7) {		// Version 30.8 did not write this field (a bug).  Compute it assuming stage 2 was no
+				pm1data->required_missing = map_polyD_to_first_missing_prime (pm1data->D);
+			} else {
+				if (! read_int32 (fd, &pm1data->required_missing, &sum)) goto readerr;
+			}
 		}
 	}
 
@@ -8795,7 +8870,7 @@ struct pm1_stage2_cost_data {
 	double	poly1_compression;		// Adjustment for poly1_size based on the expected compression from polymult_preprocess
 	/* P-1 specific data returned from cost function follows */
 	int	stage2_type;			// Prime pairing vs. polymult
-	int	poly2_size;			// Size of second poly (poly1_size is same as numrels)
+	uint64_t poly2_size;			// Size of second poly (poly1_size is same as numrels)
 	double	total_cost;			// Cost in terms of P-1 stage 1 squarings
 };
 
@@ -8881,45 +8956,43 @@ double pm1_stage2_cost (
 		cost_data->c.stage2_numvals = cost_data->c.totrels + 4;
 	}
 
-/* Estimate stage 2 costs using polymult */
+/* Estimate stage 2 costs using polymult and all available numvals */
 
 	else {
 		cost_data->c.est_pairing_runtime = 0.0;
 
 /* Stage 2 init costs are based on poly sizes.  Determine the maximum safe poly2 size that fits in memory. */
 
-		int	poly1_size, poly2_size, min_poly2_size, max_poly2_size, cpu_flags;
+		uint64_t poly1_size, poly2_size, min_poly2_size, max_poly2_size;
 		double	mem_used_by_a_gwnum, mem_saved_by_compression, mem_used_by_polymult;
 
 		poly1_size = cost_data->c.numrels;
 		if (cost_data->c.gwdata != NULL) {
 			mem_used_by_a_gwnum = (double) array_gwnum_size (cost_data->c.gwdata);
-			max_poly2_size = max_safe_poly2_size (cost_data->c.gwdata, poly1_size*2, cost_data->c.totrels);
+			max_poly2_size = max_safe_poly2_size (cost_data->c.gwdata, poly1_size*2, cost_data->c.numvals);
 		} else {
 			mem_used_by_a_gwnum = (double) cost_data->c.fftlen * sizeof (double) * 1.016;
-			max_poly2_size = cost_data->c.totrels;
+			max_poly2_size = cost_data->c.numvals;
 		}
 		mem_saved_by_compression = (double) poly1_size * mem_used_by_a_gwnum * (1.0 - cost_data->poly1_compression);
 
 		// Binary search for largest poly2_size that does not use too much memory
 		min_poly2_size = 2*poly1_size;
 		if (max_poly2_size < min_poly2_size) return (1.0e99);
-		cpu_flags = (cost_data->c.gwdata != NULL ? cost_data->c.gwdata->cpu_flags : CPU_FLAGS);
+//		cpu_flags = (cost_data->c.gwdata != NULL ? cost_data->c.gwdata->cpu_flags : CPU_FLAGS);
 		while (max_poly2_size - min_poly2_size >= 2) {
-			int midpoint = (min_poly2_size + max_poly2_size) / 2;
-			mem_used_by_polymult = (double) polymult_mem_required (poly1_size, midpoint, POLYMULT_INVEC1_MONIC_RLP | POLYMULT_CIRCULAR,
-									       cpu_flags, cost_data->c.threads);
-			if (poly1_size + midpoint + floor ((mem_used_by_polymult - mem_saved_by_compression) / mem_used_by_a_gwnum + 0.5) <= cost_data->c.totrels)
+			uint64_t midpoint = (min_poly2_size + max_poly2_size) / 2;
+			mem_used_by_polymult = (double) polymult_mem_required (cost_data->c.polydata, poly1_size, midpoint, POLYMULT_INVEC1_MONIC_RLP | POLYMULT_CIRCULAR);
+			if (poly1_size + midpoint + floor ((mem_used_by_polymult - mem_saved_by_compression) / mem_used_by_a_gwnum + 0.5) <= cost_data->c.numvals)
 				min_poly2_size = midpoint;		// Acceptable poly2 size
 			else
 				max_poly2_size = midpoint;		// Unacceptable poly2 size
 		}
 		poly2_size = min_poly2_size;
-		mem_used_by_polymult = (double) polymult_mem_required (poly1_size, poly2_size, POLYMULT_INVEC1_MONIC_RLP | POLYMULT_CIRCULAR,
-								       cpu_flags, cost_data->c.threads);
+		mem_used_by_polymult = (double) polymult_mem_required (cost_data->c.polydata, poly1_size, poly2_size, POLYMULT_INVEC1_MONIC_RLP | POLYMULT_CIRCULAR);
 
 		// Calc num poly1 points evaluated by each poly2
-		int num_points = poly2_size - (2*poly1_size+1) + 1;
+		uint64_t num_points = poly2_size - (2*poly1_size+1) + 1;
 		if (num_points < 1) return (1.0e99);
 
 /* Loop increasing B2_start based on the fact that numDsections will be a multiple of num_points.  In essence this gives a free increase in the B2 endpoint. */
@@ -8962,7 +9035,7 @@ double pm1_stage2_cost (
 		polymult_cost = 2.145 + 0.58 * log2 ((double) poly2_size / 105.0);
 
 		// Roughly double the poly cost when we exceed the L2 cache.
-		double L2_cache_size = (CPU_NUM_L2_CACHES >= 0 ? CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES : 0) * 1024.0;
+		double L2_cache_size = (CPU_NUM_L2_CACHES > 0 ? CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES : 0) * 1024.0;
 		double polymult_mem_per_thread = mem_used_by_polymult / cost_data->c.threads;
 		if (polymult_mem_per_thread >= 8 * L2_cache_size) polymult_cost *= 2.05;
 		else if (polymult_mem_per_thread > L2_cache_size) polymult_cost *= 1.0 + 1.05 * (polymult_mem_per_thread - L2_cache_size) / (7 * L2_cache_size);
@@ -9046,7 +9119,7 @@ double pm1_stage2_cost (
 
 double pm1_stage2_impl_given_numvals (
 	pm1handle *pm1data,
-	int	numvals,				/* Number of gwnum temporaries available */
+	uint64_t numvals,				/* Number of gwnum temporaries available */
 	int	forced_stage2_type,			/* 0 = cost pairing, 1 = cost poly, 99 = cost both */
 	struct pm1_stage2_cost_data *return_cost_data)	/* Returned extra data from P-1 costing function */
 {
@@ -9058,7 +9131,9 @@ double pm1_stage2_impl_given_numvals (
 	best_cost = 1.0e99;
 	cost_data.c.numvals = numvals;
 	cost_data.c.extra_credit = TRUE;
+	cost_data.c.required_missing = pm1data->required_missing;
 	cost_data.c.gwdata = &pm1data->gwdata;
+	cost_data.c.polydata = &pm1data->polydata;
 	cost_data.c.fftlen = gwfftlen (&pm1data->gwdata);
 	cost_data.c.threads = get_worker_num_threads (pm1data->thread_num, HYPERTHREAD_LL) + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0);
 
@@ -9086,7 +9161,6 @@ double pm1_stage2_impl_given_numvals (
 /* Polymult does not need to look at the reduced numvals costs -- no binary search needed (at least if we want to sail on past B2) */
 
 		cost_data.stage2_type = (stage2_type == 0 ? PM1_STAGE2_PAIRING : PM1_STAGE2_POLYMULT);
-		cost_data.c.only_cost_max_numvals = (stage2_type == 1);
 		cost_data.c.use_poly_D_data = (stage2_type == 1);
 		cost_data.c.centers_on_Dmultiple = (stage2_type != 1);
 		cost = best_stage2_impl (pm1data->first_relocatable, pm1data->last_relocatable, pm1data->C_done, pm1data->C,
@@ -9107,7 +9181,7 @@ double pm1_stage2_impl_given_numvals (
 
 void pm1_choose_B2 (
 	pm1handle *pm1data,
-	unsigned long numvals,
+	uint64_t numvals,
 	int	forced_stage2_type,		/* 0 = cost pairing, 1 = cost poly, 99 = cost both */
 	char	*optimal_B2_msg)		/* Message to be output if this optimal B2 selection is used */
 {
@@ -9122,7 +9196,7 @@ void pm1_choose_B2 (
 	double	takeAwayBits;			/* Bits we get for free in smoothness of P-1 factor */
 
 // Cost out a B2 value
-	max_B2mult = IniGetInt (INI_FILE, "MaxOptimalB2Multiplier", numvals < 100000 ? numvals * 100 : 10000000);
+	max_B2mult = IniGetInt (INI_FILE, "MaxOptimalB2Multiplier", (int) (numvals < 100000 ? numvals * 100 : 10000000));
 #define p1eval(x,B2mult)	x.i = B2mult; \
 				if (x.i > max_B2mult) x.i = max_B2mult; \
 				pm1data->C = x.i * pm1data->B; \
@@ -9205,7 +9279,7 @@ double pm1_stage2_impl (
 	int	forced_stage2_type,	/* 0 = cost pairing, 1 = cost poly, 99 = cost both */
 	char	*msgbuf)		/* Messages to output if we end up using this implementation plan */
 {
-	int	numvals;		/* Number of gwnums we can allocate */
+	uint64_t numvals;		/* Number of gwnums we can allocate */
 	struct pm1_stage2_cost_data cost_data;
 
 /* Compute the number of gwnum temporaries we can allocate.  Assume the binary values of x and 1/x needed for save file creation consume about a half a gwnum. */
@@ -9298,6 +9372,7 @@ double pm1_stage2_impl (
 	} else {
 		pm1data->poly1_size = cost_data.c.numrels;
 		pm1data->poly2_size = cost_data.poly2_size;
+		if (pm1data->B2_start > pm1data->C_done) pm1data->required_missing = cost_data.c.first_missing_prime;
 	}
 
 /* Output data regarding our cost estimates so user can make adjustments when our estimates are wildly off the mark */
@@ -9440,14 +9515,14 @@ void pm1_helper (
 	    // The following code was originally written assuming each helper thread would do a chunk of work.  However, we
 	    // cannot rely on the OS starting every helper thread.  Use atomic helper_counter to make sure all the work gets done.
 	    for ( ; ; ) {
-		helper_num = atomic_fetch_incr (pm1data->polydata.helper_counter);
+		helper_num = (int) atomic_fetch_incr (pm1data->polydata.helper_counter);
 		if (helper_num >= pm1data->helper_count) break;
 //GW:  Rename helper_count to numpoly2blks.  rename helper_num to blknum.
 //GW: Would we thread better with more numerous smaller work chunks?  Can we avoid the single-threaded computation of diff1 values prior to calling PM1_COMPUTE_POLY2?
 		gwnum diff1 = pm1data->poly2[(pm1data->remaining_poly2_size - 1 - helper_num) % pm1data->helper_count];	// The pre-computed dist1 is stored here
 		gwnum diff2 = pm1data->r_2helper2;		// r^(2*helper_count^2)
 //GW: handle no work to do case (more helpers than work to do)?
-		for (int j = pm1data->remaining_poly2_size - 1 - helper_num; ; j -= pm1data->helper_count) {
+		for (uint64_t j = pm1data->remaining_poly2_size - 1 - helper_num; ; j -= pm1data->helper_count) {
 			// Compute next poly2 coefficient
 			gwmul3 (gwdata, pm1data->poly2[j+pm1data->helper_count], diff1, pm1data->poly2[j], GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
 			if (j < pm1data->helper_count) break;
@@ -9466,7 +9541,7 @@ void pm1_helper (
 		// Loop multiplying points from the output poly
 		for ( ; ; ) {
 			// Get one of the output poly's gwnums.  We will accumulate here and later multiply with gg.
-			int point = atomic_fetch_incr (pm1data->polydata.helper_counter);
+			uint64_t point = atomic_fetch_incr (pm1data->polydata.helper_counter);
 
 			// If the other helper threads have completed processing of the output poly, then we're done
 			if (point >= pm1data->num_points) break;
@@ -9943,7 +10018,7 @@ restart1:
 /* Most likely we are working on small exponents where 100MB of memory gives us all the temporaries we could possibly want. */
 
 	stage1_mem = IniGetInt (INI_FILE, "Stage1Memory", 100);		// Get amount of memory in MB we are allowed to allocate in stage 1
-	stage1_temps = cvt_mem_to_gwnums (&pm1data.gwdata, stage1_mem);
+	stage1_temps = (int) cvt_mem_to_gwnums (&pm1data.gwdata, stage1_mem);
 	if (stage1_temps > IniGetInt (INI_FILE, "Stage1MaxTemps", 512)) stage1_temps = IniGetInt (INI_FILE, "Stage1MaxTemps", 512);
 	set_memory_usage (thread_num, 0, cvt_gwnums_to_mem (&pm1data.gwdata, stage1_temps));
 
@@ -10133,6 +10208,10 @@ restart3a:
 	strcpy (w->stage, "S2");
 	w->pct_complete = 0.0;
 
+/* No restrictions on polymult D value */
+
+	pm1data.required_missing = 0;
+
 /* Restart here when in the middle of stage 2.  Convert x and invx to binary for saving to a file.  Compute V. */
 
 restart3b:
@@ -10204,6 +10283,17 @@ replan:	unsigned long original_fftlen, best_fftlen;
 //GW: Can we get here (old save files) with V set and one of x or invx not set?  If so, switching is an issue unless we convert V to binary.
 	for (bool found_best = FALSE; ; ) {
 
+/* Initialize the polymult library (needed for calling polymult_mem_required).  Let user override polymult tuning parameters. */
+
+		polymult_init (&pm1data.polydata, &pm1data.gwdata);
+		polymult_set_max_num_threads (&pm1data.polydata, get_worker_num_threads (thread_num, HYPERTHREAD_LL) + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0));
+		polymult_default_tuning (&pm1data.polydata,
+					 IniGetInt (INI_FILE, "PolymultCacheSize", CPU_NUM_L2_CACHES > 0 ? CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES : 256),
+					 IniGetInt (INI_FILE, "PolymultCacheSize2", CPU_NUM_L3_CACHES > 0 ? CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES : 6144));
+		pm1data.gwdata.scramble_arrays = (char) IniGetInt (INI_FILE, "PolymultScramble", pm1data.gwdata.scramble_arrays);
+		pm1data.polydata.strided_writes_end = IniGetInt64 (INI_FILE, "PolymultStridedWritesEnd", pm1data.polydata.strided_writes_end);
+		pm1data.polydata.streamed_stores_start = IniGetInt64 (INI_FILE, "PolymultStreamStores", 0); // Default is always stream stores because of POLYMULT_NOUNFFT
+
 /* When recovering from a roundoff error, only cost FFT lengths larger than the FFT length that generated the roundoff error. */
 
 		if (gwfftlen (&pm1data.gwdata) > maxerr_fftlen) {
@@ -10255,9 +10345,9 @@ replan:	unsigned long original_fftlen, best_fftlen;
 			efficiency = cost / (double) (pm1data.B2_start + pm1data.numDsections * pm1data.D - pm1data.B) * 1.0e9;
 if (IniGetInt (INI_FILE, "PolyVerbose", 0)) {
 if (cost == 0.0) sprintf (buf, "FFT: %d no stage 2 plan works\n", (int) gwfftlen (&pm1data.gwdata));
-else sprintf (buf, "FFT: %d, B2: %" PRIu64 "/%" PRIu64 ", numvals: %d/%d, poly: %dx%d, efficiency: %.0f\n", (int) gwfftlen (&pm1data.gwdata), pm1data.C,
-		pm1data.B2_start + pm1data.numDsections * pm1data.D,
-		pm1data.stage2_numvals, (int) cvt_mem_to_gwnums_adj (&pm1data.gwdata, memory, -0.5), pm1data.poly1_size, pm1data.poly2_size, efficiency);
+else sprintf (buf, "FFT: %d, B2: %" PRIu64 "/%" PRIu64 ", numvals: %" PRIu64 "/%d, poly: %" PRIu64 "x%" PRIu64 ", efficiency: %.0f\n", (int) gwfftlen (&pm1data.gwdata),
+	      pm1data.C, pm1data.B2_start + pm1data.numDsections * pm1data.D,
+	      pm1data.stage2_numvals, (int) cvt_mem_to_gwnums_adj (&pm1data.gwdata, memory, -0.5), pm1data.poly1_size, pm1data.poly2_size, efficiency);
 OutputStr (thread_num, buf); }
 
 			// If we've found our best stage 2 implementation, break
@@ -10284,7 +10374,7 @@ OutputStr (thread_num, buf); }
 		if (best_fftlen && (double) memory * 1000000.0 / (double) array_gwnum_size (&pm1data.gwdata) < 60.0) found_best = TRUE;
 
 		// If we fail to get a new best efficient poly twice in a row, then we've found our best poly plan
-//GW: Likely costing overkill -- do we need a faster gwsetup (no computing weights and sin/cos?)
+//GW: Likely costing overkill
 		if (best_poly_efficiency != 0.0) best_fails++;
 		if (best_fails == 3) found_best = TRUE;
 
@@ -10297,6 +10387,7 @@ OutputStr (thread_num, buf); }
 			// Detect when no FFT length change is necessary (e.g. prime pairing selected and memory is very tight)
 			if (next_fftlen == gwfftlen (&pm1data.gwdata)) break;
 			// Terminate current FFT size
+			polymult_done (&pm1data.polydata);
 			gwdone (&pm1data.gwdata);
 			pm1data.x = NULL;
 			pm1data.invx = NULL;
@@ -10387,6 +10478,10 @@ OutputStr (thread_num, buf); }
 /*---------------------------------------------------------------------
 |	Traditional prime pairing stage 2
 +---------------------------------------------------------------------*/
+
+/* We won't be using polymult in prime pairing stage 2 */
+
+	polymult_done (&pm1data.polydata);
 
 /* Output a useful message regarding memory usage */
 
@@ -10647,7 +10742,6 @@ OutputStr (thread_num, buf); }
 		stop_reason = stopCheck (thread_num);
 		if (stop_reason) goto possible_lowmem;
 	}
-//GW: are xz buffers allocated by Dmultiple map properly cleaned up (especially in oom case)?  use class to do it? 
 
 /* We're about to reach peak memory usage, free any gwnum internal memory */
 
@@ -10909,7 +11003,7 @@ OutputStr (thread_num, buf); }
 +---------------------------------------------------------------------*/
 
 pm1_polymult:
-	int	outpoly_size;			// Called L in the literature.  Make this value as large as we can given amount of free memory.
+	uint64_t outpoly_size;			// Called L in the literature.  Make this value as large as we can given amount of free memory.
 	gwnum	*poly1, *poly2, *outpoly, r, invr, e;
 
 	// Poly sizes were set by pm1_stage2_impl.  Poly #1 size = pm1data.numrels, called f(X) in the literature.
@@ -10931,7 +11025,7 @@ pm1_polymult:
 
 /* Output a useful message regarding memory usage, poly sizes. */
 
-	sprintf (buf, "Using %uMB of memory.  D: %d, %dx%d polynomial multiplication.\n", memused, pm1data.D, pm1data.poly1_size, pm1data.poly2_size);
+	sprintf (buf, "Using %uMB of memory.  D: %d, %" PRIu64 "x%" PRIu64 " polynomial multiplication.\n", memused, pm1data.D, pm1data.poly1_size, pm1data.poly2_size);
 	OutputStr (thread_num, buf);
 
 /* Allocate array of pointers to gwnums.  This will be the coefficients of our input and output polynomials. */
@@ -10939,10 +11033,10 @@ pm1_polymult:
 	poly1 = gwalloc_array (&pm1data.gwdata, pm1data.poly1_size);	// Poly #1, a monic RLP of size numrels
 	if (poly1 == NULL) goto lowmem;
 	// Allocate output poly array.  This array tells polymult where to write the polymult results.
-	pm1data.nQx = (gwnum *) malloc (outpoly_size * sizeof (gwnum));
+	pm1data.nQx = (gwnum *) malloc ((size_t) (outpoly_size * sizeof (gwnum)));
 	if (pm1data.nQx == NULL) goto lowmem;
 	outpoly = pm1data.nQx;					
-	memset (outpoly, 0, outpoly_size * sizeof (gwnum));
+	memset (outpoly, 0, (size_t) (outpoly_size * sizeof (gwnum)));
 
 // From Montgomery/Silverman paper (near formulas 9.4 & 9.5), D = 2 mod 4.  Calculate monic RLP coefficients
 // for u=1..D/4  if (gcd (u, D/2) == 1) compute V(2u).  The monic RLP is (x^2 - V(2u) + 1).
@@ -11041,17 +11135,10 @@ pm1_polymult:
 		gwfree (&pm1data.gwdata, V6);
 	}
 
-/* Initialize the polymult library */
-
-	polymult_init (&pm1data.polydata, &pm1data.gwdata);
-	polymult_set_max_num_threads (&pm1data.polydata, get_worker_num_threads (thread_num, HYPERTHREAD_LL) + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0));
-	polymult_set_cache_size (&pm1data.polydata, IniGetInt (INI_FILE, "PolymultCacheSize", 256));
-	pm1data.polydata.L3_CACHE_SIZE = IniGetInt (INI_FILE, "PolymultCacheSize2", 6144);
-	pm1data.polydata.enable_strided_writes = IniGetInt (INI_FILE, "PolymultStridedWrites", 0);
-	bool use_polymult_multithreading;		// TRUE if we should use polymult multithreading instead of gwnum multithreading
+//	bool use_polymult_multithreading;		// TRUE if we should use polymult multithreading instead of gwnum multithreading
 //GW: UNUSED.  Change to always use polymult_multithreading?
-	use_polymult_multithreading = pm1data.polydata.num_threads > 1 && pm1data.poly2_size > 2*pm1data.polydata.num_threads &&
-				      (int) gwfftlen (&pm1data.gwdata) <= IniGetInt (INI_FILE, "PolyThreadingFFTlength", 256) * 1024;
+//	use_polymult_multithreading = pm1data.polydata.num_threads > 1 && pm1data.poly2_size > 2*pm1data.polydata.num_threads &&
+//				      (int) gwfftlen (&pm1data.gwdata) <= IniGetInt (INI_FILE, "PolyThreadingFFTlength", 256) * 1024;
 //	if (use_polymult_multithreading) {
 		pm1data.helper_count = pm1data.polydata.num_threads;
 //	} else
@@ -11333,7 +11420,7 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&pm1data.gwdata);
 // The evaluated points during a polymult overwrite many of the poly #2 coefficients the rest are preserved.  Take advantage of this by using circular
 // convolution where the "wrapped" results are coefficients we don't care about.  The output poly size is the first poly fft size >= poly2_size.
 
-		memcpy (outpoly + 2*pm1data.numrels, poly2 + 2*pm1data.numrels, pm1data.num_points * sizeof (gwnum));
+		memcpy (outpoly + 2*pm1data.numrels, poly2 + 2*pm1data.numrels, (size_t) (pm1data.num_points * sizeof (gwnum)));
 
 // Evaluate poly #1 at many points using polymult!
 
@@ -11431,7 +11518,7 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&pm1data.gwdata);}
 /* Rotate poly 2 coefficients.  We reuse the numrels*2 coefficients that were preserved during the polymult. */
 
 		memmove (poly2 + pm1data.num_points, poly2, 2*pm1data.numrels * sizeof (gwnum));
-		memcpy (poly2, outpoly + 2*pm1data.numrels, pm1data.num_points * sizeof (gwnum));
+		memcpy (poly2, outpoly + 2*pm1data.numrels, (size_t) (pm1data.num_points * sizeof (gwnum)));
 	}
 
 /* Set C_done for the final save file */
@@ -11508,8 +11595,8 @@ msg_and_exit:
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"b2\":%" PRIu64, pm1data.C);
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"d\":%d", pm1data.D);
 		if (pm1data.stage2_type == PM1_STAGE2_POLYMULT) {
-			sprintf (JSONbuf+strlen(JSONbuf), ", \"poly1-size\":%d", pm1data.poly1_size);
-			sprintf (JSONbuf+strlen(JSONbuf), ", \"poly2-size\":%d", pm1data.poly2_size);
+			sprintf (JSONbuf+strlen(JSONbuf), ", \"poly1-size\":%" PRIu64, pm1data.poly1_size);
+			sprintf (JSONbuf+strlen(JSONbuf), ", \"poly2-size\":%" PRIu64, pm1data.poly2_size);
 		}
 	}
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", pm1data.gwdata.FFTLEN);
@@ -11653,8 +11740,8 @@ bingo:	if (pm1data.state < PM1_STATE_MIDSTAGE)
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"b2\":%" PRIu64, pm1data.C);
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"d\":%d", pm1data.D);
 		if (pm1data.stage2_type == PM1_STAGE2_POLYMULT) {
-			sprintf (JSONbuf+strlen(JSONbuf), ", \"poly1-size\":%d", pm1data.poly1_size);
-			sprintf (JSONbuf+strlen(JSONbuf), ", \"poly2-size\":%d", pm1data.poly2_size);
+			sprintf (JSONbuf+strlen(JSONbuf), ", \"poly1-size\":%" PRIu64, pm1data.poly1_size);
+			sprintf (JSONbuf+strlen(JSONbuf), ", \"poly2-size\":%" PRIu64, pm1data.poly2_size);
 		}
 	}
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", pm1data.gwdata.FFTLEN);
@@ -11834,7 +11921,8 @@ struct global_pm1_cost_data {
 	double	ll_testing_cost;			// Cost (in squarings) of running LL/PRP tests should we fail to find a factor
 	unsigned long fftlen;				// FFT length that will be used
 	int	threads;				// Number of threads that will be used
-	unsigned long vals;				// Number of temporaries we can allocate in pass 2
+	uint64_t vals;					// Number of temporaries we can allocate in pass 2
+	pmhandle polydata;				// Partially initialized polymult handle good enough for polymult_mem_required to function
 };
 
 struct cost_pm1_data {
@@ -11864,6 +11952,7 @@ void cost_pm1 (
 	else {
 		struct pm1_stage2_cost_data cost_data;
 		memset (&cost_data, 0, sizeof (cost_data));
+		cost_data.c.polydata = &g->polydata;
 		cost_data.c.numvals = g->vals;
 		cost_data.c.fftlen = g->fftlen;
 		cost_data.c.threads = g->threads;
@@ -11872,7 +11961,6 @@ void cost_pm1 (
 		if (IniGetInt (INI_FILE, "Poly1Compress", 2) == 0) cost_data.poly1_compression = 1.0;
 		for (int impl = 0; impl <= 1; impl++) {
 			cost_data.stage2_type = (impl == 0 ? PM1_STAGE2_PAIRING : PM1_STAGE2_POLYMULT);
-			cost_data.c.only_cost_max_numvals = (impl == 1);
 			cost_data.c.use_poly_D_data = (impl == 1);
 			cost_data.c.centers_on_Dmultiple = (impl != 1);
 			double pass2_squarings = best_stage2_impl (c->B1, 0, 0, c->B2, g->vals - 4, &pm1_stage2_cost, &cost_data);
@@ -12050,6 +12138,24 @@ void guess_pminus1_bounds (
 		g.fftlen = (unsigned long) ((double) g.fftlen * 1.08);
 		g.vals = (unsigned long) ((double) g.vals * 0.92);
 	}
+
+/* Partially initialize the polymult library so that polymult_mem_required returns accurate data */
+
+	gwhandle gwdata;
+	memset (&gwdata, 0, sizeof (gwdata));
+	gwdata.k = k;
+	gwdata.b = b;
+	gwdata.n = n;
+	gwdata.c = c;
+	gwdata.FFTLEN = g.fftlen;
+	gwdata.cpu_flags = CPU_FLAGS;
+	if (gwdata.FFTLEN < 1024 && gwdata.cpu_flags & CPU_AVX512F) gwdata.cpu_flags &= ~CPU_AVX512F;
+	gwdata.num_threads = g.threads;
+	polymult_init (&g.polydata, &gwdata);
+	polymult_default_tuning (&g.polydata,
+				 IniGetInt (INI_FILE, "PolymultCacheSize", CPU_NUM_L2_CACHES > 0 ? CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES : 256),
+				 IniGetInt (INI_FILE, "PolymultCacheSize2", CPU_NUM_L3_CACHES > 0 ? CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES : 6144));
+//GW:  add more overrides here
 
 /* Find the best B1 somewhere between n/3300 and 250*(n/3300). */
 
@@ -12269,7 +12375,7 @@ typedef struct {
 	uint64_t last_relocatable; /* Last relocatable prime for filling pairmaps (unless mem change causes a replan) */
 	uint64_t C_done;	/* Stage 2 completed thusfar (updated every D section that is completed) */
 
-	int	stage2_numvals;	/* Number of gwnums used in stage 2 */
+	uint64_t stage2_numvals;/* Number of gwnums used in stage 2 */
 	int16_t relp_sets[32];	/* The relp sets we are using in stage 2 */
 	gwnum	*nQx;		/* Array of relprime data used in stage 2 */
 
@@ -12306,7 +12412,7 @@ void pp1_save (
 {
 	int	fd;
 	struct work_unit *w = pp1data->w;
-	unsigned long sum = 0;
+	uint32_t sum = 0;
 
 /* Create the intermediate file */
 
@@ -12340,7 +12446,7 @@ void pp1_save (
 		if (! write_uint64 (fd, pp1data->B_done, &sum)) goto writeerr;
 		if (! write_uint64 (fd, pp1data->C_done, &sum)) goto writeerr;
 		if (! write_uint64 (fd, pp1data->interim_C, &sum)) goto writeerr;
-		if (! write_int (fd, pp1data->stage2_numvals, &sum)) goto writeerr;
+		if (! write_int (fd, (int) pp1data->stage2_numvals, &sum)) goto writeerr;
 		if (! write_int (fd, pp1data->totrels, &sum)) goto writeerr;
 		if (! write_int (fd, pp1data->D, &sum)) goto writeerr;
 		if (! write_uint64 (fd, pp1data->first_relocatable, &sum)) goto writeerr;
@@ -12403,8 +12509,7 @@ int pp1_restore (
 {
 	int	fd, numerator, denominator;
 	struct work_unit *w = pp1data->w;
-	unsigned long version;
-	unsigned long sum = 0, filesum;
+	uint32_t version, sum = 0, filesum;
 
 /* Open the intermediate file */
 
@@ -12447,7 +12552,9 @@ int pp1_restore (
 		if (! read_uint64 (fd, &pp1data->B_done, &sum)) goto readerr;
 		if (! read_uint64 (fd, &pp1data->C_done, &sum)) goto readerr;
 		if (! read_uint64 (fd, &pp1data->interim_C, &sum)) goto readerr;
-		if (! read_int (fd, &pp1data->stage2_numvals, &sum)) goto readerr;
+		int temp;
+		if (! read_int (fd, &temp, &sum)) goto readerr;
+		pp1data->stage2_numvals = temp;
 		if (! read_int (fd, &pp1data->totrels, &sum)) goto readerr;
 		if (! read_int (fd, &pp1data->D, &sum)) goto readerr;
 		pp1data->numrels = map_D_to_numrels (pp1data->D);
@@ -12606,7 +12713,7 @@ double pp1_stage2_cost (
 
 void pp1_choose_B2 (
 	pp1handle *pp1data,
-	unsigned long numvals)
+	uint64_t numvals)
 {
 	int	max_B2mult;
 	struct pp1_stage2_cost_data cost_data;	/* Extra data passed to P+1 costing function */
@@ -12624,7 +12731,6 @@ void pp1_choose_B2 (
 // Cost out a B2 value
 	max_B2mult = IniGetInt (INI_FILE, "MaxOptimalB2Multiplier", 1000);
 	cost_data.c.numvals = numvals;
-	cost_data.c.only_cost_max_numvals = FALSE;
 	cost_data.c.extra_credit = TRUE;
 	cost_data.c.use_poly_D_data = FALSE;
 	cost_data.c.centers_on_Dmultiple = TRUE;
@@ -12710,7 +12816,7 @@ int pp1_stage2_impl (
 	pp1handle *pp1data)
 {
 	unsigned int memory, min_memory, desired_memory;	/* Memory is in MB */
-	int	numvals;					/* Number of gwnums we can allocate */
+	uint64_t numvals;					/* Number of gwnums we can allocate */
 	struct pp1_stage2_cost_data cost_data;
 	int	stop_reason;
 
@@ -12786,7 +12892,6 @@ int pp1_stage2_impl (
 /* Try various values of D until we find the best one.  3 gwnums are required for multiples of V_D calculations and one gwnum for gg. */
 
 	cost_data.c.numvals = numvals;
-	cost_data.c.only_cost_max_numvals = FALSE;
 	cost_data.c.use_poly_D_data = FALSE;
 	cost_data.c.centers_on_Dmultiple = TRUE;
 	cost_data.c.gwdata = &pp1data->gwdata;
@@ -12814,7 +12919,7 @@ int pp1_stage2_impl (
 	pp1data->interim_C = pp1data->C;
 	pp1data->stage2_numvals = cost_data.c.stage2_numvals;
 	pp1data->D = cost_data.c.D;
-	pp1data->totrels = cost_data.c.totrels;
+	pp1data->totrels = (int) cost_data.c.totrels;
 	pp1data->numrels = cost_data.c.numrels;
 	pp1data->B2_start = cost_data.c.B2_start;
 	pp1data->numDsections = cost_data.c.numDsections;

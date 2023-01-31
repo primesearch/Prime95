@@ -3,7 +3,7 @@
 |
 | This file contains the C routines for fast polynomial multiplication
 | 
-|  Copyright 2021-2022 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2021-2023 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -71,6 +71,10 @@
 // 82) I don't like the way num_compressed_blks is chosen (only powers of two).  If not pre-FFTing we might get very small blk_size.  Change compress and decompress
 //	to handle partial final blk.  blk_sizes were added for multi-threading the preprocessing.  Address this when we tackle strided_reads.
 // 83) Under what circumstances do streaming stores provide a benefit?
+// 84) A more flexible threading policy.  Now we only support one line at a time using all threads OR each thread doing its own line.  For FFT size 64 where
+//	num_lines=9 if threads=14 then 5 threads are totally unused.  Better might be processing 3 lines at a time using 5,5,4 threads.  This is hard as we'd
+//	need locks and mutexes for each of the 3 lines being processed.  Easier might be 8 threads processing a line with a single thread and one line being
+//	processed with 6 threads.  When that line completes the 6 threads switch to help processing one of the other 8 lines, and so on.
 
 /* Opcodes for helper thread */
 
@@ -81,11 +85,12 @@
 #define HELPER_EXIT			5
 
 // Forward declarations required for the SSE2, AVX, FMA, AVX512 compiles
+void pick_pass_sizes (pmhandle *pmdata, uint64_t fftsize, uint32_t *p1size, uint32_t *p2size);
 unsigned long cache_line_offset (gwhandle *gwdata, unsigned long i);
-void generate_sincos (pmhandle *pmdata, const unsigned int size);
+void generate_sincos (pmhandle *pmdata, uint64_t);
 void zpad7_fft (gwhandle *gwdata, gwnum g);
 uint64_t compress_line (char *buf, uint64_t size, int num_compressed_blks);
-void decompress_line_slice (char *inbuf, char *outbuf, 	preprocessed_poly_header *hdr, int slice_start, int slice_end, int cvdt_size);
+void decompress_line_slice (char *inbuf, char *outbuf, 	preprocessed_poly_header *hdr, uint64_t slice_start, uint64_t slice_end, int cvdt_size);
 void polymult_pre_fft (pmhandle *pmdata, gwhandle *);
 void polymult_post_unfft (pmhandle *pmdata, gwhandle *);
 void polymult_line_preprocess_dbl (pmhandle *pmdata);
@@ -103,13 +108,13 @@ void polymult_line_avx512 (pmhandle *pmdata);
 typedef struct {
 	bool	strip_monic_from_invec1;// True if ones are stripped from monic invec1 requiring (99% of the time) invec2 to be added in during post processing
 	int	impl;			// 0 = brute force, 1 = Karatsuba, 2 = poly FFT
-	int	fft_size;		// FFT size for impl type 2
-	int	adjusted_invec1_size;	// Sizes of the possibly smaller partial polymult result prior to post-monic-adjustment creating the full result
-	int	adjusted_invec2_size;
-	int	adjusted_outvec_size;
-	int	true_invec1_size;	// Sizes of the full polymult inputs and outputs
-	int	true_invec2_size;
-	int	true_outvec_size;
+	uint64_t fft_size;		// FFT size for impl type 2
+	uint64_t adjusted_invec1_size;	// Sizes of the possibly smaller partial polymult result prior to post-monic-adjustment creating the full result
+	uint64_t adjusted_invec2_size;
+	uint64_t adjusted_outvec_size;
+	uint64_t true_invec1_size;	// Sizes of the full polymult inputs and outputs
+	uint64_t true_invec2_size;
+	uint64_t true_outvec_size;
 	uint64_t max_element_size;	// When compressing, helpers return the max_element_size
 	bool	combine_two_lines;	// TRUE if we're saving memory by delaying splitting the two reals, the first two lines are combined into one
 	preprocessed_poly_header *hdr;  // Header of the preprocessed poly under construction
@@ -119,12 +124,12 @@ typedef struct {
 // Internal description of the plan to multiply two or more polys
 typedef struct {
 	bool	mt_polymult_line;	// TRUE if polymult_line is multi-threaded and read_line, fft_line_pass, write_line are single-threaded
-	int	alloc_invec1_size;	// Pre-calculated allocation size for invec1
-	int	alloc_invec2_size;	// Pre-calculated allocation size for invec2
-	int	alloc_outvec_size;	// Pre-calculated allocation size for outvec
-	int	alloc_tmpvec_size;	// Pre-calculated allocation size for tmpvec
+	uint64_t alloc_invec1_size;	// Pre-calculated allocation size for invec1
+	uint64_t alloc_invec2_size;	// Pre-calculated allocation size for invec2
+	uint64_t alloc_outvec_size;	// Pre-calculated allocation size for outvec
+	uint64_t alloc_tmpvec_size;	// Pre-calculated allocation size for tmpvec
 #ifdef GDEBUG
-	int	hash;
+	uint64_t hash;
 #endif
 	struct planpart {
 		bool	emulate_circular;	// Emulating circular_size is required
@@ -134,18 +139,18 @@ typedef struct {
 		bool	post_monic_addin_invec2;// True if ones are stripped from monic invec1 requiring invec2 to be added during post processing
 		bool	streamed_stores;	// Use streamed stores
 		int	impl;			// 0 = brute force, 1 = Karatsuba, 2 = poly FFT
-		int	fft_size;		// FFT size for impl type 2
-		int	adjusted_invec1_size;	// Sizes of the possibly smaller partial polymult result prior to post-monic-adjustment creating the full result
-		int	adjusted_invec2_size;
-		int	adjusted_outvec_size;
-		int	true_invec1_size;	// Sizes of the full polymult inputs and outputs
-		int	true_invec2_size;
-		int	true_outvec_size;
-		int	circular_size;		// Return result modulo (X^circular_size - 1)
-		int	LSWs_skipped;		// Least significant coefficients that do not need to be returned
-		int	MSWs_skipped;		// Most significant coefficients (of true_outvec_size) that do not need to be returned
-		int	addin[4];		// Outvec locations where four 1*1 values may need to be added at the very end of the polymult process
-		int	subout;			// Outvec location where 1*1 value may need to be subtracted at the very end of the polymult process
+		uint64_t fft_size;		// FFT size for impl type 2
+		uint64_t adjusted_invec1_size;	// Sizes of the possibly smaller partial polymult result prior to post-monic-adjustment creating the full result
+		uint64_t adjusted_invec2_size;
+		uint64_t adjusted_outvec_size;
+		uint64_t true_invec1_size;	// Sizes of the full polymult inputs and outputs
+		uint64_t true_invec2_size;
+		uint64_t true_outvec_size;
+		uint64_t circular_size;		// Return result modulo (X^circular_size - 1)
+		uint64_t LSWs_skipped;		// Least significant coefficients that do not need to be returned
+		uint64_t MSWs_skipped;		// Most significant coefficients (of true_outvec_size) that do not need to be returned
+		int64_t addin[4];		// Outvec locations where four 1*1 values may need to be added at the very end of the polymult process
+		int64_t subout;			// Outvec location where 1*1 value may need to be subtracted at the very end of the polymult process
 		int	adjusted_shift;		// Number of coefficients to shift left the initial partial poly multiplication to reach true_outvec_size
 		int	adjusted_pad;		// Number of coefficients to pad on the left of the initial partial poly multiplication to reach true_outvec_size
 	} planpart[1];
@@ -384,11 +389,11 @@ typedef struct {
 #if !defined (SSE2) && !defined (AVX) && !defined (FMA) && !defined (AVX512)
 
 // Get the needed safety_margin required for an invec1_size by invec2_size polymult
-double polymult_safety_margin (int invec1_size, int invec2_size) {
+double polymult_safety_margin (uint64_t invec1_size, uint64_t invec2_size) {
 	// The smaller poly determines the number of partial products that are added together
-	int	n = (invec1_size < invec2_size) ? invec1_size : invec2_size;
+	uint64_t n = (invec1_size < invec2_size) ? invec1_size : invec2_size;
 	// The larger poly approximates the FFT size of the polymult (assumes POLYMULT_CIRCULAR)
-	int	fft_size = (invec1_size > invec2_size) ? invec1_size : invec2_size;
+	uint64_t fft_size = (invec1_size > invec2_size) ? invec1_size : invec2_size;
 	// According to roe_gwnum.cpp, the number of EXTRA_BITS (output FFT bits) consumed by a polymult ~= log2(n)/2.  However, gwinit's safety margin
 	// parameter refers to input FFT bits.  Thus, divide by another 2.  However, in practice the formula fails for large polymults.  P-1 with AVX-512 FFT
 	// size 4608, and an RLP poly1 of size 320000 times poly2 of size 1.3M we get roundoff errors.  My theory is that while roe_gwnum.cpp accurately estimates
@@ -401,7 +406,7 @@ double polymult_safety_margin (int invec1_size, int invec2_size) {
 }
 
 // Get the FFT size that will be used for an n = invec1_size + invec2_size polymult
-int polymult_fft_size (int n)
+uint64_t polymult_fft_size (uint64_t n)
 {
 //GW: These FFT sizes haven't been timed.  Some may be slower than a larger FFT or more radix-3/5 options might be profitable
 	int	pfas[] = {40, 45, 48, 50, 54, 60, 64, 72, 75};		// Provide a variety of radix-3 and radix-5 FFT sizes
@@ -410,10 +415,10 @@ int polymult_fft_size (int n)
 	if (n <= 32) for (int i = 4; ; i *= 2) if (i >= n) return (i);
 
 	// Increase n by a power of two until we find the smallest fft size larger than n
-	for (int two_multiplier = 1; ; two_multiplier *= 2) {
+	for (uint64_t two_multiplier = 1; ; two_multiplier *= 2) {
 		if (n > two_multiplier * 75) continue;
 		for (int i = 0; i < sizeof (pfas) / sizeof (int); i++) {
-			int fft_size = two_multiplier * pfas[i];
+			uint64_t fft_size = two_multiplier * pfas[i];
 			if (fft_size >= n && (fft_size % 4 == 0 || fft_size % 2 == 1)) return (fft_size);  // Weed out fft sizes that would require a radix-2 step
 		}
 	}
@@ -422,52 +427,51 @@ int polymult_fft_size (int n)
 // Pick FFT pass sizes
 void pick_pass_sizes (
 	pmhandle *pmdata,		// Handle for polymult library
-	unsigned int fftsize,		// FFT size
-	unsigned int *p1size,		// Returned pass 1 size
-	unsigned int *p2size)		// Returned pass 2 size
+	uint64_t fftsize,		// FFT size
+	uint32_t *p1size,		// Returned pass 1 size
+	uint32_t *p2size)		// Returned pass 2 size
 {
-	unsigned int powers_of_two;
-	double	max_p2size, log_fftsize;
+	uint32_t powers_of_two;
+	double	log_max_p2size, log_fftsize;
 
-	// Figure out what power-of-two FFT size will fit in the L2 cache
-	max_p2size = log2 ((double) pmdata->L2_CACHE_SIZE * 1024.0 / (double) complex_vector_size_in_bytes (pmdata->gwdata->cpu_flags));
+	// If the FFT should be done in one pass, choose that option
+	if (fftsize <= pmdata->two_pass_start) { *p1size = 1; *p2size = (uint32_t) fftsize; return; }
 
-	// If the FFT can be done in one pass, choose that option
-	log_fftsize = log2 ((double) fftsize);
-	if (log_fftsize <= max_p2size) { *p1size = 1; *p2size = fftsize; return; }
+	// Figure out the power-of-two FFT size will fit pass 2
+	log_max_p2size = log2 ((double) pmdata->max_pass2_size);
 
 	// Make pass sizes roughly equal
-	*p2size = (unsigned int) log_fftsize / 2;
-	if (*p2size > (unsigned int) max_p2size) *p2size = (unsigned int) max_p2size;
+	log_fftsize = log2 ((double) fftsize);
+	*p2size = (uint32_t) log_fftsize / 2;
+	if (*p2size > (uint32_t) log_max_p2size) *p2size = (uint32_t) log_max_p2size;
 
 	// Make sure any odd power of two is done in pass 2
-	for (powers_of_two = 0; (fftsize & (1 << powers_of_two)) == 0; powers_of_two++);
+	for (powers_of_two = 0; (fftsize & (1ULL << powers_of_two)) == 0; powers_of_two++);
 	if (*p2size > powers_of_two) *p2size = powers_of_two;
 	if ((powers_of_two & 1) == 0) {		// no radix-8 step
 		if ((*p2size & 1) == 1) *p2size -= 1;
 	} else {
 		if ((*p2size & 1) == 0) *p2size -= 1;
 	}
-	*p1size = fftsize >> *p2size;
+	*p1size = (uint32_t) (fftsize >> *p2size);
 	*p2size = 1 << *p2size;
 }
 
 // Get the memory (in bytes) required for an FFT based polymult.  Use the information to ensure over-allocating memory does not occur.
 uint64_t polymult_mem_required (
-	int	invec1_size,		// Size of poly #1
-	int	invec2_size,		// Size of poly #2
-	int	options,		// Polymult options
-	int	cpu_flags,		// CPU flags.  Vector size is determined by AVX-512, AVX, SSE2 settings.
-	int	num_threads)		// Each polymult thread allocates memory
+	pmhandle *pmdata,		// Handle for polymult library
+	uint64_t invec1_size,		// Size of poly #1
+	uint64_t invec2_size,		// Size of poly #2
+	int	options)		// Polymult options
 {
-	int	adjusted_invec1_size, adjusted_invec2_size, adjusted_outvec_size, pass1_size;
+	uint64_t adjusted_invec1_size, adjusted_invec2_size, adjusted_outvec_size, fft_size, memory;
+	uint32_t pass1_size, pass2_size;
 	bool	post_process_monics;
-	uint64_t fft_size, memory;
 
-	ASSERTG (num_threads >= 1);
+	ASSERTG (pmdata->num_threads >= 1);
 
 	// Determine the complex vector size in bytes
-	int complex_vector_size = complex_vector_size_in_bytes (cpu_flags);
+	int complex_vector_size = complex_vector_size_in_doubles (pmdata->gwdata->cpu_flags);
 
 	// Adjust sizes due to RLPs.  Calculate the output size assuming no monic inputs.
 	adjusted_invec1_size = (options & POLYMULT_INVEC1_RLP) ? 2 * invec1_size - 1 : invec1_size;
@@ -484,15 +488,17 @@ uint64_t polymult_mem_required (
 
 	// Compute FFT size and memory usage
 	fft_size = polymult_fft_size (adjusted_outvec_size);
-	pass1_size = (int) sqrt ((double) fft_size);		// Assume pass1 size roughly equals pass2 size
+	pick_pass_sizes (pmdata, fft_size, &pass1_size, &pass2_size);
 	memory = fft_size * complex_vector_size;		// FFT of invec1
 	memory += (fft_size + 2) * complex_vector_size;		// FFT of invec2/outvec
 	if (post_process_monics && (options & (POLYMULT_INVEC2_MONIC | POLYMULT_INVEC1_MONIC))) memory += fft_size * complex_vector_size;
-	memory += pass1_size * complex_vector_size;
 
-	// Each thread requires memory
-//GW: BUG - need to pass in whatever info is used in mt_polymult_line decision.  Make a common routine called should_mt_polymult_line.
-	memory *= (fft_size < 6144 * 1024 / (2 * complex_vector_size)) ? num_threads : 1;
+	// Account for scratch area size.  More is needed when all threads are working on a single line.
+	if (pass1_size > 1)
+		memory += (uint64_t) pass1_size * complex_vector_size * (fft_size >= pmdata->mt_ffts_start && fft_size < pmdata->mt_ffts_end ? pmdata->num_threads : 1);
+	
+	// Each thread requires memory when multithreading by lines
+	memory *= (fft_size < pmdata->mt_ffts_start || fft_size >= pmdata->mt_ffts_end) ? pmdata->num_threads : 1;
 
 	// Also account for sin/cos tables
 	return (memory + (fft_size % 3 == 0 ? fft_size * 2 / 3 : fft_size) * sizeof (double));
@@ -511,7 +517,7 @@ void polymult_init (
 	pmdata->num_threads = pmdata->max_num_threads;
 
 	// Calculate doubles in a complex vector
-	int complex_vector_size = complex_vector_size_in_doubles(gwdata->cpu_flags);
+	int complex_vector_size = complex_vector_size_in_doubles (gwdata->cpu_flags);
 
 	// Calculate how many "lines" or "work units" polymult threads will work on
 	int num_doubles = gwfftlen (pmdata->gwdata);					// Number of doubles in a gwnum
@@ -532,18 +538,64 @@ void polymult_init (
 	// Default enables caching twiddles
 	pmdata->cached_twiddles_enabled = TRUE;
 	pmdata->twiddle_cache_additions_disabled = FALSE;
-			
-	// Set default cache sizess to optimize FFTs for (256KB and 6MB)
-	pmdata->L2_CACHE_SIZE = 256;
-	pmdata->L3_CACHE_SIZE = 6144;
 
-	// Default performance options
-	pmdata->enable_strided_writes = FALSE;
-	pmdata->enable_streamed_stores = TRUE;
+	// Set default tuning parameters (L2 = 256KB, L3 = 6MB)
+	polymult_default_tuning (pmdata, 256, 6144);
 
 	// Init FFT(1) if needed
 	if (pmdata->gwdata->k != 1.0) gwuser_init_FFT1 (pmdata->gwdata);
 	if (pmdata->gwdata->ZERO_PADDED_FFT) zpad7_fft (pmdata->gwdata, pmdata->gwdata->GW_FFT1);
+}
+
+// Set default polymult tuning using CPU cache sizes.  If this routine is not called, default tuning parameters are set using L2 cache of 256KB, and
+// L3 cache of 6144KB (6MB).  These tuning defaults are almost certainly imperfect.  Feel free to change the tuning defaults to suit your exact needs.
+// Read the polymult_default_tuning code to see some of the considerations used in selecting tuning parameters.  Also, run prime95 Advanced/Time 8900
+// for relevant timings on your CPU.  Beware, these timings can vary considerably from run to run.
+void polymult_default_tuning (
+	pmhandle *pmdata,		// Handle for polymult library
+	uint32_t L2_CACHE_SIZE,		// Optimize FFTs to fit in this size cache (number is in KB).  Default is 256KB.
+	uint32_t L3_CACHE_SIZE)		// Optimize FFTs to fit in this size cache (number is in KB).  Default is 6144KB (6MB).
+{
+	// Calculate doubles in a complex vector
+	int complex_vector_size = complex_vector_size_in_doubles (pmdata->gwdata->cpu_flags);
+
+	// Multi-threading lines has an inefficiency if number of threads does not divide number of lines.  For example, if there are 9 lines (gwnum FFT size 64)
+	// and eight threads, then 8 threads each do 1 line followed by 1 thread doing a line a 7 threads being idle.
+	int lines_we_could_process = divide_rounding_up (pmdata->num_lines, pmdata->num_threads) * pmdata->num_threads;
+	double mt_line_efficiency = (double) pmdata->num_lines / (double) lines_we_could_process;
+
+	// Determine the maximum one pass FFT size.  Since there is some overhead associated with two-pass FFTs, we arbitarily start two pass FFTs when
+	// FFT data is 4 times the size of the L2 cache.  For 256KB L2 cache with no AVX-512 support, that translates to 262144 * 4 / 64 / 2 = 8192 fft size.
+	pmdata->two_pass_start = L2_CACHE_SIZE * 4 * (1024 / complex_vector_size) / 2;
+
+	// Determine the maximum size of pass 2 in two-pass FFTs.  Since we try to make pass 1 size and pass 2 size roughly equal, this setting will only
+	// make a difference for FFT sizes larger than max_pass2_size^2.  My thinking here is to find the FFT size that will fit in the L2 cache, so that pass 2
+	// is very efficient and only pass 1 pays for cache miss penalties.  This could be wrong, and requires further investigation.  Perhaps three pass
+	// FFTs would be a better choice.  Remember an FFT multiplication typically processes two inputs with the output written back to one of the inputs.
+	// For 256KB L2 cache with no AVX-512 support, that translates to 262144 / 64 / 2 = 2048 fft size.
+	pmdata->max_pass2_size = L2_CACHE_SIZE * (1024 / complex_vector_size) / 2;
+
+	// Guess at a good FFT size to switch from multi-threading lines (each thread does its own FFT on a separate line of data) vs.
+	// multi-threading FFTs (all threads cooperating to FFT a single line of data).
+	// Benchmarks indicate that multi-threading lines is better as long as all the lines fit in the L3 cache.  We adjust for the inefficiency
+	// inherent when multi-threading lines.
+	// We adjust this down further (arbitrarily using 0.8) because polymult usually involves reading two lines and writing one.
+	pmdata->mt_ffts_start = (uint64_t) ((double) L3_CACHE_SIZE * 1024.0 / complex_vector_size / pmdata->num_threads * mt_line_efficiency * 0.8);
+
+	// Once even a single line exceeds the L3 cache, then it may pay to go back to multi-threading lines.  This is because multi-threading FFTs has
+	// more locking and syncing overhead than multi-threading lines.  
+	pmdata->mt_ffts_end = (mt_line_efficiency > 0.98 ? (uint64_t) L3_CACHE_SIZE * 1024 / complex_vector_size : 0xFFFFFFFFFFFFFFFFULL);
+
+	// This setting we don't have any good theories.  In theory strided writes should always be beneficial.  Benchmarks show that at large poly sizes
+	// non-strided writes win by a significant margin.  This seems to happen around the time a line does not fit in the L3 cache.
+	pmdata->strided_writes_end = (uint64_t) L3_CACHE_SIZE * 1024 / complex_vector_size;
+
+	// Streamed stores seem to be beneficial if the result of the polymult does not fit in L3 cache.  We don't want to write to the CPU caches since the data
+	// will not be used and thus evicted by the time the gwunfft operations are performed.  NOTE: If the caller is using POLYMULT_NO_UNFFT we have no idea
+	// when the gwunfft will take place.  In prime95 P-1 and ECM code builds one big poly from many smaller polys with POLYMULT_NO_UNFFT set.  It is not until
+	// all smaller polys have been multiplied that the gwunffts happen.  Thus, Prime95 overrides the default streamed_stores_start value to a much smaller fft
+	// size.  NOTE:  The calculation below is the same as "how many gwnum coefficients fit in the L3 cache".
+	pmdata->streamed_stores_start = L3_CACHE_SIZE * (1024 / complex_vector_size) / pmdata->num_lines;
 }
 
 // Terminate use of a polymult handle.  Free up memory.
@@ -794,7 +846,7 @@ const	double INV13 = 0.07692307692307692307692307692308;	// 1/13
 // Generate radix-3/4/5 twiddle factors
 void generate_sincos (
 	pmhandle *pmdata,		// Handle for polymult library
-	const unsigned int fft_size)
+	uint64_t fft_size)
 {
 	const long double twopi = 2.0L * 3.1415926535897932384626433L;
 #define gen_twid(t,a)	{long double c,s; c=cosl(a); s=sinl(a)+1e-80; (t)[0]=(double)(c/s); (t)[1]=(double)s; }
@@ -839,10 +891,10 @@ void generate_sincos (
 	pmdata->twiddles2 = NULL;
 
 	// Generate twiddles for radix-3 butterflies
-	unsigned int size = fft_size;
+	uint64_t size = fft_size;
 	if (size % 3 == 0) {
 		long double twopi_over_size = twopi / (long double) size;
-		pmdata->twiddles1 = (double *) aligned_malloc (size/3 * 2 * sizeof (double), 64);
+		pmdata->twiddles1 = (double *) aligned_malloc ((size_t) (size/3 * 2 * sizeof (double)), 64);
 		for (unsigned int i = 0; i < size/3; i++) {
 			long double angle = twopi_over_size * (long double) i;
 			gen_twid (&pmdata->twiddles1[2*i], angle);
@@ -852,7 +904,7 @@ void generate_sincos (
 
 	// Generate twiddles for radix-4/5 butterflies
 	long double twopi_over_size = twopi / (long double) size;
-	pmdata->twiddles2 = (double *) aligned_malloc (size/4 * 2 * 2 * sizeof (double), 64);
+	pmdata->twiddles2 = (double *) aligned_malloc ((size_t) (size/4 * 2 * 2 * sizeof (double)), 64);
 	for (unsigned int i = 0; i < size/4; i++) {
 		double long angle = twopi_over_size * (long double) i;
 		gen_twid (&pmdata->twiddles2[2*(2*i)], angle);
@@ -1019,8 +1071,8 @@ void decompress_line_slice (
 	char	*inbuf,			// Compressed array of doubles
 	char	*outbuf,		// Decompressed array of doubles
 	preprocessed_poly_header *hdr,  // Header of the preprocessed poly being decompressed
-	int	slice_start,		// Starting line slice number
-	int	slice_end,		// Ending line slice number
+	uint64_t slice_start,		// Starting line slice number
+	uint64_t slice_end,		// Ending line slice number
 	int	cvdt_size)		// Sizeof(CVDT) in bytes
 {
 	int	peak;			// The highest exponent in the set of three most common exponents
@@ -1031,14 +1083,14 @@ void decompress_line_slice (
 	above_peak_flag = *inbuf & 1;
 
 	// Handle reading compressed data in slices and blocks
-	int doubles_to_skip = slice_start * (cvdt_size / sizeof (double));
+	uint64_t doubles_to_skip = slice_start * (cvdt_size / sizeof (double));
 
 	// Loop through compressed blocks until we reach slice)_end
 	uint64_t total_size = (uint64_t) (slice_end - slice_start) * cvdt_size;
 	uint64_t compressed_blk_size = (hdr->element_size - 1) / hdr->num_compressed_blks;
 	uint64_t uncompressed_blk_size = (uint64_t) hdr->line_size * cvdt_size / hdr->num_compressed_blks;
 	ASSERTG ((doubles_to_skip * sizeof (double)) % uncompressed_blk_size == 0);	// No support for reading part of a compressed block
-	for (int blk = doubles_to_skip / 512; total_size; blk++) {
+	for (uint64_t blk = doubles_to_skip / 512; total_size; blk++) {
 		uint64_t size;		// Number of bytes to write to output buffer for this compressed block
 
 		// Init input queue
@@ -1143,15 +1195,15 @@ void decompress_line_slice (
 // Structure used to pass data to read_line_slice, read_preprocess_line_slice, and write_line_slice
 typedef struct {
 	gwnum	*data;				// Argument passed to read_line, read_preprocess_line, and write_line
-	int	size;				// Argument passed to read_line, read_preprocess_line, and write_line
+	uint64_t size;				// Argument passed to read_line, read_preprocess_line, and write_line
 	CVDT	*vec;				// Argument passed to read_line, read_preprocess_line, and write_line
 	int	options;			// Argument passed to read_line, read_preprocess_line, and write_line
 	bool	post_process_monics;		// Argument passed to read_line, read_preprocess_line
 	gwnum	*fma_data;			// FMA poly to add during write_line
-	int	LSWs_skipped;			// Number of LSWs to be skipped from vec during write_line
+	uint64_t LSWs_skipped;			// Number of LSWs to be skipped from vec during write_line
 	bool	streamed_stores;		// TRUE if write_line should use streaming stores
 	gwatomic blknum;			// Block number to work on when multi-threading
-	int	slice_size;			// Size to read or write for each block
+	uint64_t slice_size;			// Size to read or write for each block
 	struct line_specific_data {
 		int	line;			// Argument passed to read_line, read_preprocess_line, and write_line
 		int	index;			// Adjusted line number, could be called cache_line_number
@@ -1165,7 +1217,7 @@ typedef struct {
 void prep_line (pmhandle *pmdata, int line, read_write_line_slice_data *rwlsd);
 void read_line (pmhandle *pmdata, read_write_line_slice_data *rwlsd);
 void write_line (pmhandle *pmdata, read_write_line_slice_data *rwlsd);
-void write_line_slice_strided (pmhandle *pmdata, read_write_line_slice_data *rwlsd, CVDT *vec, int slice_start, int slice_end, int stride_offset, int stride);
+void write_line_slice_strided (pmhandle *pmdata, read_write_line_slice_data *rwlsd, CVDT *vec, uint64_t slice_start, uint64_t slice_end, uint64_t stride_offset, uint64_t stride);
 void fft_line_pass (int helper_num, pmhandle *pmdata, void *pdarg);
 
 #if defined (AVX512)
@@ -1199,21 +1251,21 @@ void read_line_slice_avx512 (int helper_num, pmhandle *pmdata, void *rwlsd)
 {
 	gwhandle *gwdata = pmdata->gwdata;
 	gwnum	*data = ((read_write_line_slice_data *) rwlsd)->data;
-	int	size = ((read_write_line_slice_data *) rwlsd)->size;
+	uint64_t size = ((read_write_line_slice_data *) rwlsd)->size;
 	int	index = ((read_write_line_slice_data *) rwlsd)->lsd.index;
 	int	options = ((read_write_line_slice_data *) rwlsd)->options;
 	bool	post_process_monics = ((read_write_line_slice_data *) rwlsd)->post_process_monics;
-	int	slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
+	uint64_t slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
 
 	// Read one slice at a time
 	for ( ; ; ) {
-		int	slice_start, slice_end;
+		uint64_t slice_start, slice_end;
 		// Get slice to work on.  Atomics aren't cheap, avoid them if reading the whole line.
 		if (slice_size == size) {
 			slice_start = 0;
 			slice_end = size;
 		} else {
-			int atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
+			int64_t atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
 			slice_start = atomic_val * slice_size;
 			if (slice_start >= size) break;
 			slice_end = slice_start + slice_size;
@@ -1247,7 +1299,7 @@ void read_line_slice_avx512 (int helper_num, pmhandle *pmdata, void *rwlsd)
 
 		// AVX512 implementation
 		if (index == -1) {			// First real-only value and optionally seven zero-pad values
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 				// Return the first real-only value
 				if (!gwdata->ZERO_PADDED_FFT) {
@@ -1264,7 +1316,7 @@ void read_line_slice_avx512 (int helper_num, pmhandle *pmdata, void *rwlsd)
 			}
 		}
 		else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {	// Second real-only value and 7 complex values
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 				vec[j].real = _mm512_set_pd (data[j][7], data[j][6], data[j][5], data[j][4], data[j][3], data[j][2], data[j][1], data[j][8]);
 				vec[j].imag = _mm512_set_pd (data[j][15], data[j][14], data[j][13], data[j][12], data[j][11], data[j][10], data[j][9], 0.0);
@@ -1272,7 +1324,7 @@ void read_line_slice_avx512 (int helper_num, pmhandle *pmdata, void *rwlsd)
 		}
 		else {				// Process complex values where imaginary part is in the high half of the cache line
 			unsigned long offset = ((read_write_line_slice_data *) rwlsd)->lsd.offset;
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof(CVDT)); continue; }
 				ASSERTG (FFT_state (data[j]) == FULLY_FFTed);
 				vec[j].real = ((VDT *) data[j])[offset];
@@ -1283,7 +1335,7 @@ void read_line_slice_avx512 (int helper_num, pmhandle *pmdata, void *rwlsd)
 		// Negate coefficients if requested
 		if (options & (POLYMULT_INVEC1_NEGATE | POLYMULT_INVEC2_NEGATE)) {
 			VDT zero = broadcastsd (0.0);
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				vec[j].real = subpd (zero, vec[j].real);
 				vec[j].imag = subpd (zero, vec[j].imag);
 			}
@@ -1291,7 +1343,7 @@ void read_line_slice_avx512 (int helper_num, pmhandle *pmdata, void *rwlsd)
 
 		// Duplicate RLP data in reverse order
 		if (options & (POLYMULT_INVEC1_RLP | POLYMULT_INVEC2_RLP)) {
-			for (int j = slice_start; j < slice_end; j++) vec[-j] = vec[j];
+			for (uint64_t j = slice_start; j < slice_end; j++) vec[-(int64_t)j] = vec[j];
 		}
 
 		// If not post-processing monics and the input is monic, then output a 1+0i
@@ -1317,7 +1369,7 @@ void read_line_slice_avx512 (int helper_num, pmhandle *pmdata, void *rwlsd)
 	}
 }
 
-void write_line_slice_strided_avx512 (pmhandle *pmdata, read_write_line_slice_data *rwlsd, CVDT *vec, int slice_start, int slice_end, int stride_offset, int stride)
+void write_line_slice_strided_avx512 (pmhandle *pmdata, read_write_line_slice_data *rwlsd, CVDT *vec, uint64_t slice_start, uint64_t slice_end, uint64_t stride_offset, uint64_t stride)
 {
 	gwhandle *gwdata = pmdata->gwdata;
 	gwnum	*data = rwlsd->data;
@@ -1332,8 +1384,8 @@ void write_line_slice_strided_avx512 (pmhandle *pmdata, read_write_line_slice_da
 	// Thus, j_in (index into vec) is divide_rounding_up (slice_start - stride_offset, stride) = ceil((150-10)/64) = 3.
 	// And, j_out (index into data (the gwnum array)) is j_in * stride + stride_offset = 3 * 64 + 10 = 202.
 	// LSWs_skipped complicates matters slightly.
-	int j_in = divide_rounding_up (slice_start + rwlsd->LSWs_skipped - stride_offset, stride);
-	int j_out = j_in * stride + stride_offset - rwlsd->LSWs_skipped;
+	uint64_t j_in = divide_rounding_up (slice_start + rwlsd->LSWs_skipped - stride_offset, stride);
+	uint64_t j_out = j_in * stride + stride_offset - rwlsd->LSWs_skipped;
 
 	// AVX512 implementation
 	union {
@@ -1441,19 +1493,19 @@ void write_line_slice_strided_avx512 (pmhandle *pmdata, read_write_line_slice_da
 void write_line_slice_avx512 (int helper_num, pmhandle *pmdata, void *rwlsd)
 {
 	gwhandle *gwdata = pmdata->gwdata;
-	int	size = ((read_write_line_slice_data *) rwlsd)->size;
-	int	slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
+	uint64_t size = ((read_write_line_slice_data *) rwlsd)->size;
+	uint64_t slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
 	CVDT	*vec = ((read_write_line_slice_data *) rwlsd)->vec;
 
 	// Write one slice at a time
 	for ( ; ; ) {
-		int	slice_start, slice_end;
+		uint64_t slice_start, slice_end;
 		// Get slice to work on.  Atomics aren't cheap, avoid them if writing the whole line.
 		if (slice_size == size) {
 			slice_start = 0;
 			slice_end = size;
 		} else {
-			int atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
+			int64_t atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
 			slice_start = atomic_val * slice_size;
 			if (slice_start >= size) break;
 			slice_end = slice_start + slice_size;
@@ -1504,21 +1556,21 @@ void read_line_slice_avx (int helper_num, pmhandle *pmdata, void *rwlsd)
 {
 	gwhandle *gwdata = pmdata->gwdata;
 	gwnum	*data = ((read_write_line_slice_data *) rwlsd)->data;
-	int	size = ((read_write_line_slice_data *) rwlsd)->size;
+	uint64_t size = ((read_write_line_slice_data *) rwlsd)->size;
 	int	index = ((read_write_line_slice_data *) rwlsd)->lsd.index;
 	int	options = ((read_write_line_slice_data *) rwlsd)->options;
 	bool	post_process_monics = ((read_write_line_slice_data *) rwlsd)->post_process_monics;
-	int	slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
+	uint64_t slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
 
 	// Read one slice at a time
 	for ( ; ; ) {
-		int	slice_start, slice_end;
+		uint64_t slice_start, slice_end;
 		// Get slice to work on.  Atomics aren't cheap, avoid them if reading the whole line.
 		if (slice_size == size) {
 			slice_start = 0;
 			slice_end = size;
 		} else {
-			int atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
+			int64_t atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
 			slice_start = atomic_val * slice_size;
 			if (slice_start >= size) break;
 			slice_end = slice_start + slice_size;
@@ -1552,7 +1604,7 @@ void read_line_slice_avx (int helper_num, pmhandle *pmdata, void *rwlsd)
 
 		// AVX implementation
 		if (index == -2) {			// Four of the seven FFTed zero pad header values
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 				// Zero padded FFTs, return 4 of the FFTed values for the 7 real values stored in the header
 				vec[j].real = _mm256_set_pd (data[j][-18], data[j][-17], data[j][-16], data[j][-15]);
@@ -1560,7 +1612,7 @@ void read_line_slice_avx (int helper_num, pmhandle *pmdata, void *rwlsd)
 			}
 		}
 		else if (index == -1) {			// First real-only value and optionally three of the seven FFTed zero-pad values
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 				// Return the first real-only value
 				if (!gwdata->ZERO_PADDED_FFT) {
@@ -1575,7 +1627,7 @@ void read_line_slice_avx (int helper_num, pmhandle *pmdata, void *rwlsd)
 			}
 		}
 		else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {	// Second real-only value and 3 complex values
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 				vec[j].real = _mm256_set_pd (data[j][3], data[j][2], data[j][1], data[j][4]);
 				vec[j].imag = _mm256_set_pd (data[j][7], data[j][6], data[j][5], 0.0);
@@ -1583,7 +1635,7 @@ void read_line_slice_avx (int helper_num, pmhandle *pmdata, void *rwlsd)
 		}
 		else {				// Process complex values where imaginary part is in the high half of the cache line
 			unsigned long offset = ((read_write_line_slice_data *) rwlsd)->lsd.offset;
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 				ASSERTG (FFT_state (data[j]) == FULLY_FFTed);
 				vec[j].real = ((VDT *) data[j])[offset];
@@ -1594,7 +1646,7 @@ void read_line_slice_avx (int helper_num, pmhandle *pmdata, void *rwlsd)
 		// Negate coefficients if requested
 		if (options & (POLYMULT_INVEC1_NEGATE | POLYMULT_INVEC2_NEGATE)) {
 			VDT zero = broadcastsd (0.0);
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				vec[j].real = subpd (zero, vec[j].real);
 				vec[j].imag = subpd (zero, vec[j].imag);
 			}
@@ -1602,7 +1654,7 @@ void read_line_slice_avx (int helper_num, pmhandle *pmdata, void *rwlsd)
 
 		// Duplicate RLP data in reverse order
 		if (options & (POLYMULT_INVEC1_RLP | POLYMULT_INVEC2_RLP)) {
-			for (int j = slice_start; j < slice_end; j++) vec[-j] = vec[j];
+			for (uint64_t j = slice_start; j < slice_end; j++) vec[-(int64_t)j] = vec[j];
 		}
 
 		// If not post-processing monics and the input is monic, then output a 1+0i
@@ -1628,12 +1680,12 @@ void read_line_slice_avx (int helper_num, pmhandle *pmdata, void *rwlsd)
 	}
 }
 
-void write_line_slice_strided_avx (pmhandle *pmdata, read_write_line_slice_data *rwlsd, CVDT *vec, int slice_start, int slice_end, int stride_offset, int stride)
+void write_line_slice_strided_avx (pmhandle *pmdata, read_write_line_slice_data *rwlsd, CVDT *vec, uint64_t slice_start, uint64_t slice_end, uint64_t stride_offset, uint64_t stride)
 {
 	gwhandle *gwdata = pmdata->gwdata;
 	gwnum	*data = rwlsd->data;
 	gwnum	*fma_data = rwlsd->fma_data;
-	int	index = rwlsd->lsd.index;
+	uint64_t index = rwlsd->lsd.index;
 	int	options = rwlsd->options;
 	CVDT	fmaval, oneval;
 
@@ -1643,8 +1695,8 @@ void write_line_slice_strided_avx (pmhandle *pmdata, read_write_line_slice_data 
 	// Thus, j_in (index into vec) is divide_rounding_up (slice_start - stride_offset, stride) = ceil((150-10)/64) = 3.
 	// And, j_out (index into data (the gwnum array)) is j_in * stride + stride_offset = 3 * 64 + 10 = 202.
 	// LSWs_skipped complicates matters slightly.
-	int j_in = divide_rounding_up (slice_start + rwlsd->LSWs_skipped - stride_offset, stride);
-	int j_out = j_in * stride + stride_offset - rwlsd->LSWs_skipped;
+	uint64_t j_in = divide_rounding_up (slice_start + rwlsd->LSWs_skipped - stride_offset, stride);
+	uint64_t j_out = j_in * stride + stride_offset - rwlsd->LSWs_skipped;
 
 	// AVX implementation
 	union {
@@ -1764,19 +1816,19 @@ void write_line_slice_strided_avx (pmhandle *pmdata, read_write_line_slice_data 
 void write_line_slice_avx (int helper_num, pmhandle *pmdata, void *rwlsd)
 {
 	gwhandle *gwdata = pmdata->gwdata;
-	int	size = ((read_write_line_slice_data *) rwlsd)->size;
-	int	slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
+	uint64_t size = ((read_write_line_slice_data *) rwlsd)->size;
+	uint64_t slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
 	CVDT	*vec = ((read_write_line_slice_data *) rwlsd)->vec;
 
 	// Write one slice at a time
 	for ( ; ; ) {
-		int	slice_start, slice_end;
+		uint64_t slice_start, slice_end;
 		// Get slice to work on.  Atomics aren't cheap, avoid them if writing the whole line.
 		if (slice_size == size) {
 			slice_start = 0;
 			slice_end = size;
 		} else {
-			int atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
+			int64_t atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
 			slice_start = atomic_val * slice_size;
 			if (slice_start >= size) break;
 			slice_end = slice_start + slice_size;
@@ -1837,22 +1889,22 @@ void read_line_slice_sse2 (int helper_num, pmhandle *pmdata, void *rwlsd)
 {
 	gwhandle *gwdata = pmdata->gwdata;
 	gwnum	*data = ((read_write_line_slice_data *) rwlsd)->data;
-	int	size = ((read_write_line_slice_data *) rwlsd)->size;
+	uint64_t size = ((read_write_line_slice_data *) rwlsd)->size;
 	int	index = ((read_write_line_slice_data *) rwlsd)->lsd.index;
 	int	options = ((read_write_line_slice_data *) rwlsd)->options;
 	bool	post_process_monics = ((read_write_line_slice_data *) rwlsd)->post_process_monics;
-	int	slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
+	uint64_t slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
 	int	imag_dist = ((read_write_line_slice_data *) rwlsd)->lsd.imag_dist;
 
 	// Read one slice at a time
 	for ( ; ; ) {
-		int	slice_start, slice_end;
+		uint64_t slice_start, slice_end;
 		// Get slice to work on.  Atomics aren't cheap, avoid them if reading the whole line.
 		if (slice_size == size) {
 			slice_start = 0;
 			slice_end = size;
 		} else {
-			int atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
+			int64_t atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
 			slice_start = atomic_val * slice_size;
 			if (slice_start >= size) break;
 			slice_end = slice_start + slice_size;
@@ -1886,7 +1938,7 @@ void read_line_slice_sse2 (int helper_num, pmhandle *pmdata, void *rwlsd)
 
 		// SSE2 implementation
 		if (index <= -2) {			// Six of the seven zero pad header values
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 				// Zero padded FFTs, return 1 of the FFTed values for the 7 real values stored in the header
 				vec[j].real = _mm_set_pd (data[j][index*2-10], data[j][index*2-9]);
@@ -1894,7 +1946,7 @@ void read_line_slice_sse2 (int helper_num, pmhandle *pmdata, void *rwlsd)
 			}
 		}
 		else if (index == -1) {			// First real-only valueand optionally one of the seven zero-pad values
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 				// Return the first real-only value
 				if (!gwdata->ZERO_PADDED_FFT) {
@@ -1909,7 +1961,7 @@ void read_line_slice_sse2 (int helper_num, pmhandle *pmdata, void *rwlsd)
 			}
 		}
 		else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {	// Second real-only value and one complex value
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 				if (imag_dist == 8) {
 					vec[j].real = _mm_set_pd (data[j][2], data[j][1]);
@@ -1925,7 +1977,7 @@ void read_line_slice_sse2 (int helper_num, pmhandle *pmdata, void *rwlsd)
 		}
 		else {				// Process complex values where imaginary part is 8, 16, or 32 bytes above the real part
 			unsigned long offset = ((read_write_line_slice_data *) rwlsd)->lsd.offset;
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 				ASSERTG (FFT_state (data[j]) == FULLY_FFTed);
 				if (imag_dist == 8) {
@@ -1944,7 +1996,7 @@ void read_line_slice_sse2 (int helper_num, pmhandle *pmdata, void *rwlsd)
 		// Negate coefficients if requested
 		if (options & (POLYMULT_INVEC1_NEGATE | POLYMULT_INVEC2_NEGATE)) {
 			VDT zero = broadcastsd (0.0);
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				vec[j].real = subpd (zero, vec[j].real);
 				vec[j].imag = subpd (zero, vec[j].imag);
 			}
@@ -1952,7 +2004,7 @@ void read_line_slice_sse2 (int helper_num, pmhandle *pmdata, void *rwlsd)
 
 		// Duplicate RLP data in reverse order
 		if (options & (POLYMULT_INVEC1_RLP | POLYMULT_INVEC2_RLP)) {
-			for (int j = slice_start; j < slice_end; j++) vec[-j] = vec[j];
+			for (uint64_t j = slice_start; j < slice_end; j++) vec[-(int64_t)j] = vec[j];
 		}
 
 		// If not post-processing monics and the input is monic, then output a 1+0i
@@ -1978,7 +2030,7 @@ void read_line_slice_sse2 (int helper_num, pmhandle *pmdata, void *rwlsd)
 	}
 }
 
-void write_line_slice_strided_sse2 (pmhandle *pmdata, read_write_line_slice_data *rwlsd, CVDT *vec, int slice_start, int slice_end, int stride_offset, int stride)
+void write_line_slice_strided_sse2 (pmhandle *pmdata, read_write_line_slice_data *rwlsd, CVDT *vec, uint64_t slice_start, uint64_t slice_end, uint64_t stride_offset, uint64_t stride)
 {
 	gwhandle *gwdata = pmdata->gwdata;
 	gwnum	*data = rwlsd->data;
@@ -1994,8 +2046,8 @@ void write_line_slice_strided_sse2 (pmhandle *pmdata, read_write_line_slice_data
 	// Thus, j_in (index into vec) is divide_rounding_up (slice_start - stride_offset, stride) = ceil((150-10)/64) = 3.
 	// And, j_out (index into data (the gwnum array)) is j_in * stride + stride_offset = 3 * 64 + 10 = 202.
 	// LSWs_skipped complicates matters slightly.
-	int j_in = divide_rounding_up (slice_start + rwlsd->LSWs_skipped - stride_offset, stride);
-	int j_out = j_in * stride + stride_offset - rwlsd->LSWs_skipped;
+	uint64_t j_in = divide_rounding_up (slice_start + rwlsd->LSWs_skipped - stride_offset, stride);
+	uint64_t j_out = j_in * stride + stride_offset - rwlsd->LSWs_skipped;
 
 	// SSE2 instructions implementation
 	union {
@@ -2138,19 +2190,19 @@ void write_line_slice_strided_sse2 (pmhandle *pmdata, read_write_line_slice_data
 void write_line_slice_sse2 (int helper_num, pmhandle *pmdata, void *rwlsd)
 {
 	gwhandle *gwdata = pmdata->gwdata;
-	int	size = ((read_write_line_slice_data *) rwlsd)->size;
-	int	slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
+	uint64_t size = ((read_write_line_slice_data *) rwlsd)->size;
+	uint64_t slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
 	CVDT	*vec = ((read_write_line_slice_data *) rwlsd)->vec;
 
 	// Write one slice at a time
 	for ( ; ; ) {
-		int	slice_start, slice_end;
+		uint64_t slice_start, slice_end;
 		// Get slice to work on.  Atomics aren't cheap, avoid them if writing the whole line.
 		if (slice_size == size) {
 			slice_start = 0;
 			slice_end = size;
 		} else {
-			int atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
+			int64_t atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
 			slice_start = atomic_val * slice_size;
 			if (slice_start >= size) break;
 			slice_end = slice_start + slice_size;
@@ -2199,21 +2251,21 @@ void read_line_slice_dbl (int helper_num, pmhandle *pmdata, void *rwlsd)
 {
 	gwhandle *gwdata = pmdata->gwdata;
 	gwnum	*data = ((read_write_line_slice_data *) rwlsd)->data;
-	int	size = ((read_write_line_slice_data *) rwlsd)->size;
+	uint64_t size = ((read_write_line_slice_data *) rwlsd)->size;
 	int	index = ((read_write_line_slice_data *) rwlsd)->lsd.index;
 	int	options = ((read_write_line_slice_data *) rwlsd)->options;
 	bool	post_process_monics = ((read_write_line_slice_data *) rwlsd)->post_process_monics;
-	int	slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
+	uint64_t slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
 
 	// Read one slice at a time
 	for ( ; ; ) {
-		int	slice_start, slice_end;
+		uint64_t slice_start, slice_end;
 		// Get slice to work on.  Atomics aren't cheap, avoid them if reading the whole line.
 		if (slice_size == size) {
 			slice_start = 0;
 			slice_end = size;
 		} else {
-			int atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
+			int64_t atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
 			slice_start = atomic_val * slice_size;
 			if (slice_start >= size) break;
 			slice_end = slice_start + slice_size;
@@ -2247,7 +2299,7 @@ void read_line_slice_dbl (int helper_num, pmhandle *pmdata, void *rwlsd)
 
 		// No special instructions implementation
 		if (index <= -2) {			// Seven zero pad header values
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 				// Zero padded FFTs return 1 of the FFTed values for the 7 real values stored in the header
 				vec[j].real = data[j][index-10];
@@ -2255,14 +2307,14 @@ void read_line_slice_dbl (int helper_num, pmhandle *pmdata, void *rwlsd)
 			}
 		}
 		else if (index == -1) {			// First real-only value
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 				vec[j].real = data[j][0];
 				vec[j].imag = 0.0;
 			}
 		}
 		else if (index == 0 && !gwdata->ALL_COMPLEX_FFT) {			// Second real-only value
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 				if (gwdata->PASS2_SIZE == 0) vec[j].real = data[j][1];
 				else vec[j].real = data[j][2];
@@ -2271,7 +2323,7 @@ void read_line_slice_dbl (int helper_num, pmhandle *pmdata, void *rwlsd)
 		}
 		else {				// Process complex values where imaginary part is 8 or 16 bytes above the real part
 			unsigned long offset = ((read_write_line_slice_data *) rwlsd)->lsd.offset;
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
 				ASSERTG (FFT_state (data[j]) == FULLY_FFTed);
 				if (gwdata->PASS2_SIZE == 0 && index < 8 && !gwdata->ALL_COMPLEX_FFT) {
@@ -2286,7 +2338,7 @@ void read_line_slice_dbl (int helper_num, pmhandle *pmdata, void *rwlsd)
 
 		// Negate coefficients if requested
 		if (options & (POLYMULT_INVEC1_NEGATE | POLYMULT_INVEC2_NEGATE)) {
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				vec[j].real = -vec[j].real;
 				vec[j].imag = -vec[j].imag;
 			}
@@ -2294,7 +2346,7 @@ void read_line_slice_dbl (int helper_num, pmhandle *pmdata, void *rwlsd)
 
 		// Duplicate RLP data in reverse order
 		if (options & (POLYMULT_INVEC1_RLP | POLYMULT_INVEC2_RLP)) {
-			for (int j = slice_start; j < slice_end; j++) vec[-j] = vec[j];
+			for (uint64_t j = slice_start; j < slice_end; j++) vec[-(int64_t)j] = vec[j];
 		}
 
 		// If not post-processing monics and the input is monic, then output a 1+0i
@@ -2320,7 +2372,7 @@ void read_line_slice_dbl (int helper_num, pmhandle *pmdata, void *rwlsd)
 	}
 }
 
-void write_line_slice_strided_dbl (pmhandle *pmdata, read_write_line_slice_data *rwlsd, CVDT *vec, int slice_start, int slice_end, int stride_offset, int stride)
+void write_line_slice_strided_dbl (pmhandle *pmdata, read_write_line_slice_data *rwlsd, CVDT *vec, uint64_t slice_start, uint64_t slice_end, uint64_t stride_offset, uint64_t stride)
 {
 	gwhandle *gwdata = pmdata->gwdata;
 	gwnum	*data = rwlsd->data;
@@ -2335,8 +2387,8 @@ void write_line_slice_strided_dbl (pmhandle *pmdata, read_write_line_slice_data 
 	// Thus, j_in (index into vec) is divide_rounding_up (slice_start - stride_offset, stride) = ceil((150-10)/64) = 3.
 	// And, j_out (index into data (the gwnum array)) is j_in * stride + stride_offset = 3 * 64 + 10 = 202.
 	// LSWs_skipped complicates matters slightly.
-	int j_in = divide_rounding_up (slice_start + rwlsd->LSWs_skipped - stride_offset, stride);
-	int j_out = j_in * stride + stride_offset - rwlsd->LSWs_skipped;
+	uint64_t j_in = divide_rounding_up (slice_start + rwlsd->LSWs_skipped - stride_offset, stride);
+	uint64_t j_out = j_in * stride + stride_offset - rwlsd->LSWs_skipped;
 
 	// No special instructions implementation
 	if (index <= -2) {			// Seven zero pad header values
@@ -2428,19 +2480,19 @@ void write_line_slice_strided_dbl (pmhandle *pmdata, read_write_line_slice_data 
 void write_line_slice_dbl (int helper_num, pmhandle *pmdata, void *rwlsd)
 {
 	gwhandle *gwdata = pmdata->gwdata;
-	int	size = ((read_write_line_slice_data *) rwlsd)->size;
-	int	slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
+	uint64_t size = ((read_write_line_slice_data *) rwlsd)->size;
+	uint64_t slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
 	CVDT	*vec = ((read_write_line_slice_data *) rwlsd)->vec;
 
 	// Write one slice at a time
 	for ( ; ; ) {
-		int	slice_start, slice_end;
+		uint64_t slice_start, slice_end;
 		// Get slice to work on.  Atomics aren't cheap, avoid them if writing the whole line.
 		if (slice_size == size) {
 			slice_start = 0;
 			slice_end = size;
 		} else {
-			int atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
+			int64_t atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
 			slice_start = atomic_val * slice_size;
 			if (slice_start >= size) break;
 			slice_end = slice_start + slice_size;
@@ -2466,15 +2518,15 @@ void write_line_slice_dbl (int helper_num, pmhandle *pmdata, void *rwlsd)
 
 void brute_line (
 	CVDT	*invec1,		// First input poly (may be a monic with ones stripped)
-	int	invec1_size,		// Size of the first input polynomial
+	uint64_t invec1_size,		// Size of the first input polynomial
 	CVDT	*invec2,		// Second input poly (may be a monic with ones stripped)
-	int	invec2_size,		// Size of the second input polynomial
+	uint64_t invec2_size,		// Size of the second input polynomial
 	CVDT	*outvec,		// Output poly
-	int	circular_size,		// Output poly size (may be less than invec1_size + invec2_size - 1)
+	uint64_t circular_size,		// Output poly size (may be less than invec1_size + invec2_size - 1)
 	gwnum	*gw_outvec,		// Gwnum array passed to polymult (so we can detect outputs that do not need to be computed)
-	int	gw_outvec_size,		// Size of the gwnum output vector (may be less than output poly size)
+	uint64_t gw_outvec_size,	// Size of the gwnum output vector (may be less than output poly size)
 	int	adjusted_shift,		// Difference between base of outvec and base of true_outvec.  Can be non-zero when monic RLPs are multiplied.
-	int	LSWs_skipped)		// Least significant coefficients from true_outvec_size that do not need to be returned
+	uint64_t LSWs_skipped)		// Least significant coefficients from true_outvec_size that do not need to be returned
 {
 	// Loop through output indices
 	for (int out = 0; out < invec1_size + invec2_size - 1; out++) {
@@ -2489,8 +2541,8 @@ void brute_line (
 		if (gw_outvec != NULL &&
 		    (adjusted_out < LSWs_skipped || adjusted_out >= LSWs_skipped + gw_outvec_size || gw_outvec[adjusted_out - LSWs_skipped] == NULL)) continue;
 		// Get index into input vectors
-		int in1 = out < invec2_size ? 0 : out - invec2_size + 1;	// Index into invec1
-		int in2 = out - in1;						// Index into invec2
+		uint64_t in1 = out < invec2_size ? 0 : out - invec2_size + 1;	// Index into invec1
+		int64_t in2 = out - in1;					// Index into invec2
 		// Loop through all the pairs to accumulate in this output
 		for ( ; in1 < invec1_size && in2 >= 0; in1++, in2--) {
 			CVDT tmp;
@@ -2516,13 +2568,13 @@ void brute_line (
 void karatsuba_line (
 	pmhandle *pmdata,		// Handle for polymult library
 	CVDT	*invec1,		// Coefficients of first input poly
-	int	invec1_size,		// Size of the first input polynomial
+	uint64_t invec1_size,		// Size of the first input polynomial
 	CVDT	*invec2,		// Coefficients of second input poly
-	int	invec2_size,		// Size of the second input polynomial
+	uint64_t invec2_size,		// Size of the second input polynomial
 	CVDT	*tmp,			// Temporary space
 	CVDT	*outvec)		// Output poly coefficients
 {
-	int	i, a_size, b_size, c_size, d_size, a_plus_b_size, c_plus_d_size, bd_size, ac_size, a_plus_b_times_c_plus_d_size;
+	uint64_t i, a_size, b_size, c_size, d_size, a_plus_b_size, c_plus_d_size, bd_size, ac_size, a_plus_b_times_c_plus_d_size;
 	CVDT	*a, *b, *c, *d, *ac, *bd, *a_plus_b, *c_plus_d, *a_plus_b_times_c_plus_d;
 
 	// Handle end of recursion
@@ -2533,7 +2585,7 @@ void karatsuba_line (
 
 	// To simplify code, always make invec2 the larger poly.
 	if (invec1_size > invec2_size) {
-		int tmpsize = invec1_size; invec1_size = invec2_size; invec2_size = tmpsize;
+		uint64_t tmpsize = invec1_size; invec1_size = invec2_size; invec2_size = tmpsize;
 		CVDT *tmpvec = invec1; invec1 = invec2; invec2 = tmpvec;
 	}
 
@@ -2550,7 +2602,7 @@ void karatsuba_line (
 		bd_size = invec1_size + d_size - 1;
 		// Compute bc and store it in tmp
 		CVDT *bc = tmp;
-		int bc_size = invec1_size + c_size - 1;
+		uint64_t bc_size = invec1_size + c_size - 1;
 		tmp += bc_size;
 		karatsuba_line (pmdata, invec1, invec1_size, c, c_size, tmp, bc);
 		// add/copy bc to output
@@ -2610,7 +2662,7 @@ void read_preprocess_line_slice (int helper_num, pmhandle *pmdata, void *rwlsd)
 {
 	gwhandle *gwdata = pmdata->gwdata;
 	gwnum	*data = ((read_write_line_slice_data *) rwlsd)->data;
-	int	size = ((read_write_line_slice_data *) rwlsd)->size;
+	uint64_t size = ((read_write_line_slice_data *) rwlsd)->size;
 	int	line = ((read_write_line_slice_data *) rwlsd)->lsd.line;
 	int	options = ((read_write_line_slice_data *) rwlsd)->options;
 	bool	post_process_monics = ((read_write_line_slice_data *) rwlsd)->post_process_monics;
@@ -2618,7 +2670,7 @@ void read_preprocess_line_slice (int helper_num, pmhandle *pmdata, void *rwlsd)
 	preprocessed_poly_header *hdr;  // Header of the preprocessed poly being read
 	CVDT	*first_element;		// First element in the preprocessed poly array
 	CVDT	*element;		// Element to read in the preprocessed poly array
-	int	slice_size;		// Size of a slice to read
+	uint64_t slice_size;		// Size of a slice to read
 
 	// Typecast to access the preprocessed poly header
 	hdr = (preprocessed_poly_header *) ((char *) data - sizeof (gwarray_header));
@@ -2637,21 +2689,21 @@ void read_preprocess_line_slice (int helper_num, pmhandle *pmdata, void *rwlsd)
 	if (hdr->options & POLYMULT_PRE_FFT) size = hdr->line_size;
 	else ASSERTG (size == hdr->line_size);
 
-	// If multi-threading read_preprocess_line (slice_size set to zero), create a slice_size that will generate a goodly number of work units to multi-thread.
+	// If multi-threading read_preprocess_line, create a slice_size that will generate a goodly number of work units to multi-thread.
 	// If compressed, we may be able to read the poly in slices of 512 doubles.
-	if (((read_write_line_slice_data *) rwlsd)->slice_size == 0) slice_size = size;
+	if (pmdata->mt_polymult_line) slice_size = size;
 	else if (!(hdr->options & POLYMULT_PRE_COMPRESS)) slice_size = divide_rounding_up (size, 512);
 	else slice_size = hdr->line_size / hdr->num_compressed_blks;
 
 	// Read one slice at a time
 	for ( ; ; ) {
-		int	slice_start, slice_end;
+		uint64_t slice_start, slice_end;
 		// Get slice to work on.  Atomics aren't cheap, avoid them if reading the whole line.
 		if (slice_size == size) {
 			slice_start = 0;
 			slice_end = size;
 		} else {
-			int atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
+			int64_t atomic_val = atomic_fetch_incr (((read_write_line_slice_data *) rwlsd)->blknum);
 			slice_start = atomic_val * slice_size;
 			if (slice_start >= size) break;
 			slice_end = slice_start + slice_size;
@@ -2665,7 +2717,7 @@ void read_preprocess_line_slice (int helper_num, pmhandle *pmdata, void *rwlsd)
 		// that was computed by polymult_line_preprocess.
 		if (hdr->options & POLYMULT_PRE_FFT) {
 			if (!(hdr->options & POLYMULT_PRE_COMPRESS))
-				memcpy (&vec[slice_start], &element[slice_start], (uint64_t) (slice_end - slice_start) * sizeof (CVDT));
+				memcpy (&vec[slice_start], &element[slice_start], (size_t) (slice_end - slice_start) * sizeof (CVDT));
 			else
 				decompress_line_slice ((char *) element, (char *) &vec[slice_start], hdr, slice_start, slice_end, sizeof (CVDT));
 			if (slice_end == size) break;
@@ -2697,12 +2749,12 @@ void read_preprocess_line_slice (int helper_num, pmhandle *pmdata, void *rwlsd)
 
 		// Copy the preprocessed entry
 		ASSERTG ((hdr->options & POLYMULT_PRE_COMPRESS) || hdr->element_size == size * sizeof (CVDT));
-		if (!(hdr->options & POLYMULT_PRE_COMPRESS)) memcpy (&vec[slice_start], &element[slice_start], (uint64_t) (slice_end - slice_start) * sizeof (CVDT));
+		if (!(hdr->options & POLYMULT_PRE_COMPRESS)) memcpy (&vec[slice_start], &element[slice_start], (size_t) (slice_end - slice_start) * sizeof (CVDT));
 		else decompress_line_slice ((char *) element, (char *) &vec[slice_start], hdr, slice_start, slice_end, sizeof (CVDT));
 
 		// If we've delayed splitting the two real values in !ALL_COMPLEX_FFT turn the two reals into two complex values here
 		if (!gwdata->ALL_COMPLEX_FFT && !gwdata->ZERO_PADDED_FFT && index_to_read == 0) {
-			for (int j = slice_start; j < slice_end; j++) {
+			for (uint64_t j = slice_start; j < slice_end; j++) {
 				union { VDT a; double b[VLEN / sizeof(double)]; } r, i;
 				r.a = vec[j].real;
 				i.a = vec[j].imag;
@@ -2720,7 +2772,7 @@ void read_preprocess_line_slice (int helper_num, pmhandle *pmdata, void *rwlsd)
 
 		// Duplicate RLP data in reverse order
 		if (options & (POLYMULT_INVEC1_RLP | POLYMULT_INVEC2_RLP)) {
-			for (int j = slice_start; j < slice_end; j++) vec[-j] = vec[j];
+			for (uint64_t j = slice_start; j < slice_end; j++) vec[-(int64_t)j] = vec[j];
 		}
 
 		// If not post-processing monics and the input is monic, then output a 1+0i
@@ -2776,11 +2828,8 @@ void read_line (pmhandle *pmdata, read_write_line_slice_data *rwlsd)
 	// polymult_launch must not atomic_set helper_counter as polymult_line is using that variable.
 	else {
 		if (pmdata->mt_polymult_line) {
-			rwlsd->slice_size = 0;			// Indicates not multi-threading, read_preprocess_line_slice figures out slice_size
 			read_preprocess_line_slice (0, pmdata, rwlsd);
 		} else {
-			// Create a slice_size that will generate a goodly number of work units to multi-thread
-			rwlsd->slice_size = -1;			// Indicates multi-threading, read_preprocess_line_slice figures out slice_size
 			atomic_set (rwlsd->blknum, 0);
 			pmdata->internal_callback = &read_preprocess_line_slice;
 			pmdata->internal_callback_data = rwlsd;
@@ -2829,14 +2878,14 @@ typedef struct {
 	int	options;			// Options passed to fft_line
 	bool	multithreading;			// TRUE if multi-threading each FFT pass
 	bool	write_direct;			// TRUE if FFT should copy outvec to the rwlsd3 gwnum array
-	int	invec1_size;			// Size of invec1 after read_line.  Will zero pad from invec1_size to fft_size.
-	int	invec2_size;			// Size of invec2 after read_line.  Will zero pad from invec2_size to fft_size.
-	unsigned int fft_size;			// FFT size
+	uint64_t invec1_size;			// Size of invec1 after read_line.  Will zero pad from invec1_size to fft_size.
+	uint64_t invec2_size;			// Size of invec2 after read_line.  Will zero pad from invec2_size to fft_size.
+	uint64_t fft_size;			// FFT size
 	unsigned int powers_of_two;		// Count of powers of two in fft_size
-	unsigned int pass1_size;		// Size of pass 1 in a two-pass FFT
-	unsigned int pass2_size;		// Size of pass 2 in a two-pass FFT
-	unsigned int starting_twiddle3_stride;	// Starting stride in a fft_line_pass for the radix-3 twiddles data
-	unsigned int starting_twiddle45_stride;	// Starting stride in a fft_line_pass for the radix-4/5 twiddles data
+	uint32_t pass1_size;			// Size of pass 1 in a two-pass FFT
+	uint32_t pass2_size;			// Size of pass 2 in a two-pass FFT
+	uint64_t starting_twiddle3_stride;	// Starting stride in a fft_line_pass for the radix-3 twiddles data
+	uint64_t starting_twiddle45_stride;	// Starting stride in a fft_line_pass for the radix-4/5 twiddles data
 	unsigned int pass;			// Pass number (1,2,3).  The pointwise multiplication takes place in pass 2.
 	unsigned int pass_size;			// Size of the current pass
 	unsigned int pass_stride;		// Distance between smallest elements in a pass
@@ -2866,7 +2915,7 @@ void fft_line_pass (
 		unsigned int blknum;
 
 		// Get blknum to work on either atomicly or non-atomicly
-		if (pd->multithreading) blknum = atomic_fetch_incr (pd->blknum);
+		if (pd->multithreading) blknum = (int) atomic_fetch_incr (pd->blknum);
 		else blknum = non_atomic_val++;
 		if (blknum >= pd->num_exterior_blks * pd->num_interior_blks) break;
 
@@ -2885,9 +2934,9 @@ void fft_line_pass (
 		unsigned int stride;			// Logical stride through the FFT (often the same as input and output stride through memory)
 		unsigned int instride1;			// Unit stride through input FFT data in memory
 		unsigned int outstride1;		// Unit stride through output FFT data in memory
-		unsigned int twiddle3_stride;		// Stride through the radix-3 twiddles data
-		unsigned int twiddle45_stride;		// Stride through the radix-4/5 twiddles data
-		unsigned int src_size;			// How much of the pass_size has been read in for this blknum (rest of pass_size must be zero padded)
+		uint64_t twiddle3_stride;		// Stride through the radix-3 twiddles data
+		uint64_t twiddle45_stride;		// Stride through the radix-4/5 twiddles data
+		uint64_t src_size;			// How much of the pass_size has been read in for this blknum (rest of pass_size must be zero padded)
 		bool	zpad;				// TRUE if zero padding is needed
 
 // Load starting twiddle strides for each block in the pass
@@ -2943,15 +2992,15 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 			    stride = size / 3;
 			    if (pd->pass == 1 && stride == 1) dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blki, outstride1 = pd->pass2_size;
 			    for (unsigned int group = 0; group < pd->pass_size; group += stride * 3) {
-				unsigned int group_member = 0;		// Current group member to process
-				unsigned int last_group_member;		// Last group member to process.  We will process stride group members.
+				uint64_t group_member = 0;		// Current group member to process
+				uint64_t last_group_member;		// Last group member to process.  We will process stride group members.
 
 				// Radix-3 with no zero padding
 				if (!zpad) last_group_member = stride;			// The not zero padding case, read 3 values for all groups
 				else if (src_size <= 2 * stride) last_group_member = 0;	// No groups have 3 values to read
 				else last_group_member = src_size - 2 * stride;		// Some groups have 3 values, the rest have 2 values
 				for ( ; group_member < last_group_member; group_member++) {
-					unsigned int twiddle_idx = ((group_member * pd->pass_stride) + blki) * twiddle3_stride;
+					uint64_t twiddle_idx = ((group_member * pd->pass_stride) + blki) * twiddle3_stride;
 					CVDT a = src[instride1*(group + group_member)];
 					CVDT b = src[instride1*(group + group_member + stride)];
 					CVDT c = src[instride1*(group + group_member + 2*stride)];
@@ -2986,7 +3035,7 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 				else if (src_size <= stride) last_group_member = 0;	// No groups have 2 values to read
 				else last_group_member = src_size - stride;		// Some groups have 2 values, the rest have 1 value
 				for ( ; group_member < last_group_member; group_member++) {
-					unsigned int twiddle_idx = group_member * instride1 + blki;
+					uint64_t twiddle_idx = group_member * instride1 + blki;
 					CVDT a = src[instride1*(group_member)];
 					CVDT b_in = src[instride1*(group_member + stride)];
 					CVDT b, c, tmp23;
@@ -3016,7 +3065,7 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 				if (group_member != 0) last_group_member = stride;	// We found some 2 value groups, the rest have 1 value
 				else last_group_member = src_size;			// Some groups have 1 values, the rest have 0 values
 				for ( ; group_member < last_group_member; group_member++) {
-					unsigned int twiddle_idx = group_member * instride1 + blki;
+					uint64_t twiddle_idx = group_member * instride1 + blki;
 					CVDT a = src[instride1*(group_member)];
 
 					if (twiddle_idx == 0) {	// First group member's twiddles are 1+0i, skip twiddle multiply
@@ -3060,15 +3109,15 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 			    stride = size / 5;
 			    if (pd->pass == 1 && stride == 1) dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blki, outstride1 = pd->pass2_size;
 			    for (unsigned int group = 0; group < pd->pass_size; group += stride * 5) {
-				unsigned int group_member = 0;		// Current group member to process
-				unsigned int last_group_member;		// Last group member to process.  We will process stride group members.
+				uint64_t group_member = 0;		// Current group member to process
+				uint64_t last_group_member;		// Last group member to process.  We will process stride group members.
 
 				// Radix-5 with no zero padding
 				if (!zpad) last_group_member = stride;			// The not zero padding case, read 5 values for all groups
 				else if (src_size <= 4 * stride) last_group_member = 0;	// No groups have 5 values to read
 				else last_group_member = src_size - 4 * stride;		// Some groups have 5 values, the rest have 4 values
 				for ( ; group_member < last_group_member; group_member++) {
-					unsigned int twiddle_idx = ((group_member * pd->pass_stride) + blki) * twiddle45_stride;
+					uint64_t twiddle_idx = ((group_member * pd->pass_stride) + blki) * twiddle45_stride;
 					CVDT a = src[instride1*(group + group_member)];
 					CVDT b = src[instride1*(group + group_member + stride)];
 					CVDT c = src[instride1*(group + group_member + 2*stride)];
@@ -3124,7 +3173,7 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 				else if (src_size <= 3 * stride) last_group_member = 0;	// No groups have 4 values to read
 				else last_group_member = src_size - 3 * stride;		// Some groups have 4 values, the rest have 3 values
 				for ( ; group_member < last_group_member; group_member++) {
-					unsigned int twiddle_idx = group_member * instride1 + blki;
+					uint64_t twiddle_idx = group_member * instride1 + blki;
 					CVDT a = src[instride1*(group_member)];
 					CVDT b = src[instride1*(group_member + stride)];
 					CVDT c = src[instride1*(group_member + 2*stride)];
@@ -3174,7 +3223,7 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 				else if (src_size <= 2 * stride) last_group_member = 0;	// No groups have 3 values to read
 				else last_group_member = src_size - 2 * stride;		// Some groups have 3 values, the rest have 2 values
 				for ( ; group_member < last_group_member; group_member++) {
-					unsigned int twiddle_idx = group_member * instride1 + blki;
+					uint64_t twiddle_idx = group_member * instride1 + blki;
 					CVDT a = src[instride1*(group_member)];
 					CVDT b = src[instride1*(group_member + stride)];
 					CVDT c = src[instride1*(group_member + 2*stride)];
@@ -3220,7 +3269,7 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 				else if (src_size <= stride) last_group_member = 0;	// No groups have 2 values to read
 				else last_group_member = src_size - stride;		// Some groups have 2 values, the rest have 1 value
 				for ( ; group_member < last_group_member; group_member++) {
-					unsigned int twiddle_idx = group_member * instride1 + blki;
+					uint64_t twiddle_idx = group_member * instride1 + blki;
 					CVDT a = src[instride1*(group_member)];
 					CVDT b_in = src[instride1*(group_member + stride)];
 					CVDT b, c, d, e, tmp25a, tmp34a;
@@ -3259,7 +3308,7 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 				if (group_member != 0) last_group_member = stride;	// We found some 2 value groups, the rest have 1 value
 				else last_group_member = src_size;			// Some groups have 1 value, the rest have 0 values
 				for ( ; group_member < last_group_member; group_member++) {
-					unsigned int twiddle_idx = group_member * instride1 + blki;
+					uint64_t twiddle_idx = group_member * instride1 + blki;
 					CVDT a = src[instride1*(group_member)];
 
 					if (twiddle_idx == 0) {	// First group member's twiddles are 1+0i, skip twiddle multiply
@@ -3294,15 +3343,15 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 			    stride = size / 4;
 			    if (pd->pass == 1 && stride == 1) dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blki, outstride1 = pd->pass2_size;
 			    for (unsigned int group = 0; group < pd->pass_size; group += stride * 4) {
-				unsigned int group_member = 0;		// Current group member to process
-				unsigned int last_group_member;		// Last group member to process.  We will process stride group members.
+				uint64_t group_member = 0;		// Current group member to process
+				uint64_t last_group_member;		// Last group member to process.  We will process stride group members.
 
 				// Radix-4 with no zero padding
 				if (!zpad) last_group_member = stride;			// The not zero padding case, read 4 values for all groups
 				else if (src_size <= 3 * stride) last_group_member = 0;	// No groups have 4 values to read
 				else last_group_member = src_size - 3 * stride;		// Some groups have 3 values, the rest have 3 values
 				for ( ; group_member < last_group_member; group_member++) {
-					unsigned int twiddle_idx = ((group_member * pd->pass_stride) + blki) * twiddle45_stride;
+					uint64_t twiddle_idx = ((group_member * pd->pass_stride) + blki) * twiddle45_stride;
 					CVDT a = src[instride1*(group + group_member)];
 					CVDT b = src[instride1*(group + group_member + stride)];
 					CVDT c = src[instride1*(group + group_member + 2*stride)];
@@ -3340,7 +3389,7 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 				else if (src_size <= 2 * stride) last_group_member = 0;	// No groups have 3 values to read
 				else last_group_member = src_size - 2 * stride;		// Some groups have 3 values, the rest have 2 values
 				for ( ; group_member < last_group_member; group_member++) {
-					unsigned int twiddle_idx = group_member * instride1 + blki;
+					uint64_t twiddle_idx = group_member * instride1 + blki;
 					CVDT a = src[instride1*(group_member)];
 					CVDT b_in = src[instride1*(group_member + stride)];
 					CVDT c = src[instride1*(group_member + 2*stride)];
@@ -3374,7 +3423,7 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 				else if (src_size <= stride) last_group_member = 0;	// No groups have 2 values to read
 				else last_group_member = src_size - stride;		// Some groups have 2 values, the rest have 1 value
 				for ( ; group_member < last_group_member; group_member++) {
-					unsigned int twiddle_idx = group_member * instride1 + blki;
+					uint64_t twiddle_idx = group_member * instride1 + blki;
 					CVDT a_in = src[instride1*(group_member)];
 					CVDT b_in = src[instride1*(group_member + stride)];
 					CVDT a, b, c, d;
@@ -3405,7 +3454,7 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 				if (group_member != 0) last_group_member = stride;	// We found some 2 value groups, the rest have 1 value
 				else last_group_member = src_size;			// Some groups have 1 value, the rest have 0 values
 				for ( ; group_member < last_group_member; group_member++) {
-					unsigned int twiddle_idx = group_member * instride1 + blki;
+					uint64_t twiddle_idx = group_member * instride1 + blki;
 					CVDT a = src[instride1*(group_member)];
 
 					if (twiddle_idx == 0) {	// First group member's twiddles are 1+0i, skip twiddle multiply
@@ -3576,7 +3625,7 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 			if (pd->pass == 3 && stride * 4 == pd->pass_size && !pd->write_direct) dest = pd->outvec + blki, outstride1 = pd->pass2_size;
 			for (unsigned int group = 0; group < pd->pass_size; group += stride * 4) {
 				for (unsigned int group_member = 0; group_member < stride; group_member++) {
-					unsigned int twiddle_idx = ((group_member * pd->pass_stride) + blki) * twiddle45_stride;
+					uint64_t twiddle_idx = ((group_member * pd->pass_stride) + blki) * twiddle45_stride;
 					CVDT a = src[instride1*(group + group_member)];
 					CVDT b = src[instride1*(group + group_member + stride)];
 					CVDT c = src[instride1*(group + group_member + 2*stride)];
@@ -3644,7 +3693,7 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 			VDT _588_951 = broadcastsd (0.61803398874989484820458683436564);
 			for (unsigned int group = 0; group < pd->pass_size; group += stride * 5) {
 				for (unsigned int group_member = 0; group_member < stride; group_member++) {
-					unsigned int twiddle_idx = ((group_member * pd->pass_stride) + blki) * twiddle45_stride;
+					uint64_t twiddle_idx = ((group_member * pd->pass_stride) + blki) * twiddle45_stride;
 					CVDT a = src[instride1*(group + group_member)];
 					CVDT b = src[instride1*(group + group_member + stride)];
 					CVDT c = src[instride1*(group + group_member + 2*stride)];
@@ -3702,7 +3751,7 @@ else src = dest = (srcarg == 1 ? pd->invec1 : pd->invec2) + blke * pd->pass2_siz
 			VDT _866 = broadcastsd (0.86602540378443864676372317075294);
 			for (unsigned int group = 0; group < pd->pass_size; group += stride * 3) {
 				for (unsigned int group_member = 0; group_member < stride; group_member++) {
-					unsigned int twiddle_idx = ((group_member * pd->pass_stride) + blki) * twiddle3_stride;
+					uint64_t twiddle_idx = ((group_member * pd->pass_stride) + blki) * twiddle3_stride;
 					CVDT a = src[instride1*(group + group_member)];
 					CVDT b = src[instride1*(group + group_member + stride)];
 					CVDT c = src[instride1*(group + group_member + 2*stride)];
@@ -3755,7 +3804,7 @@ void fft_line (
 	generate_sincos (pmdata, pd->fft_size);
 
 	// Init some needed items
-	for (pd->powers_of_two = 0; (pd->fft_size & (1 << pd->powers_of_two)) == 0; pd->powers_of_two++);	// Count powers of two to see if radix-8 step needed
+	for (pd->powers_of_two = 0; (pd->fft_size & (1ULL << pd->powers_of_two)) == 0; pd->powers_of_two++);	// Count powers of two to see if radix-8 step needed
 	for (threes_in_fft_size = 1; pd->fft_size % (threes_in_fft_size * 3) == 0; threes_in_fft_size *= 3);	// Count powers of three for twiddle stride calcs
 	pd->inv_fft_size = broadcastsd (1.0 / (double) pd->fft_size);
 	pd->inv_fft_size_707 = broadcastsd (0.70710678118654752440084436210485 / (double) pd->fft_size);
@@ -3833,10 +3882,10 @@ void fft_line (
 }
 
 // outvec += addin vector shifted the proper amount to create a monic polymult result
-__inline void monic_line_add_hi (CVDT *fft1, CVDT *addinvec, int addinvec_size, CVDT *outvec, int outvec_size, int circular_size, bool leading_one, bool trailing_one)
+__inline void monic_line_add_hi (CVDT *fft1, CVDT *addinvec, uint64_t addinvec_size, CVDT *outvec, uint64_t outvec_size, uint64_t circular_size, bool leading_one, bool trailing_one)
 {
 	// Add (or multiply and add) words starting from the highest word
-	int outvec_index = (outvec_size-1) % circular_size;
+	int64_t outvec_index = (outvec_size-1) % circular_size;
 	for (addinvec += addinvec_size-1; addinvec_size; addinvec--, addinvec_size--, outvec_index--) {
 		if (outvec_index < 0) outvec_index = circular_size - 1;
 		if (leading_one) { leading_one = FALSE; continue; }
@@ -3852,10 +3901,10 @@ __inline void monic_line_add_hi (CVDT *fft1, CVDT *addinvec, int addinvec_size, 
 }
 
 // outvec += addin vector shifted to the low part of outvec
-__inline void monic_line_add_lo (CVDT *fft1, CVDT *addinvec, int addinvec_size, CVDT *outvec, int outvec_size, int circular_size, bool leading_one, bool trailing_one)
+__inline void monic_line_add_lo (CVDT *fft1, CVDT *addinvec, uint64_t addinvec_size, CVDT *outvec, uint64_t outvec_size, uint64_t circular_size, bool leading_one, bool trailing_one)
 {
 	// Add (or multiply and add) words starting from the lowest word
-	for (int outvec_index = 0; addinvec_size; addinvec++, addinvec_size--, outvec_index++) {
+	for (uint64_t outvec_index = 0; addinvec_size; addinvec++, addinvec_size--, outvec_index++) {
 		if (outvec_index == circular_size) outvec_index = 0;
 		if (trailing_one) { trailing_one = FALSE; continue; }
 		if (leading_one && addinvec_size == 1) continue;
@@ -3873,12 +3922,12 @@ __inline void monic_line_add_lo (CVDT *fft1, CVDT *addinvec, int addinvec_size, 
 void monic_line_adjustments (
 	pmhandle *pmdata,
 	CVDT	*addinvec,		// Polynomial to add to the output vector
-	int	addinvec_size,		// Size of the polynomial to add to the output vector
+	uint64_t addinvec_size,		// Size of the polynomial to add to the output vector
 	int	addinvec_options,	// Options associated with the addin vector
 	bool	addinvec_monics_stripped, // TRUE if monic ones have been stripped from addin vector
 	CVDT	*outvec,		// Output polynomial
-	int	outvec_size,		// Size of output polynomial
-	int	circular_size,		// Emulating output modulo (X^circular_size - 1)
+	uint64_t outvec_size,		// Size of output polynomial
+	uint64_t circular_size,		// Emulating output modulo (X^circular_size - 1)
 //GW	     need LSWs_skipped? gw_outvec_size?
 	int	line,			// gwnum "line" number 
 	int	options)		// Options for the monic vector that had its ones stripped forcing the need to add in the addin_vector
@@ -3926,9 +3975,9 @@ void polymult_line_preprocess (
 	preprocess_plan *plan = (preprocess_plan *) pmdata->plan;	// Plan for how to implement an invec1 by invec2 preprocessing
 	preprocessed_poly_header *hdr = plan->hdr;	// Header of the preprocessed poly under construction
 	gwnum	*gw_invec1 = pmdata->invec1;		// Input poly
-	int	invec1_size = pmdata->invec1_size;	// Size of the input poly
+	uint64_t invec1_size = pmdata->invec1_size;	// Size of the input poly
 	int	options = pmdata->options;
-	int	fft_size = plan->fft_size;
+	uint64_t fft_size = plan->fft_size;
 	int	line;
 	int	lines_combined;				// Set when lines 0 and 1 are merged into one preprocessed output element
 	CVDT	*invec1, *scratch;
@@ -3959,7 +4008,7 @@ void polymult_line_preprocess (
 	rwlsd.size = invec1_size;
 	rwlsd.options = options & INVEC1_OPTIONS;
 	rwlsd.post_process_monics = plan->strip_monic_from_invec1;
-	while ((line = atomic_fetch_incr (pmdata->helper_counter)) < pmdata->num_lines) {
+	while ((line = (int) atomic_fetch_incr (pmdata->helper_counter)) < pmdata->num_lines) {
 
 		// See if we've already combined lines zero and one
 		lines_combined = plan->combine_two_lines && line > 0;
@@ -4028,8 +4077,10 @@ void polymult_line (
 	pmhandle *pmdata)		// Handle for polymult library
 {
 	polymult_plan *plan = (polymult_plan *) pmdata->plan;		// Plan for how to implement each multiplication
-	int	true_invec1_size, true_invec2_size, true_outvec_size, alloc_scratch_size;
-	int	invec1_size, invec2_size, outvec_size, fft_size, fft_options, line;
+	uint64_t true_invec1_size, true_invec2_size, true_outvec_size;
+	uint64_t invec1_size, invec2_size, outvec_size, fft_size;
+	uint32_t alloc_scratch_size;
+	int	fft_options, line;
 	bool	invec1_pre_ffted, invec2_pre_ffted;
 	CVDT	*invec1_buffer, *invec2_buffer, *outvec_buffer, *tmpvec_buffer, *scratch_buffer;
 	CVDT	*invec1;
@@ -4040,7 +4091,7 @@ void polymult_line (
 
 	// Grab polymult arguments out of the pmdata structure.  They were copied there so all threads have access to them.
 	gwnum	*gw_invec1 = pmdata->invec1;			// First input poly
-	int	gw_invec1_size = pmdata->invec1_size;		// Size of the first input polynomial
+	uint64_t gw_invec1_size = pmdata->invec1_size;		// Size of the first input polynomial
 
 	// Check for pre-processed input poly
 	invec1_pre_ffted = is_preprocessed_poly (gw_invec1) && is_preffted_poly (gw_invec1);
@@ -4049,10 +4100,10 @@ void polymult_line (
 	// If fft_line is multi-threaded we need a scratch buffer for each helper that fft_line might spawn.
 	alloc_scratch_size = 0;
 	for (int i = 0; i < pmdata->num_other_polys; i++) {
-		unsigned int pass1_size, pass2_size;
+		uint32_t pass1_size, pass2_size;
 		if (plan->planpart[i].impl != POLYMULT_IMPL_FFT) continue;
 		pick_pass_sizes (pmdata, plan->planpart[i].fft_size, &pass1_size, &pass2_size);
-		if (pass1_size > 1 && (int) pass1_size > alloc_scratch_size) alloc_scratch_size = pass1_size;
+		if (pass1_size > 1 && pass1_size > alloc_scratch_size) alloc_scratch_size = pass1_size;
 	}
 	if (!pmdata->mt_polymult_line) alloc_scratch_size *= pmdata->num_threads;
 
@@ -4111,7 +4162,7 @@ void polymult_line (
 	}
 
 	// Grab a "line of complex values" from each gwnum coefficient.  Work that data set.  Then move onto remaining lines in the gwnums.
-	while ((line = atomic_fetch_incr (pmdata->helper_counter)) < pmdata->num_lines) {
+	while ((line = (int) atomic_fetch_incr (pmdata->helper_counter)) < pmdata->num_lines) {
 	    CVDT *invec2, *outvec, *true_outvec, *tmpvec, *scratch;
 	    tmpvec = tmpvec_buffer;
 	    scratch = scratch_buffer;
@@ -4120,11 +4171,11 @@ void polymult_line (
 	    prep_line (pmdata, line, &rwlsd1);
 
 	    // Loop over all the other polys to multiply with the first poly
-	    int prev_fft_size = 0;
+	    uint64_t prev_fft_size = 0;
 	    for (int i = 0; i < pmdata->num_other_polys; i++) {
 		gwnum	*gw_invec2 = pmdata->other_polys[i].invec2;		// Second input poly
 		gwnum	*gw_outvec = pmdata->other_polys[i].outvec;		// Output poly of size invec1_size + invec2_size - 1
-		int	gw_outvec_size = pmdata->other_polys[i].outvec_size;	// Size of the output polynomial.  Should be invec1_size + invec2_size (less one if not monic).
+		uint64_t gw_outvec_size = pmdata->other_polys[i].outvec_size;	// Size of the output polynomial.  Should be invec1_size + invec2_size (less one if not monic).
 		int	options = pmdata->options | pmdata->other_polys[i].options;
 		struct planpart *planpart = &plan->planpart[i];
 
@@ -4137,7 +4188,7 @@ void polymult_line (
 		bool	post_monic_addin_invec2;	// True if ones are stripped from monic invec1 requiring invec2 to be added in during post processing
 		bool	strip_monic_from_invec2;	// True if ones are stripped from monic invec2 usually requiring invec1 to be added in during post processing
 		bool	post_monic_addin_invec1;	// True if ones are stripped from monic invec2 requiring invec1 to be added in during post processing
-		int	circular_size, LSWs_skipped;
+		uint64_t circular_size, LSWs_skipped;
 
 		strip_monic_from_invec1 = planpart->strip_monic_from_invec1;
 		strip_monic_from_invec2 = planpart->strip_monic_from_invec2;
@@ -4223,8 +4274,8 @@ void polymult_line (
 			fftd.scratch = scratch;
 			fftd.options = fft_options;
 			fftd.fft_size = fft_size;
-			fftd.write_direct = pmdata->enable_strided_writes && !planpart->emulate_circular && !post_monic_addin_invec1 && !post_monic_addin_invec2;
-//GW: Need variable (from an INI file?) that says no strided writes above this polymult size
+			fftd.write_direct = (fft_size < pmdata->strided_writes_end && !planpart->emulate_circular &&
+					     !post_monic_addin_invec1 && !post_monic_addin_invec2);
 			fft_line (pmdata, &fftd);
 			// Remember poly FFT size for next invec2
 			prev_fft_size = fft_size;
@@ -4232,7 +4283,7 @@ void polymult_line (
 
 		// Emulate circular_size when necessary.  We only do this for coefficients that might actual be returned to the caller.
 		if (planpart->emulate_circular) {
-			int	i, adjusted_i;		// i is index into true_outvec, adjusted_i is i % circular_size
+			uint64_t i, adjusted_i;		// i is index into true_outvec, adjusted_i is i % circular_size
 			for (i = circular_size + LSWs_skipped, adjusted_i = LSWs_skipped; i < true_outvec_size; ) {
 				if (adjusted_i >= LSWs_skipped + gw_outvec_size) {
 					i = divide_rounding_up (i, circular_size) * circular_size + LSWs_skipped;
@@ -4355,7 +4406,7 @@ void polymult_thread (void *arg)
 /* Generate a unique helper thread number (so that callback routine to uniquely identify helper threads) */
 /* Call gwnum's optional user provided callback routine so that the caller can set the thread's priority and affinity */
 
-	int thread_num = atomic_incr_fetch (pmdata->next_thread_num);
+	int thread_num = (int) atomic_incr_fetch (pmdata->next_thread_num);
 	if (pmdata->gwdata->thread_callback != NULL)
 		(*pmdata->gwdata->thread_callback) (thread_num, 20, pmdata->gwdata->thread_callback_data);
 
@@ -4376,27 +4427,28 @@ void polymult_thread (void *arg)
 	    /* signalled!  We  must catch these workers right here.  If they were to get past this section, they could read some inconsistent state that */
 	    /* the main thread has changed in preparation for the next batch of work for the helper threads. */
 	    if (pmdata->all_work_assigned) continue;
-	    num_active_helpers = atomic_incr_fetch (pmdata->num_active_helpers);
-	    if (!pmdata->all_work_assigned) {			// all_work_assigned set should be rare
+	    num_active_helpers = (int) atomic_incr_fetch (pmdata->num_active_helpers);
+	    if (!pmdata->all_work_assigned) {		// Check for rare case of all_work_assigned set during atomic_incr_fetch
 
-		// If caller requests using fewer than the maximum number of helper threads, then some of the helpers need to do nothing
-		if (num_active_helpers > pmdata->num_threads);
-
-		// User-defined callbacks and some polymult helpers require a cloned gwdata
-		if (!cloned_gwdata_initialized && pmdata->helper_opcode != HELPER_PREPROCESS_LINE && pmdata->helper_opcode != HELPER_POLYMULT_LINE) {
+		// Dispatch unless caller requests using fewer than the maximum number of helper threads
+		if (num_active_helpers < pmdata->num_threads) {
+			    
+		    // User-defined callbacks and some polymult helpers require a cloned gwdata
+		    if (!cloned_gwdata_initialized && pmdata->helper_opcode != HELPER_PREPROCESS_LINE && pmdata->helper_opcode != HELPER_POLYMULT_LINE) {
 			gwclone (&cloned_gwdata, pmdata->gwdata);		// Clone gwdata
 			cloned_gwdata_initialized = TRUE;
-		}
+		    }
 
-		// Dispatch to perform the correct work
-		polymult_dispatch (thread_num, pmdata, &cloned_gwdata);
+		    // Dispatch to perform the correct work
+		    polymult_dispatch (thread_num, pmdata, &cloned_gwdata);
 
-		// Helpers that used a cloned gwdata require gwdata stats to be merged
-		if (pmdata->helper_opcode != HELPER_PREPROCESS_LINE && pmdata->helper_opcode != HELPER_POLYMULT_LINE) {
+		    // Helpers that used a cloned gwdata require gwdata stats to be merged
+		    if (pmdata->helper_opcode != HELPER_PREPROCESS_LINE && pmdata->helper_opcode != HELPER_POLYMULT_LINE) {
 			gwmutex_lock (&pmdata->poly_mutex);
 			if (pmdata->stats_gwdata == NULL) pmdata->stats_gwdata = &cloned_gwdata;	// Nothing to add our stats to yet
 			else gwclone_merge_stats (pmdata->stats_gwdata, &cloned_gwdata);		// Add our stats to pmdata->stats_gwdata
 			gwmutex_unlock (&pmdata->poly_mutex);
+		    }
 		}
 
 		// No more work to assign to helper threads
@@ -4495,9 +4547,9 @@ void polymult_launch_helpers (
 gwarray polymult_preprocess (		// Returns a plug-in replacement for the input poly
 	pmhandle *pmdata,		// Handle for polymult library
 	gwnum	*invec1,		// Input poly
-	int	invec1_size,		// Size of the input polynomial
-	int	invec2_size,		// Size of the other polynomial that will be used in a future polymult call
-	int	outvec_size,		// Size of the output polynomial that will be used in a future polymult call
+	uint64_t invec1_size,		// Size of the input polynomial
+	uint64_t invec2_size,		// Size of the other polynomial that will be used in a future polymult call
+	uint64_t outvec_size,		// Size of the output polynomial that will be used in a future polymult call
 	int	options)		// Future polymult options preprocessing options (FFT, compress -- see polymult.h)
 {
 	preprocess_plan plan;		// Plan for how to implement preprocessing invec1 
@@ -4650,11 +4702,11 @@ gwarray polymult_preprocess (		// Returns a plug-in replacement for the input po
 void polymult (
 	pmhandle *pmdata,		// Handle for polymult library
 	gwnum	*invec1,		// First input poly
-	int	invec1_size,		// Size of the first input polynomial
+	uint64_t invec1_size,		// Size of the first input polynomial
 	gwnum	*invec2,		// Second input poly
-	int	invec2_size,		// Size of the second input polynomial
+	uint64_t invec2_size,		// Size of the second input polynomial
 	gwnum	*outvec,		// Output poly
-	int	outvec_size,		// Size of the output polynomial (or fft_size if POLYMULT_CIRCULAR)
+	uint64_t outvec_size,		// Size of the output polynomial (or fft_size if POLYMULT_CIRCULAR)
 	int	options)
 {
 	polymult_arg arg;
@@ -4681,11 +4733,11 @@ void polymult (
 void polymult_fma (
 	pmhandle *pmdata,		// Handle for polymult library
 	gwnum	*invec1,		// First input poly
-	int	invec1_size,		// Size of the first input polynomial
+	uint64_t invec1_size,		// Size of the first input polynomial
 	gwnum	*invec2,		// Second input poly
-	int	invec2_size,		// Size of the second input polynomial
+	uint64_t invec2_size,		// Size of the second input polynomial
 	gwnum	*outvec,		// Output poly
-	int	outvec_size,		// Size of the output polynomial (or fft_size if POLYMULT_CIRCULAR)
+	uint64_t outvec_size,		// Size of the output polynomial (or fft_size if POLYMULT_CIRCULAR)
 	gwnum	*fmavec,		// FMA poly to add or subtract from poly multiplication result.  Same size as outvec, cannot be preprocessed.
 	int	options)
 {
@@ -4712,14 +4764,14 @@ void polymult_fma (
 void polymult2 (
 	pmhandle *pmdata,		// Handle for polymult library
 	gwnum	*invec1,		// First input poly
-	int	invec1_size,		// Size of the first input polynomial
+	uint64_t invec1_size,		// Size of the first input polynomial
 	gwnum	*invec2,		// Second input poly
-	int	invec2_size,		// Size of the second input polynomial
+	uint64_t invec2_size,		// Size of the second input polynomial
 	gwnum	*outvec,		// Output poly
-	int	outvec_size,		// Size of the output polynomial.  If POLYMULT_MULHI or POLYMULT_MULLO is set this is the number of coefficients to return.
+	uint64_t outvec_size,		// Size of the output polynomial.  If POLYMULT_MULHI or POLYMULT_MULLO is set this is the number of coefficients to return.
 	gwnum	*fmavec,		// FMA poly to add or subtract from poly multiplication result.  Same size as outvec, cannot be preprocessed.
-	int	circular_size,		// If POLYMULT_CIRCULAR set, compute poly result modulo (X^circular_size - 1)
-	int	first_mulmid,		// If POLYMULT_MULMID set, this is the number of least significant coefficients that will not be returned
+	uint64_t circular_size,		// If POLYMULT_CIRCULAR set, compute poly result modulo (X^circular_size - 1)
+	uint64_t first_mulmid,		// If POLYMULT_MULMID set, this is the number of least significant coefficients that will not be returned
 	int	options)
 {
 	polymult_arg arg;
@@ -4749,7 +4801,7 @@ void polymult2 (
 void polymult_several (		// Multiply one poly with several polys	
 	pmhandle *pmdata,	// Handle for polymult library
 	gwnum	*invec1,	// First input poly
-	int	invec1_size,	// Size of the first input polynomial
+	uint64_t invec1_size,	// Size of the first input polynomial
 	polymult_arg *other_polys, // Array of "other poly descriptors" to multiply with first input poly (describes each second input poly and output poly)
 	int	num_other_polys,// Number of other polys to multiply with first input poly
 	int	options)	// Poly #1 options.  Options not associated with poly #1 are applied to all other polys.
@@ -4790,7 +4842,7 @@ void polymult_several (		// Multiply one poly with several polys
 	    // be forward FFTed only once.  We also need to make sure the strip_monic_from_invec1 is consistent (invec1 is only read once and that is where
 	    // monic ones are stripped).  To make this happen we track the largest FFT size and strip_monic_from_invec1 settings.  We way need to make two
 	    // passes through the planning process to make this happen.
-	    int	largest_fft_size = 0;			// FFT size that we can use for all the other poly plans where we are free to choose the FFT size
+	    uint64_t largest_fft_size = 0;		// FFT size that we can use for all the other poly plans where we are free to choose the FFT size
 	    bool largest_strip_monic_from_invec1;	// Whether invec1 has its monic one stripped when using largest_fft_size
 	    bool must_replan;				// TRUE if replanning will be required
 	    bool exists_pre_ffted_invec2 = FALSE;	// TRUE if any of the invec2s are pre-FFTed.  If so, we may not be able to strip monic ones from invec1.
@@ -4809,14 +4861,14 @@ void polymult_several (		// Multiply one poly with several polys
 		// Loop over all the other polys to determine the plan (brute/Karatsuba/FFT, FFT size, post_process_monic, 1*1 addins, etc.) needed for each
 		for (int i = 0; i < num_other_polys; i++) {
 		    gwnum *invec2 = other_polys[i].invec2;		// Second input poly
-		    int	invec2_size = other_polys[i].invec2_size;	// Size of the second input polynomial
+		    uint64_t invec2_size = other_polys[i].invec2_size;	// Size of the second input polynomial
 		    gwnum *outvec = other_polys[i].outvec;		// Output poly of size invec1_size + invec2_size - 1
-		    int	outvec_size = other_polys[i].outvec_size;	// Size of the output polynomial.  Should be invec1_size + invec2_size (less one if not monic).
+		    uint64_t outvec_size = other_polys[i].outvec_size;	// Size of the output polynomial.  Should be invec1_size + invec2_size (less one if not monic).
 		    gwnum *fmavec = other_polys[i].fmavec;		// Addin for FMA operations
-		    int	circular_size = other_polys[i].circular_size;	// Return result modulo (X^circular_size - 1)
+		    uint64_t circular_size = other_polys[i].circular_size; // Return result modulo (X^circular_size - 1)
 		    int	options;					// Merged invec1 and invec2 options to make life a little simpler
 		    bool must_fft = FALSE;				// TRUE if there are any pre-FFTed poly inputs
-		    int	fft_size;
+		    uint64_t fft_size;
 
 		    // Merge options into one variable.
 		    options = invec1_options | other_polys[i].options;
@@ -4854,12 +4906,12 @@ void polymult_several (		// Multiply one poly with several polys
 
 		    // Adjust sizes due to RLPs and monics.  Roughly speaking, the adjusted_XXX variables are for monics with their ones stripped thus requiring
 		    // monic post processing, and the true_XXX variables are for monics handled by the poly FFT code.
-		    int adjusted_invec1_size = (options & POLYMULT_INVEC1_RLP) ? 2 * invec1_size - 1 : invec1_size;
-		    int adjusted_invec2_size = (options & POLYMULT_INVEC2_RLP) ? 2 * invec2_size - 1 : invec2_size;
-		    int adjusted_outvec_size = adjusted_invec1_size + adjusted_invec2_size - 1;
-		    int true_invec1_size = adjusted_invec1_size + ((options & POLYMULT_INVEC1_MONIC) ? ((options & POLYMULT_INVEC1_RLP) ? 2 : 1) : 0);
-		    int true_invec2_size = adjusted_invec2_size + ((options & POLYMULT_INVEC2_MONIC) ? ((options & POLYMULT_INVEC2_RLP) ? 2 : 1) : 0);
-		    int true_outvec_size = true_invec1_size + true_invec2_size - 1;
+		    uint64_t adjusted_invec1_size = (options & POLYMULT_INVEC1_RLP) ? 2 * invec1_size - 1 : invec1_size;
+		    uint64_t adjusted_invec2_size = (options & POLYMULT_INVEC2_RLP) ? 2 * invec2_size - 1 : invec2_size;
+		    uint64_t adjusted_outvec_size = adjusted_invec1_size + adjusted_invec2_size - 1;
+		    uint64_t true_invec1_size = adjusted_invec1_size + ((options & POLYMULT_INVEC1_MONIC) ? ((options & POLYMULT_INVEC1_RLP) ? 2 : 1) : 0);
+		    uint64_t true_invec2_size = adjusted_invec2_size + ((options & POLYMULT_INVEC2_MONIC) ? ((options & POLYMULT_INVEC2_RLP) ? 2 : 1) : 0);
+		    uint64_t true_outvec_size = true_invec1_size + true_invec2_size - 1;
 
 		    // We now know the true input and output vector sizes.  THIS WILL NOT CHANGE.  We may do a brute/Karatsuba/FFT multiply that is smaller
 		    // than the true sizes and do some post-monic-addins to create the true result, but that will be reflected in other variables.
@@ -4887,14 +4939,14 @@ void polymult_several (		// Multiply one poly with several polys
 		    // or hundreds of multiplied signals of random numbers in the same "column".  There can be up to four 1*1 locations in the output
 		    // vector (monic RLP * monic RLP).  Calculate the locations of these possible 1*1s.  These locations will need to be "patched" later
 		    // and can affect the algorithm chosen to perform the polymult.
-		    int	addin1, addin2, addin3, addin4, subout;		// Locations of the up to five 1*1 values may need to be patched later
+		    int64_t addin1, addin2, addin3, addin4, subout;	// Locations of the up to five 1*1 values may need to be patched later
 		    addin1 = addin2 = addin3 = addin4 = subout = -1;	// Assume no addins or subouts of 1*1 are needed
 
 		    // We also need to track which of the true_outvec_size coefficients will be returned.  For example, a monic * monic will not return the
 		    // leading one.  A monic-RLP * monic-RLP returns a monic-RLP where the leading one and entire lower half of outvec are not returned.
 		    // Also, the caller can request a specific number of the most significant or least significant coefficients using MULHI/MULMID/MULLO.
-		    int	LSWs_skipped;		// Number of least significant coefficients that will not be returned to the caller
-		    int	MSWs_skipped;		// Number of most significant coefficients that will not be returned to the caller
+		    uint64_t LSWs_skipped;		// Number of least significant coefficients that will not be returned to the caller
+		    uint64_t MSWs_skipped;		// Number of most significant coefficients that will not be returned to the caller
 
 		    // In examples in the comments that follow, we show how two length two invecs can be processed
 
@@ -5014,10 +5066,10 @@ void polymult_several (		// Multiply one poly with several polys
 		    ASSERTG (circular_size == MSWs_skipped + outvec_size + LSWs_skipped);
 
 		    // If emulating POLYMULT_CIRCULAR, apply modulo to every addin location
-		    if (addin1 >= circular_size) addin1 %= circular_size;
-		    if (addin2 >= circular_size) addin2 %= circular_size;
-		    if (addin3 >= circular_size) addin3 %= circular_size;
-		    if (addin4 >= circular_size) addin4 %= circular_size;
+		    if (addin1 >= (int64_t) circular_size) addin1 %= circular_size;
+		    if (addin2 >= (int64_t) circular_size) addin2 %= circular_size;
+		    if (addin3 >= (int64_t) circular_size) addin3 %= circular_size;
+		    if (addin4 >= (int64_t) circular_size) addin4 %= circular_size;
 
 		    // Make the 1*1 addins an index into outvec rather than the current index into true_outvec.  That is, adjust for LSWs skipped.
 		    // We do this because 1*1 addins are added as the very last step before returning outvec.
@@ -5027,10 +5079,10 @@ void polymult_several (		// Multiply one poly with several polys
 		    addin4 -= LSWs_skipped;
 
 		    // If any of the 1*1s are for a coefficient that is not returned to the caller, then clear the addin flag
-		    if (addin1 >= 0 && (addin1 >= outvec_size || outvec[addin1] == NULL)) addin1 = -1;
-		    if (addin2 >= 0 && (addin2 >= outvec_size || outvec[addin2] == NULL)) addin2 = -1;
-		    if (addin3 >= 0 && (addin3 >= outvec_size || outvec[addin3] == NULL)) addin3 = -1;
-		    if (addin4 >= 0 && (addin4 >= outvec_size || outvec[addin4] == NULL)) addin4 = -1;
+		    if (addin1 >= 0 && (addin1 >= (int64_t) outvec_size || outvec[addin1] == NULL)) addin1 = -1;
+		    if (addin2 >= 0 && (addin2 >= (int64_t) outvec_size || outvec[addin2] == NULL)) addin2 = -1;
+		    if (addin3 >= 0 && (addin3 >= (int64_t) outvec_size || outvec[addin3] == NULL)) addin3 = -1;
+		    if (addin4 >= 0 && (addin4 >= (int64_t) outvec_size || outvec[addin4] == NULL)) addin4 = -1;
 
 		    // Choose a brute force implementation if we are not returning many coefficients or one of the input polys is very small
 		    // NOTE: No studies have been done regarding a close-to-optimal definition of "very small".  Brute force handles addins directly.
@@ -5078,7 +5130,7 @@ void polymult_several (		// Multiply one poly with several polys
 		    // monic * monic-RLP case, we simply force emulating circular size.
 		    bool can_use_circular_fft_size = FALSE;		// TRUE if using circular_size smaller than the true_outvec_size as poly FFT size will work
 		    bool can_use_circular_if_monic_stripped = FALSE;	// TRUE if using circular_size smaller than the true_outvec_size works if a monic is stripped
-		    int	circular_fft_size;
+		    uint64_t circular_fft_size;
 		    if (options & POLYMULT_CIRCULAR) {
 			// Verify that a pre-FFTed input vector is compatible with the circular size
 			ASSERTG (!must_fft || (fft_size >= circular_size && (fft_size <= circular_size + LSWs_skipped + 1 || fft_size >= true_outvec_size)));
@@ -5109,7 +5161,7 @@ void polymult_several (		// Multiply one poly with several polys
 		    // 5 MSWs skipped, 9 returned, 4 LSWs skipped => Strip the monic9 and use circular mult=13 (0 MSWs skipped, 9 returned, 4 LSWs skipped
 		    // with only the lower 4 coefficients of the non-monic size9 added back in to the 9 returned coefficeints)
 		    else if (MSWs_skipped > 0 && LSWs_skipped > 0 && (!must_fft || fft_size < true_outvec_size)) {
-			int savings = (LSWs_skipped <= MSWs_skipped) ? LSWs_skipped : MSWs_skipped;
+			uint64_t savings = (LSWs_skipped <= MSWs_skipped) ? LSWs_skipped : MSWs_skipped;
 			circular_fft_size = polymult_fft_size (true_outvec_size - savings);
 			if (must_fft && fft_size > circular_fft_size) circular_fft_size = fft_size;
 			if (circular_fft_size < true_outvec_size) can_use_circular_fft_size = TRUE;
@@ -5120,8 +5172,8 @@ void polymult_several (		// Multiply one poly with several polys
 		    // having the poly FFT do some or all of the monic work is free --- as long as it does not require a larger poly FFT size.
 		    // For other implementations, the choice between post-processing monics or handling as part of brute or Karatsuba is pretty much irrelevant.
 		    int	best_choice = 0;
-		    int	best_fft_size = 0;
-		    int	best_poly_addin_size = 0;
+		    uint64_t best_fft_size = 0;
+		    uint64_t best_poly_addin_size = 0;
 
 		    // There are 4 possible monic implementations.  1) All monic ones included in FFT data.  2) Monic ones stripped from invec2 requiring invec1
 		    // to be added with post processing.  3) Monic ones stripped from invec1 requiring invec2 to be added with post processing.  4) Monic ones
@@ -5135,7 +5187,7 @@ void polymult_several (		// Multiply one poly with several polys
 
 		    // If handling monics without stripping ones is possible, make that our best poly fft choice thusfar
 		    if (!must_strip_a_monic && (pass == 1 || !pass2_strip_monic_from_invec1)) {
-			int possible_fft_size = polymult_fft_size (true_outvec_size);
+			uint64_t possible_fft_size = polymult_fft_size (true_outvec_size);
 			if (can_use_circular_fft_size && !can_use_circular_if_monic_stripped && circular_fft_size < possible_fft_size) possible_fft_size = circular_fft_size;
 			if (must_fft && fft_size > possible_fft_size) possible_fft_size = fft_size;
 			if (!must_fft && pass == 2 && possible_fft_size < largest_fft_size) possible_fft_size = largest_fft_size;
@@ -5153,7 +5205,7 @@ void polymult_several (		// Multiply one poly with several polys
 		    // coefficient.  We think this will be OK because the poly FFT will be adding the 1*1 to a single subproduct (LSW-of-invec1 * LSW-of-invec2).
 		    if (!must_strip_a_monic && (pass == 1 || !pass2_strip_monic_from_invec1) &&
 		    (options & POLYMULT_INVEC1_MONIC) && (options & POLYMULT_INVEC2_MONIC) && LSWs_skipped == 0) {
-			int possible_fft_size = polymult_fft_size (true_outvec_size - 1);
+			uint64_t possible_fft_size = polymult_fft_size (true_outvec_size - 1);
 			if ((must_fft || possible_fft_size >= pmdata->FFT_BREAK) &&
 			    (best_choice == 0 || possible_fft_size < best_fft_size) &&
 			    (pass == 1 || possible_fft_size == largest_fft_size) &&
@@ -5169,8 +5221,8 @@ void polymult_several (		// Multiply one poly with several polys
 			(pass == 1 || !pass2_strip_monic_from_invec1) &&
 			(!invec2_pre_ffted || !preprocessed_monics_included (invec2)) &&
 			(invec2_can_be_stripped_cheaply || !invec1_pre_ffted)) {
-			int possible_fft_size = polymult_fft_size (true_outvec_size - (true_invec2_size - adjusted_invec2_size));
-			int possible_poly_addin_size = (invec2_can_be_stripped_cheaply ? 0 : adjusted_invec1_size);
+			uint64_t possible_fft_size = polymult_fft_size (true_outvec_size - (true_invec2_size - adjusted_invec2_size));
+			uint64_t possible_poly_addin_size = (invec2_can_be_stripped_cheaply ? 0 : adjusted_invec1_size);
 			if (can_use_circular_fft_size && circular_fft_size < possible_fft_size) possible_fft_size = circular_fft_size;
 			if (!must_fft && pass == 2 && possible_fft_size < largest_fft_size) possible_fft_size = largest_fft_size;
 			if (must_fft && fft_size > possible_fft_size) possible_fft_size = fft_size;
@@ -5188,8 +5240,8 @@ void polymult_several (		// Multiply one poly with several polys
 			(pass == 1 || pass2_strip_monic_from_invec1) &&
 			(!invec1_pre_ffted || !preprocessed_monics_included (invec1)) &&
 			(invec1_can_be_stripped_cheaply || !invec2_pre_ffted)) {
-			int possible_fft_size = polymult_fft_size (true_outvec_size - (true_invec1_size - adjusted_invec1_size));
-			int possible_poly_addin_size = (invec1_can_be_stripped_cheaply ? 0 : adjusted_invec2_size);
+			uint64_t possible_fft_size = polymult_fft_size (true_outvec_size - (true_invec1_size - adjusted_invec1_size));
+			uint64_t possible_poly_addin_size = (invec1_can_be_stripped_cheaply ? 0 : adjusted_invec2_size);
 			if (can_use_circular_fft_size && circular_fft_size < possible_fft_size) possible_fft_size = circular_fft_size;
 			if (!must_fft && pass == 2 && possible_fft_size < largest_fft_size) possible_fft_size = largest_fft_size;
 			if (must_fft && fft_size > possible_fft_size) possible_fft_size = fft_size;
@@ -5209,9 +5261,9 @@ void polymult_several (		// Multiply one poly with several polys
 			(!invec2_pre_ffted || !preprocessed_monics_included (invec2)) &&
 			(invec1_can_be_stripped_cheaply || !invec2_pre_ffted) &&
 			(invec2_can_be_stripped_cheaply || !invec1_pre_ffted)) {
-			int possible_fft_size = polymult_fft_size (adjusted_outvec_size);
-			int possible_poly_addin_size = (invec1_can_be_stripped_cheaply ? 0 : adjusted_invec2_size) +
-						       (invec2_can_be_stripped_cheaply ? 0 : adjusted_invec1_size);
+			uint64_t possible_fft_size = polymult_fft_size (adjusted_outvec_size);
+			uint64_t possible_poly_addin_size = (invec1_can_be_stripped_cheaply ? 0 : adjusted_invec2_size) +
+							    (invec2_can_be_stripped_cheaply ? 0 : adjusted_invec1_size);
 			if (can_use_circular_fft_size && circular_fft_size < possible_fft_size) possible_fft_size = circular_fft_size;
 			if (!must_fft && pass == 2 && possible_fft_size < largest_fft_size) possible_fft_size = largest_fft_size;
 			if (must_fft && fft_size > possible_fft_size) possible_fft_size = fft_size;
@@ -5294,17 +5346,12 @@ use_it:		    ASSERTG (best_choice != 0);
 		    else {
 			plan->planpart[i].impl = POLYMULT_IMPL_FFT;
 			plan->planpart[i].fft_size = fft_size = best_fft_size;
-			// If fft_size is large we'll change to multi-threading fft_line_pass instead.  Large is defined as "polymult_line being unable
-			// to fit two lines in the L3 cache".
-//GW: fine tune this!!!  should also do this if num_lines < num_threads (or if not "a lot more than")?
 			int complex_vector_size = complex_vector_size_in_bytes (pmdata->gwdata->cpu_flags);
-			if (pmdata->num_threads > 1 && (uint64_t) fft_size > (uint64_t) pmdata->L3_CACHE_SIZE * 1024 / (2 * complex_vector_size))
+			if (pmdata->num_threads > 1 && fft_size >= pmdata->mt_ffts_start && fft_size < pmdata->mt_ffts_end)
 				plan->mt_polymult_line = FALSE;
 		    }
-		    // Use streamed stores if the output polynomial uses more memory than the L3 cache size
-//GW: fine tune this!!!  should probably use a different variable than L3_CACHE_SIZE
-		    plan->planpart[i].streamed_stores = (pmdata->enable_streamed_stores );//&&
-							 //(uint64_t) outvec_size * gwnum_datasize (pmdata->gwdata) > (uint64_t) pmdata->L3_CACHE_SIZE * 1024);
+		    // Use streamed stores.  Generally, set this if the output polynomial uses more memory than the L3 cache size or if POLYMULT_NO_UNFFT is set.
+		    plan->planpart[i].streamed_stores = (fft_size >= pmdata->streamed_stores_start);
 
 		    // If we selected the circular fft size, then save some necessary plan variables
 		    if (can_use_circular_fft_size && plan->planpart[i].impl == POLYMULT_IMPL_FFT && fft_size == circular_fft_size) {
@@ -5425,8 +5472,8 @@ void polymult_pre_fft (
 	pmhandle *pmdata,		// Handle for polymult library
 	gwhandle *gwdata)		// Potentially cloned gwdata
 {
-	int	j, atomic_val;		// Index of gwnum to work on
-	int	atomics_processed = 0;	// Total atomic_vals processed in earlier sections
+	uint64_t j, atomic_val;		// Index of gwnum to work on
+	uint64_t atomics_processed = 0;	// Total atomic_vals processed in earlier sections
 
 	// Get the next index to work on
 	atomic_val = atomic_fetch_incr (pmdata->helper_counter);
@@ -5435,7 +5482,7 @@ void polymult_pre_fft (
 	// can write to the 13 values values in the header reserved for use by the polymult library.
 	gwnum *invec1 = pmdata->invec1;
 	if (! is_preprocessed_poly (invec1)) {
-		int invec1_size = pmdata->invec1_size;
+		uint64_t invec1_size = pmdata->invec1_size;
 		for  ( ; (j = atomic_val - atomics_processed) < invec1_size; atomic_val = atomic_fetch_incr (pmdata->helper_counter)) {
 			if (invec1[j] == NULL) continue;
 			gwfft (gwdata, invec1[j], invec1[j]);
@@ -5450,7 +5497,7 @@ void polymult_pre_fft (
 		// FFT invec2 if needed.  FFT the 7 zero padded FFT values in the header.  Even though we are not allowed to change the input vectors, we
 		// can write to the 13 values values in the header reserved for use by the polymult library.
 		if (! is_preprocessed_poly (invec2)) {
-			int invec2_size = pmdata->other_polys[i].invec2_size;
+			uint64_t invec2_size = pmdata->other_polys[i].invec2_size;
 			for  ( ; (j = atomic_val - atomics_processed) < invec2_size; atomic_val = atomic_fetch_incr (pmdata->helper_counter)) {
 				if (invec2[j] == NULL) continue;
 				gwfft (gwdata, invec2[j], invec2[j]);
@@ -5461,7 +5508,7 @@ void polymult_pre_fft (
 		// Also FFT the optional FMA vector
 		gwnum *fmavec = pmdata->other_polys[i].fmavec;
 		if (fmavec != NULL) {
-			int outvec_size = pmdata->other_polys[i].outvec_size;
+			uint64_t outvec_size = pmdata->other_polys[i].outvec_size;
 			for  ( ; (j = atomic_val - atomics_processed) < outvec_size; atomic_val = atomic_fetch_incr (pmdata->helper_counter)) {
 				if (fmavec[j] == NULL) continue;
 				gwfft (gwdata, fmavec[j], fmavec[j]);
@@ -5478,8 +5525,8 @@ void polymult_post_unfft (
 	pmhandle *pmdata,		// Handle for polymult library
 	gwhandle *gwdata)		// Potentially cloned gwdata
 {
-	int	j, atomic_val;		// Index of gwnum to work on
-	int	atomics_processed = 0;	// Total atomic_vals processed in earlier sections
+	uint64_t j, atomic_val;		// Index of gwnum to work on
+	uint64_t atomics_processed = 0;	// Total atomic_vals processed in earlier sections
 	polymult_plan *plan = pmdata->plan; // Plan for implementing the multiplication of invec1 and several invec2s
 
 	// Get the next index to work on
@@ -5488,7 +5535,7 @@ void polymult_post_unfft (
 	// Process all of the output polys.  UnFFT results and add in the needed 1*1 values.
 	for (int i = 0; i < pmdata->num_other_polys; i++) {
 		gwnum	*outvec = pmdata->other_polys[i].outvec;
-		int	outvec_size = pmdata->other_polys[i].outvec_size;
+		uint64_t outvec_size = pmdata->other_polys[i].outvec_size;
 		int	options = pmdata->other_polys[i].options + pmdata->options;
 		int	addin_value = 1;
 
@@ -5525,8 +5572,8 @@ void polymult_post_unfft (
 			      plan->planpart[i].MSWs_skipped == 0))) {					// Top coefficient of monic * non-monic is output
 				gwnum *invec1 = pmdata->invec1;
 				gwnum *invec2 = pmdata->other_polys[i].invec2;
-				int invec1_size = pmdata->invec1_size;
-				int invec2_size = pmdata->other_polys[i].invec2_size;
+				uint64_t invec1_size = pmdata->invec1_size;
+				uint64_t invec2_size = pmdata->other_polys[i].invec2_size;
 				float unnorms1 = is_preprocessed_poly(invec1) ? preprocessed_top_unnorms (invec1) : unnorms (invec1[invec1_size-1]);
 				float unnorms2 = is_preprocessed_poly(invec2) ? preprocessed_top_unnorms (invec2) : unnorms (invec2[invec2_size-1]);
 				if (! (options & POLYMULT_INVEC2_MONIC))			// Invec1 monic, returning 1 * invec2's top
@@ -5582,17 +5629,17 @@ struct poly_helper_example_data {
 		struct {		// Arguments to a poly_copy call
 			gwnum	*invec;
 			gwnum	*outvec;
-			int	poly_size;
+			uint64_t poly_size;
 		} copy_args;
 		struct {		// Arguments to a poly_fft_coefficients, poly_unfft_coefficients, poly_unfft_fft_coefficients call
 			gwnum	*vec;
-			int	poly_size;
+			uint64_t poly_size;
 		} fft_args;
 	};
 };
    
 // Copy invec to outvec
-void poly_copy (pmhandle *pmdata, gwnum *invec, gwnum *outvec, int poly_size) {
+void poly_copy (pmhandle *pmdata, gwnum *invec, gwnum *outvec, uint64_t poly_size) {
 	struct poly_helper_example_data helper_data;
 	// Copy arguments to helper_data so that every thread can access them
 	helper_data.opcode = HELPER_OPCODE_COPY;			// Work type for polymult_helper_example to execute
@@ -5613,7 +5660,7 @@ void poly_copy (pmhandle *pmdata, gwnum *invec, gwnum *outvec, int poly_size) {
 // is to combine the large number size 2 polys into one gigantic poly and use the routines below to gwunfft and/or gwfft all the coefficients in one batch,
 // keeping all 16 threads busy at once.  This is done in conjunction with the POLYMULT_NO_UNFFT polymult option.  Note that using poly_unfft_fft_coefficients
 // in the P-1/ECM scenario is more efficient because the gwunfft followed immediately by gwfft is likely to find the gwnum still in the CPU caches.
-void poly_fft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size) {
+void poly_fft_coefficients (pmhandle *pmdata, gwnum *vec, uint64_t poly_size) {
 	struct poly_helper_example_data helper_data;
 	// Copy arguments to helper_data so that every thread can access them
 	helper_data.opcode = HELPER_OPCODE_FFT;				// Work type for polymult_helper_example to execute
@@ -5625,7 +5672,7 @@ void poly_fft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size) {
 	pmdata->helper_callback_data = &helper_data;
 	polymult_launch_helpers (pmdata);				// Launch helper threads
 }
-void poly_unfft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size) {
+void poly_unfft_coefficients (pmhandle *pmdata, gwnum *vec, uint64_t poly_size) {
 	struct poly_helper_example_data helper_data;
 	// Copy arguments to helper_data so that every thread can access them
 	helper_data.opcode = HELPER_OPCODE_UNFFT;			// Work type for polymult_helper_example to execute
@@ -5637,7 +5684,7 @@ void poly_unfft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size) {
 	pmdata->helper_callback_data = &helper_data;
 	polymult_launch_helpers (pmdata);				// Launch helper threads
 }
-void poly_unfft_fft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size) {
+void poly_unfft_fft_coefficients (pmhandle *pmdata, gwnum *vec, uint64_t poly_size) {
 	struct poly_helper_example_data helper_data;
 	// Copy arguments to helper_data so that every thread can access them
 	helper_data.opcode = HELPER_OPCODE_UNFFT_FFT;			// Work type for polymult_helper_example to execute
@@ -5668,7 +5715,7 @@ void poly_helper_example (
 		gwnum *outvec = helper_data->copy_args.outvec;
 		for ( ; ; ) {
 			// Get poly coefficient number we are to copy
-			int coeff = atomic_fetch_incr (pmdata->helper_counter);
+			uint64_t coeff = atomic_fetch_incr (pmdata->helper_counter);
 
 			// If the other helper threads have completed copying invec to outvec, then we're done
 			if (coeff >= helper_data->copy_args.poly_size) break;
@@ -5685,7 +5732,7 @@ void poly_helper_example (
 		gwnum *vec = helper_data->fft_args.vec;
 		for ( ; ; ) {
 			// Get poly coefficient number to FFT
-			int coeff = atomic_fetch_incr (pmdata->helper_counter);
+			uint64_t coeff = atomic_fetch_incr (pmdata->helper_counter);
 
 			// If the other helper threads have completed FFTing vec, then we're done
 			if (coeff >= helper_data->fft_args.poly_size) break;
@@ -5702,7 +5749,7 @@ void poly_helper_example (
 		gwnum *vec = helper_data->fft_args.vec;
 		for ( ; ; ) {
 			// Get poly coefficient number to UNFFT
-			int coeff = atomic_fetch_incr (pmdata->helper_counter);
+			uint64_t coeff = atomic_fetch_incr (pmdata->helper_counter);
 
 			// If the other helper threads have completed UNFFTing vec, then we're done
 			if (coeff >= helper_data->fft_args.poly_size) break;
@@ -5719,7 +5766,7 @@ void poly_helper_example (
 		gwnum *vec = helper_data->fft_args.vec;
 		for ( ; ; ) {
 			// Get poly coefficient number to UNFFT/FFT
-			int coeff = atomic_fetch_incr (pmdata->helper_counter);
+			uint64_t coeff = atomic_fetch_incr (pmdata->helper_counter);
 
 			// If the other helper threads have completed UNFFT/FFTing vec, then we're done
 			if (coeff >= helper_data->fft_args.poly_size) break;

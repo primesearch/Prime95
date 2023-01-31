@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2022 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -5351,50 +5351,14 @@ begin:	factor_found = 0;
 		test_bits = 78;
 	}
 
-/* Check for a v24 continuation file.  These were named pXXXXXXX.  The */
-/* first 16 bits contained a 2 to distinguish it from a LL save file. */
-/* In v25, we name the file fXXXXXXX and use the common header format */
-/* to make Test/Status and computing completion dates easier. */
+/* Check for a v24 continuation file.  These were named pXXXXXXX.  The first 16 bits contained a 2 to distinguish it from a LL save file. */
+/* In v25, we name the file fXXXXXXX and use the common header format to make Test/Status and computing completion dates easier. */
+/* In v30.10, we no longer attempt to read v24 TF save files. */
+
+/* Read v25+ continuation file.  Limit number of backup files we try to read in case there is an error deleting bad save files. */
 
 	continuation = FALSE;
 	tempFileName (w, filename);
-	filename[0] = 'p';
-	fd = _open (filename, _O_BINARY | _O_RDONLY);
-	if (fd > 0) {
-		short	type;
-		short	shortdummy;
-		unsigned long longdummy, fachsw, facmsw;
-		short	file_factor_found, file_bits, file_pass;
-
-		if (read_short (fd, &type) &&
-		    type == 2 &&
-		    read_long (fd, &longdummy, NULL) &&
-		    read_short (fd, &shortdummy) &&
-		    read_short (fd, &file_factor_found) &&
-		    read_short (fd, &shortdummy) &&
-		    read_short (fd, &file_bits) &&
-		    read_short (fd, &file_pass) &&
-		    read_long (fd, &fachsw, NULL) &&
-		    read_long (fd, &facmsw, NULL) &&
-		    read_long (fd, &endpthi, NULL) &&
-		    read_long (fd, &endptlo, NULL)) {
-			OutputBoth (thread_num, "Using old-style factoring save file.\n");
-			facdata.asm_data->FACHSW = fachsw;
-			facdata.asm_data->FACMSW = facmsw;
-			factor_found = file_factor_found;
-			bits = file_bits;
-			pass = file_pass;
-			continuation = TRUE;
-			_close (fd);
-			_unlink (filename);
-		} else {
-			_close (fd);
-		}
-	}
-
-/* Read v25+ continuation file.  Limit number of backup files we try */
-/* to read in case there is an error deleting bad save files. */
-
 	filename[0] = 'f';
 	readSaveFileStateInit (&read_save_file_state, thread_num, filename);
 	writeSaveFileStateInit (&write_save_file_state, filename, 0);
@@ -5415,7 +5379,8 @@ begin:	factor_found = 0;
 
 		fd = _open (read_save_file_state.current_filename, _O_BINARY | _O_RDONLY);
 		if (fd > 0) {
-			unsigned long version, sum, fachsw, facmsw;
+			unsigned long fachsw, facmsw;
+			uint32_t version, sum;
 			if (read_magicnum (fd, FACTOR_MAGICNUM) &&
 			    read_header (fd, &version, w, &sum) &&
 			    version == FACTOR_VERSION &&
@@ -6019,7 +5984,7 @@ int writeLLSaveFile (
 	unsigned long error_count)
 {
 	int	fd;
-	unsigned long sum = 0;
+	uint32_t sum = 0;
 
 /* Open the save file */
 
@@ -6051,7 +6016,8 @@ void writeNewErrorCount (
 	unsigned long new_error_count)
 {
 	int	fd;
-	unsigned long sum, old_error_count;
+	unsigned long old_error_count;
+	uint32_t sum;
 
 /* Open the intermediate file, position past the FFT data */
 
@@ -6089,7 +6055,7 @@ int readLLSaveFile (
 	unsigned long *error_count)
 {
 	int	fd;
-	unsigned long sum, filesum, version;
+	uint32_t version, sum, filesum;
 
 	fd = _open (filename, _O_BINARY | _O_RDONLY);
 	if (fd <= 0) return (FALSE);
@@ -7831,7 +7797,7 @@ int selfTestInternal (
 		if (in_place)
 			num_gwnums = 1;
 		else {
-			num_gwnums = cvt_mem_to_gwnums (&lldata.gwdata, memory);
+			num_gwnums = (int) cvt_mem_to_gwnums (&lldata.gwdata, memory);
 			if (num_gwnums < 1) num_gwnums = 1;
 			if (num_gwnums > ll_iters) num_gwnums = ll_iters;
 		}
@@ -8922,8 +8888,7 @@ static	int	time_all_complex = 0;	/* TRUE if we should time all-complex FFTs */
 			// Loop working on bigger and bigger poly sizes (CNT is the output poly size which roughly equals the poly FFT size)
 			for (int CNT = 3125; CNT < 500000000; CNT *= 2, iters = iters / 2) {
 				// Check if we have enough memory
-				if ((double) CNT * (gwmap_to_estimated_size (1.0, 2, EXP, -1) + 64) +
-				    (double) polymult_mem_required (CNT/2, CNT/2, 0, CPU_FLAGS, HW_NUM_CORES) > polymem * 1048576.0) break;
+				if ((double) CNT * (gwmap_to_estimated_size (1.0, 2, EXP, -1) + 64) > polymem * 1048576.0) break;
 
 				bool	first_poly = TRUE;
 				bool	mt_polymult_line;		// Multi-thread polymult_line vs multi-thread fft_line_pass
@@ -8944,15 +8909,6 @@ static	int	time_all_complex = 0;	/* TRUE if we should time all-complex FFTs */
 				if (p == 8900 && pp > 0) continue;
 				if (p == 8901 && sc > 0) continue;
 
-				// Check if we have enough memory
-				if (!preprocess && mt_polymult_line &&
-				    (double) CNT * (gwmap_to_estimated_size (1.0, 2, EXP, -1) + 64) +
-				    (double) polymult_mem_required (CNT/2, CNT/2, 0, CPU_FLAGS, 1) * HW_NUM_CORES > polymem * 1048576.0) continue;
-				if (preprocess && !preFFT &&
-				    (double) CNT * (gwmap_to_estimated_size (1.0, 2, EXP, -1) + 64) * 1.5 > polymem * 1048576.0) continue;
-				if (preprocess && preFFT &&
-				    (double) CNT * (gwmap_to_estimated_size (1.0, 2, EXP, -1) + 64) * 2.0 > polymem * 1048576.0) continue;
-
 				gwhandle gwdata;
 				pmhandle pmdata;
 				gwarray a, b;
@@ -8964,39 +8920,32 @@ static	int	time_all_complex = 0;	/* TRUE if we should time all-complex FFTs */
 				gwsetup (&gwdata, 1.0, 2, EXP, -1);
 				if (stopCheck (thread_num)) { gwdone (&gwdata); return 1; }
 				polymult_init (&pmdata, &gwdata);
+				polymult_default_tuning (&pmdata,
+					IniGetInt (INI_FILE, "PolymultCacheSize", CPU_NUM_L2_CACHES > 0 ? CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES : 256),
+					IniGetInt (INI_FILE, "PolymultCacheSize2", CPU_NUM_L3_CACHES > 0 ? CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES : 6144));
 				polymult_set_max_num_threads (&pmdata, HW_NUM_CORES);
-				pmdata.L3_CACHE_SIZE = mt_polymult_line ? 1000000000 : 1;
-				pmdata.enable_strided_writes = strided_write;
-				pmdata.enable_streamed_stores = streamed_stores;
-				a = b = gwalloc_array (&gwdata, CNT);
-				if (scrambled) {
-//					for (int i = 0; i < CNT; i++) {
-//						int j = rand () % CNT;
-//						gwswap (b[i], b[j]);
-//					}
-					unsigned int p1size, p2size;
-					pick_pass_sizes (&pmdata, polymult_fft_size (CNT), &p1size, &p2size);
-					intptr_t dist = (intptr_t) b[1] - (intptr_t) b[0];
-					int assigned = 0;
-					for (int p2 = 0; p2 < p2size; p2++) {
-					for (int p1 = 0; p1 < p1size; p1++) {
-						if ((int) (p1 * p2size + p2) >= CNT) break;
-						b[p1 * p2size + p2] = (gwnum) ((intptr_t) b[0] + assigned * dist);
-						assigned++;
-					}
-					}
-					ASSERTG (assigned == CNT);
+				pmdata.mt_ffts_start = mt_polymult_line ? 0xFFFFFFFFFFFFFFFFULL : 0;
+				pmdata.mt_ffts_end = 0xFFFFFFFFFFFFFFFFULL;
+				pmdata.strided_writes_end = strided_write ? 0xFFFFFFFFFFFFFFFFULL : 0;
+				pmdata.streamed_stores_start = streamed_stores ? 0 : 0xFFFFFFFFFFFFFFFFULL;
+				gwdata.scramble_arrays = (char) scrambled;
+
+				// Check if we have enough memory
+				if ((!preprocess ? 1.0 : !preFFT ? 1.5 : 2.0) * CNT * (gwnum_datasize (&gwdata) + 64) +
+				    (double) polymult_mem_required (&pmdata, CNT/2, CNT/2, 0) > polymem * 1048576.0) {
+					polymult_done (&pmdata);
+					gwdone (&gwdata);
+					continue;
 				}
+
+				a = b = gwalloc_array (&gwdata, CNT);
 				dbltogw (&gwdata, 10001.0, a[0]);
 				for (int i = 1; i < CNT/2; i++) gwcopy (&gwdata, a[0], a[i]);
 				if (preprocess) a = polymult_preprocess (&pmdata, a, CNT/2, CNT/2, CNT-1, (preFFT ? POLYMULT_PRE_FFT : 0) + (compress ? POLYMULT_PRE_COMPRESS : 0));
 				clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
 				start_timer (timers, 0);
 				if (iters == 0) iters = 1;
-				for (int i = 0; i < iters; i++) {
-					polymult (&pmdata, a, CNT/2, a, CNT/2, b, (CNT/2)*2-1, POLYMULT_NEXTFFT);
-					//polymult (&pmdata, a, CNT/2, a, CNT/2, b, CNT, POLYMULT_INVEC1_MONIC_RLP | POLYMULT_INVEC2_MONIC_RLP | POLYMULT_NEXTFFT);
-				}
+				for (int i = 0; i < iters; i++) polymult (&pmdata, a, CNT/2, a, CNT/2, b, (CNT/2)*2-1, POLYMULT_NEXTFFT);
 				end_timer (timers, 0);
 				timers[0] /= iters;
 				if (first_poly) {
@@ -10986,7 +10935,7 @@ int generateProofFile (
 	char	proof_hash[33])		/* Returned MD5 hash of the entire proof file */
 {
 	int	proofgen_waits;
-	char	buf[512];
+	char	buf[512], filename[32], proof_filename[500], tmp_proof_filename[504];
 
 // Mihai's explanation for how a proof construction works for proof power N:
 //	Hashes must all be derived from the final residue B
@@ -11015,15 +10964,20 @@ int generateProofFile (
 		 ps->proof_power_mult > 1 ? " partial" : "", gwmodulo_as_string(gwdata), ps->proof_power, ps->hashlen);
 	OutputStr (ps->thread_num, buf);
 
-// Loop until we successfully generate the proof file
+// Proof file names
+
+	tempFileName (w, filename);
+	sprintf (proof_filename, "%s.proof", filename);
+	sprintf (tmp_proof_filename, "%s.proof.tmp", filename);
+
+// Loop until we successfully generate the proof file (or give up on ever being able to generate the proof file)
 
 	for ( ; ; ) {
 		int	fd, fdout, rc, i, stop_reason;
-		int64_t	proof_file_start_offset;	
+		int64_t	proof_header_size, proof_residues_size, proof_file_size, proof_file_start_offset;
 		uint64_t h[20];
 		hash256_t rooth, *prevh, thish;
 		gwnum	M;
-		char	filename[32], proof_filename[500], tmp_proof_filename[504];
 		MD5_CTX context;
 		unsigned char digest[16];
 		char	MD5_output[33];
@@ -11032,8 +10986,6 @@ int generateProofFile (
 
 		fd = -1;
 		fdout = -1;
-		M = NULL;
-
 		MD5Init (&context);
 		M = gwalloc (gwdata);
 		if (M == NULL) {
@@ -11053,35 +11005,86 @@ int generateProofFile (
 				goto pfail;
 			}
 		}
-		tempFileName (w, filename);
-		sprintf (proof_filename, "%s.proof", filename);
-		sprintf (tmp_proof_filename, "%s.proof.tmp", filename);
-		if (proof_number == 1)
-			fdout = _open (tmp_proof_filename, _O_BINARY | _O_WRONLY | _O_TRUNC | _O_CREAT, CREATE_FILE_ACCESS);
-		else
-			fdout = _open (tmp_proof_filename, _O_BINARY | _O_WRONLY | _O_APPEND | _O_CREAT, CREATE_FILE_ACCESS);
+		if (proof_number == 1) fdout = _open (tmp_proof_filename, _O_BINARY | _O_WRONLY | _O_CREAT, CREATE_FILE_ACCESS);
+		else fdout = _open (tmp_proof_filename, _O_BINARY | _O_WRONLY);
 		if (fdout < 0) {
-			sprintf (buf, "Cannot create PRP proof file: %s\n", proof_filename);
+			sprintf (buf, "Cannot %s PRP proof file: %s\n", proof_number == 1 ? "create" : "open", tmp_proof_filename);
 			OutputBoth (ps->thread_num, buf);
 			OutputBothErrno (ps->thread_num);
 			goto pfail;
 		}
-		// Get starting file offset for later rereading for MD5 comparison hash
-		proof_file_start_offset = _lseeki64 (fdout, 0, SEEK_END);
 
-// We need to be careful in the case where user rolls back to a much older save file.  If we've written out
-// one or more proofs then we cannot overwrite them as the needed interim residues file was deleted or may have been
-// partially overwritten after the proof was generated.  Determine how many proofs have been written based on the
-// size of the file.  Silently ignore attempts at overwriting.
+// Create (or recreate) the proof file header.  The proof file header looks like this:
+// PRP PROOF\n
+// VERSION=1\n
+// HASHSIZE=64\n
+// POWER=7x2\n
+// NUMBER=M216091\n
 
-		int proofs_written = (int) (proof_file_start_offset / ((ps->proof_power + 1) * ps->residue_size));
+		sprintf (buf, "PRP PROOF\nVERSION=%d\nHASHSIZE=%d\n", ps->proof_version, ps->hashlen);
+		if (ps->proof_power_mult == 1) sprintf (buf+strlen(buf), "POWER=%d\n", ps->proof_power);
+		else sprintf (buf+strlen(buf), "POWER=%dx%d\n", ps->proof_power, ps->proof_power_mult);
+		if (ps->prp_base != 3) sprintf (buf+strlen(buf), "BASE=%u\n", ps->prp_base);
+		if (_write (fdout, buf, (unsigned int) strlen (buf)) != (int) strlen (buf)) {
+			OutputBoth (ps->thread_num, "Error writing proof file header.\n");
+			OutputBothErrno (ps->thread_num);
+			goto pfail;
+		}
+		MD5Update (&context, buf, (unsigned int) strlen (buf));
+
+		// Output number.  Enclose non-Mersennes with known factors in parentheses.  Append known factors.
+		sprintf (buf, "NUMBER=");
+		if ((w->k != 1.0 || w->c != -1) && w->known_factors != NULL) strcat (buf, "(");
+		strcat (buf, gwmodulo_as_string (gwdata));
+		if ((w->k != 1.0 || w->c != -1) && w->known_factors != NULL) strcat (buf, ")");
+		if (w->known_factors != NULL) {		// Output known factors list
+			char	*p;
+			sprintf (buf + strlen (buf), "/%s", w->known_factors);
+			while ((p = strchr (buf, ',')) != NULL) *p = '/';
+		}
+		strcat (buf, "\n");
+		if (_write (fdout, buf, (unsigned int) strlen (buf)) != (int) strlen (buf)) {
+			OutputBoth (ps->thread_num, "Error writing proof file header.\n");
+			OutputBothErrno (ps->thread_num);
+			goto pfail;
+		}
+		MD5Update (&context, buf, (unsigned int) strlen (buf));
+
+		// Get the header size
+		proof_header_size = _lseeki64 (fdout, 0, SEEK_CUR);
+
+// We need to be careful in the case where user rolls back to a much older save file.  If we've written out one or more partial proofs then we cannot
+// overwrite them as the needed interim residues file may have been deleted after the partial proof was written.  We determine how many partial proofs
+// have been written based on the size of the file.
+
+// Now determine if the full or partial proof has already been output.  There are three cases:
+// 1) The normal case is where none of this full or partial proof was previously output.  Output this proof.
+// 2) Part of this full or partial proof was previously output.  Perhaps the computer crashed in the middle of proof generation.  Output this proof.
+// 3) This full or partial proof was previously output in its entirety.  The residues file may then have been deleted.  Use the previously generated proof.
+
+		// Use current proof file size to determine how many partial proofs have been completely written to the proof file
+		proof_file_size = _lseeki64 (fdout, 0, SEEK_END);
+		proof_residues_size = (ps->proof_power + 1) * ps->residue_size;
+		int proofs_written = (int) ((proof_file_size - proof_header_size) / proof_residues_size);
+
+		// If this proof has already been completely written to the proof file, then we don't need to write this full or partial proof
 		if (proofs_written >= proof_number) {
 			_close (fd);
 			_close (fdout);
 			gwfree (gwdata, M);
+			sprintf (buf, "Proof has already been written to %s.\n", tmp_proof_filename);
+			OutputBoth (ps->thread_num, buf);
 			break;
 		}
 
+// Proof file start offset is the really the starting offset of the MD5 checksum we are computing.  We'll compare the MD5 of data we've written to
+// the MD5 once the data is on disk.  NOTE:  We don't MD5 check the proof header when the rarely used proof_power_multiplier option is selected.
+
+		// Position to the start of this full or partial proof
+		proof_file_start_offset = _lseeki64 (fdout, proof_header_size + (proof_number - 1) * proof_residues_size, SEEK_SET);
+		if (proof_number == 0) proof_file_start_offset = 0;	// We will check the MD5 of the header plus the MD5 of the proof
+		else MD5Init (&context);				// We will not check the MD5 of the header but will check the MD5 of the proof
+   
 // Reset counters and errors, turn on error checking
 
 		gwdata->fft_count = 0;			// Reset count of FFTs performed
@@ -11089,45 +11092,7 @@ int generateProofFile (
 		gw_clear_maxerr (gwdata);
 		gwsetnormroutine (gwdata, 0, 1, 0);	// Error checking on
 
-// Create the proof file header.  The proof file header looks like this:
-// PRP PROOF\n
-// VERSION=1\n
-// HASHSIZE=64\n
-// POWER=7x2\n
-// NUMBER=M216091\n
-
-		if (proof_number == 1) {
-			sprintf (buf, "PRP PROOF\nVERSION=%d\nHASHSIZE=%d\n", ps->proof_version, ps->hashlen);
-			if (ps->proof_power_mult == 1)
-				sprintf (buf+strlen(buf), "POWER=%d\n", ps->proof_power);
-			else
-				sprintf (buf+strlen(buf), "POWER=%dx%d\n", ps->proof_power, ps->proof_power_mult);
-			if (ps->prp_base != 3) sprintf (buf+strlen(buf), "BASE=%u\n", ps->prp_base);
-			if (_write (fdout, buf, (unsigned int) strlen (buf)) != (int) strlen (buf)) {
-				OutputBoth (ps->thread_num, "Error writing proof file header.\n");
-				OutputBothErrno (ps->thread_num);
-				goto pfail;
-			}
-			MD5Update (&context, buf, (unsigned int) strlen (buf));
-
-			// Output number.  Enclose non-Mersennes with known factors in parentheses.  Append known factors.
-			sprintf (buf, "NUMBER=");
-			if ((w->k != 1.0 || w->c != -1) && w->known_factors != NULL) strcat (buf, "(");
-			strcat (buf, gwmodulo_as_string (gwdata));
-			if ((w->k != 1.0 || w->c != -1) && w->known_factors != NULL) strcat (buf, ")");
-			if (w->known_factors != NULL) {		// Output known factors list
-				char	*p;
-				sprintf (buf + strlen (buf), "/%s", w->known_factors);
-				while ((p = strchr (buf, ',')) != NULL) *p = '/';
-			}
-			strcat (buf, "\n");
-			if (_write (fdout, buf, (unsigned int) strlen (buf)) != (int) strlen (buf)) {
-				OutputBoth (ps->thread_num, "Error writing proof file header.\n");
-				OutputBothErrno (ps->thread_num);
-				goto pfail;
-			}
-			MD5Update (&context, buf, (unsigned int) strlen (buf));
-		}
+// Output this full or partial proof
 
 		// Output final residue
 		rc = readResidue (ps, gwdata, fd, (1 << ps->proof_power), M);
@@ -11178,21 +11143,6 @@ int generateProofFile (
 		if (fdout >= 0) _close (fdout), fdout = -1;
 		gwfree (gwdata, M); M = NULL;
 
-// Generate an MD5 hash of the bytes just written to the proof file.  This will be a unique identifier to thwart a bad actor from uploading a counterfeit proof file.
-// Compare the MD5 generated during output to the MD5 generated by re-reading the file			
-
-		md5_hexdigest_file_from_offset (proof_hash, tmp_proof_filename, proof_file_start_offset);
-		if (strcmp (MD5_output, proof_hash) != 0) {
-			OutputBoth (ps->thread_num, "The MD5 hash of the proof file is not correct.\n");
-			goto pfail;
-		}
-
-// Return an MD5 hash of the complete proof file.  This will be a unique identifier to thwart a bad actor from uploading
-// a counterfeit proof file.
-
-		if (proof_number == ps->proof_power_mult && proof_file_start_offset != 0)
-			md5_hexdigest_file (proof_hash, tmp_proof_filename);
-
 // Check if an error occurred before publishing our proof
 
 		if (gw_test_for_error (gwdata)) {
@@ -11205,30 +11155,24 @@ int generateProofFile (
 		if (gw_get_maxerr (gwdata) > 0.45) goto somewhere; ???
 #endif
 
-// Print messages, rename proof file (we used a temp file so that proof uploader thread does not see partial proof files)
-// Delete the large interim residues file
+// Print message on cost of proof construction
 
 		sprintf (buf, "Proof construction cost %d squarings\n", (int) ceil (gwdata->fft_count / 2.0));
 		OutputStr (ps->thread_num, buf);
-		if (proof_number == ps->proof_power_mult) {
-			unsigned long verify_cost = divide_rounding_up (ps->proof_num_iters, 1 << ps->proof_power);
-			sprintf (buf, "Proof verification will cost %lu squarings\n", verify_cost);
-			OutputStr (ps->thread_num, buf);
-			_unlink (proof_filename);
-			if (rename (tmp_proof_filename, proof_filename)) {
-				sprintf (buf, "Error renaming from %s to %s\n", tmp_proof_filename, proof_filename);
-				OutputBoth (ps->thread_num, buf);
-			}
-			_unlink (ps->residues_filename);
-		}
-		// Otherwise, delete residues file if user has option set to keep interim residues file as small as possible
-		else if (!IniGetInt (LOCALINI_FILE, "PreallocateDisk", 1)) {
-			_unlink (ps->residues_filename);
-		}
-		for (i = 0; i < ps->num_emergency_allocs; i++) free (ps->emergency_allocs[i]);
-		ps->num_emergency_allocs = 0;
-		break;
 
+// Generate an MD5 hash of the bytes just written to the proof file.  This will be a unique identifier to thwart a bad actor from uploading a counterfeit proof file.
+// Compare the MD5 generated during output to the MD5 generated by re-reading the file.
+
+		md5_hexdigest_file_from_offset (proof_hash, tmp_proof_filename, proof_file_start_offset);
+		if (strcmp (MD5_output, proof_hash) != 0) {
+			OutputBoth (ps->thread_num, "The MD5 hash of the proof file is not correct.\n");
+			goto pfail;
+		}
+
+// Proof generation successful.  Break out of loop trying to generate the proof.
+
+		break;
+		
 // Cleanup after a proof failure, close and delete/truncate proof file
 
 pfail_wont_get_better:
@@ -11248,8 +11192,6 @@ pfail:		if (fd >= 0) _close (fd);
 		if (proofgen_waits == 0) {		// We've run out of 5 minute waits.  Give up on trying to generate the proof file.
 			OutputBoth (ps->thread_num, "Proof generation failed.\n");
 			ps->proof_power = 0;		// Clear proof power so that JSON will report no proof file generated
-			for (i = 0; i < ps->num_emergency_allocs; i++) free (ps->emergency_allocs[i]);
-			ps->num_emergency_allocs = 0;
 			_unlink (ps->residues_filename);
 			break;
 		}
@@ -11263,6 +11205,35 @@ pfail:		if (fd >= 0) _close (fd);
 			return (stop_reason);
 		}
 	}
+
+// Either proof has been successfully generated or we've given up on ever being able to generate a proof.  If successful, print message on proof completion,
+// rename proof file (we used a temp file so that proof uploader thread does not see partial proof files).  Delete the large interim residues file
+
+	if (ps->proof_power) {
+		if (proof_number == ps->proof_power_mult) {
+			unsigned long verify_cost = divide_rounding_up (ps->proof_num_iters, 1 << ps->proof_power);
+			sprintf (buf, "Proof verification will cost %lu squarings\n", verify_cost);
+			OutputStr (ps->thread_num, buf);
+			_unlink (proof_filename);
+			if (rename (tmp_proof_filename, proof_filename)) {
+				sprintf (buf, "Error renaming from %s to %s\n", tmp_proof_filename, proof_filename);
+				OutputBoth (ps->thread_num, buf);
+			}
+			_unlink (ps->residues_filename);
+			// Return an MD5 hash of the complete proof file.  This unique identifier thwarts a bad actor from uploading a counterfeit proof file.
+			md5_hexdigest_file (proof_hash, proof_filename);
+
+		}
+		// Otherwise, delete residues file if user has option set to keep interim residues file as small as possible
+		else if (!IniGetInt (LOCALINI_FILE, "PreallocateDisk", 1)) {
+			_unlink (ps->residues_filename);
+		}
+	}
+
+// Free any emergency memory
+
+	for (int i = 0; i < ps->num_emergency_allocs; i++) free (ps->emergency_allocs[i]);
+	ps->num_emergency_allocs = 0;
 
 // Clear the waits counter, return no-need-to-stop code
 
@@ -11314,7 +11285,7 @@ int writePRPSaveFile (			// Returns TRUE if successful
 	struct prp_state *ps)
 {
 	int	fd;
-	unsigned long sum = 0;
+	uint32_t sum = 0;
 	char	buf[512];
 
 /* If there are interim proof residues sitting in emergency memory, do not write a save file.  This is because */
@@ -11425,7 +11396,8 @@ int readPRPSaveFile (
 	struct prp_state *ps)		/* PRP state structure to read and fill in */
 {
 	int	fd;
-	unsigned long savefile_prp_base, sum, filesum, version;
+	unsigned long savefile_prp_base;
+	uint32_t version, sum, filesum;
 
 	// Open the save file
 	fd = _open (filename, _O_BINARY | _O_RDONLY);

@@ -5,7 +5,7 @@
 | in the multi-precision arithmetic routines.  That is, all routines
 | that deal with the gwnum data type.
 | 
-|  Copyright 2002-2022 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2002-2023 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -44,8 +44,8 @@
 
 /* Global variables */
 
-gwmutex	clone_lock;				/* This mutex lets parent and cloned gwdatas atomicly change a set of values */
-int	clone_lock_initialized = FALSE;		/* Whether clone mutex is initialized */
+gwmutex	gwclone_lock;				/* This mutex lets parent and cloned gwdatas atomicly change a set of values */
+int	gwclone_lock_initialized = FALSE;	/* Whether clone mutex is initialized */
 
 /* When debugging gwnum and giants, I sometimes write code that "cheats" */
 /* by calling a routine that is part of prime95 rather than the gwnum and */
@@ -2093,6 +2093,7 @@ void gwinit2 (
 	gwdata->use_large_pages = 0;
 	gwdata->use_benchmarks = 1;
 	gwdata->gwnum_max_free_count = 10;
+	gwdata->scramble_arrays = 1;
 	gwdata->mem_needed = GWINIT_WAS_CALLED_VALUE;	/* Special code checked by gwsetup to ensure gwinit was called */
 
 /* Init structure that allows giants and gwnum code to share allocated memory */
@@ -2667,9 +2668,9 @@ int gwclone (
 
 /* Start by copying the handle, set flag indicating this is a cloned handle */
 
-	gwmutex_lock (&clone_lock);		// Protect against cloning while parent is atomicly changing a set of values
+	gwmutex_lock (&gwclone_lock);		// Protect against cloning while parent is atomicly changing a set of values
 	memcpy (cloned_gwdata, gwdata, sizeof (struct gwhandle_struct));
-	gwmutex_unlock (&clone_lock);
+	gwmutex_unlock (&gwclone_lock);
 	cloned_gwdata->clone_of = gwdata;
 
 // Init giants/gwdata sharing
@@ -2915,9 +2916,9 @@ int internal_gwsetup (
 
 /* Initialize the clone mutex if necessary */
 
-	if (!clone_lock_initialized) {
-		gwmutex_init (&clone_lock);
-		clone_lock_initialized = TRUE;
+	if (!gwclone_lock_initialized) {
+		gwmutex_init (&gwclone_lock);
+		gwclone_lock_initialized = TRUE;
 	}
 
 /* Allocate space for the assembly code global data.  This area is preceded */
@@ -5183,7 +5184,7 @@ static __inline void pass1_state0_assign_first_block (
 	gwhandle *gwdata,
 	struct gwasm_data *asm_data)
 {
-	asm_data->this_block = atomic_fetch_addin (gwdata->next_block, asm_data->cache_line_multiplier);
+	asm_data->this_block = (int) atomic_fetch_addin (gwdata->next_block, asm_data->cache_line_multiplier);
 	asm_data->data_addr = pass1_data_addr (gwdata, asm_data, asm_data->this_block);
 	asm_data->premult_addr = pass1_premult_addr (gwdata, asm_data->this_block);
 }
@@ -5194,7 +5195,7 @@ static __inline void pass1_state0_assign_next_block (
 	gwhandle *gwdata,
 	struct gwasm_data *asm_data)
 {
-	int next_block = atomic_fetch_addin (gwdata->next_block, asm_data->cache_line_multiplier);
+	int next_block = (int) atomic_fetch_addin (gwdata->next_block, asm_data->cache_line_multiplier);
 	if (next_block < (int) gwdata->num_pass1_blocks) {
 		asm_data->next_block = next_block;
 		/* Init prefetching for the next block */
@@ -5413,7 +5414,7 @@ static __inline void pass2_assign_first_block (
 	gwhandle *gwdata,
 	struct gwasm_data *asm_data)
 {
-	asm_data->this_block = atomic_fetch_incr (gwdata->next_block);
+	asm_data->this_block = (int) atomic_fetch_incr (gwdata->next_block);
 	asm_data->data_addr = pass2_data_addr (gwdata, asm_data, asm_data->this_block);
 	asm_data->premult_addr = pass2_premult_addr (gwdata, asm_data->this_block);
 }
@@ -5424,7 +5425,7 @@ static __inline void pass2_assign_next_block (
 	gwhandle *gwdata,
 	struct gwasm_data *asm_data)
 {
-	int next_block = atomic_fetch_incr (gwdata->next_block);
+	int next_block = (int) atomic_fetch_incr (gwdata->next_block);
 	if (next_block < (int) gwdata->num_pass2_blocks) {
 		asm_data->next_block = next_block;
 		/* Init prefetching for the next block */
@@ -6901,12 +6902,12 @@ void gwfree_internal_memory (
 {
 	// If the gwdata has been cloned, we cannot safely free shared gwnums as the cloned gwdatas may also be using these gwnums
 	if (gwdata->clone_count == 0 && gwdata->clone_of == NULL) {
-		gwmutex_lock (&clone_lock);		// Protect against a clone initializing right now.  The clone would copy pointers we are about to free.
+		gwmutex_lock (&gwclone_lock);		// Protect against a clone initializing right now.  The clone would copy pointers we are about to free.
 		gwfree (gwdata, gwdata->GW_RANDOM), gwdata->GW_RANDOM = NULL;
 		gwfree (gwdata, gwdata->GW_RANDOM_SQUARED), gwdata->GW_RANDOM_SQUARED = NULL;
 		gwfree (gwdata, gwdata->GW_RANDOM_FFT), gwdata->GW_RANDOM_FFT = NULL;
 		if (gwdata->FFT1_state == 1 && !gwdata->FFT1_user_allocated) gwfree (gwdata, gwdata->GW_FFT1), gwdata->GW_FFT1 = NULL, gwdata->FFT1_state = 0;
-		gwmutex_unlock (&clone_lock);
+		gwmutex_unlock (&gwclone_lock);
 	}
 	if (gwdata->to_radix_gwdata != NULL) gwdone (gwdata->to_radix_gwdata), free (gwdata->to_radix_gwdata), gwdata->to_radix_gwdata = NULL;
 	if (gwdata->from_radix_gwdata != NULL) gwdone (gwdata->from_radix_gwdata), free (gwdata->from_radix_gwdata), gwdata->from_radix_gwdata = NULL;
@@ -6917,9 +6918,10 @@ void gwfree_internal_memory (
 
 gwarray gwalloc_array (		/* Pointer to an array of gwnums */
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
-	int	n)		/* Size of the array of gwnums */
+	uint64_t n)		/* Size of the array of gwnums */
 {
-	size_t	array_header_size, gwnum_header_size, aligned_gwnum_size, array_size;
+	size_t	array_header_size, gwnum_header_size, gwnum_size, aligned_gwnum_size, array_size;
+	int	pad_frequency, pad_amount, pad_direction;
 	char	*p = NULL;			// Pointer to the allocated memory
 	int	freeable;			// Flags indicating how memory was allocated
 
@@ -6928,21 +6930,43 @@ gwarray gwalloc_array (		/* Pointer to an array of gwnums */
 
 	// Calc needed space for each gwnum in the array
 	gwnum_header_size = GW_HEADER_SIZE (gwdata);
-	aligned_gwnum_size = gwnum_datasize (gwdata) + gwnum_header_size;
-	aligned_gwnum_size = round_up_to_multiple_of (aligned_gwnum_size, 64);
+	gwnum_size = gwnum_datasize (gwdata) + gwnum_header_size;
+	aligned_gwnum_size = round_up_to_multiple_of (gwnum_size, 64);
+
 	// For AVX-512 CPUs, rounding to a multiple of 128 bytes seems to be a minor benefit.  More importantly, when polymult reads a single cache line from
 	// many gwnums, it is beneficial to have the aligned gwnum size be an odd multiple of the cache line size.  This lets us avoid nasty 4KB strides which
-	// make poor use of the CPU caches.  The AVX-512 gwnum FFT size of 12228 is an example where this makes a big difference.  Note the use of global
-	// CPU_FLAGS as AVX_512 CPUs as there are no AVX-512 FFTs smaller than 1K.
-	if (CPU_FLAGS & CPU_AVX512F) {
+	// make poor use of the CPU caches.  The AVX-512 gwnum FFT size of 12228 is an example where this makes a big difference.
+	if (gwdata->cpu_flags & CPU_AVX512F) {
 		if (aligned_gwnum_size % 128 == 64) aligned_gwnum_size += 64;
 		if (aligned_gwnum_size % 256 == 0) aligned_gwnum_size += 128;
+		pad_amount = 128;							// Pad to 128-byte boundaries
 	} else {
 		if (aligned_gwnum_size % 128 == 0) aligned_gwnum_size += 64;
+		pad_amount = 64;							// Pad to 64-byte boundaries
 	}
-	// Calc needed space for the array_header, array, 128 bytes to get gwnums aligned on a cache line, and room for n aligned gwnums
+
+	// Calc needed space for the array_header and array (128 bytes to get first gwnum aligned on a cache line and room for n aligned gwnums)
 	array_header_size = sizeof (gwarray_header);
 	array_size = array_header_size + n * sizeof (gwnum) + 128 + n * aligned_gwnum_size;
+
+	// If scrambling array pointers, no further padding is necessary
+	if (gwdata->scramble_arrays) {
+		pad_frequency = 0;
+	}
+	// Otherwise, when polymult uses two-pass FFTs it accesses cache lines within each gwnum with stride 1 in the second pass and stride 2^some_power in
+	// the first pass.  For best cache usage, we want both access patterns to avoid 4KB strides with makes the 2^some_power stride problematic.  The above
+	// code insures the stride 1 accesses are optimal.  Add another padding every 64 gwnums (32 gwnums in AVX-512).  This padding will ensure that a
+	// stride 64 access pattern can fetch 64 consecutive gwnums before a multiple of 4KB is encountered.  If 2^some_power is more than 64, we another padding
+	// every 64*64 gwnums to once again avoid distances that are a multiple of 4KB as much as possible.
+	else {
+		pad_frequency = 4096 / pad_amount;							// Pad every 4KB (every 32 or 64 gwnums)
+		if ((int) (aligned_gwnum_size - gwnum_size) >= pad_amount) pad_direction = -1;		// Undo last padding to avoid multiple of 4KB
+		else pad_direction = 1;									// Add a padding to avoid multiple of 4KB
+		// Bump array_size for paddings every 32 or 64 gwnums, more paddings every 32*32 or 64*64 gwnums, and so forth.
+		array_size += divide_rounding_down (n, pad_frequency) * pad_direction * pad_amount -
+			      divide_rounding_down (n, pad_frequency * pad_frequency) * pad_direction * pad_amount +
+			      divide_rounding_down (n, pad_frequency * pad_frequency  * pad_frequency) * pad_direction * pad_amount;
+	}
 
 	// Allocate memory using large pages or regular malloc
 	if (gwdata->use_large_pages) {
@@ -6961,21 +6985,37 @@ gwarray gwalloc_array (		/* Pointer to an array of gwnums */
 	gwarray array = (gwarray) (p + array_header_size);
 	array = (gwarray) round_up_to_multiple_of ((intptr_t) array, sizeof (gwnum));
 	gwnum next_gwnum = (gwnum) ((char *) array + n * sizeof (gwnum) + gwnum_header_size);
-	next_gwnum = (gwnum) round_up_to_multiple_of ((intptr_t) next_gwnum, 64);
+	next_gwnum = (gwnum) round_up_to_multiple_of ((intptr_t) next_gwnum, pad_amount);
 	gwarray_header *array_header = (gwarray_header *) ((char *) array - array_header_size);
 
 	// Init the array and each gwnum
 	for (int i = 0; i < n; i++) {
+		// If extra padding is required, apply that now
+		if (pad_frequency && i && i % pad_frequency == 0) {
+			// Pad to get off a 4KB multiple
+			next_gwnum = (gwnum) ((char *) next_gwnum + pad_direction * pad_amount);
+			// Occasionally pad even more so that really large strides also don't get stuck on 4KB multiples
+			if (i % (pad_frequency * pad_frequency) == 0) {
+				next_gwnum = (gwnum) ((char *) next_gwnum - pad_direction * pad_amount);
+				if (i % (pad_frequency * pad_frequency * pad_frequency) == 0) {
+					next_gwnum = (gwnum) ((char *) next_gwnum + pad_direction * pad_amount);
+				}
+			}
+		}
+		// Set array pointer, clear gwnum header, calc next gwnum pointer assuming no extra padding required
 		array[i] = next_gwnum;
 		memset ((char *) next_gwnum - gwnum_header_size, 0, gwnum_header_size);
 		next_gwnum = (gwnum) ((char *) next_gwnum + aligned_gwnum_size);
 	}
 
-// Crazy idea, scramble the gwnums so that polymult strided writes have random strides
-//for (int i = 0; i < n; i++) {
-//int j = rand () % n;
-//gwswap (array[i], array[j]);
-//}
+	// Clearly we do not fully understand memory accessing.  The above code that makes sure polymult strided accesses have a minimum number of 4KB strides is
+	// often slower than simply randomly placing the gwnum pointers in the gwnum array.  Until we can improve the above code, we default to scrambled addresses.
+	if (gwdata->scramble_arrays) {
+		for (int i = 0; i < n; i++) {
+			int j = rand () % n;
+			gwswap (array[i], array[j]);
+		}
+	}
 
 	// Obtain lock necessary for thread-safe operation
 	gwmutex_lock (&gwdata->alloc_lock);
@@ -8351,7 +8391,7 @@ void raw_gwsetaddin (
 /* One could argue that protecting against this inconsistency is useless.  If you clone while the parent is in the middle of this routine, then the */
 /* caller has a race condition where he has no idea whether he's cloned the old or new addin value. */
 
-	if (gwdata->clone_of == NULL) gwmutex_lock (&clone_lock);
+	if (gwdata->clone_of == NULL) gwmutex_lock (&gwclone_lock);
 
 /* Handle calculations for AVX-512 FFTs.  All two-pass FFTs use a scratch area. */
 
@@ -8538,7 +8578,7 @@ void raw_gwsetaddin (
 
 /* Release clone lock now that ADDIN_ROW, ADDIN_OFFSET, and asm_addin_value have all been changed */
 
-	if (gwdata->clone_of == NULL) gwmutex_unlock (&clone_lock);
+	if (gwdata->clone_of == NULL) gwmutex_unlock (&gwclone_lock);
 }
 
 /* Initialize the cached GW_ADDIN value */
@@ -11069,14 +11109,10 @@ void do_multithread_op_work (
 
 	if (data->asm_proc == NULL) {
 		for ( ; ; ) {
-			int	i;
 
-/* Get next block to process */
+/* Get next block to process.  Break out of loop when there are no more blocks to process. */
 
-			i = atomic_fetch_incr (gwdata->next_block);
-
-/* Break out of loop when there are no more blocks to process */
-
+			int i = (int) atomic_fetch_incr (gwdata->next_block);
 			if (i >= data->num_blks) break;
 
 /* Move a 4KB block */
@@ -11089,14 +11125,10 @@ void do_multithread_op_work (
 
 	else if (gwdata->cpu_flags & CPU_AVX512F) {
 		for ( ; ; ) {
-			int	i;
 
-/* Get next block to process */
+/* Get next block to process.  Break out of loop when there are no more blocks to process. */
 
-			i = atomic_fetch_addin (gwdata->next_block, (data->is_quick ? 1 : 4));
-
-/* Break out of loop when there are no more blocks to process */
-
+			int i = (int) atomic_fetch_addin (gwdata->next_block, (data->is_quick ? 1 : 4));
 			if (i >= data->num_blks) break;
 
 /* Process the block */
@@ -11117,14 +11149,10 @@ void do_multithread_op_work (
 
 	else {
 		for ( ; ; ) {
-			int	i;
 
-/* Get next block to process */
+/* Get next block to process.  Break out of loop when there are no more blocks to process. */
 
-			i = atomic_fetch_addin (gwdata->next_block, 1);
-
-/* Break out of loop when there are no more blocks to process */
-
+			int i = (int) atomic_fetch_addin (gwdata->next_block, 1);
 			if (i >= data->num_blks) break;
 
 /* Process the block */

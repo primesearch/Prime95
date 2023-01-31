@@ -1,4 +1,4 @@
-/* Copyright 1995-2022 Mersenne Research, Inc. */
+/* Copyright 1995-2023 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -998,6 +998,7 @@ void options_resources (void)
 		IniSectionWriteString (INI_FILE, "PrimeNet", "UploadStartTime", m_upload_start);
 		IniSectionWriteString (INI_FILE, "PrimeNet", "UploadEndTime", m_upload_end);
 		IniSectionWriteInt (INI_FILE, "PrimeNet", "DownloadDailyLimit", m_download_mb);
+		gwevent_signal (&PROOF_UPLOAD_EVENT);		/* Trigger proof uploader in case upload start or end time changed */
 		IniWriteString (LOCALINI_FILE, "ProofResiduesDir", m_temp_dir);
 		IniWriteString (LOCALINI_FILE, "ProofArchiveDir", m_archive_dir);
 
@@ -1304,7 +1305,7 @@ void help_about (void)
 	printf ("GIMPS: Mersenne Prime Search\n");
 	printf ("Web site: http://mersenne.org\n");
 	printf ("%s\n", app_string);
-	printf ("Copyright 1996-2022 Mersenne Research, Inc.\n");
+	printf ("Copyright 1996-2023 Mersenne Research, Inc.\n");
 	printf ("Author: George Woltman\n");
 	printf ("Email:  woltman@alum.mit.edu\n");
 	askOK ();

@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 2020-2021 Mersenne Research, Inc.  All rights reserved
+| Copyright 2020-2023 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines to certify a PRP proof.
 +---------------------------------------------------------------------*/
@@ -37,7 +37,7 @@ int writeCertSaveFile (			/* Returns TRUE if successful */
 	struct work_unit *w)		/* Work unit */
 {
 	int	fd;
-	unsigned long sum = 0;
+	uint32_t sum = 0;
 	char	buf[512];
 
 /* Now save to the intermediate file */
@@ -84,7 +84,7 @@ int readCertSaveFile (			/* Returns TRUE if succsessful */
 	struct work_unit *w)		/* Work unit */
 {
 	int	fd;
-	unsigned long sum, filesum, version;
+	uint32_t version, sum = 0, filesum;
 
 	// Open the save file
 	fd = _open (filename, _O_BINARY | _O_RDONLY);
@@ -96,7 +96,6 @@ int readCertSaveFile (			/* Returns TRUE if succsessful */
 	if (version == 0 || version > CERT_VERSION) goto err;
 
 	// Read fields that are in all versions of the save file
-	sum = 0;
 	if (!read_long (fd, &cs->error_count, &sum)) goto err;
 	if (!read_long (fd, &cs->counter, &sum)) goto err;
 	if (!read_long (fd, &cs->units_bit, &sum)) goto err;

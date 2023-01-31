@@ -8,7 +8,7 @@
 | NOTE:  These routines only work if you open no more than 10 ini files.  Also,
 | you must not change the working directory at any time during program execution.
 |
-| Copyright 2016-2021 Mersenne Research, Inc.  All rights reserved
+| Copyright 2016-2023 Mersenne Research, Inc.  All rights reserved
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -635,6 +635,65 @@ void IniSectionWriteInt (		/* Write an integer value to specified section of the
 {
 	char	buf[20];
 	sprintf (buf, "%ld", val);
+	IniSectionWriteString (filename, section, keyword, buf);
+}
+
+int64_t IniGetInt64 (			/* Get an integer value from the global section of the INI file */
+	const char *filename,
+	const char *keyword,
+	int64_t	default_val)
+{
+	return (IniSectionGetInt64 (filename, NULL, keyword, default_val));
+}
+
+int64_t IniSectionGetInt64 (		/* Get an integer value from specified section of the INI file */
+	const char *filename,
+	const char *section,
+	const char *keyword,
+	int64_t	default_val)
+{
+	unsigned int seconds;
+	return (IniSectionGetTimedInt64 (filename, section, keyword, default_val, &seconds));
+}
+
+int64_t IniGetTimedInt64 (		/* Get a time-sensitive integer value from the global section of the INI file */
+	const char *filename,
+	const char *keyword,
+	int64_t	default_val,
+	unsigned int *seconds)		/* Return length of time this timed INI setting is good for. */
+{
+	return (IniSectionGetTimedInt64 (filename, NULL, keyword, default_val, seconds));
+}
+
+int64_t IniSectionGetTimedInt64 (	/* Get a time-sensitive integer value from specified section of the INI file */
+	const char *filename,
+	const char *section,
+	const char *keyword,
+	int64_t	default_val,
+	unsigned int *seconds)		/* Return length of time this timed INI setting is good for. */
+{
+	char	buf[30], defval[30];
+	sprintf (defval, "%" PRIi64, default_val);
+	IniSectionGetTimedString (filename, section, keyword, buf, 30, defval, seconds);
+	return (atoll (buf));
+}
+
+void IniWriteInt64 (			/* Write an integer value to the global section of the INI file */
+	const char *filename,
+	const char *keyword,
+	int64_t	val)
+{
+	IniSectionWriteInt64 (filename, NULL, keyword, val);
+}
+
+void IniSectionWriteInt64 (		/* Write an integer value to specified section of the INI file */
+	const char *filename,
+	const char *section,
+	const char *keyword,
+	int64_t	val)
+{
+	char	buf[30];
+	sprintf (buf, "%" PRIi64, val);
 	IniSectionWriteString (filename, section, keyword, buf);
 }
 

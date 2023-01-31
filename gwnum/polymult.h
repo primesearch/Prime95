@@ -4,7 +4,7 @@
 | This file contains the headers and definitions that are used in the
 | polynomial multiplication built upon the gwnum library.
 | 
-|  Copyright 2021-2022 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2021-2023 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _POLYMULT_H
@@ -25,16 +25,17 @@ typedef struct pmhandle_struct pmhandle;
 // to do polymults of the desired size.
 
 // Get the needed safety_margin required for an invec1_size by invec2_size polymult
-double polymult_safety_margin (int invec1_size, int invec2_size);
+double polymult_safety_margin (uint64_t invec1_size, uint64_t invec2_size);
 
 // Get the FFT size that will be used for an n = invec1_size + invec2_size polymult
-int polymult_fft_size (int n);
-// Polymult currently uses two-pass FFTs to implement larger multiplications.  This routine returns the sizes of the two FFT passes.
-// DO NOT CALL THIS ROUTINE, a future polymult library may change the way it internally implements FFTs.
-void pick_pass_sizes (pmhandle *pmdata, unsigned int fftsize, unsigned int *p1size, unsigned int *p2size);
+uint64_t polymult_fft_size (uint64_t n);
 
 // Get the memory (in bytes) required for an FFT based polymult.  Use the information to ensure over-allocating memory does not occur.
-uint64_t polymult_mem_required (int invec1_size, int invec2_size, int options, int cpu_flags, int num_threads);
+uint64_t polymult_mem_required (
+	pmhandle *pmdata,		// Handle for polymult library
+	uint64_t invec1_size,		// Size of poly #1
+	uint64_t invec2_size,		// Size of poly #2
+	int	options);		// Polymult options
 
 /* Callers of the polymult routines must first allocate a pmhandle (on the heap or stack) and pass it to all polymult routines. */
 // Initialize a polymult handle
@@ -48,8 +49,14 @@ void polymult_init (
 #define polymult_set_max_num_threads(h,n)	(h)->max_num_threads = (h)->num_threads = (n)
 #define polymult_set_num_threads(h,n)		(h)->num_threads = (n)
 
-// Set the cache size to optimize FFTs for
-#define polymult_set_cache_size(h,n)	(h)->L2_CACHE_SIZE = (n)
+// Set default polymult tuning using CPU cache sizes.  If this routine is not called, default tuning parameters are set using L2 cache of 256KB, and
+// L3 cache of 6144KB (6MB).  These tuning defaults are almost certainly imperfect.  Feel free to change the tuning defaults to suit your exact needs.
+// Read the polymult_default_tuning code to see some of the considerations used in selecting tuning parameters.  Also, run prime95 Advanced/Time 8900
+// for relevant timings on your CPU.  Beware, these timings can vary considerably from run to run.
+void polymult_default_tuning (
+	pmhandle *pmdata,		// Handle for polymult library
+	uint32_t L2_CACHE_SIZE,		// Optimize FFTs to fit in this size cache (number is in KB).  Default is 256KB.
+	uint32_t L3_CACHE_SIZE);	// Optimize FFTs to fit in this size cache (number is in KB).  Default is 6144KB (6MB).
 
 // Terminate use of a polymult handle.  Free up memory.
 void polymult_done (
@@ -62,11 +69,11 @@ void polymult_done (
 void polymult (
 	pmhandle *pmdata,		// Handle for polymult library
 	gwnum	*invec1,		// First input poly
-	int	invec1_size,		// Size of the first input polynomial
+	uint64_t invec1_size,		// Size of the first input polynomial
 	gwnum	*invec2,		// Second input poly
-	int	invec2_size,		// Size of the second input polynomial
+	uint64_t invec2_size,		// Size of the second input polynomial
 	gwnum	*outvec,		// Output poly
-	int	outvec_size,		// Size of the output polynomial or if POLYMULT_CIRCULAR is set compute result modulo (X^outvec_size - 1)
+	uint64_t outvec_size,		// Size of the output polynomial or if POLYMULT_CIRCULAR is set compute result modulo (X^outvec_size - 1)
 					// or if POLYMULT_MULHI or POLYMULT_MULLO is set this is the number of coefficients to return.  This interface
 					// does not allow the POLYMULT_CIRCULAR option and POLYMULT_MULHI or POLYMULT_MULLO to both be set -- use
 					// polymult2 or polymult_several instead.
@@ -76,11 +83,11 @@ void polymult (
 void polymult_fma (
 	pmhandle *pmdata,		// Handle for polymult library
 	gwnum	*invec1,		// First input poly
-	int	invec1_size,		// Size of the first input polynomial
+	uint64_t invec1_size,		// Size of the first input polynomial
 	gwnum	*invec2,		// Second input poly
-	int	invec2_size,		// Size of the second input polynomial
+	uint64_t invec2_size,		// Size of the second input polynomial
 	gwnum	*outvec,		// Output poly
-	int	outvec_size,		// Size of the output polynomial or if POLYMULT_CIRCULAR is set compute result modulo (X^outvec_size - 1)
+	uint64_t outvec_size,		// Size of the output polynomial or if POLYMULT_CIRCULAR is set compute result modulo (X^outvec_size - 1)
 					// or if POLYMULT_MULHI or POLYMULT_MULLO is set this is the number of coefficients to return.  This interface
 					// does not allow the POLYMULT_CIRCULAR option and POLYMULT_MULHI or POLYMULT_MULLO options to both be set -- use
 					// polymult_several instead.
@@ -91,14 +98,14 @@ void polymult_fma (
 void polymult2 (
 	pmhandle *pmdata,		// Handle for polymult library
 	gwnum	*invec1,		// First input poly
-	int	invec1_size,		// Size of the first input polynomial
+	uint64_t invec1_size,		// Size of the first input polynomial
 	gwnum	*invec2,		// Second input poly
-	int	invec2_size,		// Size of the second input polynomial
+	uint64_t invec2_size,		// Size of the second input polynomial
 	gwnum	*outvec,		// Output poly
-	int	outvec_size,		// Size of the output polynomial.  If POLYMULT_MULHI or POLYMULT_MULLO is set this is the number of coefficients to return.
+	uint64_t outvec_size,		// Size of the output polynomial.  If POLYMULT_MULHI or POLYMULT_MULLO is set this is the number of coefficients to return.
 	gwnum	*fmavec,		// FMA poly to add or subtract from poly multiplication result.  Same size as outvec, cannot be preprocessed.
-	int	circular_size,		// If POLYMULT_CIRCULAR set, compute poly result modulo (X^circular_size - 1)
-	int	first_mulmid,		// If POLYMULT_MULMID set, this is the number of least significant coefficients that will not be returned
+	uint64_t circular_size,		// If POLYMULT_CIRCULAR set, compute poly result modulo (X^circular_size - 1)
+	uint64_t first_mulmid,		// If POLYMULT_MULMID set, this is the number of least significant coefficients that will not be returned
 	int	options);
 
 #define POLYMULT_INVEC1_MONIC	0x1	// Invec1 is a monic polynomial.  Leading coefficient of one is implied.
@@ -159,28 +166,28 @@ void polymult2 (
 gwarray polymult_preprocess (		// Returns a plug-in replacement for the input poly
 	pmhandle *pmdata,		// Handle for polymult library
 	gwnum	*invec1,		// Input poly
-	int	invec1_size,		// Size of the input polynomial
-	int	invec2_size,		// Size of the other polynomial that will be used in a future polymult call
-	int	outvec_size,		// Size of the output polynomial that will be used in a future polymult call
+	uint64_t invec1_size,		// Size of the input polynomial
+	uint64_t invec2_size,		// Size of the other polynomial that will be used in a future polymult call
+	uint64_t outvec_size,		// Size of the output polynomial that will be used in a future polymult call
 	int	options);		// Future polymult call options plus preprocessing options (FFT, compress -- see below)
 
 /* This routine allows multiplying one poly with several other polys.  This yields a small performance gain in that the one poly is read and FFTed just once. */
 
 typedef struct pmargument_struct {	// Each of the several polys need to describe where their input and output coefficients are located
 	gwnum	*invec2;	// Second input poly
-	int	invec2_size;	// Size of the second input polynomial
+	uint64_t invec2_size;	// Size of the second input polynomial
 	gwnum	*outvec;	// Output poly
-	int	outvec_size;	// Size of the output polynomial
+	uint64_t outvec_size;	// Size of the output polynomial
 	gwnum	*fmavec;	// Poly to add in if FMA options are requested
-	int	circular_size;	// If POLYMULT_CIRCULAR set, compute poly result modulo (X^circular_size - 1)
-	int	first_mulmid;	// If POLYMULT_MULMID set, this is the number of least significant coefficients that will not be returned
+	uint64_t circular_size;	// If POLYMULT_CIRCULAR set, compute poly result modulo (X^circular_size - 1)
+	uint64_t first_mulmid;	// If POLYMULT_MULMID set, this is the number of least significant coefficients that will not be returned
 	int	options;	// Any of the polymult options that are not related to poly #1
 } polymult_arg;
 
 void polymult_several (		// Multiply one poly with several polys
 	pmhandle *pmdata,	// Handle for polymult library
 	gwnum	*invec1,	// First input poly
-	int	invec1_size,	// Size of the first input polynomial
+	uint64_t invec1_size,	// Size of the first input polynomial
 	polymult_arg *other_polys, // Array of "other poly descriptors" to multiply with first input poly (describes each second input poly and output poly)
 	int	num_other_polys,// Number of other polys to multiply with first input poly
 	int	options);	// Poly #1 options.  Options not associated with poly #1 are applied to all other polys.
@@ -211,7 +218,7 @@ void poly_helper_example (int helper_num, gwhandle *gwdata, void *info);
 /* Poly_helper_example provides a multithreaded implementation of the following utility routines */
 
 // Copy invec to outvec
-void poly_copy (pmhandle *pmdata, gwnum *invec, gwnum *outvec, int poly_size);
+void poly_copy (pmhandle *pmdata, gwnum *invec, gwnum *outvec, uint64_t poly_size);
 
 // UNFFT and/or FFT all the coefficients in a poly.  Why might one want to do this?  In P-1/ECM Stage 2, we start with a large number of size 1 polys.  We multiply
 // pairs to create size 2 polys.  We multiply pairs again to create size 4 polys, and so on.  Say you are working with small numbers where the gwnum library
@@ -220,9 +227,9 @@ void poly_copy (pmhandle *pmdata, gwnum *invec, gwnum *outvec, int poly_size);
 // is to combine the large number of size 2 polys into one gigantic poly and use the routines below to gwunfft and/or gwfft all the coefficients in one batch,
 // keeping all 16 threads busy at once.  This is done in conjunction with the POLYMULT_NO_UNFFT polymult option.  Note that using poly_unfft_fft_coefficients
 // in the P-1/ECM scenario is more efficient because gwunfft followed immediately by gwfft is likely to find the gwnum still in the CPU caches.
-void poly_fft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size);
-void poly_unfft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size);
-void poly_unfft_fft_coefficients (pmhandle *pmdata, gwnum *vec, int poly_size);
+void poly_fft_coefficients (pmhandle *pmdata, gwnum *vec, uint64_t poly_size);
+void poly_unfft_coefficients (pmhandle *pmdata, gwnum *vec, uint64_t poly_size);
+void poly_unfft_fft_coefficients (pmhandle *pmdata, gwnum *vec, uint64_t poly_size);
 
 	
 /*-----------------------------------------------------------------------------
@@ -243,29 +250,32 @@ struct pmhandle_struct {
 	gwatomic next_thread_num;	// Lets us generate a unique id for each helper thread
 	bool volatile all_work_assigned; // Flag indicating all helper thread work has been assigned (some helpers ma still be active)
 	gwthread *thread_ids;		// Thread ids for the spawned threads
-	int	twiddles_initialized;	// Size of the twiddle tables
+	uint64_t twiddles_initialized;	// FFT size twiddle tables are built for
 	bool	twiddles_are_from_cache; // TRUE if the current twiddles came from the twiddle cache
 	double	*twiddles1;		// Sin/cos table for radix-3
 	double	*twiddles2;		// Sin/cos table for radix-4 and radix-5
 	// Brute force from outvec_size [1..KARAT_BREAK), Karatsuba from [KARAT_BREAK..FFT_BREAK), FFT from [FFT_BREAK..infinity)
 	int	KARAT_BREAK;		// Output vector size where we switch from brute force to Karatsuba
 	int	FFT_BREAK;		// Output vector size where we switch from Karatsuba to FFTs
-	int	L2_CACHE_SIZE;		// Optimize FFTs to fit in this size cache (number is in KB).  Default is 256KB.
-	int	L3_CACHE_SIZE;		// Optimize FFTs to fit in this size cache (number is in KB).  Default is 6MB (6144KB).
-	bool	enable_strided_writes;	// Strided writes improves performance on some CPUs
-	bool	enable_streamed_stores;	// Streamed stores improves performance on some CPUs
+	// Tuning parameters, assigned by polymult_default_tuning.  These defaults can be safely overridden.
+	uint32_t two_pass_start;	// FFT size at which we switch from one pass FFTs to two pass FFTs.
+	uint32_t max_pass2_size;	// Maximum size for pass 2 in two pass FFTs.
+	uint64_t mt_ffts_start;		// FFT size at which we switch from multi-thread lines to multi-threading the FFT
+	uint64_t mt_ffts_end;		// FFT size at which we switch back to multi-thread lines from multi-threading the FFT
+	uint64_t streamed_stores_start;	// FFT size at which streaming stores are used.  Streamed stores may improve performance when FFT lines don't fit in the caches.
+	uint64_t strided_writes_end;	// FFT size at which strided writes are no longer used. Strided writes may improves performance on some CPUs in some cases.
 	// Cached twiddles
 	bool	cached_twiddles_enabled;// TRUE if caching twiddles is enabled
 	bool	twiddle_cache_additions_disabled; // TRUE if adding new entries to the twiddle cache is temporarily disabled
 	struct {
-		int	size;		// Size of the twiddle tables
+		uint64_t size;		// FFT size the twiddles were build for
 		double	*twiddles1;	// Sin/cos table for radix-3
 		double	*twiddles2;	// Sin/cos table for radix-4 and radix-5
 	} cached_twiddles[40];
 	int	cached_twiddles_count;	// Number of cached twiddles
 	// Arguments to the current polymult call.  Copied here so that helper threads can access the arguments.  Also, the plan for implementing the polymult.
 	gwnum	*invec1;		// First input poly
-	int	invec1_size;		// Size of the first input polynomial
+	uint64_t invec1_size;		// Size of the first input polynomial
 	polymult_arg *other_polys;	// Array of second polys
 	int	num_other_polys;	// Number of second polys
 	int	options;
@@ -291,7 +301,7 @@ typedef struct {
 	gwarray_header linkage;		// Used to put preprocessed polys on gwarray linked list.  Allows gwdone to free all preprocessed polys.
 	gwnum	*self_ptr;		// Ptr to itself.  A unique indicator that this is a preprocessed poly.
 	uint64_t element_size;		// Size in bytes of each line in the preprocessed array
-	int	line_size;		// Size in CVDTs of each line in the preprocessed array.  If POLYMULT_PRE_FFT is set this is the poly FFT size.
+	uint64_t line_size;		// Size in CVDTs of each line in the preprocessed array.  If POLYMULT_PRE_FFT is set this is the poly FFT size.
 	int	num_compressed_blks;	// When compressing, each line is sub-divided into this many blocks (allows multi-threading decompression)
 	int	options;		// Copy of options passed to polymult_line_preprocess
 	float	top_unnorms;		// Number of unnormalized adds for the topmost poly coefficient

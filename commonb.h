@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2022 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
 +---------------------------------------------------------------------*/
 
 #ifndef _COMMONB_H
@@ -231,12 +231,12 @@ int avail_mem_not_sufficient (int thread_num, unsigned long min_memory, unsigned
 
 #define array_gwnum_size(g)			round_up_to_multiple_of((gwnum_datasize(g)+GW_HEADER_SIZE(g)),64)
 #define cvt_mem_to_gwnums(g,m)			cvt_mem_to_gwnums_adj(g,m,0.0)
-#define cvt_mem_to_gwnums_adj(g,m,a)		((unsigned long)(((double)((m)-1)*1048576.0-(double)gwmemused(g))/(double)array_gwnum_size(g)+(a)))
+#define cvt_mem_to_gwnums_adj(g,m,a)		((uint64_t)(((double)((m)-1)*1048576.0-(double)gwmemused(g))/(double)array_gwnum_size(g)+(a)))
 #define cvt_gwnums_to_mem(g,n)			((unsigned long)(((double)gwmemused(g)+(double)(n)*(double)gwnum_size(g))/1048576.0)+2)
 #define cvt_mem_to_array_gwnums(g,m)		cvt_mem_to_array_gwnums_adj(g,m,0.0)
-#define cvt_mem_to_array_gwnums_adj(g,m,a)	((unsigned long)(((double)((m)-1)*1048576.0-(double)gwmemused(g))/(double)array_gwnum_size(g)+(a)))
+#define cvt_mem_to_array_gwnums_adj(g,m,a)	((uint64_t)(((double)((m)-1)*1048576.0-(double)gwmemused(g))/(double)array_gwnum_size(g)+(a)))
 #define cvt_array_gwnums_to_mem(g,n)		((unsigned long)(((double)gwmemused(g)+(double)(n)*(double)array_gwnum_size(g))/1048576.0)+2)
-#define cvt_mem_to_estimated_gwnums(m,k,b,n,c)	((unsigned long)(((double)((m)-1)*1048576.0-(double)gwmap_to_memused(k,b,n,c))/(double)gwmap_to_estimated_size(k,b,n,c)))
+#define cvt_mem_to_estimated_gwnums(m,k,b,n,c)	((uint64_t)(((double)((m)-1)*1048576.0-(double)gwmap_to_memused(k,b,n,c))/(double)gwmap_to_estimated_size(k,b,n,c)))
 
 /* battery routines */
 

@@ -5,6 +5,11 @@
 #
 # GMP can be configured with --prefix=/usr/local --enable-fat --enable-static --disable-shared
 #
+# If troubles occur loading <atomic>
+# Try installing gcc-12 using homebrew, then setting
+# CC = /usr/local/bin/gcc-12
+# CPP = /usr/local/bin/g++-12
+# add -I/usr/local/include/ to CFLAGS and CPPFLAGS 
 
 ENVP= MACOSX_DEPLOYMENT_TARGET=10.9
 

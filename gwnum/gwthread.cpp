@@ -4,7 +4,7 @@
 | This file contains the C++ routines and global variables that are used
 | to implement atomics, multi-threading, mutexes, and locking.
 | 
-|  Copyright 2006-2022 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2006-2023 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -32,40 +32,40 @@
 // Hack to workaround MSVC's appalling lack of support for atomics in C, gcc 4.8's missing stdatomic.h, and gcc 8's inability to mix _Atomic in C++ code.
 // Instead we use C++11 std::atomic in gwthread.cpp and export the few routines we need in a simple C interface.
 
-#define cast_as_atomic_int(a)	((std::atomic_int *)(a))
+#define cast_as_atomic_int(a)	((std::atomic<int64_t> *)(a))
 
 extern "C"
-void	gwatomic_set (gwatomic *x, int val) {
+void	gwatomic_set (gwatomic *x, int64_t val) {
 //	ASSERTG (sizeof (std::atomic_int) <= sizeof (gwatomic);
 	cast_as_atomic_int(x)->store (val, std::memory_order_relaxed);
 }
 
 extern "C"
-int	gwatomic_get (gwatomic *x) {
+int64_t	gwatomic_get (gwatomic *x) {
 //	ASSERTG (sizeof (std::atomic_int) <= sizeof (gwatomic);
 	return (cast_as_atomic_int(x)->load (std::memory_order_relaxed));
 }
 
 extern "C"
-int	gwatomic_fetch_increment (gwatomic *x) {
+int64_t	gwatomic_fetch_increment (gwatomic *x) {
 //	ASSERTG (sizeof (std::atomic_int) <= sizeof (gwatomic);
 	return (cast_as_atomic_int(x)->fetch_add (1, std::memory_order_relaxed));
 }
 
 extern "C"
-int	gwatomic_fetch_decrement (gwatomic *x) {
+int64_t	gwatomic_fetch_decrement (gwatomic *x) {
 //	ASSERTG (sizeof (std::atomic_int) <= sizeof (gwatomic);
 	return (cast_as_atomic_int(x)->fetch_sub (1, std::memory_order_relaxed));
 }
 
 extern "C"
-int	gwatomic_fetch_add (gwatomic *x, int val) {
+int64_t	gwatomic_fetch_add (gwatomic *x, int64_t val) {
 //	ASSERTG (sizeof (std::atomic_int) <= sizeof (gwatomic);
 	return (cast_as_atomic_int(x)->fetch_add (val, std::memory_order_relaxed));
 }
 
 extern "C"
-void	gwatomic_spinwait (gwatomic *x, int val) {
+void	gwatomic_spinwait (gwatomic *x, int64_t val) {
 //	ASSERTG (sizeof (std::atomic_int) <= sizeof (gwatomic);
 	while (cast_as_atomic_int(x)->load (std::memory_order_relaxed) != val) {
 #ifdef _MSC_VER
