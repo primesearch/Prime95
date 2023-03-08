@@ -1,3 +1,6 @@
+/* Copyright 1995-2023 Mersenne Research, Inc. */
+/* Author:  George Woltman */
+/* Email: woltman@alum.mit.edu */
 
 #define bool int
 
@@ -71,7 +74,7 @@ VOID ServiceStart (DWORD dwArgc, LPTSTR *lpszArgv)
     //
 
     // Start the threads
-    LaunchWorkerThreads (ALL_WORKERS, TRUE);
+    LaunchWorkers (ALL_WORKERS, TRUE);
 
 }
 

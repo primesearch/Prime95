@@ -1,4 +1,4 @@
-/* Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved */
+/* Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved */
 
 // Prime95.cpp : Defines the class behaviors for the application.
 //
@@ -351,10 +351,10 @@ simple_mutex:	 	g_hMutexInst = CreateMutex (
 
 	WINDOWPLACEMENT wp;
 	m_pMainWnd->GetWindowPlacement (&wp);
-	int left = IniGetInt (INI_FILE, "Left", 0);
-	int top = IniGetInt (INI_FILE, "Top", 0);
-	int right = IniGetInt (INI_FILE, "Right", 0);
-	int bottom = IniGetInt (INI_FILE, "Bottom", 0);
+	int left = IniSectionGetInt (INI_FILE, SEC_Windows, KEY_Left, 0);
+	int top = IniSectionGetInt (INI_FILE, SEC_Windows, KEY_Top, 0);
+	int right = IniSectionGetInt (INI_FILE, SEC_Windows, KEY_Right, 0);
+	int bottom = IniSectionGetInt (INI_FILE, SEC_Windows, KEY_Bottom, 0);
 	if (right + left + top + bottom != 0) {
 		wp.rcNormalPosition.left = left;
 		wp.rcNormalPosition.top = top;

@@ -1,6 +1,6 @@
 // StopDlg.cpp : implementation file
 //
-//  Copyright 1995-2021 Mersenne Research, Inc. All rights reserved.
+//  Copyright 1995-2023 Mersenne Research, Inc. All rights reserved.
 //
 
 #include "stdafx.h"
@@ -34,7 +34,7 @@ void CStopDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_WORKER_TEXT, c_worker_text);
 	DDX_Control(pDX, IDC_WORKER, c_worker);
 	DDX_Text(pDX, IDC_WORKER, m_worker);
-	DDV_MinMaxUInt(pDX, m_worker, 1, WORKER_THREADS_ACTIVE);
+	DDV_MinMaxUInt(pDX, m_worker, 1, WORKERS_ACTIVE);
 	//}}AFX_DATA_MAP
 	c_worker_text.EnableWindow (!m_all_workers);
 	c_worker.EnableWindow (!m_all_workers);

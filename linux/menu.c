@@ -339,7 +339,7 @@ void test_primenet (void)
 	int	update_computer_info, primenet_debug;
 
 	update_computer_info = FALSE;
-	primenet_debug = IniSectionGetInt (INI_FILE, "PrimeNet", "Debug", 0);
+	primenet_debug = IniSectionGetInt (INI_FILE, SEC_PrimeNet, KEY_Debug, 0);
 
 	m_primenet = USE_PRIMENET;
 	if (USERID[0] == 0)
@@ -380,23 +380,20 @@ void test_primenet (void)
 
 done:	if (askOkCancel ()) {
 		DIAL_UP = m_dialup;
-		IniWriteInt (INI_FILE, "DialUp", DIAL_UP);
+		IniSectionWriteInt (INI_FILE, SEC_PrimeNet, KEY_DialUp, DIAL_UP);
 
 		if (m_proxy_host[0] && m_proxy_port != 8080)
 			sprintf (m_proxy_host + strlen (m_proxy_host), ":%lu", m_proxy_port);
-		IniSectionWriteString (INI_FILE, "PrimeNet", "ProxyHost", m_proxy_host);
+		IniSectionWriteString (INI_FILE, SEC_PrimeNet, KEY_ProxyHost, m_proxy_host);
 		if (m_proxy_host[0]) {
-			IniSectionWriteString (INI_FILE, "PrimeNet", "ProxyUser", m_proxy_user);
+			IniSectionWriteString (INI_FILE, SEC_PrimeNet, KEY_ProxyUser, m_proxy_user);
 			if (strcmp (m_proxy_pwd, orig_proxy_pwd)) {
-				IniSectionWriteString (INI_FILE, "PrimeNet",
-					"ProxyPass", m_proxy_pwd);
-				IniSectionWriteInt (INI_FILE, "PrimeNet",
-					"ProxyMask", 0);
+				IniSectionWriteString (INI_FILE, SEC_PrimeNet, KEY_ProxyPass, m_proxy_pwd);
+				IniSectionWriteInt (INI_FILE, SEC_PrimeNet, KEY_ProxyMask, 0);
 			}
 		}
 		if (m_debug != primenet_debug) {
-			IniSectionWriteInt (INI_FILE, "PrimeNet", "Debug",
-					    m_debug);
+			IniSectionWriteInt (INI_FILE, SEC_PrimeNet, KEY_Debug, m_debug);
 		}
 
 		if (strcmp (USERID, m_userid) != 0) {
@@ -408,7 +405,7 @@ done:	if (askOkCancel ()) {
 		if (strcmp (COMPID, m_compid) != 0) {
 			strcpy (COMPID, m_compid);
 			sanitizeString (COMPID);
-			IniWriteString (LOCALINI_FILE, "ComputerID", COMPID);
+			IniWriteString (INI_FILE, "ComputerID", COMPID);
 			update_computer_info = TRUE;
 		}
 
@@ -445,34 +442,34 @@ int AreAllTheSame (
 }
 
 // In theory, the maximum number of workers should be number of logical cpus.
-// However, local.txt could specify more worker threads than logical cpus (for
+// However, prime.txt could specify more workers than logical cpus (for
 // example, when local.txt is copied from a dual-core to a single-core machine).
-// We must let the user manipulate the options on these worker threads that
+// We must let the user manipulate the options on these workers that
 // don't have a CPU to run on.
 
 unsigned int max_num_workers (void)
 {
-	if (NUM_WORKER_THREADS >= HW_NUM_CORES) return (NUM_WORKER_THREADS);
+	if (NUM_WORKERS >= HW_NUM_CORES) return (NUM_WORKERS);
 	else return (HW_NUM_CORES);
 }
 
 void test_workers (void)
 {
 	unsigned long m_num_thread;
-	unsigned long m_work_pref[MAX_NUM_WORKER_THREADS];
-	unsigned long m_numcpus[MAX_NUM_WORKER_THREADS];
+	unsigned long m_work_pref[MAX_NUM_WORKERS];
+	unsigned long m_numcpus[MAX_NUM_WORKERS];
 	int	i, cores_assigned, m_cert_work;
 
-	m_num_thread = NUM_WORKER_THREADS;
-	for (i = 0; i < NUM_WORKER_THREADS; i++) {
+	m_num_thread = NUM_WORKERS;
+	for (i = 0; i < NUM_WORKERS; i++) {
 		m_work_pref[i] = WORK_PREFERENCE[i];
 		m_numcpus[i] = CORES_PER_TEST[i];
 	}
-	for ( ; i < MAX_NUM_WORKER_THREADS; i++) {
+	for ( ; i < MAX_NUM_WORKERS; i++) {
 		m_work_pref[i] = WORK_PREFERENCE[i];
 		m_numcpus[i] = 0;
 	}
-	m_cert_work = IniGetInt (LOCALINI_FILE, "CertWork", 1);
+	m_cert_work = IniGetInt (INI_FILE, "CertWork", 1);
 
 	if (max_num_workers () <= 1 && !USE_PRIMENET) {
 		outputLongLine ("This menu choice only makes sense if you've elected to use PrimeNet to get work and report results.\n");
@@ -568,12 +565,11 @@ again:	if (max_num_workers () > 1)
 			if (askYesNo ('Y')) goto again;
 		}
 
-/* If user changed the number of worker threads, then make the necessary changes.  Restart worker threads so that we are running */
-/* the correct number of worker threads. */
+/* If user changed the number of workers, then make the necessary changes.  Restart workers so that we are running the correct number of workers. */
 
-		if (m_num_thread != NUM_WORKER_THREADS) {
-			NUM_WORKER_THREADS = m_num_thread;
-			IniWriteInt (LOCALINI_FILE, "WorkerThreads", NUM_WORKER_THREADS);
+		if (m_num_thread != NUM_WORKERS) {
+			NUM_WORKERS = m_num_thread;
+			IniWriteInt (INI_FILE, KEY_NumWorkers, NUM_WORKERS);
 			new_options = TRUE;
 			restart = TRUE;
 		}
@@ -587,7 +583,7 @@ again:	if (max_num_workers () > 1)
 				new_options = TRUE;
 			}
 		} else {
-			for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+			for (i = 0; i < (int) NUM_WORKERS; i++) {
 				if (WORK_PREFERENCE[i] == m_work_pref[i]) continue;
 				PTOSetOne (INI_FILE, "WorkPreference", NULL, WORK_PREFERENCE, i, m_work_pref[i]);
 				new_options = TRUE;
@@ -597,19 +593,19 @@ again:	if (max_num_workers () > 1)
 /* If the user changed any of the cores_per_test record it in the INI file */
 
 		if (AreAllTheSame (m_numcpus, m_num_thread))
-			PTOSetAll (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, m_numcpus[0]);
-		else for (i = 0; i < (int) NUM_WORKER_THREADS; i++)
-			PTOSetOne (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, m_numcpus[i]);
+			PTOSetAll (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, m_numcpus[0]);
+		else for (i = 0; i < (int) NUM_WORKERS; i++)
+			PTOSetOne (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, m_numcpus[i]);
 
 /* Write the new CertWork setting */
 
-		IniWriteInt (LOCALINI_FILE, "CertWork", m_cert_work);
+		IniWriteInt (INI_FILE, "CertWork", m_cert_work);
 
 /* Send new settings to the server */
 
 		if (new_options) spoolMessage (PRIMENET_PROGRAM_OPTIONS, NULL);
 
-/* Restart worker threads with new options */
+/* Restart workers with new options */
 
 		if (restart) stop_workers_for_restart ();
 	} else
@@ -635,7 +631,7 @@ void test_continue (void)
 	int	thread_num;
 
 	worker = 0;
-	askNum ("Worker to start, 0=all", &worker, 0, WORKER_THREADS_ACTIVE > NUM_WORKER_THREADS ? WORKER_THREADS_ACTIVE : NUM_WORKER_THREADS);
+	askNum ("Worker to start, 0=all", &worker, 0, WORKERS_ACTIVE > NUM_WORKERS ? WORKERS_ACTIVE : NUM_WORKERS);
 	if (worker == 0) thread_num = ALL_WORKERS;
 	else thread_num = worker - 1;
 	linuxContinue ("Another mprime is running.\n", thread_num, FALSE);
@@ -648,7 +644,7 @@ void test_stop (void)
 	unsigned long worker;
 
 	worker = 0;
-	askNum ("Worker to stop, 0=all", &worker, 0, WORKER_THREADS_ACTIVE);
+	askNum ("Worker to stop, 0=all", &worker, 0, WORKERS_ACTIVE);
 	if (worker == 0) stop_workers_for_escape ();
 	else stop_one_worker (worker - 1);
 }
@@ -672,8 +668,8 @@ void advanced_test (void)
 loop:	m_p = 0;
 
 	m_thread = 1;
-	if (NUM_WORKER_THREADS > 1)
-		askNum ("Worker number", &m_thread, 1, NUM_WORKER_THREADS);
+	if (NUM_WORKERS > 1)
+		askNum ("Worker number", &m_thread, 1, NUM_WORKERS);
 
 	askNumNoDflt ("Exponent to test", &m_p, MIN_PRIME,
 		      CPU_FLAGS & CPU_FMA3 ? MAX_PRIME_FMA3 :
@@ -691,8 +687,8 @@ loop:	m_p = 0;
 		w.b = 2;
 		w.n = m_p;
 		w.c = -1;
-		addWorkToDoLine (m_thread - 1, &w);
-		if (WORKER_THREADS_ACTIVE)
+		addWorkToDoLine (m_thread - 1, &w, ADD_TO_FRONT);
+		if (WORKERS_ACTIVE)
 			stop_worker_for_advanced_test (m_thread - 1);
 		else
 			linuxContinue ("\nWork added to worktodo.txt file.  Another mprime is running.\n", ALL_WORKERS, FALSE);
@@ -734,8 +730,8 @@ void advanced_pminus1 (void)
 	m_bound2 = 0;
 
 	m_thread = 1;
-	if (NUM_WORKER_THREADS > 1)
-		askNum ("Worker number", &m_thread, 1, NUM_WORKER_THREADS);
+	if (NUM_WORKERS > 1)
+		askNum ("Worker number", &m_thread, 1, NUM_WORKERS);
 
 	askDbl ("k in k*b^n+c", &m_k, 1.0, 1.0e15);
 	askNum ("b in k*b^n+c", &m_b, 2, 1000000000);
@@ -755,8 +751,8 @@ void advanced_pminus1 (void)
 		w.B1 = m_bound1;
 		w.B2_start = 0;
 		w.B2 = m_bound2;
-		addWorkToDoLine (m_thread - 1, &w);
-		if (!WORKER_THREADS_ACTIVE)
+		addWorkToDoLine (m_thread - 1, &w, ADD_TO_LOGICAL_END);
+		if (!WORKERS_ACTIVE)
 			linuxContinue ("\nWork added to worktodo.txt file.  Another mprime is running.\n", ALL_WORKERS, FALSE);
 		askOK ();
 	}
@@ -780,8 +776,8 @@ void advanced_ecm (void)
 	m_num_curves = 100;
 
 	m_thread = 1;
-	if (NUM_WORKER_THREADS > 1)
-		askNum ("Worker number", &m_thread, 1, NUM_WORKER_THREADS);
+	if (NUM_WORKERS > 1)
+		askNum ("Worker number", &m_thread, 1, NUM_WORKERS);
 
 	askDbl ("k in k*b^n+c", &m_k, 1.0, 1.0e15);
 	askNum ("b in k*b^n+c", &m_b, 2, 1000000000);
@@ -804,8 +800,8 @@ void advanced_ecm (void)
 		w.B2 = m_bound2;
 		w.curves_to_do = m_num_curves;
 		w.curve = 0.0;
-		addWorkToDoLine (m_thread - 1, &w);
-		if (!WORKER_THREADS_ACTIVE)
+		addWorkToDoLine (m_thread - 1, &w, ADD_TO_LOGICAL_END);
+		if (!WORKERS_ACTIVE)
 			linuxContinue ("\nWork added to worktodo.txt file.  Another mprime is running.\n", ALL_WORKERS, FALSE);
 		askOK ();
 	}
@@ -871,7 +867,7 @@ void advanced_quit (void)
 		res = askYesNoCancel ('C');
 		if (res == 0) {
 			OutputBoth (MAIN_THREAD_NUM, "Quitting GIMPS after current work completes.\n");
-			IniWriteInt (INI_FILE, "NoMoreWork", 1);
+			IniWriteInt (INI_FILE, KEY_QuitGIMPS, 1);
 			askOK ();
 		}
 		if (res == 1) {
@@ -899,10 +895,10 @@ void options_cpu (void)
 	if (askOkCancel ()) {
 		if (CPU_HOURS != m_hours) {
 			CPU_HOURS = m_hours;
-			IniWriteInt (LOCALINI_FILE, "CPUHours", CPU_HOURS);
+			IniWriteInt (INI_FILE, "CPUHours", CPU_HOURS);
 			ROLLING_AVERAGE = 1000;
-			IniWriteInt (LOCALINI_FILE, "RollingAverage", 1000);
-			IniWriteInt (LOCALINI_FILE, "RollingStartTime", 0);
+			IniWriteInt (INI_FILE, "RollingAverage", 1000);
+			IniWriteInt (INI_FILE, "RollingStartTime", 0);
 			spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
 			delete_timed_event (TE_COMM_SERVER);
 			UpdateEndDates ();
@@ -927,26 +923,26 @@ void options_resources (void)
 	outputLongLine ("Consult readme.txt prior to changing any of these settings.\n\n");
 
 	m_disk = CPU_WORKER_DISK_SPACE;
-	m_upload_bandwidth = IniSectionGetFloat (INI_FILE, "PrimeNet", "UploadRateLimit", 0.25);
+	m_upload_bandwidth = IniSectionGetFloat (INI_FILE, SEC_PrimeNet, KEY_UploadRateLimit, 0.25);
 	if (m_upload_bandwidth <= 0.0 || m_upload_bandwidth > 10000.0) m_upload_bandwidth = 10000.0;
-	IniSectionGetString (INI_FILE, "PrimeNet", "UploadStartTime", m_upload_start, sizeof (m_upload_start), "00:00");
+	IniSectionGetString (INI_FILE, SEC_PrimeNet, KEY_UploadStartTime, m_upload_start, sizeof (m_upload_start), "00:00");
 	if (strcmp (m_upload_start, "00:00") != 0) minutesToStr (strToMinutes (m_upload_start), m_upload_start);
-	IniSectionGetString (INI_FILE, "PrimeNet", "UploadEndTime", m_upload_end, sizeof (m_upload_end), "24:00");
+	IniSectionGetString (INI_FILE, SEC_PrimeNet, KEY_UploadEndTime, m_upload_end, sizeof (m_upload_end), "24:00");
 	if (strcmp (m_upload_end, "24:00") != 0) minutesToStr (strToMinutes (m_upload_end), m_upload_end);
-	m_download_mb = IniSectionGetInt (INI_FILE, "PrimeNet", "DownloadDailyLimit", 40);
-	IniGetString (LOCALINI_FILE, "ProofResiduesDir", m_temp_dir, sizeof (m_temp_dir), NULL);
-	IniGetString (LOCALINI_FILE, "ProofArchiveDir", m_archive_dir, sizeof (m_archive_dir), NULL);
+	m_download_mb = IniSectionGetInt (INI_FILE, SEC_PrimeNet, KEY_DownloadDailyLimit, 40);
+	IniGetString (INI_FILE, "ProofResiduesDir", m_temp_dir, sizeof (m_temp_dir), NULL);
+	IniGetString (INI_FILE, "ProofArchiveDir", m_archive_dir, sizeof (m_archive_dir), NULL);
 	m_memory_editable = read_memory_settings (&day_memory, &night_memory, &day_start_time, &day_end_time);
 	m_day_memory = (float) round_to_tenth (day_memory / 1024.0);
 	m_night_memory = (float) round_to_tenth (night_memory / 1024.0);
 	minutesToStr (day_start_time, m_start_time);
 	minutesToStr (day_end_time, m_end_time);
-	m_emergency_mem = (float) round_to_tenth (IniGetInt (LOCALINI_FILE, "MaxEmergencyMemory", 1024) / 1024.0);
+	m_emergency_mem = (float) round_to_tenth (IniGetInt (INI_FILE, "MaxEmergencyMemory", 1024) / 1024.0);
 	m_priority = PRIORITY;
-	m_cert_cpu = IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10);
+	m_cert_cpu = IniGetInt (INI_FILE, "CertDailyCPULimit", 10);
 	m_hyper_tf = HYPERTHREAD_TF;
 	m_hyper_ll = HYPERTHREAD_LL;
-	can_upload = IniSectionGetInt (INI_FILE, "PrimeNet", "ProofUploads", 1);
+	can_upload = IniSectionGetInt (INI_FILE, SEC_PrimeNet, KEY_ProofUploads, 1);
 
 	askFloat ("Temporary disk space limit in GB/worker", &m_disk, 0.0, 1000.0);
 	if (m_memory_editable) {
@@ -964,7 +960,7 @@ void options_resources (void)
 		askStr ("Upload large files time period start", m_upload_start, 8);
 		askStr ("Upload large files time period end", m_upload_end, 8);
 	}
-	if (IniGetInt (LOCALINI_FILE, "CertWork", 1))
+	if (IniGetInt (INI_FILE, "CertWork", 1))
 		askNum ("Download limit for certification work in MB/day", &m_download_mb, 0, 999999);
 
 	outputLongLine ("Skip advanced resource settings");
@@ -975,7 +971,7 @@ void options_resources (void)
 		askStr ("Optional directory to hold archived proofs", m_archive_dir, 511);
 		askFloat ("Max emergency memory in GB/worker", &m_emergency_mem, 0.0, max_emergency_mem);
 		askNum ("Priority -- 1 is highly recommended, see readme.txt", &m_priority, 1, 10);
-		if (IniGetInt (LOCALINI_FILE, "CertWork", 1))
+		if (IniGetInt (INI_FILE, "CertWork", 1))
 			askNum ("Certification work limit in % of CPU time", &m_cert_cpu, 1, 100);
 		if (HW_NUM_CORES != HW_NUM_THREADS && OS_CAN_SET_AFFINITY) {
 			askYN ("Use hyperthreading for trial factoring (recommended)", &m_hyper_tf);
@@ -993,14 +989,16 @@ void options_resources (void)
 			askOK ();
 		}
 		CPU_WORKER_DISK_SPACE = m_disk;
-		IniWriteFloat (LOCALINI_FILE, "WorkerDiskSpace", CPU_WORKER_DISK_SPACE);
-		IniSectionWriteFloat (INI_FILE, "PrimeNet", "UploadRateLimit", m_upload_bandwidth);
-		IniSectionWriteString (INI_FILE, "PrimeNet", "UploadStartTime", m_upload_start);
-		IniSectionWriteString (INI_FILE, "PrimeNet", "UploadEndTime", m_upload_end);
-		IniSectionWriteInt (INI_FILE, "PrimeNet", "DownloadDailyLimit", m_download_mb);
+		IniWriteFloat (INI_FILE, "WorkerDiskSpace", CPU_WORKER_DISK_SPACE);
+		if (can_upload) {
+			IniSectionWriteFloat (INI_FILE, SEC_PrimeNet, KEY_UploadRateLimit, m_upload_bandwidth);
+			IniSectionWriteString (INI_FILE, SEC_PrimeNet, KEY_UploadStartTime, m_upload_start);
+			IniSectionWriteString (INI_FILE, SEC_PrimeNet, KEY_UploadEndTime, m_upload_end);
+		}
+		IniSectionWriteInt (INI_FILE, SEC_PrimeNet, KEY_DownloadDailyLimit, m_download_mb);
 		gwevent_signal (&PROOF_UPLOAD_EVENT);		/* Trigger proof uploader in case upload start or end time changed */
-		IniWriteString (LOCALINI_FILE, "ProofResiduesDir", m_temp_dir);
-		IniWriteString (LOCALINI_FILE, "ProofArchiveDir", m_archive_dir);
+		IniWriteString (INI_FILE, "ProofResiduesDir", m_temp_dir);
+		IniWriteString (INI_FILE, "ProofArchiveDir", m_archive_dir);
 
 /* Save the new memory settings */
 
@@ -1014,10 +1012,10 @@ void options_resources (void)
 			mem_settings_have_changed ();
 			spoolMessage (PRIMENET_PROGRAM_OPTIONS, NULL);
 		}
-		IniWriteInt (LOCALINI_FILE, "MaxEmergencyMemory", (long) (m_emergency_mem * 1024.0));
+		IniWriteInt (INI_FILE, "MaxEmergencyMemory", (long) (m_emergency_mem * 1024.0));
 
-/* If user changed the priority of worker threads, then change the INI file. */
-/* Restart worker threads so that they are running at the new priority. */
+/* If user changed the priority of workers, then change the INI file. */
+/* Restart workers so that they are running at the new priority. */
 
 		if (PRIORITY != m_priority) {
 			PRIORITY = m_priority;
@@ -1027,22 +1025,22 @@ void options_resources (void)
 
 /* Handle cert work CPU limit */
 
-		IniWriteInt (LOCALINI_FILE, "CertDailyCPULimit", m_cert_cpu);
+		IniWriteInt (INI_FILE, "CertDailyCPULimit", m_cert_cpu);
 
 /* If user changed the hyperthreading options, then save the options to the INI file */
 
 		if (m_hyper_tf != HYPERTHREAD_TF) {
 			HYPERTHREAD_TF = m_hyper_tf;
-			IniWriteInt (LOCALINI_FILE, "HyperthreadTF", HYPERTHREAD_TF);
+			IniWriteInt (INI_FILE, "HyperthreadTF", HYPERTHREAD_TF);
 			restart = TRUE;
 		}
 		if (m_hyper_ll != HYPERTHREAD_LL) {
 			HYPERTHREAD_LL = m_hyper_ll;
-			IniWriteInt (LOCALINI_FILE, "HyperthreadLL", HYPERTHREAD_LL);
+			IniWriteInt (INI_FILE, "HyperthreadLL", HYPERTHREAD_LL);
 			restart = TRUE;
 		}
 
-/* Restart worker threads with new options */
+/* Restart workers with new options */
 
 		if (restart) stop_workers_for_restart ();
 	}
@@ -1077,7 +1075,7 @@ void options_preferences (void)
 	if (USE_PRIMENET)
 		askNum ("Minutes between network retries", &m_retry, 1, 300);
 	if (USE_PRIMENET)
-		askNum ("Days of work to queue up", &m_work, 1, 90);
+		askNum ("Days of work to queue up", &m_work, 0, 90);
 	if (USE_PRIMENET)
 		askFloat ("Days between sending end dates", &m_end_dates, 0.125, 7);
 	askNum ("Number of Backup Files", &m_backup, 1, 3);
@@ -1096,7 +1094,7 @@ void options_preferences (void)
 		SILENT_VICTORY = !m_noise;
 		if (RUN_ON_BATTERY != m_battery) {
 			RUN_ON_BATTERY = m_battery;
-			IniWriteInt (LOCALINI_FILE, "RunOnBattery", RUN_ON_BATTERY);
+			IniWriteInt (INI_FILE, "RunOnBattery", RUN_ON_BATTERY);
 			run_on_battery_changed ();
 		}
 		IniWriteInt (INI_FILE, "OutputIterations", ITER_OUTPUT);
@@ -1258,7 +1256,7 @@ void options_benchmark (void)
 		for (i = 2; i <= HW_NUM_CORES; i++) if (is_number_in_list (i, m_cores)) max_cores = i;
 		// If testing all FFT implementations. then default to the current num_workers.
 		numvals = 0;
-		if (NUM_WORKER_THREADS <= max_cores) sorted_add_unique (vals, &numvals, NUM_WORKER_THREADS);
+		if (NUM_WORKERS <= max_cores) sorted_add_unique (vals, &numvals, NUM_WORKERS);
 		else sorted_add_unique (vals, &numvals, max_cores);
 		// Otherwise, assume user is trying to figure out how many workers to run and form a string
 		// with the most common best values for number of workers: 1, num_threading_nodes, num_cores, num_workers
@@ -1379,9 +1377,9 @@ void main_menu (void)
 	printf ("\t 1.  Test/Primenet\n");
 	printf ("\t 2.  Test/Workers\n");
 	printf ("\t 3.  Test/Status\n");
-	if (WORKER_THREADS_ACTIVE && active_workers_count () < WORKER_THREADS_ACTIVE)
+	if (WORKERS_ACTIVE && active_workers_count () < WORKERS_ACTIVE)
 		printf ("\t 4.  Test/Continue or Stop\n");
-	else if (!WORKER_THREADS_ACTIVE || WORKER_THREADS_STOPPING)
+	else if (!WORKERS_ACTIVE || WORKERS_STOPPING)
 		printf ("\t 4.  Test/Continue\n");
 	else
 		printf ("\t 4.  Test/Stop\n");
@@ -1434,12 +1432,12 @@ void main_menu (void)
 /* Test/Continue or Stop or Test/Continue or Test/Stop */
 
 	case 4:
-		if (WORKER_THREADS_ACTIVE && active_workers_count () < WORKER_THREADS_ACTIVE)
+		if (WORKERS_ACTIVE && active_workers_count () < WORKERS_ACTIVE)
 			test_continue_or_stop ();
-		else if (NUM_WORKER_THREADS > 1 && active_workers_count () < WORKER_THREADS_ACTIVE - 1)
+		else if (NUM_WORKERS > 1 && active_workers_count () < WORKERS_ACTIVE - 1)
 			test_continue ();
-		else if (!WORKER_THREADS_ACTIVE || WORKER_THREADS_STOPPING) {
-			while (WORKER_THREADS_STOPPING) Sleep (50);
+		else if (!WORKERS_ACTIVE || WORKERS_STOPPING) {
+			while (WORKERS_STOPPING) Sleep (50);
 			linuxContinue ("Another mprime is running.\n", ALL_WORKERS, FALSE);
 		} else if (active_workers_count () > 1)
 			test_stop ();
@@ -1452,10 +1450,10 @@ void main_menu (void)
 	case 5:
 		{
 		int counter = 0;
-		if (WORKER_THREADS_ACTIVE && !WORKER_THREADS_STOPPING)
+		if (WORKERS_ACTIVE && !WORKERS_STOPPING)
 			stop_workers_for_escape ();
-		while (WORKER_THREADS_STOPPING) {
-			if (counter++ % 100 == 0) printf ("Waiting for worker threads to stop.\n");
+		while (WORKERS_STOPPING) {
+			if (counter++ % 100 == 0) printf ("Waiting for workers to stop.\n");
 			Sleep (50);
 		}
 		}

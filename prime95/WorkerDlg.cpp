@@ -1,6 +1,6 @@
 // WorkerDlg.cpp : implementation file
 //
-// Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
 //
 
 #include "stdafx.h"
@@ -19,7 +19,7 @@ static char THIS_FILE[] = __FILE__;
 
 unsigned int max_num_workers (void)
 {
-	return (max (NUM_WORKER_THREADS, HW_NUM_CORES));
+	return (max (NUM_WORKERS, HW_NUM_CORES));
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -290,7 +290,7 @@ void CWorkerDlg::OnCbnKillfocusWorkType()
 		work_pref = map_sel_to_work_pref (sel);
 		min_cores = min_cores_for_work_pref (work_pref);
 		if (work_pref != -1) {
-			for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+			for (i = 0; i < MAX_NUM_WORKERS; i++) {
 				m_work_pref[i] = work_pref;
 				if (m_numcpus[i] < min_cores) m_numcpus[i] = min_cores;
 			}
@@ -299,7 +299,7 @@ void CWorkerDlg::OnCbnKillfocusWorkType()
 	} else if (sel) {
 		work_pref = map_sel_to_work_pref (sel-1);
 		min_cores = min_cores_for_work_pref (work_pref);
-		for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+		for (i = 0; i < MAX_NUM_WORKERS; i++) {
 			m_work_pref[i] = work_pref;
 			if (m_numcpus[i] < min_cores) m_numcpus[i] = min_cores;
 		}
@@ -325,7 +325,7 @@ void CWorkerDlg::OnEnKillfocusNumCpus()
 			sprintf (buf, "%d", num_cpus);
 			c_numcpus.SetWindowText (buf);
 		} else {
-			for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+			for (i = 0; i < MAX_NUM_WORKERS; i++) {
 				min_cores = min_cores_for_work_pref (m_work_pref[i]);
 				m_numcpus[i] = (num_cpus > min_cores ? num_cpus : min_cores);
 			}

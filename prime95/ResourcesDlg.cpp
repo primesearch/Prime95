@@ -1,6 +1,6 @@
 // ResourcesDlg.cpp : implementation file
 //
-// Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
 //
 
 #include "stdafx.h"
@@ -88,29 +88,29 @@ void CResourcesDlg::OnAdvanced()
 	char	buf[512];
 
 	UpdateData ();		// Get the values from the dialog box (specifically, update m_download_mb)
-	IniGetString (LOCALINI_FILE, "ProofResiduesDir", buf, sizeof (buf), NULL);
+	IniGetString (INI_FILE, "ProofResiduesDir", buf, sizeof (buf), NULL);
 	dlg.m_temp_dir = buf;
-	IniGetString (LOCALINI_FILE, "ProofArchiveDir", buf, sizeof (buf), NULL);
+	IniGetString (INI_FILE, "ProofArchiveDir", buf, sizeof (buf), NULL);
 	dlg.m_archive_dir = buf;
-	dlg.m_emergency_mem = (float) round_to_tenth (IniGetInt (LOCALINI_FILE, "MaxEmergencyMemory", 1024) / 1024.0);
+	dlg.m_emergency_mem = (float) round_to_tenth (IniGetInt (INI_FILE, "MaxEmergencyMemory", 1024) / 1024.0);
 	dlg.m_priority = PRIORITY;
-	dlg.m_cert_cpu = IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10);
+	dlg.m_cert_cpu = IniGetInt (INI_FILE, "CertDailyCPULimit", 10);
 	dlg.m_hyper_tf = HYPERTHREAD_TF;
 	dlg.m_hyper_ll = HYPERTHREAD_LL;
 	dlg.m_can_upload = m_can_upload;
-	dlg.m_can_download = !!(IniGetInt (LOCALINI_FILE, "CertWork", 1));
+	dlg.m_can_download = !!(IniGetInt (INI_FILE, "CertWork", 1));
 	if (dlg.DoModal () == IDOK) {
 		int	restart = FALSE;
 
-		IniWriteString (LOCALINI_FILE, "ProofResiduesDir", (const char *) dlg.m_temp_dir);
-		IniWriteString (LOCALINI_FILE, "ProofArchiveDir", (const char *) dlg.m_archive_dir);
+		IniWriteString (INI_FILE, "ProofResiduesDir", (const char *) dlg.m_temp_dir);
+		IniWriteString (INI_FILE, "ProofArchiveDir", (const char *) dlg.m_archive_dir);
 
 /* Save the new memory settings */
 
-		IniWriteInt (LOCALINI_FILE, "MaxEmergencyMemory", (long) (dlg.m_emergency_mem * 1024.0));
+		IniWriteInt (INI_FILE, "MaxEmergencyMemory", (long) (dlg.m_emergency_mem * 1024.0));
 
-/* If user changed the priority of worker threads, then change the INI file. */
-/* Restart worker threads so that they are running at the new priority. */
+/* If user changed the priority of workers, then change the INI file. */
+/* Restart workers so that they are running at the new priority. */
 
 		if (PRIORITY != dlg.m_priority) {
 			PRIORITY = dlg.m_priority;
@@ -120,22 +120,22 @@ void CResourcesDlg::OnAdvanced()
 
 /* Handle cert work CPU limit */
 
-		IniWriteInt (LOCALINI_FILE, "CertDailyCPULimit", dlg.m_cert_cpu);
+		IniWriteInt (INI_FILE, "CertDailyCPULimit", dlg.m_cert_cpu);
 
 /* If user changed the hyperthreading options, then save the options to the INI file */
 
 		if (dlg.m_hyper_tf != HYPERTHREAD_TF) {
 			HYPERTHREAD_TF = dlg.m_hyper_tf;
-			IniWriteInt (LOCALINI_FILE, "HyperthreadTF", HYPERTHREAD_TF);
+			IniWriteInt (INI_FILE, "HyperthreadTF", HYPERTHREAD_TF);
 			restart = TRUE;
 		}
 		if (dlg.m_hyper_ll != HYPERTHREAD_LL) {
 			HYPERTHREAD_LL = dlg.m_hyper_ll;
-			IniWriteInt (LOCALINI_FILE, "HyperthreadLL", HYPERTHREAD_LL);
+			IniWriteInt (INI_FILE, "HyperthreadLL", HYPERTHREAD_LL);
 			restart = TRUE;
 		}
 
-/* Restart worker threads with new options */
+/* Restart workers with new options */
 
 		if (restart) stop_workers_for_restart ();
 	}
@@ -182,7 +182,7 @@ void CResourcesAdvancedDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_CERT_CPU_TEXT, c_cert_cpu_text);
 	DDX_Control(pDX, IDC_CERT_CPU, c_cert_cpu);
 	DDX_Text(pDX, IDC_CERT_CPU, m_cert_cpu);
-	if (IniGetInt (LOCALINI_FILE, "CertWork", 1)) DDV_MinMaxUInt(pDX, m_cert_cpu, 1, 100);
+	if (IniGetInt (INI_FILE, "CertWork", 1)) DDV_MinMaxUInt(pDX, m_cert_cpu, 1, 100);
 	else DDV_MinMaxUInt(pDX, m_cert_cpu, 0, 100);
 	DDX_Check(pDX, IDC_HYPER_TF, m_hyper_tf);
 	DDX_Check(pDX, IDC_HYPER_LL, m_hyper_ll);

@@ -112,7 +112,7 @@ err:	_close (fd);
 /* Do a PRP proof certification */
 
 int cert (
-	int	thread_num,		/* Worker thread number */
+	int	thread_num,		/* Worker number */
 	struct PriorityInfo *sp_info,	/* SetPriority information */
 	struct work_unit *w,		/* Worktodo entry */
 	int	pass)			/* PrimeContinue pass */
@@ -161,11 +161,11 @@ int cert (
 
 /* Init the FFT code for squaring modulo k*b^n+c */
 
-	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&cs.gwdata);
+	if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&cs.gwdata);
 	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&cs.gwdata);
 	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&cs.gwdata, 2);
 	gwset_bench_cores (&cs.gwdata, HW_NUM_CORES);
-	gwset_bench_workers (&cs.gwdata, NUM_WORKER_THREADS);
+	gwset_bench_workers (&cs.gwdata, NUM_WORKERS);
 	if (ERRCHK) gwset_will_error_check (&cs.gwdata);
 	else gwset_will_error_check_near_limit (&cs.gwdata);
 	gwset_num_threads (&cs.gwdata, get_worker_num_threads (thread_num, HYPERTHREAD_LL));
@@ -547,8 +547,8 @@ int cert (
 /* Retry up to 8 times.  Output retry work later message and return. */
 
 retry_work:
-	echk = IniGetInt (LOCALINI_FILE, "CertErrorCount", 0) + 1;
-	IniWriteInt (LOCALINI_FILE, "CertErrorCount", echk);
+	echk = IniSectionGetInt (INI_FILE, SEC_Internals, KEY_CertErrorCount, 0) + 1;
+	IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_CertErrorCount, echk);
 	if (echk >= 8) goto abandon_work;
 	OutputStr (thread_num, "Will retry certification later.\n");
 	stop_reason = STOP_RETRY_LATER;
@@ -565,7 +565,7 @@ abandon_work:
 /* Return work unit complete "error" code */
 			
 work_complete:
-	IniWriteString (LOCALINI_FILE, "CertErrorCount", NULL);
+	IniSectionWriteString (INI_FILE, SEC_Internals, KEY_CertErrorCount, NULL);
 	stop_reason = STOP_WORK_UNIT_COMPLETE;
 	goto exit;
 

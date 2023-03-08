@@ -1,6 +1,6 @@
 // WorkerDlg.h : header file
 //
-// Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
 //
 
 /////////////////////////////////////////////////////////////////////////////
@@ -14,7 +14,7 @@ public:
 
 // Dialog Data
 	//{{AFX_DATA(CWorkerDlg)
-	enum { IDD = IDD_WORKER_THREADS };
+	enum { IDD = IDD_WORKERS };
 	CStatic	c_num_workers_text;
 	CEdit	c_num_workers;
 	UINT	m_num_workers;
@@ -23,10 +23,10 @@ public:
 	CComboBox c_workernum;
 	CStatic	c_work_pref_text;
 	CComboBox c_work_pref;
-	int	m_work_pref[MAX_NUM_WORKER_THREADS];
+	int	m_work_pref[MAX_NUM_WORKERS];
 	CStatic	c_numcpus_text;
 	CEdit	c_numcpus;
-	int	m_numcpus[MAX_NUM_WORKER_THREADS];
+	int	m_numcpus[MAX_NUM_WORKERS];
 	CButton	c_cert_work;
 	int	m_cert_work;
 	//}}AFX_DATA

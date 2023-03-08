@@ -1660,6 +1660,7 @@ next3:		prev_proc_ptrs[4] = prev_proc_ptrs[3];
 	else if ((flags & 0x0000001FF) == 509) gwdata->PASS2_SIZE = 32768;
 	else gwdata->PASS2_SIZE = (flags & 0x0000001FF) << 6;
 	if (gwdata->PASS2_SIZE) gwdata->PASS1_SIZE = gwdata->FFTLEN / gwdata->PASS2_SIZE; /* Real values in a pass1 section */
+	else gwdata->PASS1_SIZE = 0;				/* One-pass FFT */
 	if (gwdata->PASS1_SIZE == 2) gwdata->PASS1_SIZE = 0;	/* Don't treat AVX-512 one-pass wrapper as a true pass 1 */
 
 /* Calculate the scratch area size -- needed by gwmemused without calling gwsetup */
@@ -2397,8 +2398,8 @@ int gwsetup_general_mod_giant (
 /* roundoff errors.  Thus, the caller may need to insist we use an */
 /* irrational FFT on occasion. */
 
-/* Call gwinfo and have it figure out the FFT length we will use.  Since we zero the upper half of FFT input data, the FFT */
-/* outputs will be smaller.  This lets us get about another 0.15 bits per input word (data from Pavel Atnashev's primorial search). */
+/* Call gwinfo and have it figure out the FFT length to use.  Since we zero the upper half of FFT input data, the FFT outputs will be smaller. */
+/* This lets us get about another 0.15 bits per input word (data from Pavel Atnashev's primorial search). */
 
 	gwdata->safety_margin -= 0.15;
 	error_code = gwinfo (gwdata, 1.0, 2, n, -1);
@@ -2408,28 +2409,21 @@ int gwsetup_general_mod_giant (
 	fftlen = info->fftlen;
 	max_exponent = adjusted_max_exponent (gwdata, info);
 
-/* Our FFTs don't handle cases where there are few bits per word because */
-/* carries must be propagated over too many words.  Arbitrarily insist */
-/* that n is at least 12 * fftlen.  */
+/* Our FFTs don't handle cases where there are few bits per word because carries must be */
+/* propagated over too many words.  Arbitrarily insist that n is at least 12 * fftlen. */
 
 	if (n < 12 * fftlen) n = 12 * fftlen;
 
-/* Let the user request rational FFTs as they are a few percent faster */
+/* If the caller requests rational FFTs (the default as they are a few percent faster due to no FFT weights). */
+/* If possible, increase n to the next multiple of FFT length. */
 
 	if (!gwdata->use_irrational_general_mod) {
-
-/* If possible, increase n to the next multiple of FFT length.  This is */
-/* because rational FFTs are faster than irrational FFTs (no FFT weights). */
-
 		desired_n = round_up_to_multiple_of (n, fftlen);
 		if (desired_n < max_exponent) n = desired_n;
 	}
 
-/* If the user requested irrational FFTs, then make sure the bits */
-/* per FFT word will distribute the big and little words of the modulus */
-/* semi-randomly.  For example, in the (10^828809-1)/9 case above, if */
-/* bits-per-word is 18.5 or 18.25 you will still get non-random patterns */
-/* in the FFT words. */
+/* If the caller requests irrational FFTs, then make sure the bits per FFT word will distribute the big and little words of the modulus semi-randomly. */
+/* For example, in the (10^828809-1)/9 case above, if bits-per-word is 18.5 or 18.25 you will still get non-random patterns in the FFT words. */
 
 	else {
 		double	prime_number, bits_per_word;
@@ -2453,10 +2447,16 @@ int gwsetup_general_mod_giant (
 	if (n + fftlen < max_exponent) n = n + fftlen;
 	else if (gwdata->use_irrational_general_mod && n + fftlen / 2 < max_exponent) n = n + fftlen / 2;
 
-/* Now setup the assembly code */
+/* Now setup the assembly code.  Make sure we select the same FFT length chosen above (necessary  */
 
 	gwdata->safety_margin -= 0.15;
+	int saved_minimum_fftlen = gwdata->minimum_fftlen;		// though not necessary, remember this option
+	int saved_larger_fftlen_count = gwdata->larger_fftlen_count;	// though not necessary, remember this option
+	gwdata->minimum_fftlen = fftlen;				// force use of the already found fft length
+	gwdata->larger_fftlen_count = 0;				// gwinfo above already found the next larger fft length
 	error_code = internal_gwsetup (gwdata, 1.0, 2, n, -1);
+	gwdata->larger_fftlen_count = saved_larger_fftlen_count;	// though not necessary, restore this option to its original setting
+	gwdata->minimum_fftlen = saved_minimum_fftlen;			// though not necessary, restore this option to its original setting
 	gwdata->safety_margin += 0.15;
 	if (error_code) return (error_code);
 
@@ -2465,7 +2465,7 @@ int gwsetup_general_mod_giant (
 // needed bit_lengths.  Also, PFGW should not be reading the bit_length
 // value in integer.cpp.
 //	gwdata->bit_length = bits;
-	
+
 /* Allocate memory for an FFTed copy of the modulus. */
 
 	if (!gwdata->information_only) {
@@ -6947,7 +6947,7 @@ gwarray gwalloc_array (		/* Pointer to an array of gwnums */
 
 	// Calc needed space for the array_header and array (128 bytes to get first gwnum aligned on a cache line and room for n aligned gwnums)
 	array_header_size = sizeof (gwarray_header);
-	array_size = array_header_size + n * sizeof (gwnum) + 128 + n * aligned_gwnum_size;
+	array_size = (size_t) (array_header_size + n * sizeof (gwnum) + 128 + n * aligned_gwnum_size);
 
 	// If scrambling array pointers, no further padding is necessary
 	if (gwdata->scramble_arrays) {
@@ -6963,9 +6963,9 @@ gwarray gwalloc_array (		/* Pointer to an array of gwnums */
 		if ((int) (aligned_gwnum_size - gwnum_size) >= pad_amount) pad_direction = -1;		// Undo last padding to avoid multiple of 4KB
 		else pad_direction = 1;									// Add a padding to avoid multiple of 4KB
 		// Bump array_size for paddings every 32 or 64 gwnums, more paddings every 32*32 or 64*64 gwnums, and so forth.
-		array_size += divide_rounding_down (n, pad_frequency) * pad_direction * pad_amount -
-			      divide_rounding_down (n, pad_frequency * pad_frequency) * pad_direction * pad_amount +
-			      divide_rounding_down (n, pad_frequency * pad_frequency  * pad_frequency) * pad_direction * pad_amount;
+		array_size += (size_t) (divide_rounding_down (n, pad_frequency) * pad_direction * pad_amount -
+					divide_rounding_down (n, pad_frequency * pad_frequency) * pad_direction * pad_amount +
+					divide_rounding_down (n, pad_frequency * pad_frequency  * pad_frequency) * pad_direction * pad_amount);
 	}
 
 	// Allocate memory using large pages or regular malloc
@@ -9442,16 +9442,17 @@ void asm_mul (
 		d = (gwnum) ((char *) d + (intptr_t) asm_data->DEST2ARG);
 	}
 
-/* Adjust if necessary the SUM(INPUTS) vs. SUM(OUTPUTS).  If unnormalized add count is more than one, then the sums will be */
-/* larger than normal.  This could trigger a spurious MAXDIFF warning.  Shrink the two SUMS to compensate. */
+/* Adjust if necessary the SUM(INPUTS) vs. SUM(OUTPUTS).  If an unnormalized add count is set, then the sums will be larger than normal. */
+/* This could trigger spurious MAXDIFF warnings.  Shrink the two SUMS to compensate. */
+/* 2023: This ancient error check does not work with new gwmuladd4, gwsubmul4, etc.  I'm sure it could be made to work, but is not worth the effort. */
 
-	if (gwdata->sum_inputs_checking) {
+	if (gwdata->sum_inputs_checking && asm_data->mul4_opcode == 0) {
 		float	unnorm_count1, unnorm_count2;
 
 		unnorm_count1 = unnorms (s1);
 		unnorm_count2 = unnorms (s2);
 		if (unnorm_count1 != 0.0f || unnorm_count2 != 0.0f) {
-			double	adjustment = pow (2.0, (double) (unnorm_count1 + unnorm_count2));
+			double	adjustment = pow (0.5, (double) (unnorm_count1 + unnorm_count2));
 			gwsuminp (gwdata, d) *= adjustment;
 			gwsumout (gwdata, d) *= adjustment;
 		}
@@ -9641,17 +9642,25 @@ void emulate_mod (
 	asm_data->NORMRTN = gwdata->GWPROCPTRS[norm_routines + (gwdata->NORMNUM & 1)];
 	raw_gwmul3 (gwdata, gwdata->GW_MODULUS_FFT, tmp, tmp, GWMUL_PRESERVE_S1);
 
-/* Subtract from the original number to get the remainder. */
-/* Callers of gwmul3 expect results to be fully normalized, especially if they are carefully counting unnormalized adds. */
-/* Thus, it might be prudent to always normalize this next subtraction.  Prior to doing this, our QA was getting asserts in gwaddmul4 */
-/* when all 3 input arguments had a normalization count of two.  However, Pavel Atnashev reports that a normalized subtract greatly slows */
-/* down multi-threaded multiplies.  Next, I tried eliminating the assert by clearing the normalize count.  QA shows the roundoff error */
-/* does not get out of hand. */
+/* Subtract from the original number to get the remainder.  Callers of gwmul3 expect results to be fully normalized, especially if they are carefully */
+/* counting unnormalized adds.  Thus, it might be prudent to always normalize this subtraction.  However, Pavel Atnashev reports that a normalized subtract */
+/* greatly slows down multi-threaded emulate_mod.  So I tried an unnormalized subtract with clearing the unnorm count.  QA shows the roundoff error does */
+/* not get out of hand. */
+/* NOTE: a 2023-02-05 change to AVX normalization caused emulate_mod failures on tiny FFTs (example: 3*2^305+1).  A 2023-02-27 re-fix seems to have corrected this. */
+/* Thus, the interim fix that does normalized adds for small FFTs which cannot be multi-threaded anyway is commented out. */
 
-	gwsub (gwdata, tmp, s);
-	unnorms (s) = 0.0f;
+	//	if (gwdata->FFTLEN <= 1024) {
+	//	gwsub3o (gwdata, s, tmp, s, GWADD_FORCE_NORMALIZE);
+	//} else {
+		gwsub3 (gwdata, s, tmp, s);
+		unnorms (s) = 0.0f;
+	//}
+
+// All done.  Cleanup and return.  The upper half of FFT data should now be all zeroes.  Unfortunately, the unnormalized subtract above means there can be
+// pairs of (2^num_b_per_small_word, -1) anywhere in the upper half.  These pairs are harmless, but means the ASSERT below does not work.
+// ASSERTG (* addr (gwdata, s, gwdata->FFTLEN/2) == 0.0);
+
 	ASSERTG (* addr (gwdata, s, gwdata->FFTLEN-1) == 0.0);
-	if (* addr (gwdata, s, gwdata->FFTLEN-1) != 0.0) gwdata->GWERROR = GWERROR_INTERNAL + 12;
 	gwfree (gwdata, tmp);
 }
 

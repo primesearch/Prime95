@@ -1,4 +1,4 @@
-; Copyright 2000-2022 - Mersenne Research, Inc.  All rights reserved.
+; Copyright 2000-2023 - Mersenne Research, Inc.  All rights reserved.
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -3125,6 +3125,20 @@ xnorm012_2d_zpad_part1_cmn MACRO const, base2
 	;; to the lower FFT data later (after multiplying by -c).
 const	mulsd	xmm3, Q XMM_MULCONST
 
+	;; Work on zero-pad addin value.
+	movsd	xmm4, Q ADDIN_VALUE		;; Load the add in value
+const	mulsd	xmm4, Q XMM_MULCONST		;; Multiply the add in value by the small mul const
+	;; when c = -1, 1 = b^n
+	;; when c = 1, -1 = b^n, 1 = -b^n
+	;; when c = -3, 3 = b^n, 1 = b^n - 2
+	;; when c = 3, -3 = b^n, 3 = -b^n, 1 = -b^n - 2
+	;; The "- 2" has been precomputed in ZPAD_LSW_ADJUST.  Add ADDIN_VALUE * mul-by-const * ZPAD_LSW_ADJUST into the least significant FFT word
+	mov	rsi, DESTARG			;; Address of squared number
+	movsd	xmm0, Q ZPAD_LSW_ADJUST
+	mulsd	xmm0, xmm4
+	addsd	xmm0, [rsi]
+	movsd	[rsi], xmm0
+
 	;; Multiply ZPAD0 through ZPAD6 by const * -C.  This, in essense,
 	;; wraps this data from above the FFT data area to the halfway point.
 	;; Later on we'll divide this by K to decide which data needs wrapping
@@ -3136,11 +3150,11 @@ const	mulsd	xmm3, Q XMM_MULCONST
 
 	movzx	rax, BYTE PTR [rdi]	;; Load big vs. little flags
 	movsd	xmm0, ZPAD0		;; Load values1
-	addsd	xmm0, ADDIN_VALUE	;; Add in the requested value
 	subsd	xmm5, xmm5		;; Create a zero high FFT carry to add in
 	single_split_lower_zpad_word base2, xmm0, xmm5, xmm1, rax
 no const mulsd	xmm0, Q XMM_MINUS_C
 const	mulsd	xmm0, Q XMM_MINUS_C_TIMES_MULCONST
+	addsd	xmm0, xmm4		;; Apply rest of ADDIN_VALUE * mul-by-const here (the FFT half way point)
 	round_zpad7_word base2, xmm0, xmm2, xmm1, rax
 	movsd	ZPAD0, xmm0
 
@@ -4798,6 +4812,20 @@ xnorm012_wpn_zpad_part1_cmn MACRO const, base2
 	;; to the lower FFT data later (after multiplying by -c).
 const	mulsd	xmm3, Q XMM_MULCONST
 
+	;; Work on zero-pad addin value.
+	movsd	xmm4, Q ADDIN_VALUE		;; Load the add in value
+const	mulsd	xmm4, Q XMM_MULCONST		;; Multiply the add in value by the small mul const
+	;; when c = -1, 1 = b^n
+	;; when c = 1, -1 = b^n, 1 = -b^n
+	;; when c = -3, 3 = b^n, 1 = b^n - 2
+	;; when c = 3, -3 = b^n, 3 = -b^n, 1 = -b^n - 2
+	;; The "- 2" has been precomputed in ZPAD_LSW_ADJUST.  Add ADDIN_VALUE * mul-by-const * ZPAD_LSW_ADJUST into the least significant FFT word
+	mov	rsi, DESTARG			;; Address of squared number
+	movsd	xmm0, Q ZPAD_LSW_ADJUST
+	mulsd	xmm0, xmm4
+	addsd	xmm0, [rsi]
+	movsd	[rsi], xmm0
+
 	;; Multiply ZPAD0 through ZPAD6 by const * -C.  This, in essense,
 	;; wraps this data from above the FFT data area to the halfway point.
 	;; Later on we'll divide this by K to decide which data needs wrapping
@@ -4809,11 +4837,11 @@ const	mulsd	xmm3, Q XMM_MULCONST
 
 	movzx	rax, BYTE PTR [rdi+1]	;; Load big vs. little flags
 	movsd	xmm0, ZPAD0		;; Load values1
-	addsd	xmm0, ADDIN_VALUE	;; Add in the requested value
 	subsd	xmm5, xmm5		;; Create a zero high FFT carry to add in
 	single_split_lower_zpad_word base2, xmm0, xmm5, xmm1, rax*4
 no const mulsd	xmm0, Q XMM_MINUS_C
 const	mulsd	xmm0, Q XMM_MINUS_C_TIMES_MULCONST
+	addsd	xmm0, xmm4		;; Apply rest of ADDIN_VALUE * mul-by-const here (the FFT half way point)
 	round_zpad7_word base2, xmm0, xmm2, xmm1, rax*4
 	movsd	ZPAD0, xmm0
 

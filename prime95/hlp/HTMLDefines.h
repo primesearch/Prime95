@@ -16,7 +16,7 @@
 #define HIDM_TRAY                               0x18014
 #define HIDM_HIDE                               0x18015
 #define HIDM_TORTURE                            0x18016
-#define HIDM_WORKER_THREADS                     0x18017
+#define HIDM_WORKERS                            0x18017
 #define HIDM_PRIMENET                           0x18018
 #define HIDM_SERVER                             0x1801A
 #define HIDM_QUIT                               0x1801B
@@ -58,7 +58,7 @@
 #define HIDD_WELCOME                            0x20099
 #define HIDD_UNRESERVE                          0x2009A
 #define HIDD_TORTURE                            0x2009B
-#define HIDD_WORKER_THREADS                     0x200A0
+#define HIDD_WORKERS                            0x200A0
 #define HIDD_PRIMENET_CONNECTION                0x200A1
 #define HIDD_WORKER_START                       0x200A3
 #define HIDD_WORKER_STOP                        0x200A4

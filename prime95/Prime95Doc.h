@@ -38,8 +38,8 @@ protected:
 protected:
 	//{{AFX_MSG(CPrime95Doc)
 	afx_msg void OnPrimenet();
-	afx_msg void OnUpdateWorkerThreads(CCmdUI* pCmdUI);
-	afx_msg void OnWorkerThreads();
+	afx_msg void OnUpdateWorkers(CCmdUI* pCmdUI);
+	afx_msg void OnWorkers();
 	afx_msg void OnUpdateContinueSwitcher(CCmdUI* pCmdUI);
 	afx_msg void OnContinueSwitcher();
 	afx_msg void OnContinue();

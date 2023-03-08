@@ -1,6 +1,6 @@
 // Pminus1Dlg.cpp : implementation file
 //
-//  Copyright 2000-2021 Mersenne Research, Inc. All rights reserved.
+//  Copyright 2000-2023 Mersenne Research, Inc. All rights reserved.
 //
 
 #include "stdafx.h"
@@ -39,7 +39,7 @@ void CPminus1Dlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_WORKER_TEXT, c_worker_text);
 	DDX_Control(pDX, IDC_WORKER, c_worker);
 	DDX_Text(pDX, IDC_WORKER, m_worker);
-	DDV_MinMaxUInt(pDX, m_worker, 1, NUM_WORKER_THREADS);
+	DDV_MinMaxUInt(pDX, m_worker, 1, NUM_WORKERS);
 	DDX_Text(pDX, IDC_P4, m_k);
 	DDX_Text(pDX, IDC_P1, m_b);
 	DDV_MinMaxUInt (pDX, m_b, 2, 1000000000);
@@ -49,8 +49,8 @@ void CPminus1Dlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Text(pDX, IDC_P2, m_bound1);
 	DDX_Text(pDX, IDC_P3, m_bound2);
 	//}}AFX_DATA_MAP
-	c_worker_text.EnableWindow (NUM_WORKER_THREADS > 1);
-	c_worker.EnableWindow (NUM_WORKER_THREADS > 1);
+	c_worker_text.EnableWindow (NUM_WORKERS > 1);
+	c_worker.EnableWindow (NUM_WORKERS > 1);
 }
 
 

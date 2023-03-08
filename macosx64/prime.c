@@ -1,4 +1,4 @@
-/* Copyright 1995-2022 Mersenne Research, Inc. */
+/* Copyright 1995-2023 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -111,8 +111,8 @@ void sigterm_handler(int signo)
 {
 	int	i;
 
-	stop_workers_for_escape ();	// Gracefully stop any active worker threads
-	for (i = 0; WORKER_THREADS_STOPPING && i < 100; i++) Sleep (50);  // Give the worker threads some time to stop gracefully
+	stop_workers_for_escape ();	// Gracefully stop any active workers
+	for (i = 0; WORKERS_STOPPING && i < 100; i++) Sleep (50);  // Give the workers some time to stop gracefully
 	if (signo != SIGINT) {
 		KILL_MENUS = TRUE;	// Set flag so we exit the menus
 		fclose (stdin);		// Makes fgets in menu.c return.  Thus, mprime will terminate rather than waiting for a menu choice.
@@ -321,7 +321,7 @@ int main (
 	if (MENUING != 2 && !torture_test) initCommCode ();
 
 /* If not running a torture test or benchmark, set the program to nice priority.  Technically, this is not */
-/* necessary since worker threads are set to the lowest possible priority.  However, sysadmins might be alarmed */
+/* necessary since workers are set to the lowest possible priority.  However, sysadmins might be alarmed */
 /* to see a CPU intensive program not running at nice priority when executing a ps command. */
 
 #if defined (__linux__) || defined (__APPLE__) || defined (__FreeBSD__)
@@ -408,7 +408,7 @@ int main (
 	else if (MENUING == 2)
 		test_status();
 
-/* Continue testing, return when worker threads exit. */
+/* Continue testing, return when workers exit. */
 
 	else {
 		linuxContinue ("Another mprime is already running!\n", ALL_WORKERS, TRUE);
@@ -479,8 +479,8 @@ static	int	last_char_out_was_newline = TRUE;
 				printf ("[Main thread");
 			else if (thread_num == COMM_THREAD_NUM)
 				printf ("[Comm thread");
-			else if (NUM_WORKER_THREADS == 1 && WORKER_THREADS_ACTIVE == 1)
-				printf ("[Work thread");
+			else if (NUM_WORKERS == 1 && WORKERS_ACTIVE == 1)
+				printf ("[Worker");
 			else
 				printf ("[Worker #%d", thread_num+1);
 			if (buf[0] == '[')
@@ -521,8 +521,8 @@ void linuxContinue (
 /* Compare this process' ID and the pid from the INI file */
 
 	my_pid = getpid ();
-	IniFileReread (LOCALINI_FILE);
-	running_pid = IniGetInt (LOCALINI_FILE, "Pid", 0);
+	IniFileReread (INI_FILE);
+	running_pid = IniSectionGetInt (INI_FILE, SEC_Internals, KEY_Pid, 0);
 	if (running_pid == 0 || my_pid == running_pid) goto ok;
 
 #if defined (__APPLE__) || defined (__HAIKU__)
@@ -579,9 +579,9 @@ void linuxContinue (
 
 /* All is OK, save our pid, run, then delete our pid */
 
-ok:	IniWriteInt (LOCALINI_FILE, "Pid", my_pid);
-	LaunchWorkerThreads (thread_num, wait_flag);
-	if (wait_flag) IniWriteInt (LOCALINI_FILE, "Pid", 0);
+ok:	IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_Pid, my_pid);
+	LaunchWorkers (thread_num, wait_flag);
+	if (wait_flag) IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_Pid, 0);
 }
 
 /* Implement the rest of the OS-specific routines */

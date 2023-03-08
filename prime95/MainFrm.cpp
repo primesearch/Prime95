@@ -1,5 +1,5 @@
 // MainFrm.cpp : implementation of the CMainFrame class
-// Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
 //
 
 #include "stdafx.h"
@@ -153,15 +153,15 @@ LRESULT CMainFrame::OnTrayMessage(WPARAM uID, LPARAM uMouseMsg)
 			m.cch = (UINT) strlen (m.dwTypeData);
 			SetMenuItemInfo (hSubMenu, IDM_TRAY_OPEN, FALSE, &m);
 		}
-		if (!WORKER_THREADS_ACTIVE) {
+		if (!WORKERS_ACTIVE) {
 			m.fMask = MIIM_STRING;
 			m.fType = MFT_STRING;
 			m.dwTypeData = "Continue";
 			m.cch = (UINT) strlen (m.dwTypeData);
 			SetMenuItemInfo (hSubMenu, IDM_STOP_CONTINUE, FALSE, &m);
 		}
-		if ((WORKER_THREADS_ACTIVE && WORKER_THREADS_STOPPING) ||
-		    (!WORKER_THREADS_ACTIVE &&
+		if ((WORKERS_ACTIVE && WORKERS_STOPPING) ||
+		    (!WORKERS_ACTIVE &&
 		     !USE_PRIMENET && WORKTODO_COUNT == 0)) {
 			m.fMask = MIIM_STATE;
 			m.fState = MFS_DISABLED;
@@ -196,7 +196,7 @@ void CMainFrame::OnTrayOpenWindow()
 
 void CMainFrame::OnStopContinue()
 {
-	if (WORKER_THREADS_ACTIVE)
+	if (WORKERS_ACTIVE)
 		PostMessage (WM_COMMAND, IDM_STOP, 0);
 	else
 		PostMessage (WM_COMMAND, IDM_CONTINUE, 0);
@@ -222,15 +222,8 @@ static	int first_sizing = 0;
 // windows tiling on the first size message works.  Go figure.
 
 	if (nType != SIZE_MINIMIZED && first_sizing < 2) {
-		int id;
-		char rgch[80];
-
-		rgch[0] = 0;
-		IniGetString (INI_FILE, "W0", rgch, sizeof(rgch), NULL);
-
 		first_sizing++;
-		id = (0 == rgch[0]) ? ID_WINDOW_TILE_HORZ : ID_WINDOW_POSITION;
-		PostMessage (WM_COMMAND, id, 0);
+		PostMessage (WM_COMMAND, ID_WINDOW_POSITION, 0);
 	}
 }
 
@@ -270,9 +263,7 @@ void CMainFrame::OnActivateApp(BOOL bActive, DWORD hTask)
 
 void CMainFrame::OnSysCommand(UINT nID, LPARAM lParam)
 {
-	if ((nID & 0xFFF0) == SC_CLOSE &&
-	    ! IniGetInt (INI_FILE, "ExitOnX", 0) &&
-	    (TRAY_ICON || HIDE_ICON)) {
+	if ((nID & 0xFFF0) == SC_CLOSE && ! IniSectionGetInt (INI_FILE, SEC_Windows, KEY_ExitOnX, 0) && (TRAY_ICON || HIDE_ICON)) {
 		SendMessage (WM_SYSCOMMAND, SC_MINIMIZE, 0);
 		return;
 	}

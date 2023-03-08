@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2022 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines to QA the gwnum FFT routines.
 | QA can be activated by using Advanced/Time menu choice on exponent 9900.
@@ -255,7 +255,7 @@ void set_seed (
 /* practical. */
 
 void test_it_all (
-	int	thread_num,		/* Worker thread number */
+	int	thread_num,		/* Worker number */
 	struct PriorityInfo *sp_info,	/* SetPriority information */
 	double	k,
 	unsigned long b,
@@ -515,7 +515,7 @@ nomem:	OutputBoth (thread_num, "Out of memory\n");
 /* Thoroughly test the current setup */
 
 void test_it (
-	int	thread_num,		/* Worker thread number */
+	int	thread_num,		/* Worker number */
 	gwhandle *gwdata)
 {
 	gwnum	x, x2, x3, x4, x5;
@@ -1101,7 +1101,7 @@ done:	if (!CHECK_OFTEN) compare_with_text (thread_num, gwdata, x, g, "final");
 /* again giants code performing the same operations. */
 
 int test_randomly (
-	int	thread_num,		/* Worker thread number */
+	int	thread_num,		/* Worker number */
 	struct PriorityInfo *sp_info)	/* SetPriority information */
 {
 	gwhandle gwdata;
@@ -1191,6 +1191,9 @@ again:		gwinit (&gwdata);
 			sprintf (buf, "Trying gwsetup on %s.\n", numstr);
 			OutputBoth (thread_num, buf);
 		}
+//gwdata.force_general_mod = 1;
+//static int junk = 0;
+//gwset_larger_fftlen_count(&gwdata,junk++);
 		gwset_maxmulbyconst (&gwdata, 5);
 		gwset_minimum_fftlen (&gwdata, SPECIFIC_FFTLEN);
 		gwset_num_threads (&gwdata, threads);
@@ -1256,7 +1259,7 @@ again:		gwinit (&gwdata);
 /* and non-SSE2). */
 
 int test_all_impl (
-	int	thread_num,		/* Worker thread number */
+	int	thread_num,		/* Worker number */
 	struct PriorityInfo *sp_info)	/* SetPriority information */
 {
 	int	kbits, cbits, threads, stop_reason;

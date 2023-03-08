@@ -1,4 +1,4 @@
-; Copyright 2011-2022 - Mersenne Research, Inc.  All rights reserved.
+; Copyright 2011-2023 - Mersenne Research, Inc.  All rights reserved.
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -1638,7 +1638,9 @@ section_restart:
 		ystore	YMM_TMP4, ymm4
 		mov	edx, count1			;; Count of cache lines in section or padded group
 
-section_loop:
+section_loop:	inc	dh				;; Count propagations in the section
+		cmp	dh, 10				;; Only propagate carry for 10 words in the section (only pathological cases should ever get this high)
+		je	force_done			;; Force the final carry
 
 base2		vmovapd	ymm1, YMM_BIGVAL		;; Load comparison value
 no base2	vxorpd	ymm1, ymm1, ymm1		;; Create comparison value
@@ -1670,7 +1672,7 @@ no zero		ystore	[rsi+32], ymm1			;; Save new value2
 ttp		bump	rdi, 2				;; Advance pointers
 		bump	rsi, 64
 ttp		bump	rbp, 128
-		sub	rdx, 1				;; Test cache line counter
+		sub	dl, 1				;; Test cache line counter
 		jnz	section_loop			;; More cache lines in section, go add carry in
 
 	;; Section ended.  Rotate carries and stay in the current section or
@@ -1696,7 +1698,6 @@ ttp		mov	rbp, PPTR YMM_TMP3
 		jmp	section_restart			;; Do the section again
 
 new_section:
-
 	;; There is a bizarre case where adding a zero carry causes a carry (example: 10^114+1, a data
 	;; value of 500 becomes -500 with a carry of 1 -- add zero again and it becomes -500 with a carry
 	;; of -1).  This means that even though we have shifted the carries 4 times, the carries may not
@@ -1729,6 +1730,7 @@ done:		vmovapd	ymm3, YMM_TMP5			;; Reload any rotated carries
 		vmovapd	ymm2, YMM_TMP4
 		mov	rsi, PPTR YMM_TMP7		;; Restore next section pointers
 ttp		mov	rbp, PPTR YMM_TMP8
+
 force_done:
 base2		vsubpd	ymm3, ymm3, YMM_BIGVAL		;; Subtract rounding constant from carry
 base2		vsubpd	ymm2, ymm2, YMM_BIGVAL
@@ -4374,6 +4376,19 @@ no const mov	rsi, DESTARG			;; Restore source pointer
 no const jmp	nomulc				;; Skip over the mul by -C
 zsetdn:
 
+	;; Work on zero-pad addin value.
+	vmovsd	xmm4, ADDIN_VALUE		;; Load the add in value
+const	vmulsd	xmm4, xmm4, YMM_MULCONST	;; Multiply the add in value by the small mul const
+	;; when c = -1, 1 = b^n
+	;; when c = 1, -1 = b^n, 1 = -b^n
+	;; when c = -3, 3 = b^n, 1 = b^n - 2
+	;; when c = 3, -3 = b^n, 3 = -b^n, 1 = -b^n - 2
+	;; The "- 2" has been precomputed in ZPAD_LSW_ADJUST.  Add ADDIN_VALUE * mul-by-const * ZPAD_LSW_ADJUST into the least significant FFT word
+	mov	rsi, DESTARG			;; Address of squared number
+	vmulsd	xmm0, xmm4, ZPAD_LSW_ADJUST
+	vaddsd	xmm0, xmm0, [rsi]
+	vmovsd	[rsi], xmm0
+
 	;; Multiply ZPAD0 through ZPAD6 by const * -C.  This, in essense,
 	;; wraps this data from above the FFT data area to the halfway point.
 	;; Later on we'll divide this by K to decide which data needs wrapping
@@ -4385,10 +4400,11 @@ zsetdn:
 
 ttp	movzx	rax, BYTE PTR [rdi]		;; Load big vs. little flags
 	vmovsd	xmm0, ZPAD0			;; Load value
-	vmovsd	xmm5, ADDIN_VALUE		;; Use ADDIN_VALUE as the initial carry to add in
+	vsubsd	xmm5, xmm5, xmm5
 	new_single_split_lower_zpad_word ttp, base2, xmm0, xmm5, xmm1, rax*8
 no const vmulsd	xmm0, xmm0, Q YMM_MINUS_C
 const	vmulsd	xmm0, xmm0, Q YMM_MINUS_C_TIMES_MULCONST
+	vaddsd	xmm0, xmm0, xmm4		;; Apply rest of ADDIN_VALUE * mul-by-const here (the FFT half way point)
 	new_round_zpad7_word ttp, base2, xmm0, xmm2, xmm1, rax*8
 	vmovsd	ZPAD0, xmm0
 

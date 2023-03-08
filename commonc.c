@@ -14,7 +14,6 @@
 static const char JUNK[]="Copyright 1996-2023 Mersenne Research, Inc. All rights reserved";
 
 char	INI_FILE[260] = {0};
-char	LOCALINI_FILE[260] = {0};
 char	WORKTODO_FILE[260] = {0};
 char	RESFILE[260] = {0};
 char	RESFILEBENCH[260] = {0};
@@ -36,9 +35,9 @@ int	STRESS_TESTER = 0;
 int volatile ERRCHK = 0;
 int volatile SUM_INPUTS_ERRCHK = 0;	/* 1 to turn on sum(inputs) != sum(outputs) error checking */
 unsigned int PRIORITY = 1;
-unsigned int NUM_WORKER_THREADS = 1;	/* Number of work threads to launch */
-unsigned int WORK_PREFERENCE[MAX_NUM_WORKER_THREADS] = {0};
-unsigned int CORES_PER_TEST[MAX_NUM_WORKER_THREADS] = {1}; /* Number of threads gwnum can use in computations. */
+unsigned int NUM_WORKERS = 1;		/* Number of workers to launch */
+unsigned int WORK_PREFERENCE[MAX_NUM_WORKERS] = {0};
+unsigned int CORES_PER_TEST[MAX_NUM_WORKERS] = {1}; /* Number of cores gwnum can use in computations. */
 int	HYPERTHREAD_TF = 1;		/* TRUE if trial factoring should use hyperthreads */
 int	HYPERTHREAD_LL = 0;		/* TRUE if FFTs (LL, P-1, ECM, PRP) should use hyperthreads */
 int	MANUAL_COMM = 0;
@@ -86,11 +85,11 @@ gwmutex	WORKTODO_MUTEX;			/* Lock for accessing worktodo structure */
 gwevent AUTOBENCH_EVENT;		/* Event to wake up workers after an auto-benchmark */
 gwevent PROOF_UPLOAD_EVENT;		/* Event to wake up proof uploader */
 
-int	LAUNCH_TYPE = 0;		/* Type of worker threads launched */
-unsigned int WORKER_THREADS_ACTIVE = 0;	/* Number of worker threads running */
-int	WORKER_THREADS_STOPPING = 0;	/* TRUE iff worker threads are stopping */
+int	LAUNCH_TYPE = 0;		/* Type of workers launched */
+unsigned int WORKERS_ACTIVE = 0;	/* Number of workers running */
+int	WORKERS_STOPPING = 0;		/* TRUE iff workers are stopping */
 
-struct work_unit_array WORK_UNITS[MAX_NUM_WORKER_THREADS] = {0}; /* An array of work units for each worker thread */
+struct work_unit_array WORK_UNITS[MAX_NUM_WORKERS] = {0}; /* An array of work units for each worker */
 unsigned int WORKTODO_COUNT = 0;	/* Count of valid work lines */
 unsigned int WORKTODO_IN_USE_COUNT = 0;	/* Count of work units in use */
 int	WORKTODO_CHANGED = 0;		/* Flag indicating worktodo file needs writing */
@@ -118,6 +117,68 @@ uint32_t HW_NUM_THREADING_NODES;	/* Total number of nodes where it should be ben
 uint32_t HW_NUM_COMPUTE_THREADING_NODES;/* Same as HW_NUM_THREADING_NODES but only counting nodes governing compute cores */
 uint32_t HW_NUM_NUMA_NODES;		/* Total number of NUMA nodes in the computer */
 struct hw_core_info *HW_CORES = NULL;	/* Information on every core */
+
+/* INI section and settings strings */
+
+const char KEY_NumWorkers[] = "NumWorkers";
+const char KEY_QuitGIMPS[] = "QuitGIMPS";
+
+const char SEC_Internals[] = "Internals";
+const char KEY_V30OptionsConverted[] = "V30OptionsConverted";
+const char KEY_OldCpuSpeed[] = "OldCpuSpeed";
+const char KEY_NewCpuSpeed[] = "NewCpuSpeed";
+const char KEY_NewCpuSpeedCount[] = "NewCpuSpeedCount";
+const char KEY_RollingAverage[] = "RollingAverage";
+const char KEY_RollingHash[] = "RollingHash";
+const char KEY_RollingStartTime[] = "RollingStartTime";
+const char KEY_RollingCompleteTime[] = "RollingCompleteTime";
+const char KEY_CertDailyMBRemaining[] = "CertDailyMBRemaining";
+const char KEY_CertDailyCPURemaining[] = "CertDailyCPURemaining";
+const char KEY_CertDailyRemainingLastUpdate[] = "CertDailyRemainingLastUpdate";
+const char KEY_Pid[] = "Pid";
+const char KEY_SrvrUID[] = "SrvrUID";
+const char KEY_SrvrComputerName[] = "SrvrComputerName";
+const char KEY_SrvrP00[] = "SrvrP00";
+const char KEY_SrvrPO1[] = "SrvrPO1";
+const char KEY_SrvrPO2[] = "SrvrPO2";
+const char KEY_SrvrPO3[] = "SrvrPO3";
+const char KEY_SrvrPO4[] = "SrvrPO4";
+const char KEY_SrvrPO5[] = "SrvrPO5";
+const char KEY_SrvrPO6[] = "SrvrPO6";
+const char KEY_SrvrPO7[] = "SrvrPO7";
+const char KEY_SrvrPO8[] = "SrvrPO8";
+const char KEY_SrvrPO9[] = "SrvrPO9";
+const char KEY_LastEndDatesSent[] = "LastEndDatesSent";
+const char KEY_WGUID_version[] = "WGUID_version";
+const char KEY_CertErrorCount[] = "CertErrorCount";
+
+const char SEC_PrimeNet[] = "PrimeNet";
+const char KEY_DialUp[] = "DialUp";
+const char KEY_ProxyHost[] = "ProxyHost";
+const char KEY_ProxyUser[] = "ProxyUser";
+const char KEY_ProxyPass[] = "ProxyPass";
+const char KEY_ProxyMask[] = "ProxyMask";
+const char KEY_Debug[] = "Debug";
+const char KEY_UploadRateLimit[] = "UploadRateLimit";
+const char KEY_UploadStartTime[] = "UploadStartTime";
+const char KEY_UploadEndTime[] = "UploadEndTime";
+const char KEY_DownloadDailyLimit[] = "DownloadDailyLimit";
+const char KEY_DownloadRateLimit[] = "DownloadRateLimit";
+const char KEY_ProofUploads[] = "ProofUploads";
+const char KEY_ProofHashLength[] = "ProofHashLength";
+const char KEY_ProofPower[] = "ProofPower";
+const char KEY_ProofPowerMult[] = "ProofPowerMult";
+const char KEY_UploadChunkSize[] = "UploadChunkSize";
+
+const char SEC_Windows[] = "Windows";
+const char KEY_MergeWindows[] = "MergeWindows";
+const char KEY_TrayIcon[] = "TrayIcon";
+const char KEY_HideIcon[] = "HideIcon";
+const char KEY_Left[] = "Left";
+const char KEY_Right[] = "Right";
+const char KEY_Top[] = "Top";
+const char KEY_Bottom[] = "Bottom";
+const char KEY_ExitOnX[] = "ExitOnX";
 
 /* Forward declarations */
 
@@ -188,7 +249,7 @@ void calc_windows_guid (void)
 	int	algorithm_version;
 	char	buf[500];
 
-	algorithm_version = IniGetInt (INI_FILE, "WGUID_version", 1);
+	algorithm_version = IniSectionGetInt (INI_FILE, SEC_Internals, KEY_WGUID_version, 1);
 	if (algorithm_version == 1) {
 		getWindowsSerialNumber (buf);
 		getWindowsSID (buf + strlen (buf));
@@ -228,19 +289,19 @@ void clearCachedProgramOptions (void)
 	int	tnum;
 	char	section_name[32];
 
-	IniWriteString (LOCALINI_FILE, "SrvrPO1", NULL);
-	for (tnum = 0; tnum < MAX_NUM_WORKER_THREADS; tnum++) {
+	IniSectionWriteString (INI_FILE, SEC_Internals, KEY_SrvrPO1, NULL);
+	for (tnum = 0; tnum < MAX_NUM_WORKERS; tnum++) {
 		sprintf (section_name, "Worker #%d", tnum+1);
-		IniSectionWriteString (LOCALINI_FILE, section_name, "SrvrPO1", NULL);
+		IniSectionWriteString (INI_FILE, section_name, KEY_SrvrPO1, NULL);
 	}
-	IniWriteString (LOCALINI_FILE, "SrvrPO2", NULL);
-	IniWriteString (LOCALINI_FILE, "SrvrPO3", NULL);
-	IniWriteString (LOCALINI_FILE, "SrvrPO4", NULL);
-	IniWriteString (LOCALINI_FILE, "SrvrPO5", NULL);
-	IniWriteString (LOCALINI_FILE, "SrvrPO6", NULL);
-	IniWriteString (LOCALINI_FILE, "SrvrPO7", NULL);
-	IniWriteString (LOCALINI_FILE, "SrvrPO8", NULL);
-	IniWriteString (LOCALINI_FILE, "SrvrPO9", NULL);
+	IniSectionWriteString (INI_FILE, SEC_Internals, KEY_SrvrPO2, NULL);
+	IniSectionWriteString (INI_FILE, SEC_Internals, KEY_SrvrPO3, NULL);
+	IniSectionWriteString (INI_FILE, SEC_Internals, KEY_SrvrPO4, NULL);
+	IniSectionWriteString (INI_FILE, SEC_Internals, KEY_SrvrPO5, NULL);
+	IniSectionWriteString (INI_FILE, SEC_Internals, KEY_SrvrPO6, NULL);
+	IniSectionWriteString (INI_FILE, SEC_Internals, KEY_SrvrPO7, NULL);
+	IniSectionWriteString (INI_FILE, SEC_Internals, KEY_SrvrPO8, NULL);
+	IniSectionWriteString (INI_FILE, SEC_Internals, KEY_SrvrPO9, NULL);
 }
 
 /* Generate a globally unique ID for this computer.  All Primenet */
@@ -254,19 +315,19 @@ void generate_computer_guid (void)
 	time (&current_time);
 	sprintf (buf, "%s%d%f%d", CPU_BRAND, CPU_SIGNATURE, CPU_SPEED, (int) current_time);
 	md5_hexdigest_string (COMPUTER_GUID, buf);
-	IniWriteString (LOCALINI_FILE, "ComputerGUID", COMPUTER_GUID);
+	IniWriteString (INI_FILE, "ComputerGUID", COMPUTER_GUID);
 
 /* Clear out local copies of what we think the server knows about this computer */
 /* The server now knows nothing about this computer because of the newly generated computer ID */
 
-	IniWriteString (LOCALINI_FILE, "SrvrUID", NULL);
-	IniWriteString (LOCALINI_FILE, "SrvrComputerName", NULL);
+	IniSectionWriteString (INI_FILE, SEC_Internals, KEY_SrvrUID, NULL);
+	IniSectionWriteString (INI_FILE, SEC_Internals, KEY_SrvrComputerName, NULL);
 	clearCachedProgramOptions ();
 
 /* Since we're generating a new computer GUID, we can use the latest, */
 /* most robust version of calculating the Windows GUID. */
 
-	IniWriteInt (INI_FILE, "WGUID_version", 2);
+	IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_WGUID_version, 2);
 	calc_windows_guid ();
 }
 
@@ -283,7 +344,7 @@ void getCpuSpeed (void)
 
 /* Now let the user override the cpu speed from the local.txt file */
 
-	temp = IniGetInt (LOCALINI_FILE, "CpuSpeed", 99);
+	temp = IniGetInt (INI_FILE, "CpuSpeed", 99);
 	if (temp != 99) CPU_SPEED = temp;
 
 /* Make sure the cpu speed is reasonable */
@@ -304,16 +365,16 @@ void getCpuSpeed (void)
 /* in erroneously unreserving exponents. */
 
 	report_new_cpu_speed = FALSE;
-	old_cpu_speed = IniGetInt (LOCALINI_FILE, "OldCpuSpeed", 0);
+	old_cpu_speed = IniSectionGetInt (INI_FILE, SEC_Internals, KEY_OldCpuSpeed, 0);
 	if (CPU_SPEED < (double) old_cpu_speed * 0.97) {
-		if (IniGetInt (LOCALINI_FILE, "NewCpuSpeedCount", 0) <= 5) {
-			if (CPU_SPEED > (double) IniGetInt (LOCALINI_FILE, "NewCpuSpeed", 0))
-				IniWriteInt (LOCALINI_FILE, "NewCpuSpeed", (int) (CPU_SPEED + 0.5));
-			IniWriteInt (LOCALINI_FILE, "NewCpuSpeedCount", IniGetInt (LOCALINI_FILE, "NewCpuSpeedCount", 0) + 1);
+		if (IniSectionGetInt (INI_FILE, SEC_Internals, KEY_NewCpuSpeedCount, 0) <= 5) {
+			if (CPU_SPEED > (double) IniSectionGetInt (INI_FILE, SEC_Internals, KEY_NewCpuSpeed, 0))
+				IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_NewCpuSpeed, (int) (CPU_SPEED + 0.5));
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_NewCpuSpeedCount, IniSectionGetInt (INI_FILE, SEC_Internals, KEY_NewCpuSpeedCount, 0) + 1);
 			CPU_SPEED = old_cpu_speed;
 		} else {
-			if (CPU_SPEED < (double) IniGetInt (LOCALINI_FILE, "NewCpuSpeed", 0))
-				CPU_SPEED = (double) IniGetInt (LOCALINI_FILE, "NewCpuSpeed", 0);
+			if (CPU_SPEED < (double) IniSectionGetInt (INI_FILE, SEC_Internals, KEY_NewCpuSpeed, 0))
+				CPU_SPEED = (double) IniSectionGetInt (INI_FILE, SEC_Internals, KEY_NewCpuSpeed, 0);
 			report_new_cpu_speed = TRUE;
 		}
 	}
@@ -324,8 +385,8 @@ void getCpuSpeed (void)
 /* dialog has been displayed). */
 
 	else if (CPU_SPEED < (double) old_cpu_speed * 1.03) {
-		IniWriteInt (LOCALINI_FILE, "NewCpuSpeedCount", 0);
-		IniWriteInt (LOCALINI_FILE, "NewCpuSpeed", 0);
+		IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_NewCpuSpeedCount, 0);
+		IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_NewCpuSpeed, 0);
 	}
 
 /* If CPU speed is much larger than the speed reported to the server, then */
@@ -341,9 +402,9 @@ void getCpuSpeed (void)
 /* do this on the first run (before the Welcome dialog has been displayed). */
 
 	if (report_new_cpu_speed) {
-		IniWriteInt (LOCALINI_FILE, "OldCpuSpeed", (int) (CPU_SPEED + 0.5));
-		IniWriteInt (LOCALINI_FILE, "NewCpuSpeedCount", 0);
-		IniWriteInt (LOCALINI_FILE, "NewCpuSpeed", 0);
+		IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_OldCpuSpeed, (int) (CPU_SPEED + 0.5));
+		IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_NewCpuSpeedCount, 0);
+		IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_NewCpuSpeed, 0);
 		if (old_cpu_speed) {
 			if (WORKTODO_COUNT) {
 				ROLLING_AVERAGE = (int) (ROLLING_AVERAGE * old_cpu_speed / CPU_SPEED);
@@ -351,8 +412,8 @@ void getCpuSpeed (void)
 			}
 			else
 				ROLLING_AVERAGE = 1000;
-			IniWriteInt (LOCALINI_FILE, "RollingAverage", ROLLING_AVERAGE);
-			IniWriteInt (LOCALINI_FILE, "RollingStartTime", 0);
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_RollingAverage, ROLLING_AVERAGE);
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_RollingStartTime, 0);
 			spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
 			UpdateEndDates ();
 		}
@@ -417,12 +478,12 @@ void getCpuInfo (void)
 
 /* Allow overriding the hwloc generated values for number of physical processors and NUMA nodes. */
 
-	HW_NUM_CORES = IniGetInt (LOCALINI_FILE, "NumCPUs", HW_NUM_CORES);
-	HW_NUM_CORES = IniGetInt (LOCALINI_FILE, "NumCores", HW_NUM_CORES);
+	HW_NUM_CORES = IniGetInt (INI_FILE, "NumCPUs", HW_NUM_CORES);
+	HW_NUM_CORES = IniGetInt (INI_FILE, "NumCores", HW_NUM_CORES);
 	if (HW_NUM_CORES < 1) HW_NUM_CORES = 1;
-	HW_NUM_THREADS = IniGetInt (LOCALINI_FILE, "NumThreads", HW_NUM_THREADS);
+	HW_NUM_THREADS = IniGetInt (INI_FILE, "NumThreads", HW_NUM_THREADS);
 	if (HW_NUM_THREADS < 1) HW_NUM_THREADS = 1;
-	HW_NUM_NUMA_NODES = IniGetInt (LOCALINI_FILE, "NumNUMANodes", HW_NUM_NUMA_NODES);
+	HW_NUM_NUMA_NODES = IniGetInt (INI_FILE, "NumNUMANodes", HW_NUM_NUMA_NODES);
 	if (HW_NUM_NUMA_NODES == 0) HW_NUM_NUMA_NODES = 1;
 
 /* Create a structure to describe each physical core.  Initialize as performance cores with the appropriate number of hyperthreads. */
@@ -439,7 +500,7 @@ void getCpuInfo (void)
 		// Let user override calculated number of threads
 		char key[50];
 		sprintf (key, "Core%" PRIu32 "NumThreads", core);
-		num_threads = IniGetInt (LOCALINI_FILE, key, num_threads);
+		num_threads = IniGetInt (INI_FILE, key, num_threads);
 		if (num_threads < 1) num_threads = 1;
 		HW_CORES[core].num_threads = (uint16_t) num_threads;
 	}
@@ -562,7 +623,7 @@ void getCpuInfo (void)
 	for (core = 0; core < HW_NUM_CORES; core++) {
 		char key[50];
 		sprintf (key, "Core%" PRIu32 "Ranking", core);
-		HW_CORES[core].ranking = (uint16_t) IniGetInt (LOCALINI_FILE, key, HW_CORES[core].ranking);
+		HW_CORES[core].ranking = (uint16_t) IniGetInt (INI_FILE, key, HW_CORES[core].ranking);
 	}
 
 /* Calculate the number of compute cores (as opposed to efficiency cores) */
@@ -580,76 +641,76 @@ void getCpuInfo (void)
 
 /* Let the user override the cpu flags from the local.txt file */
 
-	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsRDTSC", 99);
+	temp = IniGetInt (INI_FILE, "CpuSupportsRDTSC", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_RDTSC;
 	if (temp == 1) CPU_FLAGS |= CPU_RDTSC;
-	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsCMOV", 99);
+	temp = IniGetInt (INI_FILE, "CpuSupportsCMOV", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_CMOV;
 	if (temp == 1) CPU_FLAGS |= CPU_CMOV;
-	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsPrefetch", 99);
+	temp = IniGetInt (INI_FILE, "CpuSupportsPrefetch", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_PREFETCH;
 	if (temp == 1) CPU_FLAGS |= CPU_PREFETCH;
-	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsPrefetchw", 99);
+	temp = IniGetInt (INI_FILE, "CpuSupportsPrefetchw", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_PREFETCHW;
 	if (temp == 1) CPU_FLAGS |= CPU_PREFETCHW;
-	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsPrefetchwt1", 99);
+	temp = IniGetInt (INI_FILE, "CpuSupportsPrefetchwt1", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_PREFETCHWT1;
 	if (temp == 1) CPU_FLAGS |= CPU_PREFETCHWT1;
-	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsSSE", 99);
+	temp = IniGetInt (INI_FILE, "CpuSupportsSSE", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_SSE;
 	if (temp == 1) CPU_FLAGS |= CPU_SSE;
-	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsSSE2", 99);
+	temp = IniGetInt (INI_FILE, "CpuSupportsSSE2", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_SSE2;
 	if (temp == 1) CPU_FLAGS |= CPU_SSE2;
-	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsSSE4", 99);
+	temp = IniGetInt (INI_FILE, "CpuSupportsSSE4", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_SSE41;
 	if (temp == 1) CPU_FLAGS |= CPU_SSE41;
-	temp = IniGetInt (LOCALINI_FILE, "CpuSupports3DNow", 99);
+	temp = IniGetInt (INI_FILE, "CpuSupports3DNow", 99);
 	if (temp == 0) CPU_FLAGS &= ~(CPU_3DNOW + CPU_3DNOW_PREFETCH);
 	if (temp == 1) CPU_FLAGS |= (CPU_3DNOW + CPU_3DNOW_PREFETCH);
-	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsAVX", 99);
+	temp = IniGetInt (INI_FILE, "CpuSupportsAVX", 99);
 	if (temp == 0) CPU_FLAGS &= ~(CPU_AVX | CPU_FMA3);
 	if (temp == 1) CPU_FLAGS |= CPU_AVX;
-	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsFMA3", 99);
+	temp = IniGetInt (INI_FILE, "CpuSupportsFMA3", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_FMA3;
 	if (temp == 1) CPU_FLAGS |= (CPU_AVX | CPU_FMA3);
-	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsFMA4", 99);
+	temp = IniGetInt (INI_FILE, "CpuSupportsFMA4", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_FMA4;
 	if (temp == 1) CPU_FLAGS |= CPU_FMA4;
-	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsAVX2", 99);
+	temp = IniGetInt (INI_FILE, "CpuSupportsAVX2", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_AVX2;
 	if (temp == 1) CPU_FLAGS |= CPU_AVX2;
-	temp = IniGetInt (LOCALINI_FILE, "CpuSupportsAVX512F", 99);
+	temp = IniGetInt (INI_FILE, "CpuSupportsAVX512F", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_AVX512F;
 	if (temp == 1) CPU_FLAGS |= CPU_AVX512F;
 
 /* Let the user override the L1/L2/L3/L4 cache size in local.txt file */
 
-	CPU_TOTAL_L1_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL1TotalCacheSize", CPU_TOTAL_L1_CACHE_SIZE);
-	CPU_NUM_L1_CACHES = IniGetInt (LOCALINI_FILE, "CpuL1NumCaches", CPU_NUM_L1_CACHES);
+	CPU_TOTAL_L1_CACHE_SIZE = IniGetInt (INI_FILE, "CpuL1TotalCacheSize", CPU_TOTAL_L1_CACHE_SIZE);
+	CPU_NUM_L1_CACHES = IniGetInt (INI_FILE, "CpuL1NumCaches", CPU_NUM_L1_CACHES);
 
-	CPU_TOTAL_L2_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL2TotalCacheSize", CPU_TOTAL_L2_CACHE_SIZE);
-	CPU_NUM_L2_CACHES = IniGetInt (LOCALINI_FILE, "CpuL2NumCaches", CPU_NUM_L2_CACHES);
-	CPU_L2_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL2CacheSize", CPU_L2_CACHE_SIZE);
-	CPU_L2_CACHE_LINE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL2CacheLineSize", CPU_L2_CACHE_LINE_SIZE);
-	CPU_L2_SET_ASSOCIATIVE = IniGetInt (LOCALINI_FILE, "CpuL2SetAssociative", CPU_L2_SET_ASSOCIATIVE);
-	CPU_L2_CACHE_INCLUSIVE = IniGetInt (LOCALINI_FILE, "CpuL2CacheInclusive", CPU_L2_CACHE_INCLUSIVE);
+	CPU_TOTAL_L2_CACHE_SIZE = IniGetInt (INI_FILE, "CpuL2TotalCacheSize", CPU_TOTAL_L2_CACHE_SIZE);
+	CPU_NUM_L2_CACHES = IniGetInt (INI_FILE, "CpuL2NumCaches", CPU_NUM_L2_CACHES);
+	CPU_L2_CACHE_SIZE = IniGetInt (INI_FILE, "CpuL2CacheSize", CPU_L2_CACHE_SIZE);
+	CPU_L2_CACHE_LINE_SIZE = IniGetInt (INI_FILE, "CpuL2CacheLineSize", CPU_L2_CACHE_LINE_SIZE);
+	CPU_L2_SET_ASSOCIATIVE = IniGetInt (INI_FILE, "CpuL2SetAssociative", CPU_L2_SET_ASSOCIATIVE);
+	CPU_L2_CACHE_INCLUSIVE = IniGetInt (INI_FILE, "CpuL2CacheInclusive", CPU_L2_CACHE_INCLUSIVE);
 
-	CPU_TOTAL_L3_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL3TotalCacheSize", CPU_TOTAL_L3_CACHE_SIZE);
-	CPU_NUM_L3_CACHES = IniGetInt (LOCALINI_FILE, "CpuL3NumCaches", CPU_NUM_L3_CACHES);
-	CPU_L3_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL3CacheSize", CPU_L3_CACHE_SIZE);
-	CPU_L3_CACHE_LINE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL3CacheLineSize", CPU_L3_CACHE_LINE_SIZE);
-	CPU_L3_SET_ASSOCIATIVE = IniGetInt (LOCALINI_FILE, "CpuL3SetAssociative", CPU_L3_SET_ASSOCIATIVE);
-	CPU_L3_CACHE_INCLUSIVE = IniGetInt (LOCALINI_FILE, "CpuL3CacheInclusive", CPU_L3_CACHE_INCLUSIVE);
+	CPU_TOTAL_L3_CACHE_SIZE = IniGetInt (INI_FILE, "CpuL3TotalCacheSize", CPU_TOTAL_L3_CACHE_SIZE);
+	CPU_NUM_L3_CACHES = IniGetInt (INI_FILE, "CpuL3NumCaches", CPU_NUM_L3_CACHES);
+	CPU_L3_CACHE_SIZE = IniGetInt (INI_FILE, "CpuL3CacheSize", CPU_L3_CACHE_SIZE);
+	CPU_L3_CACHE_LINE_SIZE = IniGetInt (INI_FILE, "CpuL3CacheLineSize", CPU_L3_CACHE_LINE_SIZE);
+	CPU_L3_SET_ASSOCIATIVE = IniGetInt (INI_FILE, "CpuL3SetAssociative", CPU_L3_SET_ASSOCIATIVE);
+	CPU_L3_CACHE_INCLUSIVE = IniGetInt (INI_FILE, "CpuL3CacheInclusive", CPU_L3_CACHE_INCLUSIVE);
 
-	CPU_TOTAL_L4_CACHE_SIZE = IniGetInt (LOCALINI_FILE, "CpuL4TotalCacheSize", CPU_TOTAL_L4_CACHE_SIZE);
-	CPU_NUM_L4_CACHES = IniGetInt (LOCALINI_FILE, "CpuL4NumCaches", CPU_NUM_L4_CACHES);
-	CPU_L4_CACHE_INCLUSIVE = IniGetInt (LOCALINI_FILE, "CpuL4CacheInclusive", CPU_L4_CACHE_INCLUSIVE);
+	CPU_TOTAL_L4_CACHE_SIZE = IniGetInt (INI_FILE, "CpuL4TotalCacheSize", CPU_TOTAL_L4_CACHE_SIZE);
+	CPU_NUM_L4_CACHES = IniGetInt (INI_FILE, "CpuL4NumCaches", CPU_NUM_L4_CACHES);
+	CPU_L4_CACHE_INCLUSIVE = IniGetInt (INI_FILE, "CpuL4CacheInclusive", CPU_L4_CACHE_INCLUSIVE);
 
 /* Let the user override the CPUID brand string.  It should never be necessary. */
 /* However, one Athlon owner's brand string became corrupted with illegal characters. */
 
-	IniGetString (LOCALINI_FILE, "CpuBrand", CPU_BRAND, sizeof(CPU_BRAND), CPU_BRAND);
+	IniGetString (INI_FILE, "CpuBrand", CPU_BRAND, sizeof(CPU_BRAND), CPU_BRAND);
 
 /* Apply sane corrections if HW_NUM_COREs was reduced significantly) */
 
@@ -661,13 +722,13 @@ void getCpuInfo (void)
 
 /* Let user override the CPU architecture */
 
-	CPU_ARCHITECTURE = IniGetInt (LOCALINI_FILE, "CpuArchitecture", CPU_ARCHITECTURE);
+	CPU_ARCHITECTURE = IniGetInt (INI_FILE, "CpuArchitecture", CPU_ARCHITECTURE);
 
 /* Allow overriding the calculated number of threading nodes */
 
-	HW_NUM_THREADING_NODES = IniGetInt (LOCALINI_FILE, "NumThreadingNodes", HW_NUM_THREADING_NODES);
+	HW_NUM_THREADING_NODES = IniGetInt (INI_FILE, "NumThreadingNodes", HW_NUM_THREADING_NODES);
 	if (HW_NUM_THREADING_NODES < 1) HW_NUM_THREADING_NODES = 1;
-	HW_NUM_COMPUTE_THREADING_NODES = IniGetInt (LOCALINI_FILE, "NumComputeThreadingNodes", HW_NUM_COMPUTE_THREADING_NODES);
+	HW_NUM_COMPUTE_THREADING_NODES = IniGetInt (INI_FILE, "NumComputeThreadingNodes", HW_NUM_COMPUTE_THREADING_NODES);
 	if (HW_NUM_COMPUTE_THREADING_NODES < 1) HW_NUM_COMPUTE_THREADING_NODES = 1;
 
 /* Now get the CPU speed */
@@ -1117,11 +1178,11 @@ void write_memory_settings (
 	sprintf (buf, "%d during %d:%02d-%d:%02d else %d",
 		 day_memory, day_start_time / 60, day_start_time % 60,
 		 day_end_time / 60, day_end_time % 60, night_memory);
-	IniWriteString (LOCALINI_FILE, "Memory", buf);
-	IniWriteString (LOCALINI_FILE, "DayMemory", NULL);
-	IniWriteString (LOCALINI_FILE, "NightMemory", NULL);
-	IniWriteString (LOCALINI_FILE, "DayStartTime", NULL);
-	IniWriteString (LOCALINI_FILE, "DayEndTime", NULL);
+	IniWriteString (INI_FILE, "Memory", buf);
+	IniWriteString (INI_FILE, "DayMemory", NULL);
+	IniWriteString (INI_FILE, "NightMemory", NULL);
+	IniWriteString (INI_FILE, "DayStartTime", NULL);
+	IniWriteString (INI_FILE, "DayEndTime", NULL);
 }
 
 /* Convert the new MEMORY setting into the old DAY_MEMORY, NIGHT_MEMORY settings. */
@@ -1144,7 +1205,7 @@ int read_memory_settings (
 
 /* Get the memory settings.  If not found, return the defaults */
 
-	p = IniSectionGetStringRaw (LOCALINI_FILE, NULL, "Memory");
+	p = IniSectionGetStringRaw (INI_FILE, NULL, "Memory");
 	if (p == NULL) return (TRUE);
 
 /* Find the time specifiers.  If none found, return the same value for */
@@ -1200,12 +1261,50 @@ void ini_error_handler (
 	OutputSomewhere (MAIN_THREAD_NUM, buf);
 }
 
+/* Move an ini setting to its appropriate section */
+
+void moveToSection (const char *section, const char *key)
+{
+	char val[256];
+	// Hack to move a number of keys
+	if (strstr (key, "%d") != NULL) {
+		for (int i = 1; i < 10000; i++) {
+			char	numbered_key[80];
+			sprintf (numbered_key, key, i);
+			IniGetString (INI_FILE, numbered_key, val, sizeof (val), NULL);
+			if (val[0] == 0) return;
+			IniSectionWriteString (INI_FILE, section, numbered_key, val);
+			IniWriteString (INI_FILE, numbered_key, NULL);
+		}
+	}
+	// Move a single key
+	IniGetString (INI_FILE, key, val, sizeof (val), NULL);
+	if (val[0]) {
+		IniSectionWriteString (INI_FILE, section, key, val);
+		IniWriteString (INI_FILE, key, NULL);
+	}
+}
+
+/* Rename an ini setting */
+
+void renameIniKey (const char *section, const char *old_key_name, const char *new_key_name)
+{
+	char val[256];
+	IniSectionGetString (INI_FILE, section, old_key_name, val, sizeof (val), old_key_name);
+	// If old key name does not exist, we are done
+	if (strcmp (val, old_key_name) == 0) return;
+	// Write to the new key name and delete the old key name
+	IniSectionWriteString (INI_FILE, section, new_key_name, val);
+	IniSectionWriteString (INI_FILE, section, old_key_name, NULL);
+}
+
 /* Determine the names of the INI files, then read them.  This is also the */
 /* perfect time to initialize mutexes and do other initializations. */
 
 void nameAndReadIniFiles (
 	int	named_ini_files)
 {
+	char	localini_file[260];
 	char	buf[513];
 
 /* Determine the hardware topology using the hwloc library.  This library is much more */
@@ -1233,7 +1332,7 @@ void nameAndReadIniFiles (
 
 	if (named_ini_files < 0) {
 		strcpy (INI_FILE, "prime.txt");
-		strcpy (LOCALINI_FILE, "local.txt");
+		strcpy (localini_file, "local.txt");
 		strcpy (WORKTODO_FILE, "worktodo.txt");
 		strcpy (RESFILE, "results.txt");
 		strcpy (RESFILEBENCH, "results.bench.txt");
@@ -1242,7 +1341,7 @@ void nameAndReadIniFiles (
 		strcpy (LOGFILE, "prime.log");
 	} else {
 		sprintf (INI_FILE, "prim%04d.txt", named_ini_files);
-		sprintf (LOCALINI_FILE, "loca%04d.txt", named_ini_files);
+		sprintf (localini_file, "loca%04d.txt", named_ini_files);
 		sprintf (WORKTODO_FILE, "work%04d.txt", named_ini_files);
 		sprintf (RESFILE, "resu%04d.txt", named_ini_files);
 		sprintf (RESFILEBENCH, "resu%04d.bench.txt", named_ini_files);
@@ -1254,7 +1353,7 @@ void nameAndReadIniFiles (
 /* Let the user rename these files and pick a different working directory */
 
 	IniGetString (INI_FILE, "WorkingDir", buf, sizeof(buf), NULL);
-	IniGetString (INI_FILE, "local.ini", LOCALINI_FILE, 260, LOCALINI_FILE);
+	IniGetString (INI_FILE, "local.ini", localini_file, 260, localini_file);
 	IniGetString (INI_FILE, "worktodo.ini", WORKTODO_FILE, 260, WORKTODO_FILE);
 	IniGetString (INI_FILE, "results.txt", RESFILE, 260, RESFILE);
 	IniGetString (INI_FILE, "results.bench.txt", RESFILEBENCH, 260, RESFILEBENCH);
@@ -1267,6 +1366,102 @@ void nameAndReadIniFiles (
 		IniFileReread (INI_FILE);
 	}
 
+/* In 30.10 build 5, we copy the settings from local.txt to prime.txt, then delete local.txt */
+
+	{
+		FILE *fd = fopen (localini_file, "r");
+		if (fd != NULL) {
+			char	section[80];
+			char	line[1000];
+			section[0] = 0;
+			IniDelayWrites (INI_FILE);
+			while (fgets (line, sizeof (line), fd)) {
+				if (line[strlen(line)-1] == '\n') line[strlen(line)-1] = 0;
+				if (line[0] && line[strlen(line)-1] == '\r') line[strlen(line)-1] = 0;
+				if (line[0] == 0) continue;
+				// Locate section headers
+				if (line[0] == '[') {
+					strcpy (section, line+1);
+					if (strchr (section, ']') != NULL) *strchr (section, ']') = 0;
+					continue;
+				}
+				// Write line as a comment
+				if (section[0]) IniSectionWriteString (INI_FILE, section, NULL, line);
+				else IniWriteString (INI_FILE, NULL, line);
+			}
+			fclose (fd);
+			_unlink (localini_file);
+			IniResumeImmediateWrites (INI_FILE);
+			IniFileReread (INI_FILE);
+		}
+	}
+
+/* In 30.10 build 5, we moved many settings to individual sections of prime.txt */
+
+	renameIniKey (NULL, "WorkerThreads", KEY_NumWorkers);			// Renamed in 30.10b5
+	renameIniKey (NULL, "NoMoreWork", KEY_QuitGIMPS);			// Renamed in 30.11b1
+
+	IniWriteString (INI_FILE, "RollingAverageIsFromV27", NULL);		// Deprecated 30.10b5
+	IniWriteString (INI_FILE, "V24OptionsConverted", NULL);			// Deprecated 30.10b5
+	IniWriteString (INI_FILE, "AskedAboutMemory", NULL);			// Deprecated long before 30.10b5
+	IniWriteString (INI_FILE, "Advanced", NULL);				// Deprecated long before 30.10b5
+	IniWriteString (INI_FILE, "Affinity", NULL);				// Deprecated well before 30.10b5
+	IniWriteString (INI_FILE, "W0", NULL);					// Deprecated 30.10b5, I don't believe this Windows-only setting was ever used
+
+	moveToSection (SEC_Internals, KEY_V30OptionsConverted);			// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_OldCpuSpeed);				// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_NewCpuSpeed);				// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_NewCpuSpeedCount);			// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_RollingAverage);			// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_RollingHash);				// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_RollingStartTime);			// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_RollingCompleteTime);			// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_CertDailyCPURemaining);		// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_CertDailyMBRemaining);		// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_CertDailyRemainingLastUpdate);	// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_SrvrUID);				// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_SrvrComputerName);			// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_SrvrP00);				// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_SrvrPO1);				// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_SrvrPO2);				// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_SrvrPO3);				// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_SrvrPO4);				// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_SrvrPO5);				// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_SrvrPO6);				// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_SrvrPO7);				// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_SrvrPO8);				// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_SrvrPO9);				// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_LastEndDatesSent);			// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_WGUID_version);			// Moved here 30.10b5
+	moveToSection (SEC_Internals, KEY_CertErrorCount);			// Moved here 30.10b5
+
+	moveToSection (SEC_PrimeNet, KEY_DialUp);				// Moved here 30.10b5
+	moveToSection (SEC_PrimeNet, KEY_ProxyHost);				// Has always been here
+	moveToSection (SEC_PrimeNet, KEY_ProxyUser);				// Has always been here
+	moveToSection (SEC_PrimeNet, KEY_ProxyPass);				// Has always been here
+	moveToSection (SEC_PrimeNet, KEY_ProxyMask);				// Has always been here
+	moveToSection (SEC_PrimeNet, KEY_Debug);				// Has always been here
+	moveToSection (SEC_PrimeNet, KEY_UploadRateLimit);			// Has always been here
+	moveToSection (SEC_PrimeNet, KEY_UploadStartTime);			// Has always been here
+	moveToSection (SEC_PrimeNet, KEY_UploadEndTime);			// Has always been here
+	moveToSection (SEC_PrimeNet, KEY_DownloadDailyLimit);			// Has always been here
+	moveToSection (SEC_PrimeNet, KEY_DownloadRateLimit);			// Has always been here
+	moveToSection (SEC_PrimeNet, KEY_ProofUploads);				// Has always been here
+	moveToSection (SEC_PrimeNet, KEY_ProofHashLength);			// Has always been here
+	//moveToSection (SEC_PrimeNet, KEY_ProofPower);				// Cannot move, appears in both main and PrimeNet section
+	//moveToSection (SEC_PrimeNet, KEY_ProofPowerMult);			// Cannot move, appears in both main and PrimeNet section
+	moveToSection (SEC_PrimeNet, KEY_UploadChunkSize);			// Has always been here
+
+	moveToSection (SEC_Windows, KEY_MergeWindows);				// Moved here 30.10b5
+	moveToSection (SEC_Windows, KEY_TrayIcon);				// Moved here 30.10b5
+	moveToSection (SEC_Windows, KEY_HideIcon);				// Moved here 30.10b5
+	moveToSection (SEC_Windows, KEY_Left);					// Moved here 30.10b5
+	moveToSection (SEC_Windows, KEY_Right);					// Moved here 30.10b5
+	moveToSection (SEC_Windows, KEY_Top);					// Moved here 30.10b5
+	moveToSection (SEC_Windows, KEY_Bottom);				// Moved here 30.10b5
+	moveToSection (SEC_Windows, KEY_ExitOnX);				// Moved here 30.10b5
+	moveToSection (SEC_Windows, "W%d");					// Moved here 30.10b5
+
 /* Perform other one-time initializations */
 
 	LoadPrimenet ();
@@ -1275,7 +1470,7 @@ void nameAndReadIniFiles (
 
 /* Create and name the main window */
 
-	MERGE_WINDOWS = (int) IniGetInt (INI_FILE, "MergeWindows", MERGE_MAINCOMM_WINDOWS);
+	MERGE_WINDOWS = (int) IniSectionGetInt (INI_FILE, SEC_Windows, KEY_MergeWindows, MERGE_MAINCOMM_WINDOWS);
 	create_window (MAIN_THREAD_NUM);
 	base_title (MAIN_THREAD_NUM, "Main thread");
 
@@ -1367,7 +1562,7 @@ void nameAndReadIniFiles (
 
 /* Start the proof uploading thread */
 
-	if (IniSectionGetInt (INI_FILE, "PrimeNet", "ProofUploads", 1))
+	if (IniSectionGetInt (INI_FILE, SEC_PrimeNet, KEY_ProofUploads, 1))
 		gwthread_create (&UPLOAD_THREAD, &proofUploader, NULL);
 }
 
@@ -1416,11 +1611,11 @@ int good_default_for_num_workers (void)
 void read_cores_per_test (void)
 {
 	int	i, all_the_same;
-	unsigned int temp[MAX_NUM_WORKER_THREADS];
+	unsigned int temp[MAX_NUM_WORKERS];
 
 /* Get the old ThreadsPerTest values that we used to support */
 
-	PTOGetAll (LOCALINI_FILE, "ThreadsPerTest", temp, 0);
+	PTOGetAll (INI_FILE, "ThreadsPerTest", temp, 0);
 
 /* If we found some old settings then delete them from the INI file, */
 /* convert from threads to cores as best we can, and write out the new settings */
@@ -1428,7 +1623,7 @@ void read_cores_per_test (void)
 	if (temp[0] != 0) {
 		int	total_threads, trim;
 		// Sum up the number of threads, see if each worker has the same number of threads
-		for (i = 0, total_threads = 0; i < (int) NUM_WORKER_THREADS; i++) {
+		for (i = 0, total_threads = 0; i < (int) NUM_WORKERS; i++) {
 			if (temp[i] <= 0) temp[i] = 1;  // In theory, can't happen
 			total_threads += temp[i];
 		}
@@ -1436,30 +1631,30 @@ void read_cores_per_test (void)
 		// going on.  In the new scheme of things using hyperthreading is handled via
 		// a different INI setting.  Reduce the array values until we are not
 		// oversubscribing cores.
-		for (i = 0; total_threads > (int) HW_NUM_CORES && i < (int) NUM_WORKER_THREADS; i++) {
+		for (i = 0; total_threads > (int) HW_NUM_CORES && i < (int) NUM_WORKERS; i++) {
 			trim = temp[i] / 2;
 			if (total_threads - trim < (int) HW_NUM_CORES) trim = total_threads - HW_NUM_CORES;
 			temp[i] -= trim;
 			total_threads -= trim;
 		}
 		// See if each worker has the same number of cores
-		for (i = 0, all_the_same = TRUE; i < (int) NUM_WORKER_THREADS; i++) {
+		for (i = 0, all_the_same = TRUE; i < (int) NUM_WORKERS; i++) {
 			if (i && temp[i] != temp[i-1]) all_the_same = FALSE;
 		}
 		// Write out the new settings
 		memset (CORES_PER_TEST, 0xFF, sizeof (CORES_PER_TEST));
 		if (all_the_same)
-			PTOSetAll (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, temp[0]);
-		else for (i = 0; i < (int) NUM_WORKER_THREADS; i++)
-			PTOSetOne (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, temp[i]);
+			PTOSetAll (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, temp[0]);
+		else for (i = 0; i < (int) NUM_WORKERS; i++)
+			PTOSetOne (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, temp[i]);
 		// Clear old settings
-		PTOSetAll (LOCALINI_FILE, "ThreadsPerTest", NULL, temp, 0);
-		IniWriteString (LOCALINI_FILE, "ThreadsPerTest", NULL);
+		PTOSetAll (INI_FILE, "ThreadsPerTest", NULL, temp, 0);
+		IniWriteString (INI_FILE, "ThreadsPerTest", NULL);
 	}
 
 /* Read in the CoresPerTest values that we support as of version 29.1 */
 
-	PTOGetAll (LOCALINI_FILE, "CoresPerTest", CORES_PER_TEST, 0);
+	PTOGetAll (INI_FILE, "CoresPerTest", CORES_PER_TEST, 0);
 
 /* If we did not find any settings, use hwloc's information to give us a good default setting. */
 /* For example, consider a dual CPU Xeon system with 9 cores per CPU.  A good setting for four workers */
@@ -1472,7 +1667,7 @@ void read_cores_per_test (void)
 
 		i = 0;
 		cores = HW_NUM_COMPUTE_CORES;
-		workers = NUM_WORKER_THREADS;
+		workers = NUM_WORKERS;
 		for (node = 0; node < (int) HW_NUM_COMPUTE_THREADING_NODES; node++) {
 			// Make workers this node proportional to the fraction of total cores in this node.
 			// In the final node, we must assign all the workers we have not yet figured out.  This happens
@@ -1493,19 +1688,19 @@ void read_cores_per_test (void)
 		ASSERTG (workers == 0 && cores == 0);
 
 		// See if each worker has the same number of cores
-		for (i = 0, all_the_same = TRUE; i < (int) NUM_WORKER_THREADS; i++) {
+		for (i = 0, all_the_same = TRUE; i < (int) NUM_WORKERS; i++) {
 			if (i && temp[i] != temp[i-1]) all_the_same = FALSE;
 		}
 		// Write out the new settings
 		if (all_the_same)
-			PTOSetAll (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, temp[0]);
-		else for (i = 0; i < (int) NUM_WORKER_THREADS; i++)
-			PTOSetOne (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, temp[i]);
+			PTOSetAll (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, temp[0]);
+		else for (i = 0; i < (int) NUM_WORKERS; i++)
+			PTOSetOne (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, temp[i]);
 	}
 
 /* Sanity check the CoresPerTest.  In case user hand-edited local.txt */
 
-	for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+	for (i = 0; i < (int) NUM_WORKERS; i++) {
 		if (CORES_PER_TEST[i] < 1) CORES_PER_TEST[i] = 1;
 		if (CORES_PER_TEST[i] > HW_NUM_CORES) CORES_PER_TEST[i] = HW_NUM_CORES;
 	}
@@ -1523,56 +1718,34 @@ int readIniFiles (void)
 /* Incorporate any additions from .add files */
 
 	IniFileReread (INI_FILE);
-	IniFileReread (LOCALINI_FILE);
 	incorporateIniAddFiles ();
 
 /* Get the CPU type, speed, and capabilities. */
 
 	getCpuInfo ();
 
-/* Convert V4 work preferences to v5 work preferences */
-
-	if (!IniGetInt (INI_FILE, "V24OptionsConverted", 0)) {
-		IniWriteInt (INI_FILE, "V24OptionsConverted", 1);
-		if (IniGetInt (INI_FILE, "WorkPreference", 0) == 16) // Ten million digit
-			IniWriteInt (INI_FILE, "WorkPreference", PRIMENET_WP_LL_WORLD_RECORD);
-		else if (IniGetInt (INI_FILE, "WorkPreference", 0) == 2)
-			IniWriteInt (INI_FILE, "WorkPreference", PRIMENET_WP_LL_FIRST);
-		else if (IniGetInt (INI_FILE, "WorkPreference", 0) == 4)
-			IniWriteInt (INI_FILE, "WorkPreference", PRIMENET_WP_LL_DBLCHK);
-		else if (IniGetInt (INI_FILE, "WorkPreference", 0) == 1)
-			IniWriteInt (INI_FILE, "WorkPreference", PRIMENET_WP_FACTOR);
-		IniSectionWriteInt (INI_FILE, "PrimeNet", "Debug", 0);
-	}
-
 /* Put commonly used options in global variables */
 
-	IniGetString (LOCALINI_FILE, "ComputerGUID", COMPUTER_GUID, sizeof (COMPUTER_GUID), NULL);
+	IniGetString (INI_FILE, "ComputerGUID", COMPUTER_GUID, sizeof (COMPUTER_GUID), NULL);
 	IniGetString (INI_FILE, "V5UserID", USERID, sizeof (USERID), NULL);
-	IniGetString (LOCALINI_FILE, "ComputerID", COMPID, sizeof (COMPID), NULL);
+	IniGetString (INI_FILE, "ComputerID", COMPID, sizeof (COMPID), NULL);
 	sanitizeString (COMPID);
 	USE_PRIMENET = (int) IniGetInt (INI_FILE, "UsePrimenet", 0);
-	DIAL_UP = (int) IniGetInt (INI_FILE, "DialUp", 0);
+	DIAL_UP = (int) IniSectionGetInt (INI_FILE, SEC_PrimeNet, KEY_DialUp, 0);
 	DAYS_OF_WORK = (unsigned int) IniGetInt (INI_FILE, "DaysOfWork", 3);
 	if (DAYS_OF_WORK > 180) DAYS_OF_WORK = 180;
 
-	CPU_WORKER_DISK_SPACE = IniGetFloat (LOCALINI_FILE, "WorkerDiskSpace", 6.0);
+	CPU_WORKER_DISK_SPACE = IniGetFloat (INI_FILE, "WorkerDiskSpace", 6.0);
 	if (CPU_WORKER_DISK_SPACE < 0.0) CPU_WORKER_DISK_SPACE = 0.0;
 	if (CPU_WORKER_DISK_SPACE > 1000.0) CPU_WORKER_DISK_SPACE = 1000.0;
 
-	CPU_HOURS = (unsigned int) IniGetInt (LOCALINI_FILE, "CPUHours", 24);
+	CPU_HOURS = (unsigned int) IniGetInt (INI_FILE, "CPUHours", 24);
 	if (CPU_HOURS < 1) CPU_HOURS = 1;
 	if (CPU_HOURS > 24) CPU_HOURS = 24;
 
-	ROLLING_AVERAGE = (unsigned int) IniGetInt (LOCALINI_FILE, "RollingAverage", 1000);
+	ROLLING_AVERAGE = (unsigned int) IniSectionGetInt (INI_FILE, SEC_Internals, KEY_RollingAverage, 1000);
 	if (ROLLING_AVERAGE < 10) ROLLING_AVERAGE = 10;
 	if (ROLLING_AVERAGE > 4000) ROLLING_AVERAGE = 4000;
-	/* Rolling average needs to be reset when AVX capable machines upgrade from v26 to v27. */
-	if (CPU_FLAGS & CPU_AVX && ! IniGetInt (LOCALINI_FILE, "RollingAverageIsFromV27", 0)) {
-		ROLLING_AVERAGE = 1000;
-		IniWriteInt (LOCALINI_FILE, "RollingAverage", 1000);
-		IniWriteInt (LOCALINI_FILE, "RollingAverageIsFromV27", 1);
-	}
 
 	PRECISION = (unsigned int) IniGetInt (INI_FILE, "PercentPrecision", 2);
 	if (PRECISION > 6) PRECISION = 6;
@@ -1602,27 +1775,27 @@ int readIniFiles (void)
 	if (DAYS_BETWEEN_CHECKINS * 24.0 < 1.0) DAYS_BETWEEN_CHECKINS = (float) (1.0 / 24.0);	/* 1 hour minimum */
 	SILENT_VICTORY = (int) IniGetInt (INI_FILE, "SilentVictory", 0);
 	SILENT_VICTORY_PRP = (int) IniGetInt (INI_FILE, "SilentVictoryPRP", 1);
-	RUN_ON_BATTERY = (int) IniGetInt (LOCALINI_FILE, "RunOnBattery", 1);
+	RUN_ON_BATTERY = (int) IniGetInt (INI_FILE, "RunOnBattery", 1);
 	BATTERY_PERCENT = (int) IniGetInt (INI_FILE, "BatteryPercent", 0);
-	DEFEAT_POWER_SAVE = (int) IniGetInt (LOCALINI_FILE, "DefeatPowerSave", 1);
+	DEFEAT_POWER_SAVE = (int) IniGetInt (INI_FILE, "DefeatPowerSave", 1);
 
 	STRESS_TESTER = (int) IniGetInt (INI_FILE, "StressTester", 99);
 	temp = (int) IniGetInt (INI_FILE, "ErrorCheck", 0);
 	ERRCHK = (temp != 0);
 	temp = (int) IniGetInt (INI_FILE, "SumInputsErrorCheck", 0);
 	SUM_INPUTS_ERRCHK = (temp != 0);
-	NUM_WORKER_THREADS = IniGetInt (LOCALINI_FILE, "WorkerThreads", good_default_for_num_workers ());
-	if (NUM_WORKER_THREADS < 1) NUM_WORKER_THREADS = 1;
-	if (NUM_WORKER_THREADS > MAX_NUM_WORKER_THREADS) NUM_WORKER_THREADS = MAX_NUM_WORKER_THREADS;
-	IniWriteInt (LOCALINI_FILE, "WorkerThreads", NUM_WORKER_THREADS); // Write in case future prime95 changes good_default_for_num_workers
+	NUM_WORKERS = IniGetInt (INI_FILE, KEY_NumWorkers, good_default_for_num_workers ());
+	if (NUM_WORKERS < 1) NUM_WORKERS = 1;
+	if (NUM_WORKERS > MAX_NUM_WORKERS) NUM_WORKERS = MAX_NUM_WORKERS;
+	IniWriteInt (INI_FILE, KEY_NumWorkers, NUM_WORKERS); // Write in case future prime95 changes good_default_for_num_workers
 	PRIORITY = (unsigned int) IniGetInt (INI_FILE, "Priority", 1);
 	if (PRIORITY < 1) PRIORITY = 1;
 	if (PRIORITY > 10) PRIORITY = 10;
 	PTOGetAll (INI_FILE, "WorkPreference", WORK_PREFERENCE, 0);
 	// Upgrade pre-v30 users from LL to PRP, combine LL-DC and PRP-DC into one work preference
-	if (!IniGetInt (INI_FILE, "V30OptionsConverted", 0)) {
+	if (!IniSectionGetInt (INI_FILE, SEC_Internals, KEY_V30OptionsConverted, 0)) {
 		int	i, all_the_same = TRUE;
-		for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+		for (i = 0; i < MAX_NUM_WORKERS; i++) {
 			if (WORK_PREFERENCE[i] == PRIMENET_WP_LL_FIRST) WORK_PREFERENCE[i] = PRIMENET_WP_PRP_FIRST;
 			if (WORK_PREFERENCE[i] == PRIMENET_WP_LL_10M) WORK_PREFERENCE[i] = PRIMENET_WP_PRP_FIRST;
 			if (WORK_PREFERENCE[i] == PRIMENET_WP_LL_FIRST_NOFAC) WORK_PREFERENCE[i] = PRIMENET_WP_PRP_FIRST;
@@ -1633,18 +1806,18 @@ int readIniFiles (void)
 		}
 		if (all_the_same)
 			PTOSetAll (INI_FILE, "WorkPreference", NULL, WORK_PREFERENCE, WORK_PREFERENCE[0]);
-		else for (i = 0; i < (int) NUM_WORKER_THREADS; i++)
+		else for (i = 0; i < (int) NUM_WORKERS; i++)
 			PTOSetOne (INI_FILE, "WorkPreference", NULL, WORK_PREFERENCE, i, WORK_PREFERENCE[i]);
 		spoolMessage (PRIMENET_PROGRAM_OPTIONS, NULL);
-		IniWriteInt (INI_FILE, "V30OptionsConverted", 1);
+		IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_V30OptionsConverted, 1);
 	}
 	read_cores_per_test ();		// Get CORES_PER_TEST array, may require upgrading old INI settings
-	HYPERTHREAD_TF = IniGetInt (LOCALINI_FILE, "HyperthreadTF", OS_CAN_SET_AFFINITY);
-	HYPERTHREAD_LL = IniGetInt (LOCALINI_FILE, "HyperthreadLL", 0);
+	HYPERTHREAD_TF = IniGetInt (INI_FILE, "HyperthreadTF", OS_CAN_SET_AFFINITY);
+	HYPERTHREAD_LL = IniGetInt (INI_FILE, "HyperthreadLL", 0);
 	MANUAL_COMM = (int) IniGetInt (INI_FILE, "ManualComm", 0);
-	HIDE_ICON = (int) IniGetInt (INI_FILE, "HideIcon", 0);
-	TRAY_ICON = (int) IniGetInt (INI_FILE, "TrayIcon", 1);
-	MERGE_WINDOWS = (int) IniGetInt (INI_FILE, "MergeWindows", MERGE_MAINCOMM_WINDOWS);
+	HIDE_ICON = (int) IniSectionGetInt (INI_FILE, SEC_Windows, KEY_HideIcon, 0);
+	TRAY_ICON = (int) IniSectionGetInt (INI_FILE, SEC_Windows, KEY_TrayIcon, 1);
+	MERGE_WINDOWS = (int) IniSectionGetInt (INI_FILE, SEC_Windows, KEY_MergeWindows, MERGE_MAINCOMM_WINDOWS);
 
 /* Convert old TwoBackupFiles boolean to new NumBackupFiles integer.  Old default */
 /* was 2 save files, new default is 3 save files. */	
@@ -1656,8 +1829,8 @@ int readIniFiles (void)
 /* Convert the old DAY_MEMORY, NIGHT_MEMORY settings into the simpler, all-inclusive */
 /* and more powerful MEMORY setting. */
 
-	day_memory = IniGetInt (LOCALINI_FILE, "DayMemory", 0);
-	night_memory = IniGetInt (LOCALINI_FILE, "NightMemory", 0);
+	day_memory = IniGetInt (INI_FILE, "DayMemory", 0);
+	night_memory = IniGetInt (INI_FILE, "NightMemory", 0);
 	if (day_memory || night_memory) {
 		int	day_start_time, day_end_time;
 		day_memory = (day_memory < 0) ? physical_memory () + day_memory : day_memory;
@@ -1666,8 +1839,8 @@ int readIniFiles (void)
 		night_memory = (night_memory < 0) ? physical_memory () + night_memory : night_memory;
 		if (night_memory < 8) night_memory = 8;
 		if ((unsigned long) night_memory > physical_memory () - 8) night_memory = physical_memory () - 8;
-		day_start_time = IniGetInt (LOCALINI_FILE, "DayStartTime", 450);
-		day_end_time = IniGetInt (LOCALINI_FILE, "DayEndTime", 1410);
+		day_start_time = IniGetInt (INI_FILE, "DayStartTime", 450);
+		day_end_time = IniGetInt (INI_FILE, "DayEndTime", 1410);
 		write_memory_settings (day_memory, night_memory, day_start_time, day_end_time);
 	}
 	read_mem_info ();
@@ -1719,7 +1892,7 @@ int readIniFiles (void)
 /*               Utility routines to work with ".add" files                 */
 /****************************************************************************/
 
-/* See if an "add file" file exists.  An add file lets the user create a prime.add or local.add file to overwrite/append options while the program is running. */
+/* See if an "add file" file exists.  An add file lets the user create a prime.add file to overwrite/append options while the program is running. */
 /* This is especially handy for workstations that are not physically accessible but their file systems are by network.  If this feature was not available, */
 /* the only safe method for updating would be to stop the program, edit the .txt file, and restart the program. */
 
@@ -1729,14 +1902,6 @@ int addFileExists (void)
 	char	*dot;
 
 	strcpy (filename, INI_FILE);
-	dot = strrchr (filename, '.');
-	if (dot != NULL) {
-		strcpy (dot, ".add");
-		if (fileExists (filename)) return (TRUE);
-		strcpy (dot, ".add.txt");
-		if (fileExists (filename)) return (TRUE);
-	}
-	strcpy (filename, LOCALINI_FILE);
 	dot = strrchr (filename, '.');
 	if (dot != NULL) {
 		strcpy (dot, ".add");
@@ -1765,19 +1930,6 @@ void incorporateIniAddFiles (void)
 		strcpy (dot, ".add.txt");
 		if (fileExists (filename))
 			IniAddFileMerge (INI_FILE, filename, NULL);
-	}
-
-/* Merge additions to local.txt */
-
-	strcpy (filename, LOCALINI_FILE);
-	dot = strrchr (filename, '.');
-	if (dot != NULL) {
-		strcpy (dot, ".add");
-		if (fileExists (filename))
-			IniAddFileMerge (LOCALINI_FILE, filename, NULL);
-		strcpy (dot, ".add.txt");
-		if (fileExists (filename))
-			IniAddFileMerge (LOCALINI_FILE, filename, NULL);
 	}
 }
 
@@ -1841,7 +1993,7 @@ static	int	worktodo_add_disabled = FALSE;
 				} else {
 					if (w->work_type == WORK_NONE && _stricmp (w->comment, line) == 0) break;
 				}
-				if (tnum == NUM_WORKER_THREADS - 1) {
+				if (tnum == NUM_WORKERS - 1) {
 					w = NULL;
 					break;
 				}
@@ -1862,7 +2014,7 @@ static	int	worktodo_add_disabled = FALSE;
 
 /* Grow the work_unit array if necessary and add this entry */
 
-		rc = addToWorkUnitArray (tnum, w, FALSE);
+		rc = addToWorkUnitArray (tnum, w, ADD_TO_END);
 		if (rc) goto retrc;
 	}
 
@@ -1903,7 +2055,7 @@ retrc:	fclose (fd);
 }
 
 /****************************************************************************/
-/*          Utility routines to work with per-thread options (PTO)          */
+/*          Utility routines to work with per-worker options (PTO)          */
 /****************************************************************************/
 
 void PTOGetAll (
@@ -1918,13 +2070,13 @@ void PTOGetAll (
 /* Copy the global option setting to the entire array */
 
 	global_val = IniGetInt (ini_filename, keyword, def_val);
-	for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+	for (i = 0; i < MAX_NUM_WORKERS; i++) {
 		array[i] = global_val;
 	}
 
 /* Now look for any section specific overrides */
 
-	for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+	for (i = 0; i < MAX_NUM_WORKERS; i++) {
 		sprintf (section_name, "Worker #%d", i+1);
 		array[i] = IniSectionGetInt (ini_filename, section_name, keyword, array[i]);
 	}
@@ -1933,8 +2085,7 @@ void PTOGetAll (
 void PTOSetAll (
 	const char *ini_filename,	/* Ini file containing the options */
 	const char *keyword,		/* Ini file keyword */
-	const char *shadow_keyword,	/* Ini file keyword for value the */
-					/* server has stored for this option */
+	const char *shadow_keyword,	/* Ini file keyword for value the server has stored for this option */
 	unsigned int *array,		/* Options array */
 	unsigned int new_val)		/* New option value */
 {
@@ -1944,35 +2095,31 @@ void PTOSetAll (
 /* Copy the global option setting to the entire array */
 
 	IniWriteInt (ini_filename, keyword, new_val);
-	for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+	for (i = 0; i < MAX_NUM_WORKERS; i++) {
 		array[i] = new_val;
 	}
-	if (shadow_keyword != NULL)
-		IniWriteInt (LOCALINI_FILE, shadow_keyword, new_val);
+	if (shadow_keyword != NULL) IniSectionWriteInt (INI_FILE, SEC_Internals, shadow_keyword, new_val);
 
 /* Now clear all section specific overrides */
 
-	for (i = 0; i < MAX_NUM_WORKER_THREADS; i++) {
+	for (i = 0; i < MAX_NUM_WORKERS; i++) {
 		sprintf (section_name, "Worker #%d", i+1);
 		IniSectionWriteString (ini_filename, section_name, keyword, NULL);
-		if (shadow_keyword != NULL)
-			IniSectionWriteString (LOCALINI_FILE, section_name, shadow_keyword, NULL);
+		if (shadow_keyword != NULL) IniSectionWriteString (INI_FILE, section_name, shadow_keyword, NULL);
 	}
 }
 
 void PTOSetOne (
 	const char *ini_filename,	/* Ini file containing the options */
 	const char *keyword,		/* Ini file keyword */
-	const char *shadow_keyword,	/* Ini file keyword for value the */
-					/* server has stored for this option */
+	const char *shadow_keyword,	/* Ini file keyword for value the server has stored for this option */
 	unsigned int *array,		/* Options array */
-	int	tnum,			/* Thread number */
+	int	tnum,			/* Worker number */
 	unsigned int new_val)		/* New option value */
 {
 	char	section_name[32];
 
-/* Will changing this option cause us to switch from one global setting */
-/* to individual settings on each thread? */
+/* Will changing this option cause us to switch from one global setting to individual settings on each worker? */
 
 	if (PTOIsGlobalOption (array)) {
 		int	i;
@@ -1981,61 +2128,49 @@ void PTOSetOne (
 
 		if (array[tnum] == new_val) return;
 
-/* Delete the global option and set the thread specific option for */
-/* each thread. */
+/* Delete the global option and set the option for each worker. */
 
 		IniWriteString (ini_filename, keyword, NULL);
-		if (shadow_keyword != NULL)
-			IniWriteString (LOCALINI_FILE, shadow_keyword, NULL);
-		for (i = 0; i < (int) NUM_WORKER_THREADS; i++) {
+		if (shadow_keyword != NULL) IniSectionWriteString (INI_FILE, SEC_Internals, shadow_keyword, NULL);
+		for (i = 0; i < (int) NUM_WORKERS; i++) {
 			sprintf (section_name, "Worker #%d", i+1);
 			IniSectionWriteInt (ini_filename, section_name, keyword, array[i]);
-			if (shadow_keyword != NULL)
-				IniSectionWriteInt (LOCALINI_FILE, section_name, shadow_keyword, array[i]);
+			if (shadow_keyword != NULL) IniSectionWriteInt (INI_FILE, section_name, shadow_keyword, array[i]);
 		}
 	}
 
-/* Set the option for just this one thread */
+/* Set the option for just this one worker */
 
 	array[tnum] = new_val;
 	sprintf (section_name, "Worker #%d", tnum+1);
 	IniSectionWriteInt (ini_filename, section_name, keyword, new_val);
-	if (shadow_keyword != NULL)
-		IniSectionWriteInt (LOCALINI_FILE, section_name, shadow_keyword, new_val);
+	if (shadow_keyword != NULL) IniSectionWriteInt (INI_FILE, section_name, shadow_keyword, new_val);
 }
 
 int PTOIsGlobalOption (
 	unsigned int *array)		/* Options array */
 {
-	int	i;
-
-	for (i = 1; i < (int) NUM_WORKER_THREADS; i++)
+	for (int i = 1; i < (int) NUM_WORKERS; i++)
 		if (array[i-1] != array[i]) return (FALSE);
 	return (TRUE);
 }
 
 int PTOHasOptionChanged (
-	const char *shadow_keyword,	/* Ini file keyword for value the */
-					/* server has stored for this option */
+	const char *shadow_keyword,	/* Ini file keyword for value the server has stored for this option */
 	unsigned int *array,		/* Options array */
-	int	tnum)			/* Thread number */
+	int	tnum)			/* Worker number */
 {
 	char	section_name[32];
 
-/* If this is the thread number that tells us we are dealing global options */
+/* If this is the worker number that tells us we are dealing global options */
 /* then return TRUE if this is a globally set option and it has changed. */
 
-	if (tnum == -1)
-		return (PTOIsGlobalOption (array) &&
-			array[0] != IniGetInt (LOCALINI_FILE, shadow_keyword, -1));
+	if (tnum == -1) return (PTOIsGlobalOption (array) && array[0] != IniSectionGetInt (INI_FILE, SEC_Internals, shadow_keyword, -1));
 
 /* Otherwise, return TRUE if this is not a globally set option and it has changed. */
 
-	else {
-		sprintf (section_name, "Worker #%d", tnum+1);
-		return (!PTOIsGlobalOption (array) &&
-			array[tnum] != IniSectionGetInt (LOCALINI_FILE, section_name, shadow_keyword, -1));
-	}
+	sprintf (section_name, "Worker #%d", tnum+1);
+	return (!PTOIsGlobalOption (array) && array[tnum] != IniSectionGetInt (INI_FILE, section_name, shadow_keyword, -1));
 }
 
 
@@ -2235,14 +2370,14 @@ void JSONaddUserComputerAID (
 /*               Routines to process worktodo.txt files                     */
 /****************************************************************************/
 
-/* The worktodo structures are accessed by worker threds, the communication */
+/* The worktodo structures are accessed by workers, the communication */
 /* thread, the timer threads, and the GUI thread.  We must be VERY CAREFUL */
 /* with our locking scheme to make sure there are no crashes or hangs. */
 
 /* The simplest scheme just locks on entry to each of these routines. */
 /* This solves some basic problems such as two threads writing the worktodo */
 /* file at the same time.  However, more difficult problems still exist. */
-/* For example, a worker thread could delete the work unit while the */
+/* For example, a worker could delete the work unit while the */
 /* GUI (Test/Status) or comm thread (sending completion dates) try to */
 /* has a pointer to the work unit structure.  A dereference after the */
 /* delete will crash. */
@@ -2286,9 +2421,10 @@ void auxiliaryWorkUnitInit (
 	if ((w->work_type == WORK_FACTOR || w->work_type == WORK_TEST || w->work_type == WORK_DBLCHK || w->work_type == WORK_PRP) && w->factor_to == 0.0)
 		w->factor_to = factorLimit (w);
 
-/* Initialize the number of PRP tests saved.  For PRP with proof, we choose 1.3 tests saved because we like factors even though the proper value s.b. 1.0. */
+/* Initialize the number of LL tests saved.  LL tests are mostly deprecated thanks to PRP with proofs. */
+/* For PRP work, the worktodo file specifies the number of tests saved -- don't overwrite it. */
 
-	if (w->work_type == WORK_TEST) w->tests_saved = 1.3;
+	if (w->work_type == WORK_TEST) w->tests_saved = 2.0;
 	if (w->work_type == WORK_DBLCHK) w->tests_saved = 1.0;
 
 /* Guard against wild tests_saved values.  Huge values will cause guess_pminus1_bounds to run for a very long time. */
@@ -2380,7 +2516,7 @@ void addKnownFermatFactors (
 	struct work_unit *w)	/* Work unit to modify */
 {
 
-/* If this is ECM or P-1 on a Fermat number, then automatically add known Fermat factors */
+/* If this is ECM, P-1, or P+1 on a Fermat number, then automatically add known Fermat factors */
 
 	if (w->k == 1.0 && w->b == 2 && w->c == 1 &&
 	    (w->work_type == WORK_ECM || w->work_type == WORK_PMINUS1 || w->work_type == WORK_PPLUS1) &&
@@ -2422,53 +2558,54 @@ void addKnownFermatFactors (
 	}
 }	    
 
-/* Add a work_unit to the work_unit array.  Grow the work_unit */
-/* array if necessary */
+/* Add a work_unit to the work_unit array.  Grow the work_unit array if necessary */
 
 int addToWorkUnitArray (
 	unsigned int tnum,	/* Thread number that will run work unit */
 	struct work_unit *w,	/* Work unit to add to array */
-	int	add_to_end)	/* TRUE if we are to add to end of array */
+	int	add_point)	/* Three possible insertion points */
 {
 	struct work_unit *insertion_point;
 
-/* When there are more worker sections than workers (as can happen when the shrinks the */
-/* number of worker windows), redistribute lines from those worker sections to the */
-/* active sections. */
+/* When there are more worker sections than workers (as can happen when the user shrinks the */
+/* number of worker windows), redistribute lines from those worker sections to the active sections. */
 
-	tnum = tnum % NUM_WORKER_THREADS;
+	tnum = tnum % NUM_WORKERS;
 
-/* If add_to_end is set, then we are reading the worktodo.txt file. */
-/* Add the entry to the end of the array */
+/* If add_to_end is set, then we are reading the worktodo.txt file.  Add the entry to the end of the array. */
 
-	if (add_to_end)
+	switch (add_point) {
+	case ADD_TO_END:
 		insertion_point = WORK_UNITS[tnum].last;
+		break;
 
-/* Otherwise, add ADVANCEDTEST work units to the front of the array after */
-/* any comment lines. */
+/* If add_to_front is set, add work unit to the front of the array after any comment lines. */
 
-	else if (w->work_type == WORK_ADVANCEDTEST) {
-		if (WORK_UNITS[tnum].first != NULL &&
-		    WORK_UNITS[tnum].first->work_type == WORK_NONE)
-			for (insertion_point = WORK_UNITS[tnum].first;
-			     insertion_point->next != NULL;
-			     insertion_point = insertion_point->next) {
-				if (insertion_point->next->work_type != WORK_NONE)
-					break;
+	case ADD_TO_FRONT:
+		if (WORK_UNITS[tnum].first != NULL && WORK_UNITS[tnum].first->work_type == WORK_NONE)
+			for (insertion_point = WORK_UNITS[tnum].first; insertion_point->next != NULL; insertion_point = insertion_point->next) {
+				if (insertion_point->next->work_type != WORK_NONE) break;
 			}
 		else
 			insertion_point = NULL;
-	}
+		break;
 
-/* Add all other work units before the last blank line. */
+/* If add_to_end, add work unit before the last blank line */
 
-	else {
-		for (insertion_point = WORK_UNITS[tnum].last;
-		     insertion_point != NULL;
-		     insertion_point = insertion_point->prev) {
-			if (insertion_point->work_type != WORK_NONE ||
-			    insertion_point->comment[0]) break;
+	case ADD_TO_LOGICAL_END:
+		for (insertion_point = WORK_UNITS[tnum].last; insertion_point != NULL; insertion_point = insertion_point->prev) {
+			if (insertion_point->work_type != WORK_NONE || insertion_point->comment[0]) break;
 		}
+		break;
+
+/* Otherwise, add work unit before or after a specified work unit */
+
+	case ADD_BEFORE_SPECIFIC:
+		insertion_point = w->next->prev;
+		break;
+	case ADD_AFTER_SPECIFIC:
+		insertion_point = w->next;
+		break;
 	}
 
 /* Now insert the work unit after the insertion point */
@@ -2486,13 +2623,16 @@ int addToWorkUnitArray (
 	else
 		w->next->prev = w;
 
-/* Bump count of valid work lines and wake up thread if it is waiting */
-/* for work to do. */
+/* Bump count of valid work lines and wake up thread if it is waiting for work to do. */
 
 	if (w->work_type != WORK_NONE) {
 		WORKTODO_COUNT++;
 		restart_one_waiting_worker (tnum, RESTART_WORK_AVAILABLE);
 	}
+
+/* Set flag indicating worktodo needs writing */
+
+	WORKTODO_CHANGED = TRUE;
 
 /* Return success */
 
@@ -2934,7 +3074,7 @@ int readWorkToDoFile (void)
 		gwmutex_lock (&WORKTODO_MUTEX);
 
 /* Make sure no other threads are accessing work units right now. */
-/* There should be no worker threads active so any use should be short-lived. */
+/* There should be no workers active so any use should be short-lived. */
 
 		if (WORKTODO_IN_USE_COUNT == 0 && !WORKTODO_CHANGED) break;
 		gwmutex_unlock (&WORKTODO_MUTEX);
@@ -2958,11 +3098,11 @@ int readWorkToDoFile (void)
 	WORKTODO_CHANGED = FALSE;
 	WORKTODO_COUNT = 0;
 
-/* Free old work_units for each worker thread. */
+/* Free old work_units for each worker. */
 /* We sometimes reread the worktodo.txt file in case the user */
 /* manually edits the file while the program is running. */
 
-	for (tnum = 0; tnum < MAX_NUM_WORKER_THREADS; tnum++) {
+	for (tnum = 0; tnum < MAX_NUM_WORKERS; tnum++) {
 		struct work_unit *w, *next_w;
 		for (w = WORK_UNITS[tnum].first; w != NULL; w = next_w) {
 			next_w = w->next;
@@ -2996,15 +3136,15 @@ int readWorkToDoFile (void)
 	    if (w == NULL) goto nomem;
 	    memset (w, 0, sizeof (struct work_unit));
 
-/* A section header precedes each worker thread's work units.  The first section need not be preceeded by a section header. */
+/* A section header preceeds each worker's work units.  The first section need not be preceeded by a section header. */
 
 	    if (line[0] == '[' && linenum > 1) {
 		tnum++;
-		if (tnum >= NUM_WORKER_THREADS) {
+		if (tnum >= NUM_WORKERS) {
 		    char	buf[100];
 		    sprintf (buf,
 			     "Too many sections in worktodo.txt.  Moving work from section #%u to #%u.\n",
-			     tnum + 1, tnum % NUM_WORKER_THREADS + 1);
+			     tnum + 1, tnum % NUM_WORKERS + 1);
 		    OutputSomewhere (MAIN_THREAD_NUM, buf);
 		    safe_strcpy (line + 9, line);
 		    memcpy (line, ";;MOVED;;", 9);
@@ -3019,13 +3159,13 @@ int readWorkToDoFile (void)
 
 /* Grow the work_unit array if necessary and add this entry */
 
-	    rc = addToWorkUnitArray (tnum, w, TRUE);
+	    rc = addToWorkUnitArray (tnum, w, ADD_TO_END);
 	    if (rc) goto retrc;
 	}
 
 /* Now that we've finished reading the worktodo file, set stage and pct_complete based on existing save files. */
 
-	for (tnum = 0; tnum < MAX_NUM_WORKER_THREADS; tnum++) {
+	for (tnum = 0; tnum < MAX_NUM_WORKERS; tnum++) {
 	    struct work_unit *w;
 	    int first_real_work_line;
 
@@ -3059,7 +3199,7 @@ int readWorkToDoFile (void)
 /* See if any other worker's first work unit is testing the same number. */
 /* If so, assume any existing save files are for that worker */
 
-			for (tnum2 = 0; tnum2 < MAX_NUM_WORKER_THREADS; tnum2++) {
+			for (tnum2 = 0; tnum2 < MAX_NUM_WORKERS; tnum2++) {
 				for (w2 = WORK_UNITS[tnum2].first; w2 != NULL; w2 = w2->next) {
 					if (w2->work_type == WORK_NONE) continue;
 					if (w2->work_type == w->work_type &&
@@ -3158,22 +3298,21 @@ int writeWorkToDoFile (
 		return (STOP_FILE_IO_ERROR);
 	}
 
-/* Loop over all worker threads */
+/* Loop over all workers */
 
 	last_line_was_blank = FALSE;
-	for (tnum = 0; tnum < MAX_NUM_WORKER_THREADS; tnum++) {
+	for (tnum = 0; tnum < MAX_NUM_WORKERS; tnum++) {
 	    struct work_unit *w;
 	    unsigned int len;
 
-/* If we've processed all the worker threads and there is nothing left */
-/* to output, then we are done. */
+/* If we've processed all the workers and there is nothing left to output, then we are done. */
 
-	    if (tnum >= NUM_WORKER_THREADS &&
+	    if (tnum >= NUM_WORKERS &&
 		WORK_UNITS[tnum].first == NULL) break;
 
 /* Output a standardized section header */
 
-	    if (tnum || NUM_WORKER_THREADS > 0) {
+	    if (tnum || NUM_WORKERS > 0) {
 		char	buf[40];
 		if (tnum && !last_line_was_blank && _write (fd, "\n", 1) != 1)
 			goto write_error;
@@ -3183,7 +3322,7 @@ int writeWorkToDoFile (
 		last_line_was_blank = FALSE;
 	    }
 
-/* Loop over each assignment for this worker thread */
+/* Loop over each assignment for this worker */
 
 	    for (w = WORK_UNITS[tnum].first; w != NULL; w = w->next) {
 		char	idbuf[100];
@@ -3320,7 +3459,7 @@ write_error:		OutputBoth (MAIN_THREAD_NUM, "Error writing worktodo.txt file\n");
 	return (0);
 }
 
-/* Return a worktodo.txt entry for the given worker thread */
+/* Return a worktodo.txt entry for the given worker */
 
 struct work_unit *getNextWorkToDoLine (
 	int	thread_num,		/* Thread number starting from 0 */
@@ -3329,7 +3468,7 @@ struct work_unit *getNextWorkToDoLine (
 {
 	struct work_unit *next;		/* Next WorkToDo entry (or NULL) */
 
-	ASSERTG (thread_num < (int) NUM_WORKER_THREADS);
+	ASSERTG (thread_num < (int) NUM_WORKERS);
 
 /* Grab the lock so that other threads do not add or delete lines */
 /* while we are finding the next entry. */
@@ -3387,7 +3526,7 @@ struct work_unit *getNextWorkToDoLine (
 	return (next);
 }
 
-/* Return a worktodo.txt entry for the given worker thread */
+/* Return a worktodo.txt entry for the given worker */
 
 void decrementWorkUnitUseCount (
 	struct work_unit *w,		/* WorkToDo entry */
@@ -3413,8 +3552,9 @@ void decrementWorkUnitUseCount (
 /* Add a line of work to the work-to-do INI file. */
 
 int addWorkToDoLine (
-	int	tnum,		/* Worker thread to process this work unit */
-	struct work_unit *w)	/* Type of work */
+	int	tnum,		/* Worker to process this work unit */
+	struct work_unit *w,	/* Type of work */
+	int	add_point)	/* Three possible insertion points */
 {
 	struct work_unit *malloc_w;
 	int	rc;
@@ -3429,24 +3569,19 @@ int addWorkToDoLine (
 	if (malloc_w == NULL) return (OutOfMemory (MAIN_THREAD_NUM));
 	memcpy (malloc_w, w, sizeof (struct work_unit));
 
-/* If this is ECM or P-1 on a Fermat number, then automatically add known Fermat factors */
+/* If this is ECM, P-1, or P+1 on a Fermat number, then automatically add known Fermat factors */
 
 	addKnownFermatFactors (malloc_w);
 
-/* Grab the lock so that comm thread and/or worker threads do not */
+/* Grab the lock so that comm thread and/or workers do not */
 /* access structure while the other is adding/deleting lines. */
 
 	gwmutex_lock (&WORKTODO_MUTEX);
 
-/* Add the work unit to the end of the array.  Well, actually before the */
-/* last set of blank lines. */
+/* Add the work unit to the start or end of the array.  Well, actually before the last set of blank lines. */
 
-	rc = addToWorkUnitArray (tnum, malloc_w, FALSE);
+	rc = addToWorkUnitArray (tnum, malloc_w, add_point);
 	if (rc) goto retrc;
-
-/* Set flag indicating worktodo needs writing */
-
-	WORKTODO_CHANGED = TRUE;
 
 /* Unlock and write the worktodo.txt file to disk */
 
@@ -3459,11 +3594,10 @@ retrc:	gwmutex_unlock (&WORKTODO_MUTEX);
 	return (rc);
 }
 
-/* Caller has updated a work unit structure such that the work-to-do */
-/* INI file needs to be written.  */
+/* Caller has updated a work unit structure such that the work-to-do INI file needs to be written. */
 
 int updateWorkToDoLine (
-	int	tnum,		/* Worker thread to process this work unit */
+	int	tnum,		/* Worker to process this work unit */
 	struct work_unit *w)	/* Type of work */
 {
 
@@ -3482,7 +3616,7 @@ int updateWorkToDoLine (
 /* getNextWorkToDoLine works properly. */
 
 int deleteWorkToDoLine (
-	int	tnum,		/* Worker thread to process this work unit */
+	int	tnum,		/* Worker to process this work unit */
 	struct work_unit *w,	/* Work unit pointer */
 	int	stop_if_in_progress) /* Stop thread processing work unit */
 {
@@ -3492,13 +3626,12 @@ int deleteWorkToDoLine (
 
 	if (w->work_type == WORK_DELETED) return (0);
 
-/* Grab the lock so that comm thread and/or worker threads do not */
-/* access structure while the other is adding/deleting lines. */
+/* Grab the lock so that comm thread and/or workers don't access structure while the other is adding/deleting lines. */
 
 	gwmutex_lock (&WORKTODO_MUTEX);
 
 /* If we are deleting a work unit that is currently being worked on */
-/* then set a flag so that the worker thread will abort the work unit */
+/* then set a flag so that the worker will abort the work unit */
 /* at its first opportunity.  There is a race condition whereby the worker */
 /* thread may move on to a different work unit before testing the */
 /* abort-work-unit flag.  This is harmless as the new work unit will be */
@@ -3531,7 +3664,7 @@ int isWorkUnitActive (
 	struct work_unit *w)	/* work_unit pointer */
 {
 
-/* At the present time only a worker thread actively working on a work unit */
+/* At the present time only a worker actively working on a work unit */
 /* sets the LONG_TERM_USE flag of in_use_count.  Use that fact, to decide */
 /* if the work unit is active. */
 
@@ -3614,6 +3747,8 @@ double work_estimate (
 			est += stage1_time * (1.0 - pct_complete) + stage2_time;
 		if (stage == 2)
 			est += stage2_time * (1.0 - pct_complete);
+
+		est *= IniGetInt (INI_FILE, "ECMBoundsMultiplier", 1);
 	}
 
 /* For P-1, estimate about 1.4545 * B1 squarings in stage 1.  Estimate stage 2 will take as long as stage 1.  The stage 2 estimate */
@@ -3780,7 +3915,7 @@ double work_estimate (
 /* If the user unwisely oversubscribed the CPU cores, then increase the time estimate */
 
 	total_cores = 0;
-	for (i = 0; i < NUM_WORKER_THREADS; i++) total_cores += CORES_PER_TEST[i];
+	for (i = 0; i < NUM_WORKERS; i++) total_cores += CORES_PER_TEST[i];
 	if (total_cores > HW_NUM_CORES) est *= (double) total_cores / (double) HW_NUM_CORES;
 
 /* Return the total estimated time in seconds */
@@ -3898,8 +4033,8 @@ void rolling_average_work_unit_complete (
 
 /* Get current rolling average computation variables */
 
-	hash = IniGetInt (LOCALINI_FILE, "RollingHash", 0);
-	time_to_complete = IniGetInt (LOCALINI_FILE, "RollingCompleteTime", 0);
+	hash = IniSectionGetInt (INI_FILE, SEC_Internals, KEY_RollingHash, 0);
+	time_to_complete = IniSectionGetInt (INI_FILE, SEC_Internals, KEY_RollingCompleteTime, 0);
 
 /* Grab the lock so that other threads do not add or delete lines */
 /* while we are making this calculation. */
@@ -3938,8 +4073,8 @@ void rolling_average_work_unit_complete (
 
 /* Update the changed rolling average computation values */
 
-	IniWriteInt (LOCALINI_FILE, "RollingHash", hash);
-	IniWriteInt (LOCALINI_FILE, "RollingCompleteTime", time_to_complete);
+	IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_RollingHash, hash);
+	IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_RollingCompleteTime, time_to_complete);
 }
 
 /* Adjust the rolling average */
@@ -3961,7 +4096,7 @@ void adjust_rolling_average (void)
 
 	hash = 0;
 	time_to_complete = 0;
-	for (tnum = 0; tnum < NUM_WORKER_THREADS; tnum++) {
+	for (tnum = 0; tnum < NUM_WORKERS; tnum++) {
 		struct work_unit *w;
 
 		for (w = WORK_UNITS[tnum].first; w != NULL; w = w->next)
@@ -3984,14 +4119,13 @@ void adjust_rolling_average (void)
 
 /* Get the current time and starting time */
 
-	starting_time = IniGetInt (LOCALINI_FILE, "RollingStartTime", 0);
+	starting_time = IniSectionGetInt (INI_FILE, SEC_Internals, KEY_RollingStartTime, 0);
 	time (&current_time);
 
 /* Make sure hash codes match.  This protects us against making incorrect */
 /* rolling average adjustments when user manually edits worktodo.txt. */
 
-	if (hash != IniGetInt (LOCALINI_FILE, "RollingHash", 0))
-		goto no_update;
+	if (hash != IniSectionGetInt (INI_FILE, SEC_Internals, KEY_RollingHash, 0)) goto no_update;
 
 /* Now compute the rolling average for this time period.  For example, if */
 /* the time-to-complete decreased 5 hours over the last 6 hours of elapsed */
@@ -3999,8 +4133,7 @@ void adjust_rolling_average (void)
 /* current rolling average. */
 
 	time_in_this_period = (unsigned long) (current_time - starting_time);
-	starting_time_to_complete =
-		IniGetInt (LOCALINI_FILE, "RollingCompleteTime", 0);
+	starting_time_to_complete = IniSectionGetInt (INI_FILE, SEC_Internals, KEY_RollingCompleteTime, 0);
 
 	/* Sanity checks for bogus time periods and completion estimates*/
 
@@ -4012,15 +4145,14 @@ void adjust_rolling_average (void)
 
 	rolling_average_this_period =
 		(double) (starting_time_to_complete - time_to_complete) /
-		(double) NUM_WORKER_THREADS /
+		(double) NUM_WORKERS /
 		(double) time_in_this_period *
 		(double) ROLLING_AVERAGE;
 
-	/* If the user is running more worker threads than there are */
-	/* CPUs, then adjust the rolling average upward accordingly. */
+	/* If the user is running more workers than there are CPUs, then adjust the rolling average upward accordingly. */
 
-	if (NUM_WORKER_THREADS > HW_NUM_CORES)
-		rolling_average_this_period *= (double) NUM_WORKER_THREADS / (double) HW_NUM_CORES;
+	if (NUM_WORKERS > HW_NUM_CORES)
+		rolling_average_this_period *= (double) NUM_WORKERS / (double) HW_NUM_CORES;
 
 	/* More safeguard against bogus or abruptly changing data */
 
@@ -4041,10 +4173,10 @@ void adjust_rolling_average (void)
 /* Update rolling average data in the local.txt file */
 
 no_update:
-	IniWriteInt (LOCALINI_FILE, "RollingHash", hash);
-	IniWriteInt (LOCALINI_FILE, "RollingStartTime", (unsigned long) current_time);
-	IniWriteInt (LOCALINI_FILE, "RollingCompleteTime", time_to_complete);
-	IniWriteInt (LOCALINI_FILE, "RollingAverage", ROLLING_AVERAGE);
+	IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_RollingHash, hash);
+	IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_RollingStartTime, (unsigned long) current_time);
+	IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_RollingCompleteTime, time_to_complete);
+	IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_RollingAverage, ROLLING_AVERAGE);
 }
 
 /* If a work_unit performed less work than estimated (say by unexpectedly */
@@ -4052,7 +4184,7 @@ no_update:
 
 void invalidateNextRollingAverageUpdate (void)
 {
-	IniWriteInt (LOCALINI_FILE, "RollingStartTime", 0);
+	IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_RollingStartTime, 0);
 	adjust_rolling_average ();
 }
 
@@ -4787,7 +4919,7 @@ void set_comm_timers (void)
 /* Get the current time and when the completion dates were last sent */
 
 	time (&current_time);
-	last_time = IniGetInt (LOCALINI_FILE, "LastEndDatesSent", 0);
+	last_time = IniSectionGetInt (INI_FILE, SEC_Internals, KEY_LastEndDatesSent, 0);
 
 /* If it's been the correct number of days, then update the end dates */
 
@@ -5056,7 +5188,7 @@ int unreserve (
 /* Find exponent in worktodo.txt and delete it if present */
 
 	found_one = FALSE;
-	for (tnum = 0; tnum < NUM_WORKER_THREADS; tnum++) {
+	for (tnum = 0; tnum < NUM_WORKERS; tnum++) {
 	    struct work_unit *w;
 
 	    w = NULL;
@@ -5239,7 +5371,7 @@ void aid_to_text (
 
 /* Scan all work units until we find a matching assignment id */
 
-	for (tnum = 0; tnum < NUM_WORKER_THREADS; tnum++) {
+	for (tnum = 0; tnum < NUM_WORKERS; tnum++) {
 	    w = NULL;
 	    for ( ; ; ) {
 		w = getNextWorkToDoLine (tnum, w, SHORT_TERM_USE);
@@ -5451,7 +5583,7 @@ int getProgramOptions (void)
 	restart = FALSE;
 	mem_changed = FALSE;
 	original_rob = RUN_ON_BATTERY;
-	for (tnum = -1; tnum < (int) NUM_WORKER_THREADS; tnum++) {
+	for (tnum = -1; tnum < (int) NUM_WORKERS; tnum++) {
 
 /* Init the packet.  A packet where no options are sent to the server tells */
 /* the server to send us all the options saved on the server. */
@@ -5480,9 +5612,9 @@ int getProgramOptions (void)
 
 		if (pkt.work_preference != -1) {
 			if (tnum == -1) {
-				PTOSetAll (INI_FILE, "WorkPreference", "SrvrPO1", WORK_PREFERENCE, pkt.work_preference);
+				PTOSetAll (INI_FILE, "WorkPreference", KEY_SrvrPO1, WORK_PREFERENCE, pkt.work_preference);
 			} else {
-				PTOSetOne (INI_FILE, "WorkPreference", "SrvrPO1", WORK_PREFERENCE, tnum, pkt.work_preference);
+				PTOSetOne (INI_FILE, "WorkPreference", KEY_SrvrPO1, WORK_PREFERENCE, tnum, pkt.work_preference);
 			}
 		}
 
@@ -5494,14 +5626,14 @@ int getProgramOptions (void)
 		if (pkt.priority != -1) {
 			PRIORITY = pkt.priority;
 			IniWriteInt (INI_FILE, "Priority", PRIORITY);
-			IniWriteInt (LOCALINI_FILE, "SrvrPO2", PRIORITY);
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO2, PRIORITY);
 			restart = TRUE;
 		}
 
 		if (pkt.daysOfWork != -1) {
 			DAYS_OF_WORK = pkt.daysOfWork;
 			IniWriteInt (INI_FILE, "DaysOfWork", DAYS_OF_WORK);
-			IniWriteInt (LOCALINI_FILE, "SrvrPO3", DAYS_OF_WORK);
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO3, DAYS_OF_WORK);
 		}
 
 		if (pkt.dayMemory != -1) {
@@ -5509,7 +5641,7 @@ int getProgramOptions (void)
 				day_memory = pkt.dayMemory;
 				mem_changed = TRUE;
 			}
-			IniWriteInt (LOCALINI_FILE, "SrvrPO4", day_memory);
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO4, day_memory);
 		}
 
 		if (pkt.nightMemory != -1) {
@@ -5517,7 +5649,7 @@ int getProgramOptions (void)
 				night_memory = pkt.nightMemory;
 				mem_changed = TRUE;
 			}
-			IniWriteInt (LOCALINI_FILE, "SrvrPO5", night_memory);
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO5, night_memory);
 		}
 
 		if (pkt.dayStartTime != -1) {
@@ -5525,7 +5657,7 @@ int getProgramOptions (void)
 				day_start_time = pkt.dayStartTime;
 				mem_changed = TRUE;
 			}
-			IniWriteInt (LOCALINI_FILE, "SrvrPO6", day_start_time);
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO6, day_start_time);
 		}
 
 		if (pkt.nightStartTime != -1) {
@@ -5533,20 +5665,20 @@ int getProgramOptions (void)
 				day_end_time = pkt.nightStartTime;
 				mem_changed = TRUE;
 			}
-			IniWriteInt (LOCALINI_FILE, "SrvrPO7", day_end_time);
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO7, day_end_time);
 		}
 
 		if (pkt.runOnBattery != -1) {
 			RUN_ON_BATTERY = pkt.runOnBattery;
 			IniWriteInt (INI_FILE, "RunOnBattery", RUN_ON_BATTERY);
-			IniWriteInt (LOCALINI_FILE, "SrvrPO8", RUN_ON_BATTERY);
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO8, RUN_ON_BATTERY);
 		}
 
 		if (pkt.num_workers != -1) {
 			if (pkt.num_workers > (int) (HW_NUM_THREADS)) pkt.num_workers = HW_NUM_THREADS;
-			NUM_WORKER_THREADS = pkt.num_workers;
-			IniWriteInt (LOCALINI_FILE, "WorkerThreads", NUM_WORKER_THREADS);
-			IniWriteInt (LOCALINI_FILE, "SrvrPO9", NUM_WORKER_THREADS);
+			NUM_WORKERS = pkt.num_workers;
+			IniWriteInt (INI_FILE, KEY_NumWorkers, NUM_WORKERS);
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO9, NUM_WORKERS);
 			restart = TRUE;
 		}
 		if (mem_readable && mem_changed)
@@ -5560,7 +5692,7 @@ int getProgramOptions (void)
 /* in the INI file.  If it is different we know we need to get the program */
 /* options from the server. */
 
-	IniWriteInt (LOCALINI_FILE, "SrvrP00", pkt.options_counter);
+	IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrP00, pkt.options_counter);
 
 /* If memory settings, priority, num_workers, or run-on-battery changed, */
 /* then restart threads that may be affected by the change. */
@@ -5590,7 +5722,7 @@ int sendProgramOptions (
 /* Loop once for global options (tnum = -1) and once for each thread */
 /* to send thread-specific options. */
 
-	for (tnum = -1; tnum < (int) NUM_WORKER_THREADS; tnum++) {
+	for (tnum = -1; tnum < (int) NUM_WORKERS; tnum++) {
 
 		memset (&pkt, 0, sizeof (pkt));
 		strcpy (pkt.computer_guid, COMPUTER_GUID);
@@ -5600,7 +5732,7 @@ int sendProgramOptions (
 		options_changed = FALSE;
 
 		pkt.work_preference = -1;
-		if (PTOHasOptionChanged ("SrvrPO1", WORK_PREFERENCE, tnum)) {
+		if (PTOHasOptionChanged (KEY_SrvrPO1, WORK_PREFERENCE, tnum)) {
 			if (tnum == -1)
 				pkt.work_preference = WORK_PREFERENCE[0];
 			else
@@ -5610,58 +5742,50 @@ int sendProgramOptions (
 		}
 
 		pkt.priority = -1;
-		if (tnum == -1 &&
-		    PRIORITY != IniGetInt (LOCALINI_FILE, "SrvrPO2", -1)) {
+		if (tnum == -1 && PRIORITY != IniSectionGetInt (INI_FILE, SEC_Internals, KEY_SrvrPO2, -1)) {
 			pkt.priority = PRIORITY;
 			options_changed = TRUE;
 		}
 
 		pkt.daysOfWork = -1;
-		if (tnum == -1 &&
-		    DAYS_OF_WORK != IniGetInt (LOCALINI_FILE, "SrvrPO3", -1)) {
+		if (tnum == -1 && DAYS_OF_WORK != IniSectionGetInt (INI_FILE, SEC_Internals, KEY_SrvrPO3, -1)) {
 			pkt.daysOfWork = DAYS_OF_WORK;
 			options_changed = TRUE;
 		}
 
 		pkt.dayMemory = -1;
-		if (tnum == -1 && mem_readable &&
-		    day_memory != IniGetInt (LOCALINI_FILE, "SrvrPO4", -1)) {
+		if (tnum == -1 && mem_readable && day_memory != IniSectionGetInt (INI_FILE, SEC_Internals, KEY_SrvrPO4, -1)) {
 			pkt.dayMemory = day_memory;
 			options_changed = TRUE;
 		}
 
 		pkt.nightMemory = -1;
-		if (tnum == -1 && mem_readable &&
-		    night_memory != IniGetInt (LOCALINI_FILE, "SrvrPO5", -1)) {
+		if (tnum == -1 && mem_readable && night_memory != IniSectionGetInt (INI_FILE, SEC_Internals, KEY_SrvrPO5, -1)) {
 			pkt.nightMemory = night_memory;
 			options_changed = TRUE;
 		}
 
 		pkt.dayStartTime = -1;
-		if (tnum == -1 && mem_readable &&
-		    day_start_time != IniGetInt (LOCALINI_FILE, "SrvrPO6", -1)) {
+		if (tnum == -1 && mem_readable && day_start_time != IniSectionGetInt (INI_FILE, SEC_Internals, KEY_SrvrPO6, -1)) {
 			pkt.dayStartTime = day_start_time;
 			options_changed = TRUE;
 		}
 
 		pkt.nightStartTime = -1;
-		if (tnum == -1 && mem_readable &&
-		    day_end_time != IniGetInt (LOCALINI_FILE, "SrvrPO7", -1)) {
+		if (tnum == -1 && mem_readable && day_end_time != IniSectionGetInt (INI_FILE, SEC_Internals, KEY_SrvrPO7, -1)) {
 			pkt.nightStartTime = day_end_time;
 			options_changed = TRUE;
 		}
 
 		pkt.runOnBattery = -1;
-		if (tnum == -1 &&
-		    RUN_ON_BATTERY != IniGetInt (LOCALINI_FILE, "SrvrPO8", -1)) {
+		if (tnum == -1 && RUN_ON_BATTERY != IniSectionGetInt (INI_FILE, SEC_Internals, KEY_SrvrPO8, -1)) {
 			pkt.runOnBattery = RUN_ON_BATTERY;
 			options_changed = TRUE;
 		}
 
 		pkt.num_workers = -1;
-		if (tnum == -1 &&
-		    NUM_WORKER_THREADS != IniGetInt (LOCALINI_FILE, "SrvrPO9", -1)) {
-			pkt.num_workers = NUM_WORKER_THREADS;
+		if (tnum == -1 && NUM_WORKERS != IniSectionGetInt (INI_FILE, SEC_Internals, KEY_SrvrPO9, -1)) {
+			pkt.num_workers = NUM_WORKERS;
 			options_changed = TRUE;
 		}
 
@@ -5676,27 +5800,26 @@ int sendProgramOptions (
 		if (rc) return (rc);
 		*talked_to_server = TRUE;
 
-/* Now save the shadow copy of the changed options in our LOCALINI file */
-/* so we can detect future changes to the program options (even if user */
-/* hand edits prime.txt!) */
+/* Now save the shadow copy of the changed options in our prime.txt file so we can detect future changes to the program */
+/* options (even if user hand edits prime.txt!) */
 
 		if (work_pref_changed) {
 			if (tnum == -1)
-				PTOSetAll (INI_FILE, "WorkPreference", "SrvrPO1", WORK_PREFERENCE, WORK_PREFERENCE[0]);
+				PTOSetAll (INI_FILE, "WorkPreference", KEY_SrvrPO1, WORK_PREFERENCE, WORK_PREFERENCE[0]);
 			else
-				PTOSetOne (INI_FILE, "WorkPreference", "SrvrPO1", WORK_PREFERENCE, tnum, WORK_PREFERENCE[tnum]);
+				PTOSetOne (INI_FILE, "WorkPreference", KEY_SrvrPO1, WORK_PREFERENCE, tnum, WORK_PREFERENCE[tnum]);
 		}
 		if (tnum == -1) {
-			IniWriteInt (LOCALINI_FILE, "SrvrPO2", PRIORITY);
-			IniWriteInt (LOCALINI_FILE, "SrvrPO3", DAYS_OF_WORK);
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO2, PRIORITY);
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO3, DAYS_OF_WORK);
 			if (mem_readable) {
-				IniWriteInt (LOCALINI_FILE, "SrvrPO4", day_memory);
-				IniWriteInt (LOCALINI_FILE, "SrvrPO5", night_memory);
-				IniWriteInt (LOCALINI_FILE, "SrvrPO6", day_start_time);
-				IniWriteInt (LOCALINI_FILE, "SrvrPO7", day_end_time);
+				IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO4, day_memory);
+				IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO5, night_memory);
+				IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO6, day_start_time);
+				IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO7, day_end_time);
 			}
-			IniWriteInt (LOCALINI_FILE, "SrvrPO8", RUN_ON_BATTERY);
-			IniWriteInt (LOCALINI_FILE, "SrvrPO9", NUM_WORKER_THREADS);
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO8, RUN_ON_BATTERY);
+			IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrPO9, NUM_WORKERS);
 		}
 
 /* Increment the options counter so that we can detect when the options */
@@ -5711,10 +5834,9 @@ int sendProgramOptions (
 /* protection from the INI file value somehow getting larger than the */
 /* returned od value - causing us to miss future web page updates). */
 
-		local_od = IniGetInt (LOCALINI_FILE, "SrvrP00", -1) + 1;
-		if (local_od > pkt.options_counter)
-			local_od = pkt.options_counter;
-		IniWriteInt (LOCALINI_FILE, "SrvrP00", local_od);
+		local_od = IniSectionGetInt (INI_FILE, SEC_Internals, KEY_SrvrP00, -1) + 1;
+		if (local_od > pkt.options_counter) local_od = pkt.options_counter;
+		IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrP00, local_od);
 	}
 	return (0);
 }
@@ -5759,7 +5881,7 @@ static	int	send_message_retry_count = 0;
 /* possibility, reread the computer name from the INI file. */
 
 	if (COMPID[0] == 0) {
-		IniGetString (LOCALINI_FILE, "ComputerID", COMPID, sizeof (COMPID), NULL);
+		IniGetString (INI_FILE, "ComputerID", COMPID, sizeof (COMPID), NULL);
 		sanitizeString (COMPID);
 	}
 
@@ -5822,8 +5944,7 @@ retry:
 	write_long (fd, header_words[0], NULL);
 	write_long (fd, header_words[1], NULL);
 
-/* Close and unlock the spool file.  This allows worker threads to write */
-/* messages to the spool file while we are sending messages. */
+/* Close and unlock the spool file.  This allows workers to write messages to the spool file while we are sending messages. */
 
 	_close (fd);
 	gwmutex_unlock (&SPOOL_FILE_MUTEX);
@@ -5883,24 +6004,22 @@ retry:
 		/* The spec says only send the UserID if it has changed. */
 		/* Rather than store the UID that we last sent to the server */
 		/* we store a hash value so the user is not tempted to hand edit it. */
-		server_uid = IniGetInt (LOCALINI_FILE, "SrvrUID", 0);
-		if (string_to_hash (USERID) != server_uid)
-			strcpy (pkt.user_id, USERID);
+		server_uid = IniSectionGetInt (INI_FILE, SEC_Internals, KEY_SrvrUID, 0);
+		if (string_to_hash (USERID) != server_uid) strcpy (pkt.user_id, USERID);
 		/* The spec says only send the computer name if it changed */
 		/* Again store a hash value so the user won't hand edit the value */
-		server_computer_name = IniGetInt (LOCALINI_FILE, "SrvrComputerName", 0);
-		if (string_to_hash (COMPID) != server_computer_name)
-			strcpy (pkt.computer_name, COMPID);
+		server_computer_name = IniSectionGetInt (INI_FILE, SEC_Internals, KEY_SrvrComputerName, 0);
+		if (string_to_hash (COMPID) != server_computer_name) strcpy (pkt.computer_name, COMPID);
 		LOCKED_WORK_UNIT = NULL;
 		rc = sendMessage (PRIMENET_UPDATE_COMPUTER_INFO, &pkt);
 		if (rc) goto error_exit;
 		talked_to_server = TRUE;
 		strcpy (USERID, pkt.user_id);
 		IniWriteString (INI_FILE, "V5UserID", USERID);
-		IniWriteInt (LOCALINI_FILE, "SrvrUID", string_to_hash (USERID));
+		IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrUID, string_to_hash (USERID));
 		strcpy (COMPID, pkt.computer_name);
-		IniWriteString (LOCALINI_FILE, "ComputerID", COMPID);
-		IniWriteInt (LOCALINI_FILE, "SrvrComputerName", string_to_hash (COMPID));
+		IniWriteString (INI_FILE, "ComputerID", COMPID);
+		IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_SrvrComputerName, string_to_hash (COMPID));
 		server_options_counter = pkt.options_counter;
 	}
 
@@ -5911,8 +6030,7 @@ retry:
 //bug - who wins when user has also set some options locally during the
 //startup_in_progress code path?  What about options that came from a
 // copied prime.txt file - which take precedence?
-	if (server_options_counter == 1 &&
-	    server_options_counter > IniGetInt (LOCALINI_FILE, "SrvrP00", 0)) {
+	if (server_options_counter == 1 && server_options_counter > IniSectionGetInt (INI_FILE, SEC_Internals, KEY_SrvrP00, 0)) {
 		rc = getProgramOptions ();
 		if (rc) goto error_exit;
 		talked_to_server = TRUE;
@@ -5927,7 +6045,7 @@ retry:
 
 /* Finally get program options if they've been changed on the server. */
 
-	if (server_options_counter > IniGetInt (LOCALINI_FILE, "SrvrP00", 0)) {
+	if (server_options_counter > IniSectionGetInt (INI_FILE, SEC_Internals, KEY_SrvrP00, 0)) {
 		rc = getProgramOptions ();
 		if (rc) goto error_exit;
 		talked_to_server = TRUE;
@@ -6043,15 +6161,16 @@ retry:
 /* double-checks to process quick work that they believe is not part of GIMPS main purpose).  If the user is doing cofactor work, */
 /* then by all means default to getting cert work on PRP cofactor proofs. */
 
-	can_get_cert_work = (header_words[1] & HEADER_FLAG_WORK_QUEUE) && IniGetInt (LOCALINI_FILE, "CertWork", 1) && DAYS_OF_WORK > 0.0;
+	can_get_cert_work = (header_words[1] & HEADER_FLAG_WORK_QUEUE) && IniGetInt (INI_FILE, "CertWork", 1) && DAYS_OF_WORK > 0;
 	if (WELL_BEHAVED_WORK || SEQUENTIAL_WORK == 1) can_get_cert_work = FALSE;
+	if (!WORKERS_ACTIVE || WORKERS_STOPPING) can_get_cert_work = FALSE;
 	if (CPU_HOURS <= 12) can_get_cert_work = FALSE;
 	if (is_timed_event_active (TE_PAUSE_WHILE) || is_timed_event_active (TE_READ_PAUSE_DATA)) can_get_cert_work = FALSE;
 	if (can_get_cert_work) {
 		int	max_cert_assignments;
 		can_get_small_cert_work = FALSE;
-		max_cert_assignments = (IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10) >= 50 ? 3 : 1);
-		for (tnum = 0; tnum < NUM_WORKER_THREADS; tnum++) {
+		max_cert_assignments = (IniGetInt (INI_FILE, "CertDailyCPULimit", 10) >= 50 ? 3 : 1);
+		for (tnum = 0; tnum < NUM_WORKERS; tnum++) {
 			struct work_unit *w;
 			for (w = NULL; ; ) {
 				w = getNextWorkToDoLine (tnum, w, SHORT_TERM_USE);
@@ -6071,18 +6190,18 @@ retry:
 		time_t	current_time, last_update_time;
 		float	days_since_last_update;
 
-		max_daily_MB_limit = (float) IniSectionGetInt (INI_FILE, "PrimeNet", "DownloadDailyLimit", 40); // Daily download limit in MB
-		max_daily_CPU_limit = (float) IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10); // Cert Daily cpu limit (1.0 = 1% of 2015 quadcore)
+		max_daily_MB_limit = (float) IniSectionGetInt (INI_FILE, SEC_PrimeNet, KEY_DownloadDailyLimit, 40); // Daily download limit in MB
+		max_daily_CPU_limit = (float) IniGetInt (INI_FILE, "CertDailyCPULimit", 10); // Cert Daily cpu limit (1.0 = 1% of 2015 quadcore)
 
-		daily_MB_limit_remaining = IniGetFloat (LOCALINI_FILE, "CertDailyMBRemaining", max_daily_MB_limit);
-		daily_CPU_limit_remaining = IniGetFloat (LOCALINI_FILE, "CertDailyCPURemaining", max_daily_CPU_limit);
+		daily_MB_limit_remaining = IniSectionGetFloat (INI_FILE, SEC_Internals, KEY_CertDailyMBRemaining, max_daily_MB_limit);
+		daily_CPU_limit_remaining = IniSectionGetFloat (INI_FILE, SEC_Internals, KEY_CertDailyCPURemaining, max_daily_CPU_limit);
 
 		// Calc how many days have elapsed since unused quotas (daily_MB_limit_remaining, daily_CPU_limit_remaining) were updated
 		time (&current_time);
-		last_update_time = IniGetInt (LOCALINI_FILE, "CertDailyRemainingLastUpdate", 0);
+		last_update_time = IniSectionGetInt (INI_FILE, SEC_Internals, KEY_CertDailyRemainingLastUpdate, 0);
 		days_since_last_update = (float) (current_time - last_update_time) / (float) 86400.0;
 		if (days_since_last_update < 0.0) days_since_last_update = 0.0;
-		IniWriteInt (LOCALINI_FILE, "CertDailyRemainingLastUpdate", (unsigned long) current_time);
+		IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_CertDailyRemainingLastUpdate, (unsigned long) current_time);
 
 		// Increase remaining unused quotas based upon time elapsed since last update
 		daily_MB_limit_remaining += days_since_last_update * max_daily_MB_limit;
@@ -6091,18 +6210,18 @@ retry:
 		if (daily_CPU_limit_remaining > max_daily_CPU_limit) daily_CPU_limit_remaining = max_daily_CPU_limit;
 
 		// Save the updated quotas
-		IniWriteFloat (LOCALINI_FILE, "CertDailyMBRemaining", daily_MB_limit_remaining);
-		IniWriteFloat (LOCALINI_FILE, "CertDailyCPURemaining", daily_CPU_limit_remaining);
+		IniSectionWriteFloat (INI_FILE, SEC_Internals, KEY_CertDailyMBRemaining, daily_MB_limit_remaining);
+		IniSectionWriteFloat (INI_FILE, SEC_Internals, KEY_CertDailyCPURemaining, daily_CPU_limit_remaining);
 
 		// Disable getting cert work if either quota exceeded
 		if (daily_MB_limit_remaining <= 0.0 || daily_CPU_limit_remaining <= 0.0) can_get_cert_work = FALSE;
 	}
 
-/* Loop over all worker threads to get enough work for each thread */
+/* Loop over all workers to get enough work for each worker */
 
 	unreserve_threshold = IniGetInt (INI_FILE, "UnreserveDays", 30) * 86400.0;
 	work_to_get = DAYS_OF_WORK * 86400.0;
-	for (tnum = 0; tnum < NUM_WORKER_THREADS; tnum++) {
+	for (tnum = 0; tnum < NUM_WORKERS; tnum++) {
 	    struct work_unit *w;
 	    int	num_work_units;
 	    int	first_work_unit_interruptable = TRUE;
@@ -6154,7 +6273,7 @@ retry:
 /* be completed ASAP to free up the temp disk space they are using.  Actually, any work that is near done, the user might */
 /* be watching with anticipation for its completion. */
 
-		if (est == 0.0 && IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10) < 50 &&
+		if (est == 0.0 && IniGetInt (INI_FILE, "CertDailyCPULimit", 10) < 50 &&
 		    (w->work_type == WORK_PMINUS1 || w->work_type == WORK_PFACTOR || w->work_type == WORK_ECM ||
 		     w->work_type == WORK_PPLUS1 || w->pct_complete > 0.85))
 			first_work_unit_interruptable = FALSE;
@@ -6252,13 +6371,14 @@ retry:
 /* race condition when quitting gimps that makes it possible to get here */
 /* with a request to get exponents and USE_PRIMENET not set. */
 
-	    if (header_words[1] & HEADER_FLAG_QUIT_GIMPS || IniGetInt (INI_FILE, "NoMoreWork", 0) || !USE_PRIMENET) continue;
+	    if (header_words[1] & HEADER_FLAG_QUIT_GIMPS || IniGetInt (INI_FILE, KEY_QuitGIMPS, 0) || !USE_PRIMENET) continue;
 
-/* Occasionally get certification work from the server.  P-1 and ECM stage 2 may have significant costs with an interruption */
-/* to do priority work.  Also, lots of work_units is not a typical setup -- may indicate a large worktodo.txt file with high */
-/* costs reading and writing it.  Also, provide a method of limiting CERT work to one specific worker. */
+/* Occasionally get certification work from the server.  P-1 and ECM stage 2 may have significant costs with an interruption to do priority work. */
+/* Also, lots of work_units is not a typical setup -- may indicate a large worktodo.txt file with high costs reading and writing it.  Also, check */
+/* that this thread isn't stopped and provide a method of limiting CERT work to one specific worker. */
 
-	    if (can_get_cert_work && first_work_unit_interruptable && num_work_units < 20 && IniGetInt (LOCALINI_FILE, "CertWorker", tnum+1) == tnum+1) {
+	    if (can_get_cert_work && first_work_unit_interruptable && num_work_units < 20 && ACTIVE_WORKERS[tnum] &&
+		IniGetInt (INI_FILE, "CertWorker", tnum+1) == tnum+1) {
 		int	num_certs = 0;
 
 		can_get_cert_work = FALSE;	// Only one worker can get certification work
@@ -6274,10 +6394,10 @@ retry:
 			memset (&pkt1, 0, sizeof (pkt1));
 			strcpy (pkt1.computer_guid, COMPUTER_GUID);
 			pkt1.cpu_num = tnum;
-			pkt1.get_cert_work = IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10); // Helps server decide cert exponent size
+			pkt1.get_cert_work = IniGetInt (INI_FILE, "CertDailyCPULimit", 10); // Helps server decide cert exponent size
 			if (pkt1.get_cert_work <= 0) pkt1.get_cert_work = 1;
-			pkt1.min_exp = IniGetInt (LOCALINI_FILE, "CertMinExponent", can_get_small_cert_work ? 0 : 50000000);
-			pkt1.max_exp = IniGetInt (LOCALINI_FILE, "CertMaxExponent", HW_NUM_CORES / NUM_WORKER_THREADS < 4 ? 200000000 : 0);
+			pkt1.min_exp = IniGetInt (INI_FILE, "CertMinExponent", can_get_small_cert_work ? 0 : 50000000);
+			pkt1.max_exp = IniGetInt (INI_FILE, "CertMaxExponent", HW_NUM_CORES / NUM_WORKERS < 4 ? 200000000 : 0);
 			LOCKED_WORK_UNIT = NULL;
 			rc = sendMessage (PRIMENET_GET_ASSIGNMENT, &pkt1);
 			// Ignore errors, we expect this work to only be available sometimes
@@ -6303,14 +6423,14 @@ retry:
 
 /* Write the exponent to our worktodo file */
 
-			stop_reason = addWorkToDoLine (tnum, &w);
+			stop_reason = addWorkToDoLine (tnum, &w, ADD_TO_FRONT);
 			if (stop_reason) goto error_exit;
 
 /* Update the daily cert quotas */
 
 			float	daily_MB_limit_remaining, daily_CPU_limit_remaining, daily_CPU_quota_used;
-			daily_MB_limit_remaining = IniGetFloat (LOCALINI_FILE, "CertDailyMBRemaining", 40.0);
-			daily_CPU_limit_remaining = IniGetFloat (LOCALINI_FILE, "CertDailyCPURemaining", 10.0);
+			daily_MB_limit_remaining = IniSectionGetFloat (INI_FILE, SEC_Internals, KEY_CertDailyMBRemaining, 40.0);
+			daily_CPU_limit_remaining = IniSectionGetFloat (INI_FILE, SEC_Internals, KEY_CertDailyCPURemaining, 10.0);
 
 			// Decrease remaining unused quotas based expected work required for this cert
 			// A daily CPU limit of 1.0 is equals 1% of the work a 2015 quad-core CPU can do in a day.
@@ -6321,8 +6441,8 @@ retry:
 			daily_CPU_limit_remaining -= daily_CPU_quota_used;
 
 			// Save the updated quotas
-			IniWriteFloat (LOCALINI_FILE, "CertDailyMBRemaining", daily_MB_limit_remaining);
-			IniWriteFloat (LOCALINI_FILE, "CertDailyCPURemaining", daily_CPU_limit_remaining);
+			IniSectionWriteFloat (INI_FILE, SEC_Internals, KEY_CertDailyMBRemaining, daily_MB_limit_remaining);
+			IniSectionWriteFloat (INI_FILE, SEC_Internals, KEY_CertDailyCPURemaining, daily_CPU_limit_remaining);
 
 			// If quotas exceeded, get no more cert assignments
 			if (daily_MB_limit_remaining <= 0.0 || daily_CPU_limit_remaining <= 0.0) break;
@@ -6333,11 +6453,11 @@ retry:
 
 			// Usually get one big cert at a time.  For users that want to lump their CERTs together (perhaps to reduce the number
 			// priority work interruptions), allow getting several certifications at a time.
-			if (num_certs < IniGetInt (LOCALINI_FILE, "CertQuantity", 1)) continue;
+			if (num_certs < IniGetInt (INI_FILE, "CertQuantity", 1)) continue;
 
 			// Usually get one big cert at a time.  For the rare user that wants to do lots of certifications (they set cert CPU
 			// percentage above 50%) let them get several.
-			if (IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10) < 50) break;
+			if (IniGetInt (INI_FILE, "CertDailyCPULimit", 10) < 50) break;
 		}
 	    }
 
@@ -6354,8 +6474,8 @@ retry:
 		strcpy (pkt1.computer_guid, COMPUTER_GUID);
 		pkt1.cpu_num = tnum;
 		pkt1.temp_disk_space = CPU_WORKER_DISK_SPACE;
-		pkt1.min_exp = IniGetInt (LOCALINI_FILE, "GetMinExponent", 0);
-		pkt1.max_exp = IniGetInt (LOCALINI_FILE, "GetMaxExponent", 0);
+		pkt1.min_exp = IniGetInt (INI_FILE, "GetMinExponent", 0);
+		pkt1.max_exp = IniGetInt (INI_FILE, "GetMaxExponent", 0);
 		LOCKED_WORK_UNIT = NULL;
 		rc = sendMessage (PRIMENET_GET_ASSIGNMENT, &pkt1);
 		if (rc) goto error_exit;
@@ -6455,10 +6575,9 @@ retry:
 			strcpy (w.known_factors, pkt1.known_factors);
 		}
 
-/* Write the exponent to our worktodo file, before acknowledging the */
-/* assignment with a projected completion date. */
+/* Write the exponent to our worktodo file, before acknowledging the assignment with a projected completion date. */
 
-		stop_reason = addWorkToDoLine (tnum, &w);
+		stop_reason = addWorkToDoLine (tnum, &w, ADD_TO_LOGICAL_END);
 		if (stop_reason) goto error_exit;
 
 //bug Can we somehow verify that the worktodo.txt line got written???
@@ -6497,10 +6616,10 @@ retry:
 
 	char	proof_files[50][255];		// We can send up to 50 proof files
 	if ((header_words[1] & HEADER_FLAG_QUIT_GIMPS && USE_PRIMENET) ||
-	    (IniGetInt (INI_FILE, "NoMoreWork", 0) && WORKTODO_COUNT == 0 && ProofFileNames (proof_files) == 0)) {
+	    (IniGetInt (INI_FILE, KEY_QuitGIMPS, 0) && WORKTODO_COUNT == 0 && ProofFileNames (proof_files) == 0)) {
 		USE_PRIMENET = 0;
 		IniWriteInt (INI_FILE, "UsePrimenet", 0);
-		IniWriteInt (INI_FILE, "NoMoreWork", 0);
+		IniWriteString (INI_FILE, KEY_QuitGIMPS, NULL);
 		OutputSomewhere (COMM_THREAD_NUM, "Successfully quit GIMPS.\n");
 	}
 
@@ -6510,12 +6629,12 @@ retry:
 	else if (header_words[1] & HEADER_FLAG_END_DATES) {
 		time_t current_time;
 		time (&current_time);
-		IniWriteInt (LOCALINI_FILE, "LastEndDatesSent", (long) current_time);
+		IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_LastEndDatesSent, (long) current_time);
 		if (!MANUAL_COMM)
 			add_timed_event (TE_COMPLETION_DATES, (int) (DAYS_BETWEEN_CHECKINS * 86400.0));
 	}
 
-/* Delete the spool file. However, we don't delete the file if any writes */
+/* Delete the spool file.  However, we don't delete the file if any writes */
 /* took place after we read the header words.  We detect writes by examining */
 /* the first header word. */
 
@@ -6556,8 +6675,7 @@ error_exit:
 /* command to get the current userid value from the server. */
 
 	if (rc == PRIMENET_ERROR_INVALID_USER) {
-		IniGetString (LOCALINI_FILE, "SrvrUID",
-			      USERID, sizeof (USERID), NULL);
+		IniSectionGetString (INI_FILE, SEC_Internals, KEY_SrvrUID, USERID, sizeof (USERID), NULL);
 		spoolMessage (PRIMENET_UPDATE_COMPUTER_INFO, NULL);
 		if (retry_count++ < 10) goto retry;
 		OutputStr (COMM_THREAD_NUM, RETRY_EXCEEDED);
@@ -6882,12 +7000,12 @@ void timed_events_scheduler (void *arg)
 						     HW_NUM_CORES >= 3 ? 8.0 :		/* 3-6 cores = 8 hours */
 						     HW_NUM_CORES >= 2 ? 12.0 : 24.0);	/* 2 cores = 12 hours, 1 core = 24 hours */
 				// Serious CERT volunteers check every half hour
-				if (IniGetInt (LOCALINI_FILE, "CertDailyCPULimit", 10) >= 50) cert_freq = 0.5;
+				if (IniGetInt (INI_FILE, "CertDailyCPULimit", 10) >= 50) cert_freq = 0.5;
 				// Let user pick their own CERT frequency (in hours).  Minimum is 15 minutes.
-				cert_freq = IniGetFloat (LOCALINI_FILE, "CertGetFrequency", cert_freq);
+				cert_freq = IniGetFloat (INI_FILE, "CertGetFrequency", cert_freq);
 				if (cert_freq < 0.25) cert_freq = 0.25;
 				// If CERT work is disabled, check regular work queue every 8 hours
-				if (!IniGetInt (LOCALINI_FILE, "CertWork", 1)) cert_freq = 8.0;
+				if (!IniGetInt (INI_FILE, "CertWork", 1)) cert_freq = 8.0;
 				// Set timer (convert frequency from hours to seconds)
 				timed_events[i].time_to_fire = this_time + (int) (cert_freq * 3600.0);
 				spoolMessage (MSG_CHECK_WORK_QUEUE, NULL);
@@ -6968,9 +7086,9 @@ int inUploadWindow (int *minutes_to_start)
 
 /* Get upload times from INI file */
 
-	IniSectionGetString (INI_FILE, "PrimeNet", "UploadStartTime", timebuf, sizeof (timebuf), "00:00");
+	IniSectionGetString (INI_FILE, SEC_PrimeNet, KEY_UploadStartTime, timebuf, sizeof (timebuf), "00:00");
 	start_time = strToMinutes (timebuf);
-	IniSectionGetString (INI_FILE, "PrimeNet", "UploadEndTime", timebuf, sizeof (timebuf), "24:00");
+	IniSectionGetString (INI_FILE, SEC_PrimeNet, KEY_UploadEndTime, timebuf, sizeof (timebuf), "24:00");
 	end_time = strToMinutes (timebuf);
 
 // BUG - Enforce a minimum upload window of 2 hours.  (make this user settable?)

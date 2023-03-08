@@ -662,16 +662,14 @@ struct D_data poly_D_data[] = {
 // Map a D value to the D_data index
 int map_D_to_index (int D)
 {
-	int	i;
-	for (i = 0; i < NUM_D; i++) if (D_data[i].D == D) return (i);
+	for (int i = 0; i < NUM_D; i++) if (D_data[i].D == D) return (i);
 	ASSERTG (0);
 	return (0);
 }
 // Map a poly D value to the poly_D_data index
 int map_polyD_to_index (int D)
 {
-	int	i;
-	for (i = 0; i < NUM_D; i++) if (poly_D_data[i].D == D) return (i);
+	for (int i = 0; i < POLY_NUM_D; i++) if (poly_D_data[i].D == D) return (i);
 	ASSERTG (0);
 	return (0);
 }
@@ -915,7 +913,7 @@ double best_stage2_impl (
 
 /* Determine the maximum pairmap size.  The costing functions may increase the stage 2 setup costs if the pairmap must be split in chunks. */
 
-	{
+	if (!c->use_poly_D_data) {
 		int max_pairmap_size = IniGetInt (INI_FILE, "MaximumBitArraySize", 250);
 		if (max_pairmap_size > 2000) max_pairmap_size = 2000;
 		if (max_pairmap_size < 1) max_pairmap_size = 1;
@@ -1013,7 +1011,7 @@ double best_stage2_impl (
 // 2022-12-14:  Pminus1=1,2,87856183,-1,1000000,100000000 used 2.3GB of memory for non-windowed pairing.  Since pairing will only be
 // used in low-memory situations, we will always use windowed pairing.  Testing showed a window size of 100 used ~65MB over and above
 // the already allocated 107MB.  A window size of 350 also used ~65MB.  Thus, we'll arbitrarily use a window size of 1000.
-      
+
 int pair_window_size (
 	double	bit_length,
 	int16_t	*relp_sets)
@@ -1217,42 +1215,72 @@ int testFactor (
 	return (TRUE);
 }
 
+/* Add a factor to to the known factors list */
+
+char *addNewKnownFactor (
+	struct work_unit *w,		/* ECM, P-1, or P+1 work unit that found a factor */
+	const char *fac)		/* Newly found factor (or NULL to simply copy known factors) */
+{
+	char	*new_known_factors;
+	if (fac == NULL) {		/* Simply copy known factors (ECM with ContinueECM option set needs this) */
+		new_known_factors = (char *) malloc (strlen (w->known_factors) + 1);
+		strcpy (new_known_factors, w->known_factors);
+	} else if (w->known_factors == NULL) {
+		new_known_factors = (char *) malloc (strlen (fac) + 1);
+		strcpy (new_known_factors, fac);
+	} else {
+		new_known_factors = (char *) malloc (strlen (w->known_factors) + 1 + strlen (fac) + 1);
+		sprintf (new_known_factors, "%s,%s", w->known_factors, fac);
+	}
+	return (new_known_factors);
+}
+
+/* Generate a PRP-CF work unit after a new factor is found */
+
+void generatePRPWorkUnit (
+	struct work_unit *oldw,		/* ECM, P-1, or P+1 work unit that found a factor */
+	const char *fac,		/* Newly found factor, or NULL if factor has already been added to known factors list */
+	struct work_unit *neww)		/* Generated PRP work unit */
+{
+	// Copy work unit, much of the data will be the same
+	*neww = *oldw;
+	// Change fields that need changing
+	neww->work_type = WORK_PRP;
+	neww->assignment_uid[0] = 0;
+	neww->prp_base = 3;
+	neww->prp_residue_type = 5;
+	neww->prp_dblchk = FALSE;
+	neww->sieve_depth = 99;
+	neww->tests_saved = 0;
+	neww->known_factors = addNewKnownFactor (oldw, fac);
+	neww->stage[0] = 0;
+	neww->pct_complete = 0.0;
+	neww->ra_failed = FALSE;
+}
+
 /* Do a GCD of the input value and N to see if a factor was found. */
 /* The GCD is returned in factor iff a factor is found. */
 /* This routine used to be interruptible and thus returns a stop_reason. */
 /* Since switching to GMP's mpz code to implement the GCD this routine is no longer interruptible. */
 
 int gcd (
-	gwhandle *gwdata,
 	int	thread_num,
-	gwnum	gg,
+	giant	gg,
 	giant	N,		/* Number we are factoring */
 	giant	*factor)	/* Factor found if any */
 {
-	giant	v;
 	mpz_t	a, b;
 
 /* Assume a factor will not be found */
 
 	*factor = NULL;
 
-/* Convert input number to binary */
-
-	v = popg (&gwdata->gdata, ((int) gwdata->bit_length >> 5) + 10);
-	if (v == NULL) goto oom;
-	gwunfft (gwdata, gg, gg);		// Just in case caller partially FFTed gg
-	if (gwtogiant (gwdata, gg, v)) {	// On unexpected error, return no factor found
-		pushg (&gwdata->gdata, 1);
-		return (0);
-	}
-
 /* Do the GCD */
 
 	mpz_init (a);
 	mpz_init (b);
-	gtompz (v, a);
+	gtompz (gg, a);
 	gtompz (N, b);
-	pushg (&gwdata->gdata, 1);
 	mpz_gcd (a, a, b);
 
 /* If a factor was found, save it in FAC */
@@ -1268,6 +1296,37 @@ int gcd (
 	mpz_clear (a);
 	mpz_clear (b);
 	return (0);
+
+/* Out of memory exit path */
+
+oom:	return (OutOfMemory (thread_num));
+}
+
+int gcd (
+	gwhandle *gwdata,
+	int	thread_num,
+	gwnum	gg,
+	giant	N,		/* Number we are factoring */
+	giant	*factor)	/* Factor found if any */
+{
+	giant	v;
+	int	rc;
+
+/* Convert input number to binary */
+
+	v = popg (&gwdata->gdata, ((int) gwdata->bit_length >> 5) + 10);
+	if (v == NULL) goto oom;
+	gwunfft (gwdata, gg, gg);		// Just in case caller partially FFTed gg
+	if (gwtogiant (gwdata, gg, v)) {	// On unexpected error, return no factor found
+		pushg (&gwdata->gdata, 1);
+		return (0);
+	}
+
+/* Do the GCD */
+
+	rc = gcd (thread_num, v, N, factor);
+	pushg (&gwdata->gdata, 1);
+	return (rc);
 
 /* Out of memory exit path */
 
@@ -1315,10 +1374,13 @@ int isProbablePrime (
 // From Alex Kruppa, master of all things ECM, the following formula computes the value of a curve when using B2 values that are not 100 * B1.
 // curve_worth = 0.11 + 0.89 * (log10(B2 / B1) / 2) ^ 1.5
 // B2 = B1 * 10 ^ ((((curve_worth - 0.11) / 0.89) ^ (1 / 1.5)) * 2)
+// 2023:  Adjusting formula based on research done with gmp-ecm 6.04 on various B1/B2 values
+// power = 1.96617 - 0.06781 * log10(B1)
+// curve_worth = 0.11343 + 0.88657 * (log10(B2 / B1) / 2) ^ power
 
-#define kruppa_adjust_ratio(B2B1ratio)	(0.11 + 0.89 * pow (_log10(B2B1ratio) / 2.0, 1.5))
-#define kruppa_adjust(B2,B1)		kruppa_adjust_ratio ((double)(B2) / (double)(B1))
-#define kruppa_unadjust(worth,B1)	(uint64_t) round((B1) * pow (10.0, pow (((worth) - 0.11) / 0.89, 1.0 / 1.5) * 2))
+#define kruppa_power(B1)		(1.96617 - 0.06781 * _log10((double)(B1)))
+#define kruppa_adjust(B2,B1)		(0.11343 + 0.88657 * pow (_log10((double)(B2) / (double)(B1)) / 2.0, kruppa_power (B1)))
+#define kruppa_unadjust(worth,B1)	(uint64_t) round((B1) * pow (10.0, pow (((worth) - 0.11343) / 0.88657, 1.0 / kruppa_power (B1)) * 2.0))
 
 /* When a pairmap completes, we know that all relocatable primes that could be relocated to that pairmap are processed. */
 /* Calculate the new first prime that needs relocating. */
@@ -1353,7 +1415,7 @@ uint64_t calc_new_first_relocatable (
 
 typedef struct {
 	gwhandle gwdata;	/* GWNUM handle */
-	int	thread_num;	/* Worker thread number */
+	int	thread_num;	/* Worker number */
 	struct work_unit *w;	/* Worktodo.txt entry */
 	uint32_t curve;		/* Curve # starting with 1 */
 	uint32_t state;		/* Curve state defined above */
@@ -4264,7 +4326,7 @@ if (Ftree_polys_in_mem + more_Ftree_polys_in_mem > num_Ftree_polys - 1) more_Ftr
 
 		cost_data->c.est_stage2_transforms += poly_size * 2.0;
 
-/* Compute the total cost including pairing runtime and modular inverses */
+/* Compute the total cost including modular inverses */
 
 		cost = cost_data->c.est_init_transforms + cost_data->c.est_stage2_transforms;
 		cost *= IniGetFloat (INI_FILE, "EcmTransformCost", (float) 1.0);
@@ -4277,8 +4339,8 @@ if (Ftree_polys_in_mem + more_Ftree_polys_in_mem > num_Ftree_polys - 1) more_Ftr
 
 	adjusted_cost = cost;
 	if (cost_data->c.extra_credit) {
-		double excess_work_credit = (double) (cost_data->c.B2_start + cost_data->c.numDsections * cost_data->c.D - cost_data->c.B1) /
-					    (double) (cost_data->c.B2 - cost_data->c.B1);
+		double excess_work_credit = (double) kruppa_adjust (cost_data->c.B2_start + cost_data->c.numDsections * cost_data->c.D, cost_data->c.B1) /
+					    (double) kruppa_adjust (cost_data->c.B2, cost_data->c.B1);
 		adjusted_cost /= excess_work_credit;
 	}
 
@@ -4326,6 +4388,7 @@ double ecm_stage2_impl_given_numvals (
 	best_cost = 1.0e99;
 	cost_data.c.numvals = numvals;
 	cost_data.c.extra_credit = FALSE;
+//GW cost_data.c.extra_credit = TRUE;
 	cost_data.c.use_poly_D_data = FALSE;
 	cost_data.c.centers_on_Dmultiple = TRUE;
 	cost_data.c.required_missing = ecmdata->required_missing;
@@ -4391,13 +4454,17 @@ void ecm_choose_B2 (
 
 // From Alex Kruppa, master of all things ECM, the following formula compensates for using B2 values that are not 100 * B1.
 // curve_worth = 0.11 + 0.89 * (log10(B2 / B1) / 2) ^ 1.5
+// 2023:  Adjusting formula based on research done with gmp-ecm 6.04 on various B1/B2 values
+// power = 1.96617 - 0.06781 * log10(B1)
+// curve_worth = 0.11343 + 0.88657 * (log10(B2 / B1) / 2) ^ power
 
 	max_B2mult = IniGetInt (INI_FILE, "MaxOptimalB2Multiplier", (int) (numvals < 100000 ? numvals * 100 : 10000000));
 #define kruppa(x,B2mult)	x.i = B2mult; \
 				if (x.i > max_B2mult) x.i = max_B2mult; \
 				ecmdata->C = x.i * ecmdata->B; \
 				B2_cost = ecm_stage2_impl_given_numvals (ecmdata, numvals, forced_stage2_type, &cost_data); \
-				x.efficiency = kruppa_adjust_ratio (x.i) / (B1_cost + B2_cost + cost_data.gcd_cost);
+				x.efficiency = kruppa_adjust (cost_data.c.B2_start + cost_data.c.numDsections * cost_data.c.D, ecmdata->B) / (B1_cost + B2_cost + cost_data.gcd_cost);
+//				x.efficiency = kruppa_adjust (ecmdata->C, ecmdata->B) / (B1_cost + B2_cost + cost_data.gcd_cost);
 
 // The cost of B1 (in FFTs) is about 25.48 * B1 (measured at 25.42 for B1=50000, 25.53 for B1=250000).
 
@@ -4481,7 +4548,7 @@ double ecm_stage2_impl (
 	numvals = cvt_mem_to_array_gwnums_adj (&ecmdata->gwdata, memory, 0.0);
 	if (numvals < 13) numvals = 13;
 
-/* Set first_relocatable for future best_stage2_impl calls. */
+/* Set first_relocatable for future best_stage2_impl calls that cost prime pairing. */
 /* Override B2 with optimal B2 based on amount of memory available. */
 
 	if (ecmdata->state == ECM_STATE_MIDSTAGE) {
@@ -4489,6 +4556,10 @@ double ecm_stage2_impl (
 		ecmdata->first_relocatable = ecmdata->B;
 		ecmdata->last_relocatable = 0;
 		if (ecmdata->optimal_B2) ecm_choose_B2 (ecmdata, numvals, forced_stage2_type, msgbuf + strlen (msgbuf));
+	}
+	if (ecmdata->state >= ECM_STATE_STAGE2 && ecmdata->stage2_type == ECM_STAGE2_POLYMULT) {
+		ecmdata->first_relocatable = ecmdata->C_done > ecmdata->B ? ecmdata->C_done : ecmdata->B;
+		ecmdata->last_relocatable = 0;
 	}
 
 /* If are continuing from a save file that was in stage 2, check to see if we currently have enough memory to continue with the save file's */
@@ -4563,7 +4634,6 @@ double ecm_stage2_impl (
 	} else {
 		ecmdata->poly_size = cost_data.c.numrels;
 		ecmdata->Ftree_polys_in_mem = cost_data.Ftree_polys_in_mem;
-		if (ecmdata->B2_start > ecmdata->C_done) ecmdata->required_missing = cost_data.c.first_missing_prime;
 	}
 
 /* Output data regarding our cost estimates so user can make adjustments when our estimates are wildly off the mark */
@@ -5055,6 +5125,7 @@ void ecm_helper (
 				options = POLYMULT_INVEC1_MONIC | POLYMULT_INVEC2_MONIC_NEGATE | POLYMULT_NEXTFFT | POLYMULT_SAVE_PLAN;
 				if (plan3 != NULL) pmdata.plan = plan3, options |= POLYMULT_USE_PLAN;
 				polymult (&pmdata, &polyG[poly_base], 2, &poly3, 1, &polyG[poly_base], 3, options);
+				plan3 = pmdata.plan;
 			} else {
 				int options = POLYMULT_INVEC1_MONIC_NEGATE | POLYMULT_INVEC2_MONIC_NEGATE | POLYMULT_NEXTFFT | POLYMULT_SAVE_PLAN;
 				if (plan2 != NULL) pmdata.plan = plan2, options |= POLYMULT_USE_PLAN;
@@ -5473,11 +5544,11 @@ if (w->n == 604) {
 
 	gwinit (&ecmdata.gwdata);
 	gwset_sum_inputs_checking (&ecmdata.gwdata, SUM_INPUTS_ERRCHK);
-	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
+	if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
 	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&ecmdata.gwdata);
 	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&ecmdata.gwdata, 2);
 	gwset_bench_cores (&ecmdata.gwdata, HW_NUM_CORES);
-	gwset_bench_workers (&ecmdata.gwdata, NUM_WORKER_THREADS);
+	gwset_bench_workers (&ecmdata.gwdata, NUM_WORKERS);
 	if (ERRCHK) gwset_will_error_check (&ecmdata.gwdata);
 	gwset_num_threads (&ecmdata.gwdata, get_worker_num_threads (thread_num, HYPERTHREAD_LL));
 	gwset_thread_callback (&ecmdata.gwdata, SetAuxThreadPriority);
@@ -5645,7 +5716,7 @@ restart1:
 		int	count;
 
 		next_prime = sieve (ecmdata.sieve_info);
-
+//GW if(next_prime > 10)break;
 /* Test for user interrupt, save files, and error checking */
 
 		stop_reason = stopCheck (thread_num);
@@ -5814,12 +5885,6 @@ skip_stage_2:	start_timer_from_zero (timers, 0);
    x, z: coordinates of Q at the beginning of stage 2
 */
 
-/* Change state to between stage 1 and 2 */
-
-	ecmdata.state = ECM_STATE_MIDSTAGE;
-	sprintf (w->stage, "C%" PRIu32 "S2", ecmdata.curve);
-	w->pct_complete = 0.0;
-
 /* Convert xz to binary.  This is what restart3 expects when resuming from a save file.  We'll likely need to convert to binary anyway when we switch FFT sizes. */
 
 	ecmdata.Qx_binary = allocgiant (((int) ecmdata.gwdata.bit_length >> 5) + 10);
@@ -5829,6 +5894,17 @@ skip_stage_2:	start_timer_from_zero (timers, 0);
 	if (ecmdata.Qz_binary == NULL) goto oom;
 	gwtogiant (&ecmdata.gwdata, ecmdata.xz.z, ecmdata.Qz_binary);
 	free_xz (&ecmdata, &ecmdata.xz);
+
+/* Change state to between stage 1 and 2 */
+
+	ecmdata.state = ECM_STATE_MIDSTAGE;
+	sprintf (w->stage, "C%" PRIu32 "S2", ecmdata.curve);
+	w->pct_complete = 0.0;
+
+/* Some users have requested that a save file be written here.  Sometimes the vast amount of stage 2 memory allocated makes their machine thrash which */
+/* may require a reboot.  Upon resumption, the tail end of stage 1 calculations then need to be repeated.  For now, we'll make this the default behavior. */
+
+	if (IniGetInt (INI_FILE, "SaveBeforeStage2", 1)) ecm_save (&ecmdata);
 
 /* No restrictions on polymult D value */
 
@@ -5933,9 +6009,8 @@ replan:	unsigned long original_fftlen, best_fftlen;
 			if (ecmdata.pairmap != NULL) break;
 
 /* Adjust the cost for the different B2 endpoints of each stage 2 plan.  In other words search for the most efficient stage 2 plan. */
-/* Multiply efficiency by a billion solely for pretty output in case PolyVerbose is set. */
 
-			efficiency = cost / (double) (ecmdata.B2_start + ecmdata.numDsections * ecmdata.D - ecmdata.B) * 1.0e9;
+			efficiency = cost / kruppa_adjust (ecmdata.B2_start + ecmdata.numDsections * ecmdata.D, ecmdata.B);
 if (IniGetInt (INI_FILE, "PolyVerbose", 0)) {
 if (cost == 0.0) sprintf (buf, "FFT: %d no stage 2 plan works\n", (int) gwfftlen (&ecmdata.gwdata));
 else sprintf (buf, "FFT: %d, B2: %" PRIu64 "/%" PRIu64 ", numvals: %" PRIu64 "/%d, poly: %" PRIu64 ", efficiency: %.0f\n", (int) gwfftlen (&ecmdata.gwdata), ecmdata.C,
@@ -5992,11 +6067,11 @@ OutputStr (thread_num, buf); }
 			gwinit (&ecmdata.gwdata);
 			if (next_fftlen != best_fftlen) gwset_information_only (&ecmdata.gwdata);
 			gwset_sum_inputs_checking (&ecmdata.gwdata, SUM_INPUTS_ERRCHK);
-			if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
+			if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
 			if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&ecmdata.gwdata);
 			if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&ecmdata.gwdata, 2);
 			gwset_bench_cores (&ecmdata.gwdata, HW_NUM_CORES);
-			gwset_bench_workers (&ecmdata.gwdata, NUM_WORKER_THREADS);
+			gwset_bench_workers (&ecmdata.gwdata, NUM_WORKERS);
 			if (ERRCHK) gwset_will_error_check (&ecmdata.gwdata);
 			gwset_num_threads (&ecmdata.gwdata, get_worker_num_threads (thread_num, HYPERTHREAD_LL));
 			gwset_thread_callback (&ecmdata.gwdata, SetAuxThreadPriority);
@@ -7838,8 +7913,9 @@ print_timer (timers, 0, buf, TIMER_NL);
 OutputStr (thread_num, buf);
 start_timer_from_zero (timers, 0);
 
-/* Set C and C_done for the delayed or final save file and the Kruppa adjustment */
+/* Set required_missing for continuation from a new C_done value.  Set C and C_done for the delayed or final save file and the Kruppa adjustment. */
 
+	if (ecmdata.B2_start > ecmdata.C_done) ecmdata.required_missing = map_polyD_to_first_missing_prime (ecmdata.D);
 	ecmdata.C_done = ecmdata.B2_start + ecmdata.Dsection * ecmdata.D;
 	ecmdata.C = ecmdata.B2_start + ecmdata.numDsections * ecmdata.D;
 
@@ -7924,11 +8000,11 @@ more_curves:
 			gwdone (&ecmdata.gwdata);
 			gwinit (&ecmdata.gwdata);
 			gwset_sum_inputs_checking (&ecmdata.gwdata, SUM_INPUTS_ERRCHK);
-			if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
+			if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
 			if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&ecmdata.gwdata);
 			if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&ecmdata.gwdata, 2);
 			gwset_bench_cores (&ecmdata.gwdata, HW_NUM_CORES);
-			gwset_bench_workers (&ecmdata.gwdata, NUM_WORKER_THREADS);
+			gwset_bench_workers (&ecmdata.gwdata, NUM_WORKERS);
 			if (ERRCHK) gwset_will_error_check (&ecmdata.gwdata);
 			gwset_num_threads (&ecmdata.gwdata, get_worker_num_threads (thread_num, HYPERTHREAD_LL));
 			gwset_thread_callback (&ecmdata.gwdata, SetAuxThreadPriority);
@@ -8098,7 +8174,8 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 /* See if the cofactor is prime and set flag if we will be continuing ECM */
 
 	continueECM = IniGetInt (INI_FILE, "ContinueECM", 0);
-	prpAfterEcmFactor = IniGetInt (INI_FILE, "PRPAfterECMFactor", bitlen (ecmdata.N) < 100000);
+	if (ecmdata.curve == w->curves_to_do) continueECM = FALSE;
+	prpAfterEcmFactor = IniGetInt (INI_FILE, "PRPAfterECMFactor", bitlen (ecmdata.N) < 100000 && (w->k != 1.0 || w->b != 2 || w->c != -1));
 	if (prpAfterEcmFactor || continueECM) divg (ecmdata.factor, ecmdata.N);
 	if (prpAfterEcmFactor && isProbablePrime (&ecmdata.gwdata, ecmdata.N)) {
 		OutputBoth (thread_num, "Cofactor is a probable prime!\n");
@@ -8128,18 +8205,36 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 		pkt.done = !continueECM;
 		strcpy (pkt.JSONmessage, JSONbuf);
 		spoolMessage (PRIMENET_ASSIGNMENT_RESULT, &pkt);
+	}
 
-/* If continuing ECM, subtract the curves we just reported from the worktodo count of curves to run.  Otherwise, delete all ECM entries */
-/* for this number from the worktodo file. */
+/* If continuing ECM, subtract the curves we just reported from the worktodo count of curves to run. */
+/* Also add the new factor to the known factors list.  Write the new data to worktodo file. */
 
+	if (continueECM) {
+		w->curves_to_do -= ecmdata.curve;
+		char *new_known_factors = addNewKnownFactor (w, str);
+		free (w->known_factors);
+		w->known_factors = new_known_factors;
+		stop_reason = updateWorkToDoLine (thread_num, w);
+		if (stop_reason) goto exit;
+		unlinkSaveFiles (&ecmdata.write_save_file_state);
+		ecmdata.curve = 0;
+		ecmdata.average_B2 = 0;
+	}
+
+/* Create a PRP work unit to immediately test the Mersenne cofactor */
+
+	if (USE_PRIMENET && w->k == 1.0 && w->b == 2 && w->c == -1 && (int) w->n < IniGetInt (INI_FILE, "MaxAutoPRPExponent", 5000000)) {
+		struct work_unit w_prp;
+		generatePRPWorkUnit (w, continueECM ? NULL : str, &w_prp);
+		// Add work unit before or after this work unit
+		w_prp.next = w;
+		stop_reason = addWorkToDoLine (thread_num, &w_prp, continueECM ? ADD_BEFORE_SPECIFIC : ADD_AFTER_SPECIFIC);
+		if (stop_reason) goto exit;
+		// Return to do the PRP on the cofactor before continuing with more ECM
 		if (continueECM) {
-			unlinkSaveFiles (&ecmdata.write_save_file_state);
-			w->curves_to_do -= ecmdata.curve;
-			stop_reason = updateWorkToDoLine (thread_num, w);
-			if (stop_reason) return (stop_reason);
-			ecmdata.curve = 0;
-		} else {
-//bug - how to update worktodo such that all ECM's of this number are deleted???
+			stop_reason = STOP_PREV_WORK_UNIT;
+			goto exit;
 		}
 	}
 
@@ -8151,8 +8246,7 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 
 	clear_timer (timers, 0);
 
-/* Since we found a factor, then we likely performed much fewer curves than expected.  Make sure we do not update the rolling average with */
-/* this inaccurate data. */
+/* Since we found a factor, we likely performed much fewer curves than expected.  Make sure we do not update the rolling average with this inaccurate data. */
 
 	if (!continueECM) {
 		unlinkSaveFiles (&ecmdata.write_save_file_state);
@@ -8302,7 +8396,7 @@ print out each test case (all relevant data)*/
 
 typedef struct {
 	gwhandle gwdata;	/* GWNUM handle */
-	int	thread_num;	/* Worker thread number */
+	int	thread_num;	/* Worker number */
 	struct work_unit *w;	/* Worktodo.txt entry */
 	int	state;		/* One of the states listed above */
 	uint64_t B;		/* Bound #1 (a.k.a. B1) */
@@ -8630,7 +8724,7 @@ int pm1_old_restore (
 		if (! read_array (fd, bitarray, (size_t) bitarray_len, &sum)) goto readerr;
 		free (bitarray);
 	}
-	if (! read_uint64 (fd, &unused64, &sum)) goto readerr;	// bitarray_first_number
+	if (! read_uint64 (fd, &unused64, &sum)) goto readerr;		// bitarray_first_number
 	if (! read_long (fd, &unused, &sum)) goto readerr;		// pairs_set
 	if (! read_long (fd, &unused, &sum)) goto readerr;		// pairs_done
 
@@ -8814,18 +8908,24 @@ int pm1_restore (			/* For version 30.4 and later save files */
 		if (version == 4) have_x = TRUE;				// 30.4 save files
 		else if (! read_int (fd, &have_x, &sum)) goto readerr;		// 30.7 save files
 		if (have_x) {
-			pm1data->x = gwalloc (&pm1data->gwdata);
-			if (pm1data->x == NULL) goto readerr;
-			if (! read_gwnum (fd, &pm1data->gwdata, pm1data->x, &sum)) goto readerr;
+			pm1data->x_binary = allocgiant (((int) pm1data->gwdata.bit_length >> 5) + 10);
+			if (pm1data->x_binary == NULL) goto readerr;
+			if (! read_giant (fd, pm1data->x_binary, &sum)) goto readerr;
+			if (pm1data->state < PM1_STATE_MIDSTAGE) {
+				pm1data->x = gwalloc (&pm1data->gwdata);
+				if (pm1data->x == NULL) goto readerr;
+				gianttogw (&pm1data->gwdata, pm1data->x_binary, pm1data->x);
+				free (pm1data->x_binary), pm1data->x_binary = NULL;
+			}
 		}
 	}
 
 /* Read stage 2's 1/x value */
 
 	if (version >= 6 && pm1data->state >= PM1_STATE_MIDSTAGE && pm1data->state <= PM1_STATE_STAGE2) {
-		pm1data->invx = gwalloc (&pm1data->gwdata);
-		if (pm1data->invx == NULL) goto readerr;
-		if (! read_gwnum (fd, &pm1data->gwdata, pm1data->invx, &sum)) goto readerr;
+			pm1data->invx_binary = allocgiant (((int) pm1data->gwdata.bit_length >> 5) + 10);
+			if (pm1data->invx_binary == NULL) goto readerr;
+			if (! read_giant (fd, pm1data->invx_binary, &sum)) goto readerr;
 	}
 
 /* Read stage 2 accumulator gwnum */
@@ -8835,9 +8935,9 @@ int pm1_restore (			/* For version 30.4 and later save files */
 		if (version == 4) have_gg = TRUE;				// 30.4 save files
 		else if (! read_int (fd, &have_gg, &sum)) goto readerr;		// 30.7 save files
 		if (have_gg) {
-			pm1data->gg = gwalloc (&pm1data->gwdata);
-			if (pm1data->gg == NULL) goto readerr;
-			if (! read_gwnum (fd, &pm1data->gwdata, pm1data->gg, &sum)) goto readerr;
+			pm1data->gg_binary = allocgiant (((int) pm1data->gwdata.bit_length >> 5) + 10);
+			if (pm1data->gg_binary == NULL) goto readerr;
+			if (! read_giant (fd, pm1data->gg_binary, &sum)) goto readerr;
 		}
 	}
 
@@ -8854,9 +8954,10 @@ int pm1_restore (			/* For version 30.4 and later save files */
 
 readerr:
 	_close (fd);
+	free (pm1data->x_binary), pm1data->x_binary = NULL;
 	gwfree (&pm1data->gwdata, pm1data->x), pm1data->x = NULL;
-	gwfree (&pm1data->gwdata, pm1data->V), pm1data->V = NULL;
-	gwfree (&pm1data->gwdata, pm1data->gg), pm1data->gg = NULL;
+	free (pm1data->invx_binary), pm1data->invx_binary = NULL;
+	free (pm1data->gg_binary), pm1data->gg_binary = NULL;
 err:
 	return (FALSE);
 }
@@ -9201,7 +9302,8 @@ void pm1_choose_B2 (
 				if (x.i > max_B2mult) x.i = max_B2mult; \
 				pm1data->C = x.i * pm1data->B; \
 				x.B2_cost = pm1_stage2_impl_given_numvals (pm1data, numvals, forced_stage2_type, &cost_data); \
-				x.fac_pct = pm1prob (takeAwayBits, sieve_depth, pm1data->B, x.i * pm1data->B);
+				x.fac_pct = pm1prob (takeAwayBits, sieve_depth, pm1data->B, cost_data.c.B2_start + cost_data.c.numDsections * cost_data.c.D);
+//				x.fac_pct = pm1prob (takeAwayBits, sieve_depth, pm1data->B, x.i * pm1data->B);
 
 // Return TRUE if x is better than y.  Determined by seeing if taking the increased cost of y's higher B2 and investing it in increasing x's bounds
 // results in a higher chance of finding a factor.
@@ -9288,7 +9390,7 @@ double pm1_stage2_impl (
 	if (numvals < 8) numvals = 8;
 	if (QA_TYPE) numvals = QA_TYPE;			/* Optionally override numvals for QA purposes */
 
-/* Set first_relocatable for future best_stage2_impl calls. */
+/* Set first_relocatable for future best_stage2_impl calls that cost prime pairing. */
 /* Override B2 with optimal B2 based on amount of memory available. */
 
 	if (pm1data->state == PM1_STATE_MIDSTAGE) {
@@ -9300,6 +9402,10 @@ double pm1_stage2_impl (
 			pm1data->first_relocatable = pm1data->C_done;
 			pm1data->last_relocatable = 0;
 		}
+	}
+	if (pm1data->state >= PM1_STATE_STAGE2 && pm1data->stage2_type == PM1_STAGE2_POLYMULT) {
+		pm1data->first_relocatable = pm1data->C_done > pm1data->B ? pm1data->C_done : pm1data->B;
+		pm1data->last_relocatable = 0;
 	}
 
 /* If are continuing from a save file that was in stage 2, check to see if we currently have enough memory to continue with the save file's */
@@ -9372,7 +9478,6 @@ double pm1_stage2_impl (
 	} else {
 		pm1data->poly1_size = cost_data.c.numrels;
 		pm1data->poly2_size = cost_data.poly2_size;
-		if (pm1data->B2_start > pm1data->C_done) pm1data->required_missing = cost_data.c.first_missing_prime;
 	}
 
 /* Output data regarding our cost estimates so user can make adjustments when our estimates are wildly off the mark */
@@ -9675,11 +9780,11 @@ restart:
 
 	gwinit (&pm1data.gwdata);
 	gwset_sum_inputs_checking (&pm1data.gwdata, SUM_INPUTS_ERRCHK);
-	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pm1data.gwdata);
+	if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pm1data.gwdata);
 	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&pm1data.gwdata);
 	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&pm1data.gwdata, 2);
 	gwset_bench_cores (&pm1data.gwdata, HW_NUM_CORES);
-	gwset_bench_workers (&pm1data.gwdata, NUM_WORKER_THREADS);
+	gwset_bench_workers (&pm1data.gwdata, NUM_WORKERS);
 	if (ERRCHK) gwset_will_error_check (&pm1data.gwdata);
 	else gwset_will_error_check_near_limit (&pm1data.gwdata);
 	gwset_num_threads (&pm1data.gwdata, get_worker_num_threads (thread_num, HYPERTHREAD_LL));
@@ -9778,7 +9883,7 @@ restart:
 
 		if (pm1data.state == PM1_STATE_MIDSTAGE) {
 			if (pm1data.B > pm1data.B_done) {
-				gwfree (&pm1data.gwdata, pm1data.gg), pm1data.gg = NULL;
+				free (pm1data.gg_binary), pm1data.gg_binary = NULL;
 				goto more_B;
 			}
 			goto restart3b;
@@ -9792,7 +9897,7 @@ restart:
 /* an LL/PRP tester that has already begun stage 2 only do this for the non-LL/PRP tester. */
 
 			if (pm1data.B > pm1data.B_done && w->work_type == WORK_PMINUS1) {
-				gwfree (&pm1data.gwdata, pm1data.gg), pm1data.gg = NULL;
+				free (pm1data.gg_binary), pm1data.gg_binary = NULL;
 				free (pm1data.pairmap), pm1data.pairmap = NULL;
 				goto more_B;
 			}
@@ -10099,9 +10204,16 @@ restart1:
 /* Check for the rare case where we need to do even more stage 1.  This happens using a save file created with a smaller bound #1. */
 
 	if (pm1data.B > pm1data.B_done) {
-more_B:		pm1data.interim_B = pm1data.B;
+more_B:		if (pm1data.x_binary != NULL) {			// pm1_restore can return x as binary -- convert to a gwnum
+			ASSERTG (pm1data.x == NULL);
+			pm1data.x = gwalloc (&pm1data.gwdata);
+			if (pm1data.x == NULL) goto oom;
+			gianttogw (&pm1data.gwdata, pm1data.x_binary, pm1data.x);
+			free (pm1data.x_binary), pm1data.x_binary = NULL;
+		}
+		pm1data.interim_B = pm1data.B;
 		pm1data.stage1_prime = 1;
-//GW - pct_complete resets  to 0 because of setting stage1_prime to 2
+		//GW - pct_complete resets to 0 because of setting stage1_prime to 2
 		goto restart1;
 	}
 	pm1data.C_done = pm1data.B;
@@ -10152,7 +10264,7 @@ more_B:		pm1data.interim_B = pm1data.B;
 	}
 
 /*
-   Stage 2:  Use ideas from Crandall, Zimmermann, Montgomery, Preda, and Atnashev on each prime below C.
+   Stage 2:  Use ideas from Crandall, Montgomery, Silverman, Zimmermann, Kruppa, Preda, and Atnashev on each prime below C.
    This code is more efficient the more memory you can give it.
    Inputs: x, the value at the end of stage 1
 */
@@ -10164,7 +10276,7 @@ restart3a:
 	w->pct_complete = 1.0;
 	start_timer_from_zero (timers, 0);
 
-/* This is the entry point when using the save file from a completed P-1 run to go to a new bound #2.  Initialize variables for second stage. */
+/* Initialize variables for second stage. */
 /* To compute V = x + 1/x a modular inverse is required.  We use V in a P+1-style stage 2 which uses one multiply instead of two to go from */
 /* D section to D section.  Since we are doing a modular inverse, we can also do the stage 1 GCD here for minimal cost (two multiplies). */
 /* Compute y = x*(x-1).  Compute 1/y, this will find any stage 1 factors.  If no factors found compute 1/x = (x-1) * 1/y. */
@@ -10202,20 +10314,8 @@ restart3a:
 	OutputStr (thread_num, buf);
 	gw_clear_fft_count (&pm1data.gwdata);
 
-/* Stage 1 is now complete */
+/* Convert x and invx to binary for saving to a file (also more compact than a gwnum) */
 
-	pm1data.state = PM1_STATE_MIDSTAGE;
-	strcpy (w->stage, "S2");
-	w->pct_complete = 0.0;
-
-/* No restrictions on polymult D value */
-
-	pm1data.required_missing = 0;
-
-/* Restart here when in the middle of stage 2.  Convert x and invx to binary for saving to a file.  Compute V. */
-
-restart3b:
-	// Convert x and invx to more compact giants format.  These are used to create save files during stage 2.
 	pm1data.x_binary = allocgiant (((int) pm1data.gwdata.bit_length >> 5) + 10);
 	if (pm1data.x_binary == NULL) goto oom;
 	gwtogiant (&pm1data.gwdata, pm1data.x, pm1data.x_binary);
@@ -10223,10 +10323,32 @@ restart3b:
 	if (pm1data.invx_binary == NULL) goto oom;
 	gwtogiant (&pm1data.gwdata, pm1data.invx, pm1data.invx_binary);
 
-	// Compute V = x + 1/x
-	pm1data.V = gwalloc (&pm1data.gwdata);
-	if (pm1data.V == NULL) goto oom;
-	gwadd3o (&pm1data.gwdata, pm1data.x, pm1data.invx, pm1data.V, GWADD_SQUARE_INPUT);
+/* Stage 1 is now complete */
+
+	pm1data.state = PM1_STATE_MIDSTAGE;
+	strcpy (w->stage, "S2");
+	w->pct_complete = 0.0;
+
+/* Some users have requested that a save file be written here.  Sometimes the vast amount of stage 2 memory allocated makes their machine thrash which */
+/* may require a reboot.  Upon resumption, the tail end of stage 1 calculations then need to be repeated.  For now, we'll make this the default behavior. */
+
+	if (IniGetInt (INI_FILE, "SaveBeforeStage2", 1)) pm1_save (&pm1data);
+
+/* No restrictions on polymult D value */
+
+	pm1data.required_missing = 0;
+
+/* Restart here when in the middle of stage 2. */
+/* Initialize gg to x-1 in case the user opted to skip the GCD after stage 1. */
+
+restart3b:
+	ASSERTG (pm1data.gg == NULL);
+	if (pm1data.gg_binary == NULL) {
+		pm1data.gg_binary = allocgiant (((int) pm1data.gwdata.bit_length >> 5) + 10);
+		if (pm1data.gg_binary == NULL) goto oom;
+		gtog (pm1data.x_binary, pm1data.gg_binary);
+		sladdg (-1, pm1data.gg_binary);
+	}
 
 /* Test if we will ever have enough memory to do stage 2 based on the maximum available memory. */
 /* Our minimum working set is prime pairing: one gwnum for gg, 4 for nQx, 3 for eQx. */
@@ -10245,20 +10367,6 @@ restart3b:
 more_C:	start_timer_from_zero (timers, 0);
 	sprintf (buf, "%s P-1 stage 2 init", gwmodulo_as_string (&pm1data.gwdata));
 	title (thread_num, buf);
-
-/* Initialize gg to x-1 in case the user opted to skip the GCD after stage 1.  Temporarily convert to binary (for FFT size switching). */
-
-	if (pm1data.gg == NULL) {
-		pm1data.gg = gwalloc (&pm1data.gwdata);
-		if (pm1data.gg == NULL) goto oom;
-		// In case stage 1 GCD was not run, init gg to x-1
-		gwcopy (&pm1data.gwdata, pm1data.x, pm1data.gg);
-		gwsmalladd (&pm1data.gwdata, -1, pm1data.gg);
-	}
-	pm1data.gg_binary = allocgiant (((int) pm1data.gwdata.bit_length >> 5) + 10);
-	if (pm1data.gg_binary == NULL) goto oom;
-	gwtogiant (&pm1data.gwdata, pm1data.gg, pm1data.gg_binary);
-	gwfree (&pm1data.gwdata, pm1data.gg), pm1data.gg = NULL;
 
 /* Clear flag indicating we need to restart if the maximum amount of memory changes. */
 /* Prior to this point we allow changing the optimal bounds of a Pfactor assignment. */
@@ -10391,16 +10499,15 @@ OutputStr (thread_num, buf); }
 			gwdone (&pm1data.gwdata);
 			pm1data.x = NULL;
 			pm1data.invx = NULL;
-			pm1data.V = NULL;
 			// Re-init gwnum with a larger FFT
 			gwinit (&pm1data.gwdata);
 			if (next_fftlen != best_fftlen) gwset_information_only (&pm1data.gwdata);
 			gwset_sum_inputs_checking (&pm1data.gwdata, SUM_INPUTS_ERRCHK);
-			if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pm1data.gwdata);
+			if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pm1data.gwdata);
 			if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&pm1data.gwdata);
 			if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&pm1data.gwdata, 2);
 			gwset_bench_cores (&pm1data.gwdata, HW_NUM_CORES);
-			gwset_bench_workers (&pm1data.gwdata, NUM_WORKER_THREADS);
+			gwset_bench_workers (&pm1data.gwdata, NUM_WORKERS);
 			if (ERRCHK) gwset_will_error_check (&pm1data.gwdata);
 			else gwset_will_error_check_near_limit (&pm1data.gwdata);
 			gwset_num_threads (&pm1data.gwdata, get_worker_num_threads (thread_num, HYPERTHREAD_LL));
@@ -10435,9 +10542,8 @@ OutputStr (thread_num, buf); }
 
 	OutputStr (thread_num, msgbuf);
 
-// Restore the x, invx, and V values.  Costing different FFT lengths may have deleted these gwnums.
+// Restore the x and invx values.  Costing different FFT lengths may have deleted these gwnums.
 
-//GW: pairing optimization: we only need to restore V (but we didn't convert V to binary)
 	if (pm1data.x == NULL) {
 		pm1data.x = gwalloc (&pm1data.gwdata);
 		if (pm1data.x == NULL) goto oom;
@@ -10448,12 +10554,13 @@ OutputStr (thread_num, buf); }
 		if (pm1data.invx == NULL) goto oom;
 		gianttogw (&pm1data.gwdata, pm1data.invx_binary, pm1data.invx);
 	}
-	if (pm1data.V == NULL) {		// Recompute V
-		pm1data.V = gwalloc (&pm1data.gwdata);
-		if (pm1data.V == NULL) goto oom;
-		gwadd3o (&pm1data.gwdata, pm1data.x, pm1data.invx, pm1data.V, GWADD_SQUARE_INPUT);
-	}
 
+// Compute V = x + 1/x
+
+	pm1data.V = gwalloc (&pm1data.gwdata);
+	if (pm1data.V == NULL) goto oom;
+	gwadd3o (&pm1data.gwdata, pm1data.x, pm1data.invx, pm1data.V, GWADD_SQUARE_INPUT);
+			
 /* Set addin for future lucas_dbl and lucas_add calls */ 
 
 	gwsetaddin (&pm1data.gwdata, -2);
@@ -10488,7 +10595,7 @@ OutputStr (thread_num, buf); }
 	sprintf (buf, "Using %uMB of memory.\n", memused);
 	OutputStr (thread_num, buf);
 
-/* Free the stage 1 value, it is no longer needed.  Free 1/x,  it too is not needed in a prime pairing stage 2. */
+/* Free the stage 1 value, it is no longer needed.  Free 1/x, it too is not needed in a prime pairing stage 2. */
 
 	gwfree (&pm1data.gwdata, pm1data.x), pm1data.x = NULL;
 	gwfree (&pm1data.gwdata, pm1data.invx), pm1data.invx = NULL;
@@ -11369,6 +11476,10 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&pm1data.gwdata);
 	gwfree_cached (&pm1data.gwdata);
 	mallocFreeForOS ();
 
+/* Set required_missing for continuation from a polymult PM1_STATE_STAGE2 */
+
+	if (pm1data.B2_start > pm1data.C_done) pm1data.required_missing = map_polyD_to_first_missing_prime (pm1data.D);
+
 // Loop over all the D-sections between B1 and B2
 
 	pm1data.state = PM1_STATE_STAGE2;
@@ -11555,12 +11666,19 @@ stage2_done:
 /* See if we got lucky! */
 
 restart4:
+	if (pm1data.gg != NULL) {			// If necessary, convert gg to binary
+		ASSERTG (pm1data.gg_binary == NULL);
+		pm1data.gg_binary = allocgiant (((int) pm1data.gwdata.bit_length >> 5) + 10);
+		if (pm1data.gg_binary == NULL) goto oom;
+		gwtogiant (&pm1data.gwdata, pm1data.gg, pm1data.gg_binary);
+		gwfree (&pm1data.gwdata, pm1data.gg), pm1data.gg = NULL;
+	}
 	pm1data.state = PM1_STATE_GCD;
 	strcpy (w->stage, "S2");
 	w->pct_complete = 1.0;
 	if (w->work_type != WORK_PMINUS1) OutputStr (thread_num, "Starting stage 2 GCD - please be patient.\n");
 	start_timer_from_zero (timers, 0);
-	stop_reason = gcd (&pm1data.gwdata, thread_num, pm1data.gg, N, &factor);
+	stop_reason = gcd (thread_num, pm1data.gg_binary, N, &factor);
 	if (stop_reason) {
 		pm1_save (&pm1data);
 		goto exit;
@@ -11793,6 +11911,17 @@ bingo:	if (pm1data.state < PM1_STATE_MIDSTAGE)
 /* this inaccurate data. */
 
 	invalidateNextRollingAverageUpdate ();
+
+/* Create a PRP work unit to immediately test the Mersenne cofactor */
+
+	if (USE_PRIMENET && w->k == 1.0 && w->b == 2 && w->c == -1 && (int) w->n < IniGetInt (INI_FILE, "MaxAutoPRPExponent", 5000000)) {
+		struct work_unit w_prp;
+		generatePRPWorkUnit (w, str, &w_prp);
+		// Add work unit before or after this work unit
+		w_prp.next = w;
+		stop_reason = addWorkToDoLine (thread_num, &w_prp, ADD_AFTER_SPECIFIC);
+		if (stop_reason) goto exit;
+	}
 
 /* Remove the exponent from the worktodo.ini file */
 
@@ -12340,7 +12469,7 @@ int pfactor (
 
 typedef struct {
 	gwhandle gwdata;	/* GWNUM handle */
-	int	thread_num;	/* Worker thread number */
+	int	thread_num;	/* Worker number */
 	struct work_unit *w;	/* Worktodo.txt entry */
 	int	state;		/* One of the states listed above */
 	double	takeAwayBits;	/* Bits we get for free in smoothness of P+1 factor */
@@ -12839,7 +12968,7 @@ int pp1_stage2_impl (
 
 /* Output a message telling us how much memory is available */
 
-	if (NUM_WORKER_THREADS > 1) {
+	if (NUM_WORKERS > 1) {
 		char	buf[100];
 		sprintf (buf, "Available memory is %dMB.\n", memory);
 		OutputStr (pp1data->thread_num, buf);
@@ -13395,11 +13524,11 @@ restart:
 
 	gwinit (&pp1data.gwdata);
 	gwset_sum_inputs_checking (&pp1data.gwdata, SUM_INPUTS_ERRCHK);
-	if (IniGetInt (LOCALINI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pp1data.gwdata);
+	if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pp1data.gwdata);
 	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&pp1data.gwdata);
 	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&pp1data.gwdata, 2);
 	gwset_bench_cores (&pp1data.gwdata, HW_NUM_CORES);
-	gwset_bench_workers (&pp1data.gwdata, NUM_WORKER_THREADS);
+	gwset_bench_workers (&pp1data.gwdata, NUM_WORKERS);
 	if (ERRCHK) gwset_will_error_check (&pp1data.gwdata);
 	else gwset_will_error_check_near_limit (&pp1data.gwdata);
 	gwset_num_threads (&pp1data.gwdata, get_worker_num_threads (thread_num, HYPERTHREAD_LL));
@@ -14529,6 +14658,17 @@ bingo:	if (pp1data.state < PP1_STATE_MIDSTAGE)
 /* this inaccurate data. */
 
 	invalidateNextRollingAverageUpdate ();
+
+/* Create a PRP work unit to immediately test the Mersenne cofactor */
+
+	if (USE_PRIMENET && w->k == 1.0 && w->b == 2 && w->c == -1 && (int) w->n < IniGetInt (INI_FILE, "MaxAutoPRPExponent", 5000000)) {
+		struct work_unit w_prp;
+		generatePRPWorkUnit (w, str, &w_prp);
+		// Add work unit before or after this work unit
+		w_prp.next = w;
+		stop_reason = addWorkToDoLine (thread_num, &w_prp, ADD_AFTER_SPECIFIC);
+		if (stop_reason) goto exit;
+	}
 
 /* Remove the exponent from the worktodo.ini file */
 
