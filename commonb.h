@@ -117,7 +117,6 @@ void autoBench (void);
 int isKnownMersennePrime (unsigned long);
 void makestr (unsigned long, unsigned long, unsigned long, char *);
 
-int pick_fft_size (int thread_num, struct work_unit *w);
 int exponent_near_fft_limit (gwhandle *gwdata);
 void calc_output_frequencies (gwhandle *gwdata, double *output_frequency, double *output_title_frequency);
 double trunc_percent (double percent);

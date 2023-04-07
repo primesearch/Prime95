@@ -918,6 +918,8 @@ double best_stage2_impl (
 		if (max_pairmap_size > 2000) max_pairmap_size = 2000;
 		if (max_pairmap_size < 1) max_pairmap_size = 1;
 		c->max_pairmap_size = (double) max_pairmap_size * 1000000.0;
+		// Don't let the pairmap consume more than half the numvals (this may not be optimal).  Not worth investigating as polymult is the optimal choice.
+		if (c->max_pairmap_size > (double) numvals / 2 * c->fftlen * sizeof (double)) c->max_pairmap_size = (double) numvals / 2 * c->fftlen * sizeof (double);
 	}
 
 /* Estimate the number of primes between B1 and B2 */
@@ -8911,7 +8913,7 @@ int pm1_restore (			/* For version 30.4 and later save files */
 			pm1data->x_binary = allocgiant (((int) pm1data->gwdata.bit_length >> 5) + 10);
 			if (pm1data->x_binary == NULL) goto readerr;
 			if (! read_giant (fd, pm1data->x_binary, &sum)) goto readerr;
-			if (pm1data->state < PM1_STATE_MIDSTAGE) {
+			if (pm1data->state < PM1_STATE_MIDSTAGE || pm1data->state == PM1_STATE_DONE) {
 				pm1data->x = gwalloc (&pm1data->gwdata);
 				if (pm1data->x == NULL) goto readerr;
 				gianttogw (&pm1data->gwdata, pm1data->x_binary, pm1data->x);
@@ -12400,11 +12402,6 @@ int pfactor (
 	double	prob;
 	char	buf[120], testnum[120];
 	int	stop_reason;
-
-/* Choose the best FFT size */
-
-	stop_reason = pick_fft_size (thread_num, w);
-	if (stop_reason) return (stop_reason);
 
 /* Set flag indicating we need to restart if the maximum amount of memory changes (as opposed to currently available memory!) */
 /* If maximum memory changes we want to recompute the P-1 bounds. */

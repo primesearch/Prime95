@@ -55,9 +55,9 @@ typedef gwnum *gwarray;
 /* are new prime95 versions without any changes in the gwnum code.  This version number is also embedded in the assembly code and */
 /* gwsetup verifies that the version numbers match.  This prevents bugs from accidentally linking in the wrong gwnum library. */
 
-#define GWNUM_VERSION		"30.11"
+#define GWNUM_VERSION		"30.12"
 #define GWNUM_MAJOR_VERSION	30
-#define GWNUM_MINOR_VERSION	11
+#define GWNUM_MINOR_VERSION	12
 
 /* Error codes returned by the three gwsetup routines */
 
@@ -166,10 +166,9 @@ void gwdone (
 /* routine if you are having roundoff errors using the normal FFT length. */
 #define gwset_larger_fftlen_count(h,n)	((h)->larger_fftlen_count = n)
 
-/* Force selection of the smallest FFT length equal to or greater than the specified FFT length.  You might use this routine to */
-/* select a larger FFT if you are having roundoff errors using the normal FFT length (or use gwset_larger_fftlen_count).  The library */
-/* will use the first FFT meeting the minimum_fftlen criteria -- EVEN IF IT WOULD NOT ORDINARILY DO SO!!!  Set the FFT length below */
-/* the default FFT length only if you know what you are doing!! */
+/* Select the smallest valid FFT length equal to or greater than the specified FFT length.  You might use this routine to select a larger FFT if you are */
+/* having roundoff errors using the normal FFT length (or use gwset_larger_fftlen_count).  To select a smaller FFT length than normal (NOT RECOMMENDED!) you */
+/* must use gwset_safety_margin with a negative value.  NOTE: Prior to version 30.12 setting minimum fftlen would select a smaller FFT length than normal. */
 #define gwset_minimum_fftlen(h,n)	((h)->minimum_fftlen = n)
 
 /* Set this if FFTs will use hyperthreading. This may affect selection of fastest FFT implementation.  By default, */
@@ -851,7 +850,7 @@ int gwtogiant (gwhandle *, gwnum, giant);
 /* DEPRECATED.  Replaced by better named gwsetaddinatpowerofb */
 #define gwsetaddinatbit(h,v,b)	gwsetaddinatpowerofb(h,v,b)
 
-/* Deprecated -- replaced by more appropriately named macro */
+/* DEPRECATED -- replaced by more appropriately named macro */
 #define norm_count(h)	unnorms(h)
 
 /* Convert a binary value (array of 32-bit or 64-bit values) to a gwnum.  Check your C compiler specs to see if a long is 32 or 64 bits. */
@@ -1028,18 +1027,21 @@ struct gwhandle_struct {
 	char	sum_inputs_checking;	/* If possible, pick an FFT implementation that supports the SUM(INPUTS) != SUM(OUTPUTS) error check. */
 	char	force_general_mod;	/* Forces gwsetup_general_mod to not check for a k*2^n+c reduction */
 	char	use_irrational_general_mod; /* Force using an irrational FFT when doing a general mod. */
-					/* This is slower, but more immune to round off errors from pathological bit patterns in the modulus. */
+					/* This is slower but more immune to round off errors from pathological bit patterns in the modulus. */
 	char	use_large_pages;	/* Try to use 2MB/4MB pages */
 	char	use_benchmarks;		/* Use benchmark data in gwnum.txt to select fastest FFT implementations */
 	char	will_hyperthread;	/* Set if FFTs will use hyperthreading (affects select of fastest FFT implementation from gwnum.txt) */
 	char	will_error_check;	/* Set if FFTs will error check (affects select of fastest FFT implementation from gwnum.txt) */
 	char	information_only;	/* Set if doing a faster partial setup */
-	char	use_spin_wait;		/* FALSE = use mutex, TRUE = spin wait.  Linus Torvalds hates spinning, see https://www.realworldtech.com/forum/?threadid=189711&curpostid=189723 */
-					/* GWNUM does use a spin lock, rather it can spin waiting for an atomic counter of active threads to reach zero. */
+	char	use_spin_wait;		/* 0 = use mutex, 1 = spin wait, 2+ = ???.  Linus Torvalds hates spinning, see https://www.realworldtech.com/forum/?threadid=189711&curpostid=189723 */
+					/* GWNUM doesn't use a spin lock, rather it can spin wait for an atomic counter of active threads to reach zero. */
 					/* There is likely negligible difference between mutex wait and spin wait. */
-	char	scramble_arrays;	/* TRUE (the default) if gwalloc_array scrambles allocated gwnums in memory.  Polymult is often faster with scrambled set. */
+	unsigned char scramble_arrays;	/* 0 = no scramble (linear addresses), 1 = light scramble (the default), 2 = full scramble, 3+ = custom (see gwnum.c code) */
+					/* gwalloc_array can scramble allocated gwnums in memory.  Polymult on large polys may be faster with scrambling on. */
 	int	bench_num_cores;	/* Set to expected number of cores that will FFT (affects select fastest FFT implementation) */
 	int	bench_num_workers;	/* Set to expected number of workers that will FFT (affects select fastest FFT implementation) */
+	int	radix_bigwords;		/* Internally used for radix conversion indicating expected number of non-zero big words.  Radix conversion has lots of */
+					/* zero data and has less carry propagation issues which allows us to choose a smaller FFT length. */
 	/* End of variables affecting gwsetup */
 
 	double	k;			/* K in K*B^N+C */

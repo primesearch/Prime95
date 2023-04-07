@@ -1114,9 +1114,9 @@ void options_preferences (void)
 
 void options_torture (void)
 {
-	unsigned long m_cores, m_type, m_minfft, m_maxfft;
-	unsigned long m_memory, m_timefft;
-	unsigned long mem, blendmemory;
+	unsigned long m_cores, m_type, m_minfft, m_maxfft, m_timefft;
+	float	m_memory;			// In GB
+	unsigned long mem, blendmemory;		// In MB
 	int	m_hyperthreading, m_custom, m_weak, m_avx512, m_fma3, m_avx, m_sse2;
 
 	m_cores = HW_NUM_CORES;
@@ -1165,7 +1165,7 @@ void options_torture (void)
 	if (m_maxfft > 32768) m_maxfft = 32768;
 
 	// Assign other options
-	m_memory = (m_type <= 3 ? 0 : blendmemory);
+	m_memory = (float) (m_type <= 3 ? 0.0 : round_to_tenth (blendmemory / 1024.0));
 	m_timefft = (m_hyperthreading ? 6 : 3);
 
 	// Let user customize
@@ -1182,7 +1182,7 @@ void options_torture (void)
 			CPU_FLAGS & CPU_FMA3 && !m_fma3 ? MAX_FFTLEN_FMA3 / 1024 :
 			CPU_FLAGS & CPU_SSE2 && !m_sse2 ? MAX_FFTLEN_SSE2 / 1024 :
 							  MAX_FFTLEN / 1024);
-		askNum ("Memory to use (in MB, 0 = in-place FFTs)", &m_memory, 0, mem);
+		askFloat ("Memory to use (in GB, 0 = in-place FFTs)", &m_memory, 0.0, round_to_tenth (mem / 1024.0));
 		askNum ("Time to run each FFT size (in minutes)", &m_timefft, 1, 60);
 	}
 
@@ -1201,7 +1201,7 @@ void options_torture (void)
 		IniWriteInt (INI_FILE, "TortureHyperthreading", m_hyperthreading);
 		IniWriteInt (INI_FILE, "MinTortureFFT", m_minfft);
 		IniWriteInt (INI_FILE, "MaxTortureFFT", m_maxfft);
-		IniWriteInt (INI_FILE, "TortureMem", m_memory);
+		IniWriteInt (INI_FILE, "TortureMem", (int) (m_memory * 1024.0));
 		IniWriteInt (INI_FILE, "TortureTime", m_timefft);
 		m_weak = m_avx512 * CPU_AVX512F + m_fma3 * CPU_FMA3 + m_avx * CPU_AVX + m_sse2 * CPU_SSE2;
 		IniWriteInt (INI_FILE, "TortureWeak", m_weak);

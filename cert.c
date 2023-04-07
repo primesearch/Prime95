@@ -149,11 +149,6 @@ int cert (
 		goto abandon_work;
 	}
 
-/* Figure out which FFT size we should use */
-
-	stop_reason = pick_fft_size (thread_num, w);
-	if (stop_reason) goto exit;
-
 /* Init the write save file state */
 
 	tempFileName (w, filename);

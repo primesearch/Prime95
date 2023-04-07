@@ -1112,11 +1112,8 @@ again:	zpad_jmptab = NULL;
 /* the non-zero-padded code) as 27904^53415-7 was choosing a zero-padded 200K AVX-512 FFT and getting roundoffs frequently */
 /* above 0.4 and rarely above 0.5.  We need to do a careful analysis using average round error to fine tune this adjustment further. */
 
-			max_weighted_bits_per_output_word =
-				2.0 * max_bits_per_input_word + 0.6 * log2 (zpad_jmptab->fftlen / 2 + 4);
-			weighted_bits_per_output_word =
-				2.0 * ((b_per_input_word + 1.0) * log2b - 1.0) +
-				0.6 * log2 (zpad_jmptab->fftlen / 2 + 4);
+			max_weighted_bits_per_output_word = 2.0 * max_bits_per_input_word + 0.6 * log2 (zpad_jmptab->fftlen / 2 + 4);
+			weighted_bits_per_output_word = 2.0 * ((b_per_input_word + 1.0) * log2b - 1.0) + 0.6 * log2 (zpad_jmptab->fftlen / 2 + 4);
 			if ((n + n) % zpad_jmptab->fftlen == 0)
 				weighted_bits_per_output_word -= ((log2b <= 4.0) ? log2b : 1.4 * log2b);
 			else if (! is_pathological_distribution (num_big_words, num_small_words))
@@ -1127,7 +1124,7 @@ again:	zpad_jmptab = NULL;
 
 /* See if this FFT length might work */
 
-			if ((weighted_bits_per_output_word <= max_weighted_bits_per_output_word || gwdata->minimum_fftlen) &&
+			if ((weighted_bits_per_output_word <= max_weighted_bits_per_output_word) &&
 
 /* Result words are multiplied by k and the mul-by-const and any carry spread over 6 words. */
 /* Thus, the multiplied FFT result word cannot be more than 7 times bits-per-input-word */
@@ -1308,6 +1305,7 @@ next1:			zpad_jmptab = NEXT_SET_OF_JMPTABS (zpad_jmptab);
 		num_b_in_big_word = (int) ceil (b_per_input_word);
 		num_small_words = (int) ((num_b_in_big_word - b_per_input_word) * jmptab->fftlen);
 		num_big_words = jmptab->fftlen - num_small_words;
+		if (gwdata->radix_bigwords && num_big_words > gwdata->radix_bigwords) num_big_words = gwdata->radix_bigwords;
 		if (k == 1.0 && n % jmptab->fftlen == 0)
 			bits_per_output_word = 
 				2.0 * (num_b_in_big_word * log2b - 1.0) +
@@ -1367,10 +1365,9 @@ next1:			zpad_jmptab = NEXT_SET_OF_JMPTABS (zpad_jmptab);
 			}
 		}
 
-/* If the bits in an output word is less than the maximum allowed (or the user is trying to force us */
-/* to use this FFT), then we can probably use this FFT length -- though we need to do a few more tests. */
+/* If the bits in an output word is less than the maximum allowed then we can probably use this FFT length -- though we need to do a few more tests. */
 
-		if (weighted_bits_per_output_word <= max_weighted_bits_per_output_word || gwdata->minimum_fftlen) {
+		if (weighted_bits_per_output_word <= max_weighted_bits_per_output_word) {
 			double	carries_spread_over;
 
 /* Originally, carries were spread over 4 FFT words.  Some FFT code has been */
@@ -1386,14 +1383,12 @@ next1:			zpad_jmptab = NEXT_SET_OF_JMPTABS (zpad_jmptab);
 			else						// Two pass AVX-512/AVX/SSE2 FFTs
 				carries_spread_over = 6.0;
 
-/* Because carries are spread over 4 words, there is a minimum value for the bits */
-/* per FFT word.  An FFT result word must fit in the floor(bits-per-input-word) stored */
-/* in the current word plus ceil (4 * bits-per-input-word) for the carries to */
-/* propagate into.  The mul-by-const during the normalization process adds to */
-/* the size of the result word. */
+/* Because carries are spread over 4 words, there is a minimum value for the bits per FFT word.  An FFT result word must fit in the */
+/* floor(bits-per-input-word) stored in the current word plus ceil (4 * bits-per-input-word) for the carries to  propagate into. */
+/* The mul-by-const during the normalization process adds to the size of the result word. */
 
-			if (bits_per_output_word + log2maxmulbyconst >
-					(floor (b_per_input_word) + ceil (carries_spread_over * b_per_input_word)) * log2b) {
+			if (!gwdata->radix_bigwords &&			// Radix conversion code has no trouble spreading carries (we think)
+			    bits_per_output_word + log2maxmulbyconst > (floor (b_per_input_word) + ceil (carries_spread_over * b_per_input_word)) * log2b) {
 // This assert was designed to find any cases where using more carry words
 // would use a shorter FFT than using a zero-padded FFT.  There are many such
 // cases, especially with larger bases.  One example is 5001*500^100000-1.
@@ -7009,11 +7004,20 @@ gwarray gwalloc_array (		/* Pointer to an array of gwnums */
 	}
 
 	// Clearly we do not fully understand memory accessing.  The above code that makes sure polymult strided accesses have a minimum number of 4KB strides is
-	// often slower than simply randomly placing the gwnum pointers in the gwnum array.  Until we can improve the above code, we default to scrambled addresses.
+	// often slower than simply randomly placing the gwnum pointers in the gwnum array according to our Advanced/Time 8900 synthetic benchmark.  Until we can
+	// improve the above code, we default to scrambled addresses.  Unfortunately, real world ECM results show that full scrambling is slower.  Instead, I now
+	// scrambling blocks of 64 so that data addresses aren't moved very far.  Real world ECM results show this may be a little faster than no scrambling.
 	if (gwdata->scramble_arrays) {
-		for (int i = 0; i < n; i++) {
-			int j = rand () % n;
-			gwswap (array[i], array[j]);
+		// Blocks of 64 scramble.  For a full scramble set max_block_size to n.
+		uint64_t max_block_size = 64;
+		if (gwdata->scramble_arrays == 2) max_block_size = n;					// Hack to allow timing full scrambles
+		else if (gwdata->scramble_arrays > 2) max_block_size = gwdata->scramble_arrays;		// Hack to allow timing different block sizes
+		for (uint64_t i = 0; i < n; i += max_block_size) {
+			uint64_t block_size = (n - i < max_block_size) ? n - i : max_block_size;
+			for (uint64_t j = 0; j < block_size; j++) {
+				int k = rand () % block_size;
+				gwswap (array[i+j], array[i+k]);
+			}
 		}
 	}
 

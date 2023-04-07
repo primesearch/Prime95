@@ -1195,6 +1195,7 @@ again:		gwinit (&gwdata);
 //static int junk = 0;
 //gwset_larger_fftlen_count(&gwdata,junk++);
 		gwset_maxmulbyconst (&gwdata, 5);
+		if (SPECIFIC_FFTLEN) gwset_safety_margin (&gwdata, -2.0);
 		gwset_minimum_fftlen (&gwdata, SPECIFIC_FFTLEN);
 		gwset_num_threads (&gwdata, threads);
 		gwset_thread_callback (&gwdata, SetAuxThreadPriority);

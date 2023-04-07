@@ -16,7 +16,7 @@ ENDIF
 
 INCLUDE	unravel.mac
 
-VERSION_NUMBER = 3011		;; Version 30.11
+VERSION_NUMBER = 3012		;; Version 30.12
 
 ;
 ; Global variables needed by FFT setup code

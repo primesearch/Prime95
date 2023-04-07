@@ -1407,6 +1407,9 @@ void nameAndReadIniFiles (
 	IniWriteString (INI_FILE, "Advanced", NULL);				// Deprecated long before 30.10b5
 	IniWriteString (INI_FILE, "Affinity", NULL);				// Deprecated well before 30.10b5
 	IniWriteString (INI_FILE, "W0", NULL);					// Deprecated 30.10b5, I don't believe this Windows-only setting was ever used
+	IniWriteString (INI_FILE, "OldStyleSoftCrossover", NULL);		// Deprecated 30.12
+	IniWriteString (INI_FILE, "SoftCrossover", NULL);			// Deprecated 30.12
+	IniWriteString (INI_FILE, "SoftCrossoverAdjust", NULL);			// Deprecated 30.12
 
 	moveToSection (SEC_Internals, KEY_V30OptionsConverted);			// Moved here 30.10b5
 	moveToSection (SEC_Internals, KEY_OldCpuSpeed);				// Moved here 30.10b5
@@ -2065,11 +2068,13 @@ void PTOGetAll (
 	unsigned int def_val)		/* Default value */
 {
 	int	i, global_val;
+	unsigned int seconds;
 	char	section_name[32];
 
-/* Copy the global option setting to the entire array */
+/* Copy the global option setting to the entire array.  Used timed INI routines starting in 30.12 to allow for timed CoresPerTest at James' request. */
 
-	global_val = IniGetInt (ini_filename, keyword, def_val);
+	global_val = IniGetTimedInt (ini_filename, keyword, def_val, &seconds);
+	if (seconds) add_timed_event (TE_READ_INI_FILE, seconds);
 	for (i = 0; i < MAX_NUM_WORKERS; i++) {
 		array[i] = global_val;
 	}
@@ -2078,7 +2083,8 @@ void PTOGetAll (
 
 	for (i = 0; i < MAX_NUM_WORKERS; i++) {
 		sprintf (section_name, "Worker #%d", i+1);
-		array[i] = IniSectionGetInt (ini_filename, section_name, keyword, array[i]);
+		array[i] = IniSectionGetTimedInt (ini_filename, section_name, keyword, array[i], &seconds);
+		if (seconds) add_timed_event (TE_READ_INI_FILE, seconds);
 	}
 }
 
@@ -6902,8 +6908,10 @@ void add_timed_event (
 	gwmutex_lock (&TIMED_EVENTS_MUTEX);
 
 	time (&this_time);
-	timed_events[event_number].active = TRUE;
-	timed_events[event_number].time_to_fire = this_time + time_to_fire;
+	if (!timed_events[event_number].active || this_time + time_to_fire < timed_events[event_number].time_to_fire) {
+		timed_events[event_number].active = TRUE;
+		timed_events[event_number].time_to_fire = this_time + time_to_fire;
+	}
 
 	if (!TIMED_EVENTS_THREAD)
 		gwthread_create (&TIMED_EVENTS_THREAD, &timed_events_scheduler, NULL);
@@ -7126,7 +7134,7 @@ void proofUploader (void *arg)
 
 /* Loop forever, waking up once an hour */
 
-	for ( ; ; gwevent_wait (&PROOF_UPLOAD_EVENT, minutes_to_wait * 60 * 1000)) {
+	for ( ; ; gwevent_wait (&PROOF_UPLOAD_EVENT, minutes_to_wait * 60)) {
 
 /* Default is to check for proof files once an hour */
 
@@ -7140,6 +7148,7 @@ void proofUploader (void *arg)
 /* If we are not in the upload time window, pause until we are (or one hour, in case user changes time window from dialog box) */
 
 		if (!inUploadWindow (&minutes_to_start)) {
+			ASSERTG (minutes_to_start >= 0);
 			if (minutes_to_start < 60) minutes_to_wait = minutes_to_start;
 			continue;
 		}
@@ -7156,7 +7165,7 @@ void proofUploader (void *arg)
 		// There is a race condition where this proof uploading thread could attempt to send the proof file
 		// before the results reporting thread has submitted the results of the PRP test.  This results in a
 		// harmless "Unauthorized" error message.  Here is a rather low-tech "solution" to make this less likely.
-		if (num_proof_files) Sleep (1 * 60 * 1000);	// Sleep 1 more minute
+		if (num_proof_files) Sleep (60 * 1000);		// Sleep 1 more minute
 
 		// Send each file
 		for (i = 0; i < num_proof_files && inUploadWindow (NULL); i++) {

@@ -70,6 +70,7 @@ int nonbase2_gianttogw (	/* Returns an error code or zero for success */
 		int	exp, fftlen;			/* Exponent and fft length used to setup new_gwdata */
 		int	num_pairs;
 		int	b_per_mult;			/* Number of radix b that must appear in each half-pair multiply result */
+		int	radix_bigwords_per_mult;	/* Expected number of bigwords in the FFT */
 
 		// Allocate the work_gwdata
 		work_gwdata = (gwhandle *) malloc (sizeof (gwhandle));
@@ -86,10 +87,15 @@ int nonbase2_gianttogw (	/* Returns an error code or zero for success */
 			double	words_per_mult;		/* Number of FFT words a specific FFT uses to hold a partial multiply result */
 			int	option;
 
+			// Use a negative safety margin to find a small FFT that we are unlikely to use because of possible roundoff errors.
+			// Since radix conversion data has more zeroes than random data and we might find a rational FFT to use, a negative safety
+			// margin is justified.  We'll work our way up from there finding the smallest usable FFT size.
 			gwinit (work_gwdata);
-			gwset_safety_margin (work_gwdata, -0.15);  // More zeroes in radix-conversion multiplies than in random data, 0.15 value may not be correct -- needs fine tuning?
+			gwset_maxmulbyconst (work_gwdata, 1);
+			gwset_safety_margin (work_gwdata, -4.00);
 			gwset_minimum_fftlen (work_gwdata, fftlen);
-			err_code = gwinfo (work_gwdata, 1.0, gwdata->b, exp = num_pairs * b_per_mult, -1);
+			work_gwdata->radix_bigwords = exp = num_pairs * b_per_mult;
+			err_code = gwinfo (work_gwdata, 1.0, gwdata->b, exp, -1);
 			if (err_code) {			// On error, try for a small rational FFT
 				ASSERTG (fftlen == 0);
 				fftlen = exp - 1;	// This will find smallest possible FFT
@@ -99,10 +105,6 @@ int nonbase2_gianttogw (	/* Returns an error code or zero for success */
 			fftlen = work_gwdata->FFTLEN;
 			if (exp < fftlen) exp = fftlen;		// Rational FFTs have lower roundoff error
 			words_per_mult = (double) b_per_mult * (double) fftlen / (double) exp;
-
-			// Do we have an FFT we can use?  FFT words per mult must be an integer so that every partial multiplication
-			// result has the same bigword/smallword pattern.  And the FFT must be large enough to hold all our pairs.
-			if (words_per_mult == ceil (words_per_mult) && fftlen >= num_pairs * (int) words_per_mult) break;
 
 			// To make words_per_mult an integer we have 3 options.  We can increase b_per_mult or exp to
 			// reduce the words_per_mult.  Or we can increase word_per_mult as long as we can still store
@@ -116,8 +118,12 @@ int nonbase2_gianttogw (	/* Returns an error code or zero for success */
 				int newbpm = round_up_to_multiple_of (b_per_mult, newwpm / (int) intgcd (fftlen, newwpm));
 				if (newwpm > newbpm) newwpm = newbpm;		// When base is large, use rational FFT one b per FFT word
 				if (fftlen >= num_pairs * newwpm) {
+					int non_zeros_per_newwpm = (int) ceil ((double) b_per_mult / ((double) newbpm / (double) newwpm));
+					radix_bigwords_per_mult = ((b_per_mult - 1) % non_zeros_per_newwpm) + 1;
 					gwinit (work_gwdata);
-					gwset_safety_margin (work_gwdata, -0.15);  // More zeroes in radix-conversion multiplies than in random data
+					gwset_maxmulbyconst (work_gwdata, 1);
+					gwset_minimum_fftlen (work_gwdata, fftlen);
+					work_gwdata->radix_bigwords = num_pairs * radix_bigwords_per_mult;
 					err_code = gwinfo (work_gwdata, 1.0, gwdata->b, exp = newbpm * fftlen / newwpm, -1);
 					if (err_code == 0 && fftlen >= (int) work_gwdata->FFTLEN) option = 99;	// Winner!
 				}
@@ -127,11 +133,13 @@ int nonbase2_gianttogw (	/* Returns an error code or zero for success */
 			// Option 3: Try a larger FFT length
 		}
 		gwinit (work_gwdata);
-		gwset_safety_margin (work_gwdata, -0.15);  // More zeroes in radix-conversion multiplies than in random data
+		gwset_maxmulbyconst (work_gwdata, 1);
+		gwset_minimum_fftlen (work_gwdata, fftlen);
+		work_gwdata->radix_bigwords = num_pairs * radix_bigwords_per_mult;
 		if (gwdata->num_threads > 1) gwset_num_threads (work_gwdata, gwdata->num_threads);
-		gwset_specific_fftlen (work_gwdata, fftlen);
 		err_code = gwsetup (work_gwdata, 1.0, gwdata->b, exp, -1);
 		if (err_code != 0) goto err;
+		ASSERTG (fftlen == work_gwdata->FFTLEN);
 		// Cache the work_gwdata for repeated use
 		gwdata->to_radix_gwdata = work_gwdata;
 	}
@@ -617,6 +625,7 @@ int nonbase2_gwtogiant (	/* Returns an error code or zero for success */
 			int	option;
 
 			gwinit (work_gwdata);
+			gwset_maxmulbyconst (work_gwdata, 1);
 			gwset_minimum_fftlen (work_gwdata, fftlen);
 			err_code = gwinfo (work_gwdata, 1.0, 2, exp = num_pairs * bits_per_mult, -1);
 			if (err_code) goto err;		// On error, try for a small rational FFT
@@ -640,6 +649,8 @@ int nonbase2_gwtogiant (	/* Returns an error code or zero for success */
 				int newbpm = round_up_to_multiple_of (bits_per_mult, newwpm / (int) intgcd (fftlen, newwpm));
 				if (fftlen >= num_pairs * newwpm) {
 					gwinit (work_gwdata);
+					gwset_maxmulbyconst (work_gwdata, 1);
+					gwset_minimum_fftlen (work_gwdata, fftlen);
 					err_code = gwinfo (work_gwdata, 1.0, 2, exp = newbpm * fftlen / newwpm, -1);
 					if (err_code == 0 && fftlen >= (int) work_gwdata->FFTLEN) option = 99;	// Winner!
 				}
@@ -649,10 +660,12 @@ int nonbase2_gwtogiant (	/* Returns an error code or zero for success */
 			// Option 3: Try a larger FFT length
 		}
 		gwinit (work_gwdata);
+		gwset_maxmulbyconst (work_gwdata, 1);
+		gwset_minimum_fftlen (work_gwdata, fftlen);
 		if (gwdata->num_threads > 1) gwset_num_threads (work_gwdata, gwdata->num_threads);
-		gwset_specific_fftlen (work_gwdata, fftlen);
 		err_code = gwsetup (work_gwdata, 1.0, 2, exp, -1);
 		if (err_code) goto err;
+		ASSERTG (fftlen == work_gwdata->FFTLEN);
 		// Cache the work_gwdata for repeated use
 		gwdata->from_radix_gwdata = work_gwdata;
 	}

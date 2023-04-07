@@ -1,12 +1,13 @@
 // TortureDlg.cpp : implementation file
 //
-// Copyright 1995-2021 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
 //
 
 #include "stdafx.h"
 #include "Prime95.h"
 #include "TortureDlg.h"
 
+#define round_to_tenth(a)	((round((a) * 10.0)) / 10.0)
 
 // CTortureDlg dialog
 
@@ -19,7 +20,7 @@ CTortureDlg::CTortureDlg(CWnd* pParent /*=NULL*/)
 	, m_minfft(0)
 	, m_maxfft(0)
 	, m_in_place(FALSE)
-	, m_memory(0)
+	, m_memory(0.0)
 	, m_timefft(0)
 	, m_blendmemory(0)
 	, m_avx512(!(CPU_FLAGS & CPU_AVX512F))
@@ -54,6 +55,7 @@ void CTortureDlg::DoDataExchange(CDataExchange* pDX)
 					 MAX_FFTLEN / 1024);
 	DDX_Check(pDX, IDC_IN_PLACE_FFT, m_in_place);
 	DDX_Text(pDX, IDC_MEMORY, m_memory);
+	DDV_MinMaxFloat(pDX, m_memory, 0.0, (float) round_to_tenth (0.99 * physical_memory () / 1024.0));
 	DDX_Text(pDX, IDC_TIMEFFT, m_timefft);
 #ifdef X86_64
 	DDX_Check(pDX, IDC_AVX512, m_avx512);
@@ -95,7 +97,7 @@ void CTortureDlg::DoDataExchange(CDataExchange* pDX)
 		if (m_maxfft > 32768) m_maxfft = 32768;
 		// Assign other options
 		m_in_place = (m_torture_type <= 2);		// TRUE for L2/L3/L4 cache
-		m_memory = m_in_place ? 0 : m_blendmemory;
+		m_memory = (float) (m_in_place ? 0.0 : round_to_tenth (m_blendmemory / 1024.0));
 		m_timefft = (m_hyperthreading ? 6 : 3);
 	}
 

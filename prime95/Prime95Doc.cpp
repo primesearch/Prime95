@@ -837,7 +837,7 @@ void CPrime95Doc::OnUpdateTorture(CCmdUI* pCmdUI)
 void CPrime95Doc::OnTorture() 
 {
 	CTortureDlg dlg;
-	int	mem;
+	int	mem;		// memory to use in MB
 
 	dlg.m_minfft = 4;
 	dlg.m_maxfft = (CPU_TOTAL_L4_CACHE_SIZE ? 32768 : 8192);
@@ -869,15 +869,15 @@ void CPrime95Doc::OnTorture()
 		dlg.m_blendmemory = 8;
 		dlg.m_in_place = TRUE;
 	}
-	dlg.m_memory = dlg.m_blendmemory;
+	dlg.m_memory = (float) round_to_tenth (dlg.m_blendmemory / 1024.0);
 	dlg.m_timefft = dlg.m_hyperthreading ? 6 : 3;
 	if (dlg.DoModal () == IDOK) {
 		int	m_weak;
 		IniWriteInt (INI_FILE, "TortureHyperthreading", dlg.m_hyperthreading);
 		IniWriteInt (INI_FILE, "MinTortureFFT", dlg.m_minfft);
 		IniWriteInt (INI_FILE, "MaxTortureFFT", dlg.m_maxfft);
-		if (dlg.m_in_place) dlg.m_memory = 8;
-		IniWriteInt (INI_FILE, "TortureMem", dlg.m_memory);
+		if (dlg.m_in_place) dlg.m_memory = 8.0 / 1024.0;
+		IniWriteInt (INI_FILE, "TortureMem", (int) (dlg.m_memory * 1024.0));
 		IniWriteInt (INI_FILE, "TortureTime", dlg.m_timefft);
 		m_weak = dlg.m_avx512 * CPU_AVX512F + dlg.m_fma3 * CPU_FMA3 + dlg.m_avx * CPU_AVX + dlg.m_sse2 * CPU_SSE2;
 		IniWriteInt (INI_FILE, "TortureWeak", m_weak);
