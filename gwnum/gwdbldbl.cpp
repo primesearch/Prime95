@@ -9,7 +9,7 @@
  *  This is the only C++ routine in the gwnum library.  Since gwnum is
  *  a C based library, we declare all routines here as extern "C".
  *
- *  Copyright 2005-2022 Mersenne Research, Inc.  All rights reserved.
+ *  Copyright 2005-2023 Mersenne Research, Inc.  All rights reserved.
  *
  **************************************************************/
 
@@ -1012,6 +1012,25 @@ double gwfft_weight_sloppy (
 
 	bpower = map_to_weight_power_sloppy (dd_data_arg, j);
 	return (exp (double (dd_data->gw__logb) * bpower));
+}
+
+// Return the FFT weight for the j-th word divided by the weight for the k-th word.
+// NOTE: The k-th word weight is first converted to a double because the zr8 sixteen reals assembly code will multiply by that double.
+
+extern "C"
+double gwfft_weight_over_weight (
+	void	*dd_data_arg,
+	unsigned long j,
+	unsigned long k)
+{
+	dd_real	bpower, div_bpower, result;
+
+	x86_FIX
+	bpower = map_to_weight_power (dd_data_arg, j);
+	div_bpower = map_to_weight_power (dd_data_arg, k);
+	result = exp (dd_data->gw__logb * bpower) / (double) exp (dd_data->gw__logb * div_bpower);
+	END_x86_FIX
+	return (double (result));
 }
 
 // Compute the inverse of the fft weight

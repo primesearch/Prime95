@@ -24,8 +24,19 @@ typedef struct pmhandle_struct pmhandle;
 // These routines can be used before polymult_init.  Use the information to select a gwnum FFT size with sufficient safety_margin
 // to do polymults of the desired size.
 
-// Get the needed safety_margin required for an invec1_size by invec2_size polymult
-double polymult_safety_margin (uint64_t invec1_size, uint64_t invec2_size);
+// Get the needed safety_margin required for an invec1_size by invec2_size polymult.
+// There are 2 recommended ways to setup gwnum for use with polymult.
+// 1) Before gwsetup call gwset_polymuly_safety_margin with the output from polymult_safety_margin, or
+// 2) If the polynomial vector sizes are not known ahead of time because they depend on the size of a gwnum.  Then loop:
+//	for (int larger_fft_size = 0; ; larger_fft_size++) {
+//		gwset_larger_fftlen_count (larger_fft_size);
+//		gwsetup;
+//		calculate polynomial vector sizes based on available memory and gwnum size;
+//		if (gw_passes_safety_margin (polymult_safety_margin (calculated_vector_sizes)) break;
+//	}
+//	gwset_polymult_safety_margin (polymult_safety_margin (calculated_vector_sizes));
+// WARNING: If polymult is used to square a polynomial you'll need an extra EB_GWMUL_SAVINGS safety margin.
+float polymult_safety_margin (uint64_t invec1_size, uint64_t invec2_size);
 
 // Get the FFT size that will be used for an n = invec1_size + invec2_size polymult
 uint64_t polymult_fft_size (uint64_t n);

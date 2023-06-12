@@ -699,7 +699,7 @@ int nonbase2_gwtogiant (	/* Returns an error code or zero for success */
 // Calc the first powb_multiplier b^b_per_uint64
 
 	{
-		stackgiant(tmpg,2);
+		stackgiant (tmpg, 3);				// If b is a power of 2 then tmpg may need to hold 2^64 which requires three 32-bit words
 		ultog (gwdata->b, tmpg);
 		power (tmpg, b_per_uint64);
 		gianttogw (work_gwdata, tmpg, powb_multiplier);

@@ -55,9 +55,9 @@ typedef gwnum *gwarray;
 /* are new prime95 versions without any changes in the gwnum code.  This version number is also embedded in the assembly code and */
 /* gwsetup verifies that the version numbers match.  This prevents bugs from accidentally linking in the wrong gwnum library. */
 
-#define GWNUM_VERSION		"30.12"
+#define GWNUM_VERSION		"30.13"
 #define GWNUM_MAJOR_VERSION	30
-#define GWNUM_MINOR_VERSION	12
+#define GWNUM_MINOR_VERSION	13
 
 /* Error codes returned by the three gwsetup routines */
 
@@ -147,7 +147,7 @@ void gwdone (
 /* If you set the safety margin to 0.5 then the code will only allow 21.45 bits per double, or a maximum of 21965 bits in a 1024 length FFT. */
 /* You can also use this option to "live dangerously" by increasing the maximum allowable bits per FFT data word - just set the */
 /* safety margin to a negative value. */
-#define gwset_safety_margin(h,m)	((h)->safety_margin = m)
+#define gwset_safety_margin(h,m)	((h)->safety_margin = (float) (m))
 
 /* The gwsetup routines need to know the maximum value that will be used in a call to gwsetmulbyconst.  By default this value is */
 /* assumed to be 3, which is what you would use in a base-3 Fermat PRP test.  Gwsetup must switch to a generic modular reduction */
@@ -284,6 +284,9 @@ void gwuser_init_FFT1 (		/* Calculate GW_FFT1 at user's request */
 
 /* Convert a double (must be an integer) to a gwnum */
 void dbltogw (gwhandle *, double, gwnum);
+
+/* Convert a uint64_t to a gwnum */
+void u64togw (gwhandle *, uint64_t, gwnum);
 
 /* Convert a binary value (array of 32-bit values) to a gwnum */
 void binarytogw (
@@ -568,8 +571,10 @@ void gw_clear_maxerr (gwhandle *gwdata);
 int gwnear_fft_limit (gwhandle *gwdata, double pct);
 
 /* Returns true if the current FFT length satisfies the given safety margin (such as the value returned by polymult_safety_margin) */
-/* NOTE: gwdata->safety_margin is already factored into the calculation of EXTRA_BITS */
-#define gw_passes_safety_margin(h,safetyval)	((h)->EXTRA_BITS/2.0 > (safetyval))
+#define gw_passes_safety_margin(h,safetyval)		((h)->EXTRA_BITS/2.0f > (safetyval))
+
+/* Set the safety margin for upcoming polymult operations */
+void gwset_polymult_safety_margin (gwhandle *gwdata, float safetyval);
 
 /*---------------------------------------------------------------------+
 |                    GWNUM MISC. INFORMATION ROUTINES                  |
@@ -835,15 +840,14 @@ int gwtogiant (gwhandle *, gwnum, giant);
 /* These are global settings.  The c argument can be overridden in each each multiply call with GWMUL_NOMULBYCONST or GWMUL_MULBYCONST */
 #define gwsetnormroutine(h,z,e,c) {(h)->NORMNUM=((c)?2:0)+((e)?1:0);}
 
-/* DEPRECATED.  Use GWMUL_NOSTARTNEXTFFT, GWMUL_STARTNEXTFFT, GWMUL_STARTNEXTFFT1 options instead. */
+/* DEPRECATED.  Use GWMUL_STARTNEXTFFT options instead. */
 /* If you know the result of a multiplication will be the input to another multiplication (but not gwmul_carefully), */
 /* then a small performance gain can be had in larger FFTs by doing some of the next forward FFT at the end of the multiplication. */
 /* Use this routine to tell the multiplication code whether or not it can start the forward FFT on the result. */
 /* NOTE:  The STARTNEXTFFT option is not supported for generic modular reduction and one-pass FFTs. */
 #define gwstartnextfft(h,state)	{(h)->GLOBAL_POSTFFT = (state);}
 
-/* DEPRECATED!!! These routines were deprecated because unlike all other gwnum routines */
-/* the destination argument appeared before the source argument. */
+/* DEPRECATED!!! These routines were deprecated because unlike all other gwnum routines the destination argument appeared before the source argument. */
 #define gwaddsmall(h,g,a) gwsmalladd(h,a,g)	
 #define gwmulsmall(h,g,m) gwsmallmul(h,m,g)
 
@@ -1016,7 +1020,8 @@ struct pass1_carry_sections {
 /* The gwhandle structure containing all of gwnum's "global" data. */
 struct gwhandle_struct {
 	/* Variables which affect gwsetup.  These are usually set by macros above. */
-	double	safety_margin;		/* Reduce maximum allowable bits per FFT data word by this amount. */
+	float	safety_margin;		/* Reduce maximum allowable bits per FFT data word by this amount. */
+	float	polymult_safety_margin;	/* Extra safety margin required for polymult operations. */
 	long	maxmulbyconst;		/* Gwsetup needs to know the maximum value the caller will use in gwsetmulbyconst. */
 					/* The default value is 3, commonly used in a base-3 Fermat PRP test. */
 	unsigned long minimum_fftlen;	/* Minimum fft length for gwsetup to use. */

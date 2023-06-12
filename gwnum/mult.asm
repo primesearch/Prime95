@@ -16,7 +16,7 @@ ENDIF
 
 INCLUDE	unravel.mac
 
-VERSION_NUMBER = 3012		;; Version 30.12
+VERSION_NUMBER = 3013		;; Version 30.13
 
 ;
 ; Global variables needed by FFT setup code
@@ -3888,13 +3888,13 @@ yjmptable DD	0
 	PRCSTRT	5755,	256,	0.0000007
 	PRCENTRY2		yfft_r4_256_op, 7232, I7 + FMA3_64 + RYZEN_64
 	DD			0
-	PRCSTRT	7149,	320,	0.00000093
+	PRCSTRT	7109,	320,	0.00000093						;; 7127 fails with 0.5 roundoff for Anton Repko during P-1 (was 7149)
 	PRCENTRY2		yfft_r4_320_op, 9168, I7 + FMA3_64 + RYZEN_64
 	DD			0
 	PRCSTRT	8527,	384,	0.000001
 	PRCENTRY2		yfft_r4_384_op, 11360, I7 + FMA3_64 + RYZEN_64
 	DD			0
-	PRCSTRT	11359,	512,	0.000002
+	PRCSTRT	11309,	512,	0.000002						;; 11351 fails with 0.5 roundoff for Anton Repko during ECM (was 11359)
 	PRCENTRY2		yfft_r4_512_op, 14464, I7 + FMA3_64 + RYZEN_64
 	DD			0
 	PRCSTRT	14119,	640,	0.0000025

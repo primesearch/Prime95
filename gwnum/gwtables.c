@@ -4,7 +4,7 @@
 | This file contains the C routines to build sin/cos and weights tables
 | that the FFT assembly code needs.
 | 
-|  Copyright 2002-2018 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2002-2023 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -1268,6 +1268,7 @@ double *zr4dwpn_build_norm_table (
 /* precomputing the group multiplier times the sine value of the roots-of-minus-one premultiplier.  We do not apply the sine value */
 /* the first time the table is built so that we can properly build the XOR masks used in compressing the fudge factor flags. */
 /* NOTE3: The weight associated with abs(c) != 1 is also not applied so that we can properly build the XOR masks. */
+/* NOTE4: The sixteen real macros need some group multipliers divided by another group multiplier to save a multiply instruction (also delayed for XOR masks). */
 
 	if (table != NULL) {
 	    for (i = 0; i < gwdata->FFTLEN / 2 / delay_count; i += 8 * upper_avx512_word) {
@@ -1295,7 +1296,7 @@ double *zr4dwpn_build_norm_table (
 /* the sine value of the roots-of-minus-one premultiplier, and the case where abs(c) != 1. */
 
 	else {
-	    if (gwdata->PASS1_SIZE == 0 || (gwdata->PASS1_SIZE && gwdata->ALL_COMPLEX_FFT) || labs (gwdata->c) != 1)
+	    if (gwdata->PASS1_SIZE == 0 || (gwdata->PASS1_SIZE && gwdata->ALL_COMPLEX_FFT) || labs (gwdata->c) != 1 || delay_count == 8 || delay_count == 12)
 	    for (i = 0; i < gwdata->FFTLEN / 2 / delay_count; i += 8 * upper_avx512_word) {
 		for (j = 0; j < gwdata->FFTLEN / 2; j += gwdata->FFTLEN / 2 / delay_count) {
 		    for (k = 0; k < gwdata->FFTLEN; k += gwdata->FFTLEN / 2) {
@@ -1314,12 +1315,22 @@ double *zr4dwpn_build_norm_table (
 
 				grp = i + j + k + avx512_word;
 				if (gwdata->PASS1_SIZE && gwdata->ALL_COMPLEX_FFT) {
+					/* Handle case where we use FMA to save multiplies by pre-dividing group multipliers */
+					if ((delay_count == 8 && k != 0 && j <= 3 * (gwdata->FFTLEN / 2 / delay_count)) ||
+					    (delay_count == 12 && k != 0 && j <= 5 * (gwdata->FFTLEN / 2 / delay_count)))
+						ttp = gwfft_weight_over_weight (gwdata->dd_data, grp, grp - k);
 					/* Compute the roots-of-minus-one premultiplier.  The root-of-minus-one */
 					/* premultiplier is for 2N, and a root-of-minus-one-of-2N is the same as */
 					/* a root unity for 4N (where N is the number of complex values = FFTLEN/2). */
-					sine_word = i + j + avx512_word;
-					gwfft_weights_times_sine (gwdata->dd_data, grp, sine_word, gwdata->FFTLEN * 2, &ttp, NULL);
-				} else
+					else {
+						sine_word = i + j + avx512_word;
+						gwfft_weights_times_sine (gwdata->dd_data, grp, sine_word, gwdata->FFTLEN * 2, &ttp, NULL);
+					}
+				}
+				else if ((delay_count == 8 && k != 0 && j != 0 && j <= 3 * (gwdata->FFTLEN / 2 / delay_count)) ||
+					 (delay_count == 12 && k != 0 && j != 0 && j <= 5 * (gwdata->FFTLEN / 2 / delay_count)))
+					ttp = gwfft_weight_over_weight (gwdata->dd_data, grp, grp - k);
+				else
 					ttp = gwfft_weight (gwdata->dd_data, grp);
 				*weights++ = ttp;
 			}
