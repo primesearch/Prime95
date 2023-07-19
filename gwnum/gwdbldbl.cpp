@@ -66,15 +66,7 @@ struct gwdbldbl_constants {
 	double	gwdbl__b;
 	double	gwdbl__b_inverse;
 	double	gwdbl__logb_abs_c_div_fftlen;
-	unsigned long last_fft_base_j;
-	unsigned long last_fft_base_result;
-	unsigned long last_inv_sloppy_j;
-	double	last_inv_sloppy_result;
 	double	fast_inv_sloppy_multiplier;
-	double	last_partial_sloppy_power[2];
-	double	last_partial_sloppy_result[2];
-	double	last_partial_inv_sloppy_power[2];
-	double	last_partial_inv_sloppy_result[2];
 	uint32_t int_bpw;		/* Integer part of b-per-FFT-word */
 	uint32_t frac_bpw1;		/* First 32 bits of fractional b-per-FFT-word */
 	uint32_t frac_bpw2;		/* Second 32 bits of fractional b-per-FFT-word */
@@ -798,24 +790,6 @@ void *gwdbldbl_data_alloc (void)
 }
 
 extern "C"
-void *gwdbldbl_data_clone (void *orig)
-{
-	void *dd_data_arg = malloc (sizeof (struct gwdbldbl_constants));
-	if (dd_data_arg != NULL) {
-		memcpy (dd_data_arg, orig, sizeof (struct gwdbldbl_constants));
-		// Clear some values in case orig was in an inconsistent state (mid-update)
-		dd_data->last_fft_base_j = 0;
-		dd_data->last_fft_base_result = 0;
-		dd_data->last_inv_sloppy_j = 0;
-		dd_data->last_inv_sloppy_result = 1.0;
-		dd_data->fast_inv_sloppy_multiplier = gwfft_weight_inverse (dd_data, 1);
-		dd_data->last_partial_sloppy_power[0] = dd_data->last_partial_sloppy_power[1] = 999.0;
-		dd_data->last_partial_inv_sloppy_power[0] = dd_data->last_partial_inv_sloppy_power[1] = 999.0;
-	}
-	return (dd_data_arg);
-}
-
-extern "C"
 void gwfft_weight_setup (
 	void	*dd_data_arg,
 	int	zero_pad,
@@ -854,13 +828,7 @@ void gwfft_weight_setup (
 	tmp = (tmp - (double) dd_data->frac_bpw2) * 4294967296.0;
 	dd_data->frac_bpw3 = (uint32_t) double (floor (tmp));		/* Third 32 bits of fractional b-per-FFT-word */
 
-	dd_data->last_fft_base_j = 0;
-	dd_data->last_fft_base_result = 0;
-	dd_data->last_inv_sloppy_j = 0;
-	dd_data->last_inv_sloppy_result = 1.0;
 	dd_data->fast_inv_sloppy_multiplier = gwfft_weight_inverse (dd_data, 1);
-	dd_data->last_partial_sloppy_power[0] = dd_data->last_partial_sloppy_power[1] = 999.0;
-	dd_data->last_partial_inv_sloppy_power[0] = dd_data->last_partial_inv_sloppy_power[1] = 999.0;
 	END_x86_FIX
 }
 
@@ -1075,6 +1043,9 @@ double gwfft_weight_inverse_sloppy (
 	unsigned long j)
 {
 	double	bpower, result;
+thread_local unsigned long last_inv_sloppy_j = 0;
+thread_local double last_inv_sloppy_result = 1.0;
+thread_local double last_fast_inv_sloppy_multiplier = 99.0;	// Guards against one thread accessing multiple dd_data_args
 
 // Our sequential sloppy optimizations won't work if abs(c) is not one.
 // This is because the result is not in the range 0.5 to 1.0.
@@ -1087,8 +1058,8 @@ double gwfft_weight_inverse_sloppy (
 // Compute weight from previous weight, but don't do too many of
 // these in a row as floating point roundoff errors will accumulate
 
-	if (j == dd_data->last_inv_sloppy_j + 1 && (j & 0x7F)) {
-		result = dd_data->last_inv_sloppy_result * dd_data->fast_inv_sloppy_multiplier;
+	if (j == last_inv_sloppy_j + 1 && (j & 0x7F) && dd_data->fast_inv_sloppy_multiplier == last_fast_inv_sloppy_multiplier) {
+		result = last_inv_sloppy_result * dd_data->fast_inv_sloppy_multiplier;
 		if (result <= dd_data->gwdbl__b_inverse) result = result * dd_data->gwdbl__b;
 
 // Just to be safe, if result is at all close to the boundaries return the carefully computed weight.
@@ -1108,8 +1079,9 @@ double gwfft_weight_inverse_sloppy (
 
 // Save the result for faster sequential sloppy calls
 
-	dd_data->last_inv_sloppy_j = j;
-	dd_data->last_inv_sloppy_result = result;
+	last_inv_sloppy_j = j;
+	last_inv_sloppy_result = result;
+	last_fast_inv_sloppy_multiplier = dd_data->fast_inv_sloppy_multiplier;
 	return (result);
 }
 
@@ -1200,12 +1172,15 @@ unsigned long gwfft_base (
 	unsigned long j)
 {
 	unsigned long bpower;
+thread_local unsigned long last_fft_base_j = 0;
+thread_local unsigned long last_fft_base_result = 0;
+thread_local double last_fast_inv_sloppy_multiplier = 99.0;	// Guards against one thread accessing multiple dd_data_args
 
 // Handle easy cases (first base and same as last base).  When converting a gwnum to binary, we call is_big_word sequentially.
 // Is_big_word calls this routing on n and n+1.  Consequently caching the last returned fft_base nearly halves the cost.
 
 	if (j == 0) return (0);
-	if (j == dd_data->last_fft_base_j) return (dd_data->last_fft_base_result);
+	if (j == last_fft_base_j && dd_data->fast_inv_sloppy_multiplier == last_fast_inv_sloppy_multiplier) return (last_fft_base_result);
 
 // Call the routine that calculates this using integer instructions
 
@@ -1213,8 +1188,9 @@ unsigned long gwfft_base (
 
 // Cache the result before returning it
 
-	dd_data->last_fft_base_j = j;
-	dd_data->last_fft_base_result = bpower;
+	last_fft_base_j = j;
+	last_fft_base_result = bpower;
+	last_fast_inv_sloppy_multiplier = dd_data->fast_inv_sloppy_multiplier;
 	return (bpower);
 }
 
@@ -1484,18 +1460,24 @@ double gwfft_partial_weight_sloppy (
 	unsigned long col)
 {
 	double	j_bpower, col_bpower, bpower, result;
+thread_local double last_partial_sloppy_power[2] = {999.0, 999.0};
+thread_local double last_partial_sloppy_result[2];
+thread_local double last_fast_inv_sloppy_multiplier = 99.0;	// Guards against one thread accessing multiple dd_data_args
 
 	j_bpower = map_to_weight_power_sloppy (dd_data_arg, j);
 	col_bpower = map_to_weight_power_sloppy (dd_data_arg, col);
 
 	bpower = j_bpower - col_bpower;
-	if (bpower == dd_data->last_partial_sloppy_power[0]) return (dd_data->last_partial_sloppy_result[0]);
-	if (bpower == dd_data->last_partial_sloppy_power[1]) return (dd_data->last_partial_sloppy_result[1]);
+	if (dd_data->fast_inv_sloppy_multiplier == last_fast_inv_sloppy_multiplier) {
+		if (bpower == last_partial_sloppy_power[0]) return (last_partial_sloppy_result[0]);
+		if (bpower == last_partial_sloppy_power[1]) return (last_partial_sloppy_result[1]);
+	}
 	result = exp (double (dd_data->gw__logb) * bpower);
-	dd_data->last_partial_sloppy_power[0] = dd_data->last_partial_sloppy_power[1];
-	dd_data->last_partial_sloppy_result[0] = dd_data->last_partial_sloppy_result[1];
-	dd_data->last_partial_sloppy_power[1] = bpower;
-	dd_data->last_partial_sloppy_result[1] = result;
+	last_partial_sloppy_power[0] = last_partial_sloppy_power[1];
+	last_partial_sloppy_result[0] = last_partial_sloppy_result[1];
+	last_partial_sloppy_power[1] = bpower;
+	last_partial_sloppy_result[1] = result;
+	last_fast_inv_sloppy_multiplier = dd_data->fast_inv_sloppy_multiplier;
 	return (result);
 }
 
@@ -1527,17 +1509,23 @@ double gwfft_partial_weight_inverse_sloppy (
 	unsigned long col)
 {
 	double	j_bpower, col_bpower, bpower, result;
+thread_local double last_partial_inv_sloppy_power[2] = {999.0, 999.0};
+thread_local double last_partial_inv_sloppy_result[2];
+thread_local double last_fast_inv_sloppy_multiplier = 99.0;	// Guards against one thread accessing multiple dd_data_args
 
 	j_bpower = map_to_weight_power_sloppy (dd_data_arg, j);
 	col_bpower = map_to_weight_power_sloppy (dd_data_arg, col);
 
 	bpower = col_bpower - j_bpower;
-	if (bpower == dd_data->last_partial_inv_sloppy_power[0]) return (dd_data->last_partial_inv_sloppy_result[0]);
-	if (bpower == dd_data->last_partial_inv_sloppy_power[1]) return (dd_data->last_partial_inv_sloppy_result[1]);
+	if (dd_data->fast_inv_sloppy_multiplier == last_fast_inv_sloppy_multiplier) {
+		if (bpower == last_partial_inv_sloppy_power[0]) return (last_partial_inv_sloppy_result[0]);
+		if (bpower == last_partial_inv_sloppy_power[1]) return (last_partial_inv_sloppy_result[1]);
+	}
 	result = exp (double (dd_data->gw__logb) * bpower);
-	dd_data->last_partial_inv_sloppy_power[0] = dd_data->last_partial_inv_sloppy_power[1];
-	dd_data->last_partial_inv_sloppy_result[0] = dd_data->last_partial_inv_sloppy_result[1];
-	dd_data->last_partial_inv_sloppy_power[1] = bpower;
-	dd_data->last_partial_inv_sloppy_result[1] = result;
+	last_partial_inv_sloppy_power[0] = last_partial_inv_sloppy_power[1];
+	last_partial_inv_sloppy_result[0] = last_partial_inv_sloppy_result[1];
+	last_partial_inv_sloppy_power[1] = bpower;
+	last_partial_inv_sloppy_result[1] = result;
+	last_fast_inv_sloppy_multiplier = dd_data->fast_inv_sloppy_multiplier;
 	return (result);
 }

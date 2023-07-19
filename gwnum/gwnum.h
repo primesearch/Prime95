@@ -55,9 +55,9 @@ typedef gwnum *gwarray;
 /* are new prime95 versions without any changes in the gwnum code.  This version number is also embedded in the assembly code and */
 /* gwsetup verifies that the version numbers match.  This prevents bugs from accidentally linking in the wrong gwnum library. */
 
-#define GWNUM_VERSION		"30.13"
+#define GWNUM_VERSION		"30.14"
 #define GWNUM_MAJOR_VERSION	30
-#define GWNUM_MINOR_VERSION	13
+#define GWNUM_MINOR_VERSION	14
 
 /* Error codes returned by the three gwsetup routines */
 
@@ -302,27 +302,25 @@ void binary64togw (
 	uint64_t arraylen,	/* Length of the array */
 	gwnum	n);		/* Destination gwnum */
 
-/* Convert a gwnum to a binary value (array of 32-bit values).  Returns */
-/* the number of 32-bit values written to the array.  The array is NOT */
-/* zero-padded.  Returns a negative number if an error occurs during the */
-/* conversion.  An error can happen if the FFT data contains a NaN or */
-/* infinity value. */
+/* Convert a gwnum to a binary value (array of 32-bit values).  Returns the number of 32-bit values written to the array.  The array is NOT zero-padded. */
+/* Returns a negative number if an error occurs during the conversion.  An error can happen if the FFT data contains a NaN or infinity value. */
+/* NOTE: uses gwtogiant which requires a buffer a few words larger than the maximum possible returned value.  Calling this routine with a buffer */
+/* large enough for gwtogiant to use will save allocating the bigger buffer and a memcpy. */
 long gwtobinary (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	gwnum	n,		/* Source gwnum */
 	uint32_t *array,	/* Array to contain the binary value */
 	uint32_t arraylen);	/* Maximum size of the array */
 
-/* Convert a gwnum to a binary value (array of 64-bit values).  Returns */
-/* the number of 64-bit values written to the array.  The array is NOT */
-/* zero-padded.  Returns a negative number if an error occurs during the */
-/* conversion.  An error can happen if the FFT data contains a NaN or */
-/* infinity value. */
+/* Convert a gwnum to a binary value (array of 64-bit values).  Returns the number of 64-bit values written to the array.  The array is NOT zero-padded. */
+/* Returns a negative number if an error occurs during the conversion.  An error can happen if the FFT data contains a NaN or infinity value. */
+/* NOTE: uses gwtogiant which requires a buffer a few words larger than the maximum possible returned value.  Calling this routine with a buffer */
+/* large enough for gwtogiant to use will save allocating the bigger buffer and a memcpy. */
 long gwtobinary64 (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	gwnum	n,		/* Source gwnum */
 	uint64_t *array,	/* Array to contain the binary value */
-	uint64_t arraylen);	/* Maximum size of the array */
+	uint32_t arraylen);	/* Maximum size of the array */
 
 /* Generate a random number.  Can be useful for QA purposes. */
 void gw_random_number (

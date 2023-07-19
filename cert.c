@@ -495,7 +495,7 @@ int cert (
 
 /* Format a JSON version of the result.  An example follows: */
 /* {"exponent":25000000, "worktype":"Cert", "sha3-hash":"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF", */
-/* "fft-length":4096000, "error-code":"00010000", */
+/* "fft-length":4096000, "squarings":100000, "error-code":"00010000", */
 /* "security-code":"C6B0B26C", "program":{"name":"prime95", "version":"30.1", "build":"1"}, "timestamp":"2019-01-15 23:28:16", */
 /* "user":"gw_2", "cpu":"basement", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
 
@@ -504,6 +504,7 @@ int cert (
 	JSONaddExponent (JSONbuf, w);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"sha3-hash\":\"%s\"", hash_to_string (hash));
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", cs.gwdata.FFTLEN);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"squarings\":%d", w->cert_squarings);
 	if (cs.units_bit) sprintf (JSONbuf+strlen(JSONbuf), ", \"shift-count\":%ld", cs.units_bit);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"error-code\":\"%08lX\"", cs.error_count);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC1(w->n));

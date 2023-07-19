@@ -799,48 +799,56 @@ int nonbase2_gwtogiant (	/* Returns an error code or zero for success */
 
 	{
 		long	val;
-		int	bits, bitsout, carry;
+		int64_t accum;
+		int	bits, accumbits;
 		unsigned long i, limit;
 		uint32_t *outptr;
+		bool	negative_gwnum;
+
+/* Detect if gwnum is negative.  At least most of the time: say maximum FFT value is 100, then top words of (0, -25) is negative and properly detected, */
+/* but top words of (1, -125) wouldn't be properly detected as negative.  Handling negative values in the main loop is faster than a postprocessing */
+/* pass that negates the result. */
+
+		for (limit = work_gwdata->FFTLEN; limit > 0; limit--) {		/* Find top word */
+			err_code = get_fft_value (work_gwdata, t1, limit-1, &val);
+			if (err_code) return (err_code);
+			if (val != 0) break;
+		}
+		negative_gwnum = (val < 0);
 
 /* Collect bits until we have all of them */
 
-		carry = 0;
-		bitsout = 0;
+		accum = 0;
+		accumbits = 0;
 		outptr = g->n;
-		*outptr = 0;
 		limit = divide_rounding_up ((int) ceil (gwdata->bit_length), 32) + 1;
 		for (i = 0; ; i++) {
 			if (i < (int) work_gwdata->FFTLEN) {
 				err_code = get_fft_value (work_gwdata, t1, i, &val);
 				if (err_code) goto err;
-			} else
-				val = 0;
-			bits = work_gwdata->NUM_B_PER_SMALL_WORD + ((big_word_flags >> (i % num_big_word_flags)) & 1);
-			val += carry;
-
-			carry = (val >> bits);
-			val -= (carry << bits);
-			*outptr += (val << bitsout);
-			bitsout += bits;
-			if (bitsout >= 32) {
-				bitsout -= 32;
-				*++outptr = (val >> (bits - bitsout));
-				if (outptr == g->n + limit) break;
+				if (negative_gwnum) val = -val;
+				bits = work_gwdata->NUM_B_PER_SMALL_WORD + ((big_word_flags >> (i % num_big_word_flags)) & 1);
+				accum += ((int64_t) val) << accumbits;
+				accumbits += bits;
+				if (accumbits < 32) continue;
 			}
+			*outptr++ = (uint32_t) accum;
+			accum >>= 32;
+			accumbits -= 32;
+			if (outptr == g->n + limit) break;
 		}
-		ASSERTG (carry == 0 || carry == -1);
+		ASSERTG (accum == 0 || accum == -1);
 
 /* Set the length */
 
 		g->sign = (long) (outptr - g->n);
 		while (g->sign && g->n[g->sign-1] == 0) g->sign--;
+		if (negative_gwnum) g->sign = -g->sign;
 
-/* If carry is -1, the gwnum is negative.  Ugh.  Flip the bits and sign. */
+/* If accumulator is -1, the gwnum is negative.  Ugh.  Flip the bits and sign.   This should be exceedingly rare as we detected most negative gwnums earlier. */
 
-		if (carry == -1) {
-			int	j;
-			for (j = 0; j < g->sign; j++) g->n[j] = ~g->n[j];
+		if (accum == -1) {
+			for (int j = 0; j < g->sign; j++) g->n[j] = ~g->n[j];
 			while (g->sign && g->n[g->sign-1] == 0) g->sign--;
 			iaddg (1, g);
 			g->sign = -g->sign;

@@ -691,6 +691,7 @@ struct common_cost_data {
 	double	stage1_cost;		/* Cost (in stage 1 FFTs) of stage 1 */
 	double	gcd_cost;		/* Cost (in stage 1 FFTs) of a GCD */
 	double	modinv_cost;		/* Cost (in stage 1 FFTs) of a modular inverse */
+	double	poly_compression;	/* Expected compression from polymult_preprocess for polynomials that can be compressed. */
 	int	threads;		/* Number of threads used during FFTs */
 	uint64_t numvals;		/* Maximum number of gwnum temporaries that can be allocated for relative prime data, pairmaps, */
 					/* ECM pooling.  Additional gwnums needed by ECM/P-1/P+1 are not included in this maximum number. */
@@ -3937,7 +3938,6 @@ struct ecm_stage2_cost_data {
 	struct common_cost_data c;
 	/* ECM specific data sent to cost function follows */
 	int	impl;		/* Many possible implementations.  2 vs. 4 FFT, N^2 or several 3-or-more-mult poolings. */
-	double	poly_compression; /* Expected compression from polymult_preprocess for polynomials that can be compressed. */
 	bool	saving_Ftree_to_disk; /* TRUE if the two Ftree rows are saved to disk rather than memory */
 	/* ECM specific data returned from cost function follows */
 	int	stage2_type;	/* Prime pairing vs. polymult */
@@ -4223,29 +4223,6 @@ double ecm_stage2_cost (
 //GW: this minimum may or may not be right, we do require at least 4 polyFtree levels
 if (cost_data->c.numvals < 6*32) return (-1.0);
 
-		// Stage 2 polymult needs 4 polys (polyF, polyR, polyGH) plus two Ftree polys unless they are saved to disk plus 1/7 for modinv temps.
-		num_polys = (cost_data->saving_Ftree_to_disk ? 4.0 : 6.0) + 1.0 / 7.0;
-//GW: Factor in compression, but never less than 4.0/6.0 (if it could be less do we need to rethink Ftree strategy?)
-		if (cost_data->c.numrels > cost_data->c.numvals / num_polys) return (-1.0);
-
-		cost_data->pool_type = POOL_3POINT57MULT;
-		cost_data->c.stage2_numvals = (int) (num_polys * poly_size);		//GW: plus several (gg, QDEover2, 5 for modinv temps, others?)
-
-//		if (cost_data->c.gwdata != NULL) {
-			mem_used_by_a_gwnum = (double) array_gwnum_size (cost_data->c.gwdata);
-//			max_poly2_size = max_safe_poly2_size (cost_data->c.gwdata, poly1_size*2, cost_data->numvals);
-//		} else {
-//			mem_used_by_a_gwnum = (double) cost_data->c.stage2_fftlen * sizeof (double) * 1.016;
-//			max_poly2_size = cost_data->numvals;
-//		}
-//GW:		mem_saved_by_compression = 2 * (double) poly_size * mem_used_by_a_gwnum * (1.0 - cost_data->poly1_compression);		// PolyF and polyR
-//GW: if num_polyGs == 1, polyF and polyR are not compressed
-//GW: Factor in polymult_mem_required (like P-1)
-//		cpu_flags = cost_data->c.gwdata->cpu_flags;
-		mem_used_by_polymult = (double) polymult_mem_required (cost_data->c.polydata, poly_size, poly_size, POLYMULT_INVEC1_MONIC);
-//GW: Factor in max_safe same as P-1
-//GW: increase Ftree polys in memory based on compression savings
-
 /* Loop increasing B2_start based on the fact that numDsections will be a multiple of poly_size.  In essence this gives a free increase in the B2 endpoint. */
 
 		uint64_t num_polyG = divide_rounding_up (cost_data->c.numDsections, poly_size);
@@ -4259,6 +4236,22 @@ if (cost_data->c.numvals < 6*32) return (-1.0);
 				cost_data->c.B2_start = B2_start;
 			}
 		}
+
+		// Stage 2 polymult needs 4 polys (polyF, polyR, polyGH) plus two Ftree polys unless they are saved to disk plus 1/7 for modinv temps.
+		// NOTE: Though not implemented yet, if num_polyGs == 1 polyH is not needed (and maybe the 1/7 for modinv temps too)
+		cost_data->pool_type = POOL_3POINT57MULT;
+		num_polys = (cost_data->saving_Ftree_to_disk ? 4.0 : 6.0) + 1.0 / 7.0;
+		if (num_polyG == 1) num_polys -= 1.0;
+
+		// Adjust numvals used in stage 2 to account for polymult memory and savings from compressing polyF and polyR.
+		// NOTE: Though not implemented yet, if num_polyGs == 1 polyF and polyR are not compressed
+		cost_data->c.stage2_numvals = (int) (num_polys * poly_size) + 1;		//GW: plus several? (QDEover2, gg, 5 for modinv temps, others?)
+		mem_used_by_a_gwnum = (double) array_gwnum_size (cost_data->c.gwdata);
+		mem_saved_by_compression = 2 * (double) poly_size * mem_used_by_a_gwnum * (1.0 - cost_data->c.poly_compression);
+		if (num_polyG == 1) mem_saved_by_compression = 0.0;
+		mem_used_by_polymult = (double) polymult_mem_required (cost_data->c.polydata, poly_size, poly_size, POLYMULT_INVEC1_MONIC);
+		cost_data->c.stage2_numvals += (int) floor ((mem_used_by_polymult - mem_saved_by_compression) / mem_used_by_a_gwnum + 0.5);
+		if (cost_data->c.stage2_numvals > cost_data->c.numvals) return (-1.0);
 
 /* Estimating the cost of a polymult is difficult.  See P-1 costing function for explanation of the code below. */
 
@@ -4384,9 +4377,9 @@ double ecm_stage2_impl_given_numvals (
 /* Compute the expected compression of poly1 using polymult_preprocess.  Default compression is usually 1.6%.  Some FFT sizes may have more padding */
 /* and thus more compression.  If poly compression option is set we'll get another 12.5%. */
 
-	cost_data.poly_compression = (double) gwfftlen (&ecmdata->gwdata) * (double) sizeof (double) / (double) array_gwnum_size (&ecmdata->gwdata);
-	if (IniGetInt (INI_FILE, "ECMPolyCompress", 1) == 2) cost_data.poly_compression *= 0.875;
-	if (IniGetInt (INI_FILE, "ECMPolyCompress", 1) == 0) cost_data.poly_compression = 1.0;
+	cost_data.c.poly_compression = (double) gwfftlen (&ecmdata->gwdata) * (double) sizeof (double) / (double) array_gwnum_size (&ecmdata->gwdata);
+	if (IniGetInt (INI_FILE, "ECMPolyCompress", 1) == 2) cost_data.c.poly_compression *= 0.875;
+	if (IniGetInt (INI_FILE, "ECMPolyCompress", 1) == 0) cost_data.c.poly_compression = 1.0;
 //GW: factor this compressed memory into numvals!
 
 /* Whether Ftree rows can be stored on disk may make a significant difference */
@@ -4499,7 +4492,7 @@ void ecm_choose_B2 (
 
 /* Find the best B2.  We use a binary-like search to speed things up (new in version 30.3b3). */
 
-	while (best[0].i + 2 != best[2].i && best[0].i > 1) {
+	while (best[2].i - best[0].i > 2 && best[0].i > 1) {
 		struct ecm_stage2_efficiency midpoint;
 
 		ASSERTG (best[1].efficiency >= best[0].efficiency);
@@ -5974,6 +5967,7 @@ replan:	unsigned long best_fftlen;
 		ecmdata.gwdata.scramble_arrays = (char) IniGetInt (INI_FILE, "PolymultScramble", ecmdata.gwdata.scramble_arrays);
 		ecmdata.polydata.strided_writes_end = IniGetInt64 (INI_FILE, "PolymultStridedWritesEnd", ecmdata.polydata.strided_writes_end);
 		ecmdata.polydata.streamed_stores_start = IniGetInt64 (INI_FILE, "PolymultStreamStores", 0); // Default is always stream stores because of POLYMULT_NOUNFFT
+		gwset_polymult_safety_margin (&ecmdata.gwdata, 0.0);		// If needed, reset polymult safety margin while calculating new poly size
 
 /* When recovering from a roundoff error, only cost FFT lengths larger than the FFT length that generated the roundoff error. */
 
@@ -8983,7 +8977,6 @@ struct pm1_stage2_cost_data {
 	int	stage2_type;			// Prime pairing vs. polymult
 	double	sieve_depth;			// How much trial factoring has been done
 	double	takeAwayBits;			// Bits we get for free in smoothness of P-1 factor
-	double	poly1_compression;		// Adjustment for poly1_size based on the expected compression from polymult_preprocess
 	/* P-1 specific data returned from cost function follows */
 	uint64_t poly2_size;			// Size of second poly (poly1_size is same as numrels)
 	double	factor_probability;		// Chance of finding a factor as returned by pm1prob
@@ -9090,7 +9083,7 @@ double pm1_stage2_cost (
 			mem_used_by_a_gwnum = (double) cost_data->c.stage2_fftlen * sizeof (double) * 1.016;
 			max_poly2_size = cost_data->c.numvals;
 		}
-		mem_saved_by_compression = (double) poly1_size * mem_used_by_a_gwnum * (1.0 - cost_data->poly1_compression);
+		mem_saved_by_compression = (double) poly1_size * mem_used_by_a_gwnum * (1.0 - cost_data->c.poly_compression);
 
 		// Binary search for largest poly2_size that does not use too much memory
 		min_poly2_size = 2*poly1_size;
@@ -9271,9 +9264,9 @@ double pm1_stage2_impl_given_numvals (
 /* Compute the expected compression of poly1 using polymult_preprocess.  Default compression is usually 1.6%.  Some FFT sizes may have more padding */
 /* and thus more compression.  If poly compression option is set we'll get another 12.5%. */
 
-	cost_data.poly1_compression = (double) gwfftlen (&pm1data->gwdata) * (double) sizeof (double) / (double) array_gwnum_size (&pm1data->gwdata);
-	if (IniGetInt (INI_FILE, "Poly1Compress", 2) == 2) cost_data.poly1_compression *= 0.875;
-	if (IniGetInt (INI_FILE, "Poly1Compress", 2) == 0) cost_data.poly1_compression = 1.0;
+	cost_data.c.poly_compression = (double) gwfftlen (&pm1data->gwdata) * (double) sizeof (double) / (double) array_gwnum_size (&pm1data->gwdata);
+	if (IniGetInt (INI_FILE, "Poly1Compress", 2) == 2) cost_data.c.poly_compression *= 0.875;
+	if (IniGetInt (INI_FILE, "Poly1Compress", 2) == 0) cost_data.c.poly_compression = 1.0;
 
 /* Find the most efficienct stage 2 plan looking at the two available algorithms */
 
@@ -9376,7 +9369,7 @@ void pm1_choose_B2 (
 
 /* Find the best B2.  We use a binary-like search to speed things up (new in version 30.3b3). */
 
-	while (best[0].i + 2 != best[2].i && best[0].i > 1) {
+	while (best[2].i - best[0].i > 2 && best[0].i > 1) {
 		struct pm1_stage2_efficiency midpoint;
 
 		// Polymult can have a wide variety of i values choose the same D value and thus the same efficiency
@@ -10451,6 +10444,7 @@ replan:	unsigned long best_fftlen;
 		pm1data.gwdata.scramble_arrays = (char) IniGetInt (INI_FILE, "PolymultScramble", pm1data.gwdata.scramble_arrays);
 		pm1data.polydata.strided_writes_end = IniGetInt64 (INI_FILE, "PolymultStridedWritesEnd", pm1data.polydata.strided_writes_end);
 		pm1data.polydata.streamed_stores_start = IniGetInt64 (INI_FILE, "PolymultStreamStores", 0); // Default is always stream stores because of POLYMULT_NOUNFFT
+		gwset_polymult_safety_margin (&pm1data.gwdata, 0.0);		// If needed, reset polymult safety margin while calculating new poly size
 
 /* When recovering from a roundoff error, only cost FFT lengths larger than the FFT length that generated the roundoff error. */
 
@@ -12230,7 +12224,7 @@ void pminus1_choose_B2 (
 
 /* Find the best B2.  We use a binary-like search to speed things up (new in version 30.3b3). */
 
-	while (best[0].B2 != best[2].B2) {
+	while (best[2].B2 - best[0].B2 > 2) {
 		struct pm1_savings_data midpoint;
 
 		ASSERTG (best[1].savings >= best[0].savings);
@@ -12241,7 +12235,7 @@ void pminus1_choose_B2 (
 		if (best[1].B2 - best[0].B2 > best[2].B2 - best[1].B2) {	// Work on lower section
 			// If the savings difference is real small, then we've searched this section enough
 			if (best[1].savings - best[0].savings < 100.0) {
-				best[0] = best[1];
+				best[0] = best[1], best[0].B2--;
 				continue;
 			}
 			midpoint = *c;
@@ -12256,7 +12250,7 @@ void pminus1_choose_B2 (
 		} else {							// Work on upper section
 			// If the savings difference is real small, then we've searched this section enough
 			if (best[1].savings - best[2].savings < 100.0) {
-				best[2] = best[1];
+				best[2] = best[1], best[2].B2++;
 				continue;
 			}
 			midpoint = *c;
@@ -12307,9 +12301,9 @@ void guess_pminus1_bounds (
 	g.cost_data.takeAwayBits = isMersenne (k, b, n, c) ? log2 (n) + 1.0 : isGeneralizedFermat (k, b, n, c) ? log2 (n) : 0.0;
 	g.cost_data.sieve_depth = how_far_factored;
 	g.cost_data.c.polydata = &g.polydata;
-	g.cost_data.poly1_compression = 0.984;
-	if (IniGetInt (INI_FILE, "Poly1Compress", 2) == 2) g.cost_data.poly1_compression *= 0.875;
-	if (IniGetInt (INI_FILE, "Poly1Compress", 2) == 0) g.cost_data.poly1_compression = 1.0;
+	g.cost_data.c.poly_compression = 0.984;
+	if (IniGetInt (INI_FILE, "Poly1Compress", 2) == 2) g.cost_data.c.poly_compression *= 0.875;
+	if (IniGetInt (INI_FILE, "Poly1Compress", 2) == 0) g.cost_data.c.poly_compression = 1.0;
 	g.cost_data.c.stage1_fftlen = gwmap_to_fftlen (k, b, n, c);
 	g.cost_data.c.threads = CORES_PER_TEST[thread_num] + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0);
 	init_gcd_costs ((n * log ((double) b) + log (k)) / log (2.0), &g.cost_data);
@@ -12372,7 +12366,7 @@ void guess_pminus1_bounds (
 
 /* Find the best B1.  We use a binary-like search to speed things up (new in version 30.3b3). */
 
-	while (best[0].B1 != best[2].B1) {
+	while (best[2].B1 - best[0].B1 > 2) {
 		struct pm1_savings_data midpoint;
 
 		ASSERTG (best[1].savings >= best[0].savings);
@@ -12383,7 +12377,7 @@ void guess_pminus1_bounds (
 		if (best[1].B1 - best[0].B1 > best[2].B1 - best[1].B1) {	// Work on lower section
 			// If the savings difference is real small, then we've searched this section enough
 			if (best[1].savings - best[0].savings < 100.0) {
-				best[0] = best[1];
+				best[0] = best[1], best[0].B1--;
 				continue;
 			}
 			midpoint.B1 = (best[0].B1 + best[1].B1) / 2;
@@ -12397,7 +12391,7 @@ void guess_pminus1_bounds (
 		} else {							// Work on upper section
 			// If the savings difference is real small, then we've searched this section enough
 			if (best[1].savings - best[2].savings < 100.0) {
-				best[2] = best[1];
+				best[2] = best[1], best[2].B1++;
 				continue;
 			}
 			midpoint.B1 = (best[1].B1 + best[2].B1) / 2;
@@ -12950,7 +12944,7 @@ void pp1_choose_B2 (
 
 /* Find the best B2.  We use a binary-like search to speed things up. */
 
-	while (best[0].i + 2 != best[2].i) {
+	while (best[2].i - best[0].i > 2) {
 		struct pp1_stage2_efficiency midpoint;
 
 		// Work on the bigger of the lower section and upper section
@@ -14710,7 +14704,7 @@ bingo:	if (pp1data.state < PP1_STATE_MIDSTAGE)
 
 /* Create a PRP work unit to immediately test the Mersenne cofactor */
 
-	if (USE_PRIMENET && w->k == 1.0 && w->b == 2 && w->c == -1 && (int) w->n < IniGetInt (INI_FILE, "MaxAutoPRPExponent", 5000000)) {
+	if (USE_PRIMENET && w->k == 1.0 && w->b == 2 && w->c == -1 && strlen (str) >= 21 && (int) w->n < IniGetInt (INI_FILE, "MaxAutoPRPExponent", 5000000)) {
 		struct work_unit w_prp;
 		generatePRPWorkUnit (w, str, &w_prp);
 		// Add work unit before or after this work unit

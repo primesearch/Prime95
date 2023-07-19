@@ -544,8 +544,10 @@ void polymult_init (
 	polymult_default_tuning (pmdata, 256, 6144);
 
 	// Init FFT(1) if needed
-	if (pmdata->gwdata->k != 1.0) gwuser_init_FFT1 (pmdata->gwdata);
-	if (pmdata->gwdata->ZERO_PADDED_FFT) zpad7_fft (pmdata->gwdata, pmdata->gwdata->GW_FFT1);
+	if (!pmdata->gwdata->information_only) {
+		if (pmdata->gwdata->k != 1.0) gwuser_init_FFT1 (pmdata->gwdata);
+		if (pmdata->gwdata->ZERO_PADDED_FFT) zpad7_fft (pmdata->gwdata, pmdata->gwdata->GW_FFT1);
+	}
 }
 
 // Set default polymult tuning using CPU cache sizes.  If this routine is not called, default tuning parameters are set using L2 cache of 256KB, and
@@ -5606,6 +5608,7 @@ void polymult_post_unfft (
 
 			// Do the unfft as well as any addin adjustments
 //GW: use gwsetaddin rather than gwaddsmall?  We'd need to save/restore the existing addin.  Only affect RLP * RLP, don't bother?
+//GW: if k!=1 gwaddsmall of one is not cheap.  It does a dbltogw.  We should cache a gwnum containing 1.0.
 			gwunfft2 (gwdata, outvec[j], outvec[j],
 				  ((options & (POLYMULT_STARTNEXTFFT | POLYMULT_NEXTFFT)) && !j_affected_by_addin) ? GWMUL_STARTNEXTFFT : 0);
 			if (j_affected_by_addin) {

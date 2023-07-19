@@ -411,13 +411,28 @@ void *x87_prctab[] = { x87_explode(array_entry) NULL };
 
 /* Helper macros */
 
-#ifndef isinf
-#define isinf(x)		((x) != 0.0 && (x) == 2.0*(x))
-#endif
-#ifndef isnan
-#define isnan(x)		((x) != (x))
-#endif
-#define is_valid_double(x)	(! isnan (x) && ! isinf (x))
+// These macros were required before the C99 standard
+//#ifndef isinf
+//#define isinf(x)		((x) != 0.0 && (x) == 2.0*(x))
+//#endif
+//#ifndef isnan
+//#define isnan(x)		((x) != (x))
+//#endif
+//#define is_valid_double(x)	(! isnan (x) && ! isinf (x))
+
+// Instead, I'm using a home grown solution that seems to be faster using isfinite macro.
+// From the internet describing layout of a double:
+// If sign = 0 && exponent == 11111111111 && mantissa == 0   =>   +Infinity
+// If sign = 1 && exponent == 11111111111 && mantissa == 0   =>   -Infinity
+// If             exponent == 11111111111 && mantissa != 0   =>   NaN
+// If             exponent != 11111111111                    =>   Finite
+inline int is_valid_double (double x) {
+	union uint64_double { uint64_t x64; double xdbl; } xcast;
+	xcast.xdbl = x;
+	return ((xcast.x64 & 0x7ff0000000000000ULL) != 0x7ff000000000000);
+}
+#define is_valid_double_addr(x)	(((* (uint64_t *) x) & 0x7ff0000000000000ULL) != 0x7ff000000000000)
+
 
 /* More #defines */
 
@@ -2690,7 +2705,6 @@ int gwclone (
 /* Clear pointers we're about to overwrite in case an error occurs and gwdone is called */
 
 	cloned_gwdata->asm_data = NULL;
-	cloned_gwdata->dd_data = NULL;
 
 /* Each cloned handle must have their own asm_data structure */
 
@@ -2722,14 +2736,6 @@ int gwclone (
 			return (GWERROR_MALLOC);
 		}
 		init_asm_info_carries (gwdata, cloned_asm_data);
-	}
-
-/* Each clone must have their own dd_data structure (there are cached values in there not accessed in a thread safe manor) */
-
-	cloned_gwdata->dd_data = gwdbldbl_data_clone (gwdata->dd_data);
-	if (cloned_gwdata->dd_data == NULL) {
-		gwdone (cloned_gwdata);
-		return (GWERROR_MALLOC);
 	}
 
 /* Clear counters and caches.  Each handle will keep there own counts to later be merged back into the parent gwdata. */
@@ -6617,11 +6623,11 @@ void gwdone (
 
 	// Free structures that are allocated for both original and cloned gwdatas
 	term_ghandle (&gwdata->gdata);
-	free (gwdata->dd_data); gwdata->dd_data = NULL;
 
 	// Free items that are shared with cloned gwdatas (only free when parent is freed)
 	if (gwdata->clone_of == NULL) {
 		free (gwdata->GW_MODULUS); gwdata->GW_MODULUS = NULL;
+		free (gwdata->dd_data); gwdata->dd_data = NULL;
 		gwmutex_destroy (&gwdata->alloc_lock);
 	}
 
@@ -7462,7 +7468,7 @@ int get_fft_value (
 	unsigned long i,
 	long	*retval)
 {
-	double	val;
+	double	val, *valaddr;
 
 /* Make sure data is not FFTed.  Caller should really try to avoid this scenario. */
 
@@ -7470,8 +7476,9 @@ int get_fft_value (
 
 /* Get the FFT data and validate it */
 
-	val = * addr (gwdata, g, i);
-	if (! is_valid_double (val)) return (GWERROR_BAD_FFT_DATA);
+	valaddr = addr (gwdata, g, i);
+	if (! is_valid_double_addr (valaddr)) return (GWERROR_BAD_FFT_DATA);
+	val = *valaddr;
 
 /* Rational and AVX-512 FFTs are not weighted */
 
@@ -7558,9 +7565,15 @@ void bitaddr (
 	*word = (unsigned long) ((double) bit / gwdata->avg_num_b_per_word);
 	if (*word >= gwdata->FFTLEN) *word = gwdata->FFTLEN - 1;
 
+/* Catch an extreme edge case.  For example: n = 333043493, FFTlen = 18874368 has avg_num_b_per_word of 17.645279195573593.  Bit = 312719184 needs */
+/* more than 53 bits of precision to conclude that *word of 17722540.999999996997389166825727 must be rounded down to 17722540. */
+
+	unsigned long base = gwfft_base (gwdata->dd_data, *word);
+	if (base > bit) *word -= 1, base = gwfft_base (gwdata->dd_data, *word);
+
 /* Compute the bit within the word. */
 
-	*bit_in_word = bit - gwfft_base (gwdata->dd_data, *word);
+	*bit_in_word = bit - base;
 }
 
 /* Map a gwerror code into human readable text */
@@ -8845,13 +8858,12 @@ void gianttogw (
 			a = newg;
 		}
 
-/* Now convert the giant to gwnum format.  For base 2 we simply copy bits.  */
+/* Now convert the giant to gwnum format.  For base 2 we simply copy bits. */
 
 		if (gwdata->b == 2) {
-			unsigned long i, limit, carry;
-			unsigned long mask1, mask2, e1len;
-			int	bits1, bits2, bits_in_next_binval;
-			unsigned long binval;
+			unsigned long i, limit;
+			int	bits, bits1, bits2, e1len, accumbits;
+			int64_t	accum, value;
 			uint32_t *e1;
 
 			// Figure out how many FFT words we will need to set
@@ -8864,52 +8876,29 @@ void gianttogw (
 
 			bits1 = gwdata->NUM_B_PER_SMALL_WORD;
 			bits2 = bits1 + 1;
-			mask1 = (1L << bits1) - 1;
-			mask2 = (1L << bits2) - 1;
-			if (e1len) {binval = *e1++; e1len--; bits_in_next_binval = 32;}
-			else binval = 0;
-			carry = 0;
+
+			accum = 0;
+			accumbits = 0;
+
 			for (i = 0; i < limit; i++) {
-				int	big_word, bits;
-				long	value, mask;
-				big_word = is_big_word (gwdata, i);
-				bits = big_word ? bits2 : bits1;
-				mask = big_word ? mask2 : mask1;
-				if (i == limit - 1) value = binval;
-				else value = binval & mask;
-				value = value + carry;
-				if (value > (mask >> 1) && bits > 1 && i != limit - 1) {
-					value = value - (mask + 1);
-					carry = 1;
-				} else {
-					carry = 0;
-				}
-				set_fft_value (gwdata, g, i, value);
 
-				binval >>= bits;
-				if (e1len == 0) continue;
-				if (bits_in_next_binval < bits) {
-					if (bits_in_next_binval)
-						binval |= (*e1 >> (32 - bits_in_next_binval)) << (32 - bits);
-					bits -= bits_in_next_binval;
-					e1++; e1len--; bits_in_next_binval = 32;
-					if (e1len == 0) continue;
+				// If needed, add another 32 input bits to accumulator
+				if (accumbits < 28) {
+					if (e1len > 0) accum += ((uint64_t) *e1++) << accumbits, e1len--;
+					accumbits += 32;
 				}
-				if (bits) {
-					binval |= (*e1 >> (32 - bits_in_next_binval)) << (32 - bits);
-					bits_in_next_binval -= bits;
-				}
+
+				// Process top word without sign extension, otherwise grab bits with sign extension.
+				// Special case zero bits as shift left 64 may be undefined.
+				bits = (i == limit - 1) ? 32 : is_big_word (gwdata, i) ? bits2 : bits1;
+				value = bits ? (accum << (64 - bits)) >> (64 - bits) : 0;
+				set_fft_value (gwdata, g, i, (long) value);
+				accum = (accum - value) >> bits;
+				accumbits -= bits;
 			}
 
-/* Write carry, if any, to FFT data */
-
-			if (carry) set_fft_value (gwdata, g, i++, carry);
-
-/* Clear the upper words */
-
-			for ( ; i < gwdata->FFTLEN; i++) {
-				set_fft_value (gwdata, g, i, 0);
-			}
+			// Clear the upper words
+			for ( ; i < gwdata->FFTLEN; i++) set_fft_value (gwdata, g, i, 0);
 		}
 
 /* Otherwise (non-base 2), we do a recursive divide and conquer radix conversion. */
@@ -8936,10 +8925,8 @@ void gianttogw (
 	gwdata->write_count += 1;
 }
 
-/* Convert a gwnum to a binary value.  Returns the number of 32-bit values */
-/* written to the array.  The array is NOT zero-padded.  Returns a */
-/* negative number if an error occurs during the conversion.  An error */
-/* can happen if the FFT data contains a NaN or infinity value. */
+/* Convert a gwnum to a binary value.  Returns the number of 32-bit values written to the array.  The array is NOT zero-padded.  Returns a */
+/* negative number if an error occurs during the conversion.  An error can happen if the FFT data contains a NaN or infinity value. */
 
 long gwtobinary (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
@@ -8947,61 +8934,65 @@ long gwtobinary (
 	uint32_t *array,	/* Array to contain the binary value */
 	uint32_t arraylen)	/* Maximum size of the array */
 {
-	giant	tmp;
 	int	err_code;
+
+	ASSERTG (arraylen * 32 > gwdata->bit_length);
 
 /* Make sure data is not FFTed.  Caller should really try to avoid this scenario. */
 
 	if (FFT_state (n) != NOT_FFTed) gwunfft (gwdata, n, n);
 
-/* Convert the number */
+/* Convert the number in-place if we can.  gwtogiant has two sources of possibly needing a bigger buffer.  One is the mul-by-k, the other is unnormalized adds. */
+/* It is also true that gwnum multiplications do not guarantee perfectly normalized gwnums, so the top FFT word could have an extra bit. */
+/* We want to be extra safe, so instead on at least a full extra word. */
 
-	tmp = popg (&gwdata->gdata, ((unsigned long) gwdata->bit_length >> 5) + 5);
-	err_code = gwtogiant (gwdata, n, tmp);
-	if (err_code < 0) return (err_code);
-	ASSERTG ((unsigned long) tmp->sign <= arraylen);
-	memcpy (array, tmp->n, tmp->sign * sizeof (uint32_t));
-	pushg (&gwdata->gdata, 1);
-	gwdata->read_count += 1;
-	return (tmp->sign);
+	if (arraylen * 32 >= gwdata->bit_length + log2 (gwdata->k) + unnorms (n) + 32.0) {
+		giantstruct tmp;
+		tmp.n = (uint32_t *) array;
+		setmaxsize (&tmp, arraylen);
+		err_code = gwtogiant (gwdata, n, &tmp);
+		if (err_code < 0) return (err_code);
+		gwdata->read_count += 1;
+		return (tmp.sign);
+	}
+	
+/* Convert the number using a bigger buffer */
+
+	else {
+		giant tmp = popg (&gwdata->gdata, ((unsigned long) gwdata->bit_length >> 5) + 5);
+		err_code = gwtogiant (gwdata, n, tmp);
+		if (err_code < 0) { pushg (&gwdata->gdata, 1); return (err_code); }
+		if ((uint32_t) tmp->sign > arraylen) tmp->sign = arraylen;			// Truncate result if necessary
+		memcpy (array, tmp->n, tmp->sign * sizeof (uint32_t));
+		pushg (&gwdata->gdata, 1);
+		gwdata->read_count += 1;
+		return (tmp->sign);
+	}
 }
 
-/* Convert a gwnum to a binary value.  Returns the number of 64-bit values */
-/* written to the array.  The array is NOT zero-padded.  Returns a */
-/* negative number if an error occurs during the conversion.  An error */
-/* can happen if the FFT data contains a NaN or infinity value. */
+/* Convert a gwnum to a binary value.  Returns the number of 64-bit values written to the array.  The array is NOT zero-padded.  Returns a */
+/* negative number if an error occurs during the conversion.  An error can happen if the FFT data contains a NaN or infinity value. */
 
 long gwtobinary64 (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
 	gwnum	n,		/* Source gwnum */
 	uint64_t *array,	/* Array to contain the binary value */
-	uint64_t arraylen)	/* Maximum size of the array */
+	uint32_t arraylen)	/* Maximum size of the array */
 {
-	giant	tmp;
-	int	err_code;
 
-/* Make sure data is not FFTed.  Caller should really try to avoid this scenario. */
+// Intel's Endian-ness allows us to use 32-bit gwtobinary with a little extra work if gwtobinary writes an odd number of 32-bit values
 
-	if (FFT_state (n) != NOT_FFTed) gwunfft (gwdata, n, n);
-
-/* Convert the number */
-
-	tmp = popg (&gwdata->gdata, ((unsigned long) gwdata->bit_length >> 5) + 5);
-	err_code = gwtogiant (gwdata, n, tmp);
-	if (err_code < 0) return (err_code);
-	tmp->n[tmp->sign] = 0;
-	tmp->sign = (tmp->sign + 1) / 2;
-	ASSERTG ((unsigned long) tmp->sign <= arraylen);
-	memcpy (array, tmp->n, tmp->sign * sizeof (uint64_t));
-	pushg (&gwdata->gdata, 1);
-	gwdata->read_count += 1;
-	return (tmp->sign);
+	long count = gwtobinary (gwdata, n, (uint32_t *) array, arraylen * 2);
+	if (count > 0) {
+		bool count_is_odd = (count & 1);			// Detect an odd count of elements written
+		count = (count + 1) / 2;				// Halve the count of elements written
+		if (count_is_odd) array[count-1] &= 0xFFFFFFFFULL;	// Clear top half of top element
+	}
+	return (count);
 }
 
-/* Convert a gwnum to a binary value.  Returns the number of longs */
-/* written to the array.  The array is NOT zero-padded.  Returns a */
-/* negative number if an error occurs during the conversion.  An error */
-/* can happen if the FFT data contains a NaN or infinity value. */
+/* Convert a gwnum to a binary value.  Returns the number of longs written to the array.  The array is NOT zero-padded.  Returns a */
+/* negative number if an error occurs during the conversion.  An error can happen if the FFT data contains a NaN or infinity value. */
 
 long gwtobinarylongs (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
@@ -9009,33 +9000,12 @@ long gwtobinarylongs (
 	unsigned long *array,	/* Array to contain the binary value */
 	unsigned long arraylen)	/* Maximum size of the array */
 {
-	giant	tmp;
-	int	err_code;
-
-/* Make sure data is not FFTed.  Caller should really try to avoid this scenario. */
-
-	if (FFT_state (n) != NOT_FFTed) gwunfft (gwdata, n, n);
-
-/* Convert the number */
-
-	tmp = popg (&gwdata->gdata, ((unsigned long) gwdata->bit_length >> 5) + 5);
-	err_code = gwtogiant (gwdata, n, tmp);
-	if (err_code < 0) return (err_code);
-	if (sizeof (unsigned long) > sizeof (uint32_t)) {
-		tmp->n[tmp->sign] = 0;
-		tmp->sign = (tmp->sign + 1) / 2;
-	}
-	ASSERTG ((unsigned long) tmp->sign <= arraylen);
-	memcpy (array, tmp->n, tmp->sign * sizeof (unsigned long));
-	pushg (&gwdata->gdata, 1);
-	gwdata->read_count += 1;
-	return (tmp->sign);
+	if (sizeof (unsigned long) == sizeof (uint32_t)) return gwtobinary (gwdata, n, (uint32_t *) array, arraylen);
+	else return gwtobinary64 (gwdata, n, (uint64_t *) array, arraylen);
 }
 
-/* Convert a gwnum to a giant.  WARNING: Caller must allocate an array that */
-/* is several words larger than the maximum result that can be returned. */
-/* This is a gross kludge that lets gwtogiant use the giant for intermediate */
-/* calculations. */
+/* Convert a gwnum to a giant.  WARNING: Caller must allocate an array that is several words larger than the maximum result that can be returned. */
+/* This is a gross kludge that lets gwtogiant use the giant for intermediate calculations. */
 
 int gwtogiant (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
@@ -9044,6 +9014,10 @@ int gwtogiant (
 {
 	int	err_code;
 	unsigned long limit;
+
+/* Make sure we're passed a large enough buffer.  We need at least 50 more bits for a mul-by-k plus a few more in case there are unnormalized adds. */
+
+	ASSERTG (v->maxsize * 32 > gwdata->bit_length + 64.0);
 
 /* Make sure data is not FFTed.  Caller should really try to avoid this scenario. */
 
@@ -9090,52 +9064,85 @@ int gwtogiant (
 
 	if (gwdata->b == 2) {
 		long	val;
-		int	j, bits, bitsout, carry;
+		int64_t accum;
+		int	j, bits, accumbits;
 		unsigned long i;
-		uint32_t *outptr;
+		uint32_t *outptr, khi, klo, outval;
+		uint64_t k, outcarry;
+		bool	negative_gwnum, k_is_one, k_is_small;
+
+/* Detect if gwnum is negative.  At least most of the time: say maximum FFT value is 100, then top words of (0, -25) is negative and properly detected, */
+/* but top words of (1, -125) wouldn't be properly detected as negative.  Handling negative values in the main loop is faster than a postprocessing */
+/* pass that negates the result. */
+
+		for ( ; limit > 0; limit--) {		/* Find top word */
+			err_code = get_fft_value (gwdata, gg, limit-1, &val);
+			if (err_code) return (err_code);
+			if (val != 0) break;
+		}
+		negative_gwnum = (val < 0);
+
+/* Rather than a separate not-multithreaded giants call to mul-by-k, prepare to mul-by-k as we go. */
+
+		k = (uint64_t) gwdata->k;
+		khi = (uint32_t) (k >> 32);
+		klo = (uint32_t) k;
+		k_is_small = (khi == 0);
+		k_is_one = (k_is_small && klo == 1);
+		outcarry = 0;
 
 /* Collect bits until we have all of them */
 
-		carry = 0;
-		bitsout = 0;
+		accum = 0;
+		accumbits = 0;
 		outptr = v->n;
-		*outptr = 0;
-		for (i = 0; i < limit; i++) {
-			err_code = get_fft_value (gwdata, gg, i, &val);
-			if (err_code) return (err_code);
-			bits = gwdata->NUM_B_PER_SMALL_WORD;
-			if (is_big_word (gwdata, i)) bits++;
-			val += carry;
-
-			carry = (val >> bits);
-			val -= (carry << bits);
-			*outptr += (val << bitsout);
-			bitsout += bits;
-			if (bitsout >= 32) {
-				bitsout -= 32;
-				*++outptr = (val >> (bits - bitsout));
+		for (i = 0; ; i++) {
+			// Process next FFT word
+			if (i < limit) {
+				err_code = get_fft_value (gwdata, gg, i, &val);
+				if (err_code) return (err_code);
+				if (negative_gwnum) val = -val;
+				bits = gwdata->NUM_B_PER_SMALL_WORD;
+				if (is_big_word (gwdata, i)) bits++;
+				accum += ((int64_t) val) << accumbits;
+				accumbits += bits;
+				// See if we have 32-bits to output
+				if (accumbits < 32) continue;
 			}
-		}
 
-/* Finish outputting the last word and any carry data */
+			// Extract the 32 output bits
+			outval = (uint32_t) accum;
+			accum >>= 32;
+			accumbits -= 32;
 
-		if (bitsout) {
-			*outptr++ += (carry << bitsout);
-			carry >>= (32 - bitsout);
-		}
-		if (carry != -1 && carry != 0) {
-			*outptr++ = carry;
-			carry >>= 31;
+			// Now mul by k
+			if (k_is_one)
+				*outptr++ = outval;
+			else if (k_is_small) {
+				uint64_t tmp = (uint64_t) outval * (uint64_t) klo + outcarry;
+				*outptr++ = (uint32_t) tmp;
+				outcarry = tmp >> 32;
+			} else {
+				uint64_t tmp = (uint64_t) outval * (uint64_t) klo;
+				uint64_t next_outcarry = tmp >> 32;
+				tmp = (tmp & 0xFFFFFFFFULL) + outcarry;
+				*outptr++ = (uint32_t) tmp;
+				outcarry = next_outcarry + (tmp >> 32) + (uint64_t) outval * (uint64_t) khi;
+			}
+
+			// Are we done?  We need to process limit FFT words plus the outcarry.
+			if (i >= limit && ((accum == 0 && outcarry == 0) || (accum == -1 && outcarry == k - 1))) break;
 		}
 
 /* Set the length */
 
 		v->sign = (long) (outptr - v->n);
 		while (v->sign && v->n[v->sign-1] == 0) v->sign--;
+		if (negative_gwnum) v->sign = -v->sign;
 
-/* If carry is -1, the gwnum is negative.  Ugh.  Flip the bits and sign. */
+/* If accumulator is -1, the gwnum is negative.  Ugh.  Flip the bits and sign.   This should be exceedingly rare as we detected most negative gwnums earlier. */
 
-		if (carry == -1) {
+		if (accum == -1) {
 			for (j = 0; j < v->sign; j++) v->n[j] = ~v->n[j];
 			while (v->sign && v->n[v->sign-1] == 0) v->sign--;
 			iaddg (1, v);
@@ -9148,20 +9155,20 @@ int gwtogiant (
 	else {
 		err_code = nonbase2_gwtogiant (gwdata, gg, v);
 		if (err_code) return (err_code);
-	}
 
 /* Since all gwnums are premultiplied by the inverse of k, we must now multiply by k to get the true result. */
 
-	if (gwdata->k > 1.0) {
-		stackgiant(k,2);
-		dbltog (gwdata->k, k);
-		mulgi (&gwdata->gdata, k, v);
+		if (gwdata->k > 1.0) {
+			stackgiant(k,2);
+			dbltog (gwdata->k, k);
+			mulgi (&gwdata->gdata, k, v);
+		}
 	}
 
-/* The gwnum is not guaranteed to be smaller than k*b^n+c.  Handle this */
-/* possibility.  This also converts negative values to positive. */
+/* The gwnum is not guaranteed to be smaller than k*b^n+c.  Handle this possibility.  This also converts negative values to positive. */
 
 	specialmodg (gwdata, v);
+	ASSERTG (v->sign >= 0);
 
 /* Return success */
 
@@ -9325,10 +9332,9 @@ int gwiszero (
 #define	MAX_NZ_COUNT 16
 	count = 0;
 	for (j = 0; j < gwdata->FFTLEN; j++) {
-		double	val;
-		val = * addr (gwdata, gg, j);
-		if (! is_valid_double (val)) return (GWERROR_BAD_FFT_DATA);
-		if (val == 0.0) continue;
+		double	*valaddr = addr (gwdata, gg, j);
+		if (! is_valid_double_addr (valaddr)) return (GWERROR_BAD_FFT_DATA);
+		if (*valaddr == 0.0) continue;
 		if (++count > MAX_NZ_COUNT) return (FALSE);	// Too many non zero words, the gwnum is not zero.
 	}
 	if (count) {			// The gwnum may be zero but needs a more accurate test...
@@ -9461,7 +9467,7 @@ void asm_mul (
 	gw_fft (gwdata, asm_data);
 //if (rand() % 100 < 1) *d += 1.0;			// Generate random errors (for caller to test error recovery)
 //if (rand() % 1000 < 2) *d += 1.0E200 * 1.0E200;
-	if (! is_valid_double (gwsumout (gwdata, d))) gwdata->GWERROR |= 1;
+	if (! is_valid_double_addr (&gwsumout (gwdata, d))) gwdata->GWERROR |= 1;
 	gwdata->fft_count += (asm_data->ffttype <= 3) ? 2.0 : 1.0;
 
 /* For the two destination case, mark the source fully FFTed and calculate the address for the multiplication destination */
@@ -11181,7 +11187,6 @@ void do_multithread_op_work (
 			call_op (data->asm_proc, asm_data);
 		}
 	}
-
 
 /* Loop processing AVX blocks */
 
