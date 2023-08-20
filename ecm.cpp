@@ -4220,6 +4220,11 @@ double ecm_stage2_cost (
 		poly_size = cost_data->c.numrels;
 		if (max_safe_poly2_size (cost_data->c.gwdata, poly_size, poly_size) < poly_size) return (-1.0);
 
+		// A small optimization to reduce time spent evaluating cost of different poly sizes.  If poly_size < 8, assume old pairing code will be faster.
+		// If doubling the poly size is safe and 16 polys will fit in memory, then assume some bigger poly will be better.  Return negative cost.
+		if (poly_size < 8) return (-1.0);
+		if (16 * 2*poly_size < cost_data->c.numvals && max_safe_poly2_size (cost_data->c.gwdata, 2*poly_size, 2*poly_size) >= 2*poly_size) return (-1.0);
+
 //GW: this minimum may or may not be right, we do require at least 4 polyFtree levels
 if (cost_data->c.numvals < 6*32) return (-1.0);
 
@@ -4305,8 +4310,8 @@ if (cost_data->c.numvals < 6*32) return (-1.0);
 
 /* Rebuilding F(X) tree requires up to (log2(poly_size) - 2) polymults on poly_size coefficients. */
 /* If excess memory is available, it can be used to save Ftree polys.  This will save on the costs of rebuilding F(X). */
-/* Saving (and restoring) two Ftree rows to/from disk requires gwtobinary and binarytogw on two polys.  This timed as equal to 74 transforms */
-/* on a single-threaded FMA machine.  For lack of a better place to record this cost, add it to cost_modinv. */
+/* Saving (and restoring) two Ftree rows to/from disk requires gwtobinary and binarytogw on two polys.  This timed as equal to 13.2 transforms per gwnum (b=2) */
+/* and 687 transforms (b!=2) on a single-threaded FMA machine (ignoring disk read/write time).  For lack of a better place to record this cost, add it to cost_modinv. */
 
 		int	num_Ftree_polys, Ftree_polys_in_mem, more_Ftree_polys_in_mem, total_Ftree_polys_in_mem, needing_rebuild;
 		num_Ftree_polys = (int) ceil (log2 ((double) poly_size));
@@ -4318,7 +4323,7 @@ if (Ftree_polys_in_mem + more_Ftree_polys_in_mem > num_Ftree_polys - 1) more_Ftr
 		total_Ftree_polys_in_mem = Ftree_polys_in_mem + more_Ftree_polys_in_mem;
 		cost_data->Ftree_polys_in_mem = total_Ftree_polys_in_mem;
 		cost_data->c.stage2_numvals += more_Ftree_polys_in_mem * poly_size;
-		if (total_Ftree_polys_in_mem < 2) cost_modinv += 74.0 * cost_data->c.threads * (2 - total_Ftree_polys_in_mem) * poly_size;
+		if (total_Ftree_polys_in_mem < 2) cost_modinv += (cost_data->c.gwdata->b == 2 ? 13.2 : 687.0) * cost_data->c.threads * (2 - total_Ftree_polys_in_mem) * poly_size;
 
 /* Rebuilding F(X) tree requires (log2(poly_size) - Ftree_polys_in_mem_or_on_disk) polymults on poly_size coefficients */
 
@@ -4586,7 +4591,9 @@ double ecm_stage2_impl (
 
 	cost_data.c.total_cost = 0.0;						// Special value indicating no workable plan found
 	ecm_stage2_impl_given_numvals (ecmdata, numvals, forced_stage2_type, &cost_data);
-	sprintf (msgbuf + strlen (msgbuf), "Actual B2 will be %" PRIu64 ".\n", cost_data.c.B2_start + cost_data.c.numDsections * cost_data.c.D);
+	sprintf (msgbuf + strlen (msgbuf), "Actual B2 will be %" PRIu64 ".  Curve is worth %.2g B2=B1*100 curves.\n",
+		 cost_data.c.B2_start + cost_data.c.numDsections * cost_data.c.D,
+		 kruppa_adjust (cost_data.c.B2_start + cost_data.c.numDsections * cost_data.c.D, ecmdata->B));
 
 /* If are continuing from a save file that was in stage 2 and the new plan doesn't look significant better than the old plan, then */
 /* we use the old plan and its partially completed pairmap. */
@@ -5550,7 +5557,6 @@ if (w->n == 604) {
 /* Setup the gwnum assembly code */
 
 	gwinit (&ecmdata.gwdata);
-	gwset_sum_inputs_checking (&ecmdata.gwdata, SUM_INPUTS_ERRCHK);
 	if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
 	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&ecmdata.gwdata);
 	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&ecmdata.gwdata, 2);
@@ -5571,10 +5577,6 @@ if (w->n == 604) {
 		return (STOP_FATAL_ERROR);
 	}
 	ecmdata.stage1_fftlen = gwfftlen (&ecmdata.gwdata);
-
-/* A kludge so that the error checking code is not as strict. */
-
-	ecmdata.gwdata.MAXDIFF *= IniGetInt (INI_FILE, "MaxDiffMultiplier", 1);
 
 /* More random initializations */
 
@@ -6071,7 +6073,6 @@ OutputStr (thread_num, buf); }
 			// Re-init gwnum with a larger FFT
 			gwinit (&ecmdata.gwdata);
 			if (next_fftlen != best_fftlen) gwset_information_only (&ecmdata.gwdata);
-			gwset_sum_inputs_checking (&ecmdata.gwdata, SUM_INPUTS_ERRCHK);
 			if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
 			if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&ecmdata.gwdata);
 			if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&ecmdata.gwdata, 2);
@@ -6096,7 +6097,6 @@ OutputStr (thread_num, buf); }
 				stop_reason = STOP_FATAL_ERROR;
 				goto exit;
 			}
-			ecmdata.gwdata.MAXDIFF *= IniGetInt (INI_FILE, "MaxDiffMultiplier", 1);
 			gwerror_checking (&ecmdata.gwdata, ERRCHK || near_fft_limit);
 			if (gwfftlen (&ecmdata.gwdata) != ecmdata.stage1_fftlen) {
 				char	fft_desc[200];
@@ -8004,7 +8004,6 @@ more_curves:
 			char	fft_desc[200];
 			gwdone (&ecmdata.gwdata);
 			gwinit (&ecmdata.gwdata);
-			gwset_sum_inputs_checking (&ecmdata.gwdata, SUM_INPUTS_ERRCHK);
 			if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
 			if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&ecmdata.gwdata);
 			if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&ecmdata.gwdata, 2);
@@ -8025,7 +8024,6 @@ more_curves:
 				stop_reason = STOP_FATAL_ERROR;
 				goto exit;
 			}
-			ecmdata.gwdata.MAXDIFF *= IniGetInt (INI_FILE, "MaxDiffMultiplier", 1);
 			gwerror_checking (&ecmdata.gwdata, ERRCHK || near_fft_limit);
 			gwfft_description (&ecmdata.gwdata, fft_desc);
 			sprintf (msgbuf, "Switching back to %s\n", fft_desc);
@@ -8059,7 +8057,7 @@ more_curves:
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, ecmdata.B, ecmdata.average_B2));
 	JSONaddProgramTimestamp (JSONbuf);
 	JSONaddUserComputerAID (JSONbuf, w);
-	strcat (JSONbuf, "}\n");
+	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
 
 /* Send ECM completed message to the server.  Although don't do it for puny B1 values. */
@@ -8173,7 +8171,7 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, ecmdata.B, ecmdata.C));
 	JSONaddProgramTimestamp (JSONbuf);
 	JSONaddUserComputerAID (JSONbuf, w);
-	strcat (JSONbuf, "}\n");
+	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
 
 /* See if the cofactor is prime and set flag if we will be continuing ECM */
@@ -9736,7 +9734,7 @@ int pminus1 (
 	int	maxerr_restart_count = 0;
 	unsigned long maxerr_fftlen = 0;
 	char	filename[32], buf[255], JSONbuf[4000], testnum[100];
-	int	res, stop_reason, saving, near_fft_limit, echk;
+	int	pminus1_base, res, stop_reason, saving, near_fft_limit, echk;
 	double	one_over_len, one_over_B, base_pct_complete, one_relp_pct;
 	double	last_output, last_output_t, last_output_r;
 	double	allowable_maxerr, output_frequency, output_title_frequency;
@@ -9762,6 +9760,7 @@ int pminus1 (
 /* Begin initializing P-1 data structure */
 /* Choose a default value for the second bound if none was specified */
 
+	pminus1_base = (w->b != 3 ? 3 : 5);
 	memset (&pm1data, 0, sizeof (pm1handle));
 	pm1data.thread_num = thread_num;
 	pm1data.w = w;
@@ -9822,7 +9821,7 @@ restart:
 /* Setup the assembly code */
 
 	gwinit (&pm1data.gwdata);
-	gwset_sum_inputs_checking (&pm1data.gwdata, SUM_INPUTS_ERRCHK);
+	gwset_maxmulbyconst (&pm1data.gwdata, pminus1_base);
 	if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pm1data.gwdata);
 	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&pm1data.gwdata);
 	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&pm1data.gwdata, 2);
@@ -9845,10 +9844,6 @@ restart:
 		return (STOP_FATAL_ERROR);
 	}
 	pm1data.stage1_fftlen = gwfftlen (&pm1data.gwdata);
-
-/* A kludge so that the error checking code is not as strict. */
-
-	pm1data.gwdata.MAXDIFF *= IniGetInt (INI_FILE, "MaxDiffMultiplier", 1);
 
 /* More miscellaneous initializations */
 
@@ -10007,7 +10002,8 @@ restart:
 		goto done;
 	}
 
-/* Start this P-1 run from scratch starting with x = 3 */
+/* Start this P-1 run from scratch starting with x = 3.  Batalov reported P-1 issues doing P-1 on 3^524288+1.  The final result of stage 1 is one */
+/* because 3^(2^20) mod 3^524288+1 is one.  So, for base 3 numbers we will start with x = 5. */
 
 	strcpy (w->stage, "S1");
 	w->pct_complete = 0.0;
@@ -10016,7 +10012,7 @@ restart:
 	pm1data.stage0_bitnum = 0;
 	pm1data.x = gwalloc (&pm1data.gwdata);
 	if (pm1data.x == NULL) goto oom;
-	dbltogw (&pm1data.gwdata, 3.0, pm1data.x);
+	dbltogw (&pm1data.gwdata, pminus1_base, pm1data.x);
 
 /* Stage 0 pre-calculates an exponent that is the product of small primes.  Our default uses only small */
 /* primes below 250,000,000 (roughly 375 million bits).  This is configurable starting in version 29.8 build 8. */
@@ -10052,7 +10048,7 @@ restart0:
 
 /* Now take the exponent and raise x to that power */
 
-	gwsetmulbyconst (&pm1data.gwdata, 3);
+	gwsetmulbyconst (&pm1data.gwdata, pminus1_base);
 	while (pm1data.stage0_bitnum < len) {
 
 /* Set various flags.  They control whether error-checking or the next FFT can be started. */
@@ -10159,10 +10155,14 @@ restart1:
 	stop_reason = start_sieve_with_limit (thread_num, pm1data.stage1_prime, (uint32_t) sqrt((double) pm1data.B), &pm1data.sieve_info);
 	if (stop_reason) goto exit;
 
-/* Loop doing small batches of primes until interim_B is finished.  Default batch size is based on FFT length (on my aging Broadwell CPUs I get */
-/* about 200000 squarings for a single core in 3 seconds on a 4K FFT, since exponentiation also does some multiplies I chose 150000 bits as the default). */
+/* Loop doing small batches of primes until interim_B is finished.  The batch size needs to be limited in size as exponentiate is uninterruptible. */
+/* Default batch size is based on FFT length (on my aging Broadwell CPUs I get about 200000 squarings for a single core in 3 seconds on a 4K FFT, */
+/* since exponentiation also does some multiplies I chose 150000 4K FFT squarings as the default).  For efficiency, a minimum batch size of 40 is */
+/* the default (if that's too slow one might should consider different work!).  A default of 40 should give calc_exp2 room to generate a temp that is */
+/* less than 64 bits which exponentiate can handle without any temporaries. */
 
-	stage1_batch_size = (int) ((double) IniGetInt (INI_FILE, "Stage1BatchSize", 150000) / ((double) pm1data.gwdata.FFTLEN / 4096.0));
+	stage1_batch_size = (int) ((double) IniGetInt (INI_FILE, "Stage1Batch4KMults", 150000) * pm1data.gwdata.num_threads / (pm1data.gwdata.FFTLEN / 4096.0));
+	if (stage1_batch_size < IniGetInt (INI_FILE, "Stage1BatchSizeMin", 40)) stage1_batch_size = IniGetInt (INI_FILE, "Stage1BatchSizeMin", 40);
 
 /* Most likely we are working on small exponents where 100MB of memory gives us all the temporaries we could possibly want. */
 
@@ -10544,7 +10544,6 @@ OutputStr (thread_num, buf); }
 			// Re-init gwnum with a larger FFT
 			gwinit (&pm1data.gwdata);
 			if (next_fftlen != best_fftlen) gwset_information_only (&pm1data.gwdata);
-			gwset_sum_inputs_checking (&pm1data.gwdata, SUM_INPUTS_ERRCHK);
 			if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pm1data.gwdata);
 			if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&pm1data.gwdata);
 			if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&pm1data.gwdata, 2);
@@ -10569,7 +10568,6 @@ OutputStr (thread_num, buf); }
 				stop_reason = STOP_FATAL_ERROR;
 				goto exit;
 			}
-			pm1data.gwdata.MAXDIFF *= IniGetInt (INI_FILE, "MaxDiffMultiplier", 1);
 			gwerror_checking (&pm1data.gwdata, ERRCHK || near_fft_limit);
 			if (gwfftlen (&pm1data.gwdata) != pm1data.stage1_fftlen) {
 				char	fft_desc[200];
@@ -11765,10 +11763,10 @@ msg_and_exit:
 		}
 	}
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", pm1data.stage1_fftlen);
-	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, pm1data.B, pm1data.C));
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, pm1data.B, pm1data.C > pm1data.B ? pm1data.C : pm1data.B));
 	JSONaddProgramTimestamp (JSONbuf);
 	JSONaddUserComputerAID (JSONbuf, w);
-	strcat (JSONbuf, "}\n");
+	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
 
 /* Send P-1 completed message to the server.  Although don't do it for puny B1 values as this is just the user tinkering with P-1 factoring. */
@@ -11911,10 +11909,10 @@ bingo:	if (pm1data.state < PM1_STATE_MIDSTAGE)
 		}
 	}
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", pm1data.stage1_fftlen);
-	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, pm1data.B, pm1data.C));
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, pm1data.B, pm1data.state > PM1_STATE_MIDSTAGE ? pm1data.C : pm1data.B));
 	JSONaddProgramTimestamp (JSONbuf);
 	JSONaddUserComputerAID (JSONbuf, w);
-	strcat (JSONbuf, "}\n");
+	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
 
 /* Send assignment result to the server.  To avoid flooding the server with small factors from users needlessly redoing */
@@ -13565,7 +13563,6 @@ restart:
 /* Setup the assembly code */
 
 	gwinit (&pp1data.gwdata);
-	gwset_sum_inputs_checking (&pp1data.gwdata, SUM_INPUTS_ERRCHK);
 	if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pp1data.gwdata);
 	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&pp1data.gwdata);
 	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&pp1data.gwdata, 2);
@@ -13588,10 +13585,6 @@ restart:
 	}
 	pp1data.stage1_fftlen = gwfftlen (&pp1data.gwdata);
 	gwsetaddin (&pp1data.gwdata, -2);
-
-/* A kludge so that the error checking code is not as strict. */
-
-	pp1data.gwdata.MAXDIFF *= IniGetInt (INI_FILE, "MaxDiffMultiplier", 1);
 
 /* Allocate gwnums for computing Lucas sequences */
 
@@ -14524,10 +14517,10 @@ msg_and_exit:
 	if (pp1data.C > pp1data.B) sprintf (JSONbuf+strlen(JSONbuf), ", \"b2\":%" PRIu64, pp1data.C);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"start\":\"%" PRIu32 "/%" PRIu32 "\"", pp1data.numerator, pp1data.denominator);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", pp1data.stage1_fftlen);
-	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, pp1data.B, pp1data.C));
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, pp1data.B, pp1data.C > pp1data.B ? pp1data.C : pp1data.B));
 	JSONaddProgramTimestamp (JSONbuf);
 	JSONaddUserComputerAID (JSONbuf, w);
-	strcat (JSONbuf, "}\n");
+	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
 
 /* Send P+1 completed message to the server.  Although don't do it for puny B1 values as this is just the user tinkering with P+1 factoring. */
@@ -14658,10 +14651,10 @@ bingo:	if (pp1data.state < PP1_STATE_MIDSTAGE)
 	if (pp1data.state > PP1_STATE_MIDSTAGE) sprintf (JSONbuf+strlen(JSONbuf), ", \"b2\":%" PRIu64, pp1data.C);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"start\":\"%" PRIu32 "/%" PRIu32 "\"", pp1data.numerator, pp1data.denominator);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", pp1data.stage1_fftlen);
-	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, pp1data.B, pp1data.C));
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, pp1data.B, pp1data.state > PP1_STATE_MIDSTAGE ? pp1data.C : pp1data.B));
 	JSONaddProgramTimestamp (JSONbuf);
 	JSONaddUserComputerAID (JSONbuf, w);
-	strcat (JSONbuf, "}\n");
+	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
 
 /* Send assignment result to the server.  To avoid flooding the server with small factors from users needlessly redoing */

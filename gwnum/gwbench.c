@@ -10,7 +10,7 @@
 | on the end user machine looking for an FFT implementation that is faster than the
 | default selection.
 |
-| Copyright 2017-2019 Mersenne Research, Inc.  All rights reserved.
+| Copyright 2017-2023 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -111,7 +111,7 @@ int	BENCH_NUM_WORKERS = 0;
 /*          Routines to read and write bench data in INI file               */
 /****************************************************************************/
 
-void gwbench_read_data (void)
+void gwbench_read_data (int cpu_flags)
 {
 	char	sqlite_file[80];		// Write SQLite database to disk for debugging
 	char	gwnum_version_string[10];
@@ -149,11 +149,15 @@ void gwbench_read_data (void)
 				NULL, NULL, NULL);
 	if (errcode != SQLITE_OK) goto db_error;
 
-/* Get the gwnum version when the benchmark data was created.  If this does not match the current */
-/* gwnum version then we must discard the benchmark data (and start regenerating using the current gwnum code). */
+/* Get the gwnum version when the benchmark data was created.  If this does not match the current gwnum version then we must discard some or all of the */
+/* benchmark data (and start regenerating using the current gwnum code).  Version 30.16 deleted a lot of SSE2 FFTs, so delete data when upgrading */
+/* from 29.2 benchmark data to 30.16 benchmark data on an SSE2 machine. */
 
 	IniGetString (GWNUMINI_FILE, "GwnumVersion", gwnum_version_string, sizeof (gwnum_version_string), NULL);
-	if (strcmp (gwnum_version_string, GWNUM_FFT_IMPL_VERSION)) goto empty_the_db;
+	if (strcmp (gwnum_version_string, GWNUM_FFT_IMPL_VERSION)) {
+		if (strcmp (gwnum_version_string, GWNUM_FFT_IMPL_VERSION_BAD_SSE2)) goto empty_the_db;
+		if (! (cpu_flags & (CPU_AVX512F | CPU_FMA3 | CPU_AVX))) goto empty_the_db;
+	}
 
 /* Get the CPUID brand string when the benchmark data was created.  If this does not match the current */
 /* CPUID brand string as may happen when a local.txt is inadvisably copied to a new computer, then we */
@@ -538,11 +542,10 @@ void gwbench_get_max_throughput (
 	int	num_hyperthreads,		/* Return bench data where this number of hyperthreads were used */
 	int	all_complex,			/* TRUE if all complex FFT bench data should be returned */
 	int	error_check,			/* TRUE if error_checking bench data should be returned */
-	int	no_r4dwpn,			/* TRUE if FFT type FFT_TYPE_RADIX_4_DWPN should not be considered */
 	int	*impl,				/* Implementation ID of best FFT implementation */
 	double	*throughput)			/* Throughput of best FFT implementation (or -1 if cannot be determined) */
 {
-	int	errcode, impl_bits, exclude_fft_type, min_arch, max_arch;
+	int	errcode, impl_bits, min_arch, max_arch;
 
 /* Assume we will fail to get throughput data */
 
@@ -571,10 +574,6 @@ void gwbench_get_max_throughput (
 #endif
 	if (all_complex) impl_bits |= 0x8000000;
 	if (error_check) impl_bits |= 0x10000;
-	if (no_r4dwpn)
-		exclude_fft_type = FFT_TYPE_RADIX_4_DWPN << 24;		/* Exclude r4dwpn FFT type */
-	else
-		exclude_fft_type = -1;					/* Do not exclude any FFT types */
 
 /* We really made a mess here.  What we really want is the best implementation for the jmptable we are using. */
 /* Unfortunately, we decided to write the architecture value to the benchmark data in gwnum.txt.  In version 29.5 */
@@ -613,8 +612,7 @@ void gwbench_get_max_throughput (
 		errcode = sqlite3_prepare_v2 (BENCH_DB, "SELECT impl, avg_throughput FROM avgbest3 \
 							 WHERE fftlen = ?1 AND num_cores = ?2 AND num_workers = ?3 AND \
 								num_hyperthreads = ?4 AND (impl & 0x8010008) = ?5 AND \
-								(impl & 0x7000000) <> ?6 AND \
-								(impl & 0xF000) BETWEEN ?7 AND ?8 \
+								(impl & 0xF000) BETWEEN ?6 AND ?7 \
 							 ORDER BY avg_throughput DESC LIMIT 1", -1, &get_max_sql_stmt, NULL);
 		if (errcode != SQLITE_OK) goto stmt_error;
 		get_max_sql_stmt_prepared = TRUE;
@@ -637,13 +635,10 @@ void gwbench_get_max_throughput (
 	errcode = sqlite3_bind_int (get_max_sql_stmt, 5, impl_bits);
 	if (errcode != SQLITE_OK) goto stmt_error;
 
-	errcode = sqlite3_bind_int (get_max_sql_stmt, 6, exclude_fft_type);
+	errcode = sqlite3_bind_int (get_max_sql_stmt, 6, min_arch);
 	if (errcode != SQLITE_OK) goto stmt_error;
 
-	errcode = sqlite3_bind_int (get_max_sql_stmt, 7, min_arch);
-	if (errcode != SQLITE_OK) goto stmt_error;
-
-	errcode = sqlite3_bind_int (get_max_sql_stmt, 8, max_arch);
+	errcode = sqlite3_bind_int (get_max_sql_stmt, 7, max_arch);
 	if (errcode != SQLITE_OK) goto stmt_error;
 
 	errcode = sqlite3_step (get_max_sql_stmt);

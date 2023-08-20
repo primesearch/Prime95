@@ -138,10 +138,10 @@ release\cpuid.obj: cpuid.c cpuid.h
 debug\cpuid.obj: cpuid.c cpuid.h
     $(cld) /Fodebug\cpuid.obj cpuid.c
 
-release\gwnum.obj: gwnum.c gwnum.h
+release\gwnum.obj: gwnum.c gwnum.h gwdbldbl.h
     $(cl) /Forelease\gwnum.obj gwnum.c
 
-debug\gwnum.obj: gwnum.c gwnum.h
+debug\gwnum.obj: gwnum.c gwnum.h gwdbldbl.h
     $(cld) /Fodebug\gwnum.obj gwnum.c
 
 release\gwtables.obj: gwtables.c gwnum.h
@@ -163,10 +163,10 @@ debug\gwini.obj: gwini.c gwini.h
     $(cld) /Fodebug\gwini.obj gwini.c
 
 release\gwbench.obj: gwbench.c gwbench.h gwnum.h
-    $(cl) /I..\sqlite-amalgamation-3180000 /Forelease\gwbench.obj gwbench.c
+    $(cl) /I..\sqlite-amalgamation-3420000 /Forelease\gwbench.obj gwbench.c
 
 debug\gwbench.obj: gwbench.c gwbench.h gwnum.h
-    $(cld) /I..\sqlite-amalgamation-3180000 /Fodebug\gwbench.obj gwbench.c
+    $(cld) /I..\sqlite-amalgamation-3420000 /Fodebug\gwbench.obj gwbench.c
 
 release\gwutil.obj: gwutil.c gwutil.h
     $(cl) /Forelease\gwutil.obj gwutil.c

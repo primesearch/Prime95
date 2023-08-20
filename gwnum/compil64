@@ -149,10 +149,10 @@ amd64\release\cpuid.obj: cpuid.c cpuid.h
 amd64\debug\cpuid.obj: cpuid.c cpuid.h
     $(cl64d) /Foamd64\debug\cpuid.obj cpuid.c
 
-amd64\release\gwnum.obj: gwnum.c gwnum.h
+amd64\release\gwnum.obj: gwnum.c gwnum.h gwdbldbl.h
     $(cl64) /Foamd64\release\gwnum.obj gwnum.c
 
-amd64\debug\gwnum.obj: gwnum.c gwnum.h
+amd64\debug\gwnum.obj: gwnum.c gwnum.h gwdbldbl.h
     $(cl64d) /Foamd64\debug\gwnum.obj gwnum.c
 
 amd64\release\gwtables.obj: gwtables.c gwnum.h
@@ -177,10 +177,10 @@ amd64\debug\gwini.obj: gwini.c gwini.h
 # autobench data is not used when workers restart.  Prime95 must exit and restart for
 # new benchmark data to be used in FFT implementation selection.
 amd64\release\gwbench.obj: gwbench.c gwbench.h gwnum.h
-    $(cl64o1) /I..\sqlite-amalgamation-3180000 /Foamd64\release\gwbench.obj gwbench.c
+    $(cl64o1) /I..\sqlite-amalgamation-3420000 /Foamd64\release\gwbench.obj gwbench.c
 
 amd64\debug\gwbench.obj: gwbench.c gwbench.h gwnum.h
-    $(cl64d) /I..\sqlite-amalgamation-3180000 /Foamd64\debug\gwbench.obj gwbench.c
+    $(cl64d) /I..\sqlite-amalgamation-3420000 /Foamd64\debug\gwbench.obj gwbench.c
 
 amd64\release\gwutil.obj: gwutil.c gwutil.h
     $(cl64) /Foamd64\release\gwutil.obj gwutil.c

@@ -3,8 +3,8 @@
 
 #CC ?= cc
 CC = gcc
-CFLAGS += -I.. -I../sqlite-amalgamation-3180000 -I$(LOCALBASE)/include -std=gnu99 -DX86_64 -O2
-#CFLAGS += -g -I.. -I../sqlite-amalgamation-3180000 -I$(LOCALBASE)/include -std=gnu99 -DX86_64 -DGDEBUG -O2
+CFLAGS += -I.. -I../sqlite-amalgamation-3420000 -I$(LOCALBASE)/include -std=gnu99 -DX86_64 -O2
+#CFLAGS += -g -I.. -I../sqlite-amalgamation-3420000 -I$(LOCALBASE)/include -std=gnu99 -DX86_64 -DGDEBUG -O2
 
 #CXX ?= cc
 CXX = g++

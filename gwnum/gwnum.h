@@ -55,9 +55,9 @@ typedef gwnum *gwarray;
 /* are new prime95 versions without any changes in the gwnum code.  This version number is also embedded in the assembly code and */
 /* gwsetup verifies that the version numbers match.  This prevents bugs from accidentally linking in the wrong gwnum library. */
 
-#define GWNUM_VERSION		"30.14"
+#define GWNUM_VERSION		"30.16"
 #define GWNUM_MAJOR_VERSION	30
-#define GWNUM_MINOR_VERSION	14
+#define GWNUM_MINOR_VERSION	16
 
 /* Error codes returned by the three gwsetup routines */
 
@@ -204,12 +204,6 @@ void gwdone (
 #define gwclear_use_large_pages(h)	((h)->use_large_pages = 0)
 #define gwget_use_large_pages(h)	((h)->use_large_pages)
 #define gw_using_large_pages(h)		((h)->large_pages_ptr != NULL)
-
-/* The gwsetup routines pick the fastest FFT implementation by default.  Setting this option will cause gwsetup to give preference */
-/* to FFT implementations that support the SUM(INPUTS) != SUM(OUTPUTS) error check. */
-/* NOTE:  This error check is not available for k*b^n+c IBDWT FFTs when c is positive.  Setting this option will have no effect. */
-/* NOTE: sum_inputs checking is only available in SSE2 FFTs and earlier.  Thus, using this option is not recommended. */
-#define gwset_sum_inputs_checking(h,b)	((h)->sum_inputs_checking = (char) (b))
 
 /* By default gwnum uses mutexes rather than spin waits to implement multithreading.  This macro lets you try spin waits to see if they are faster. */
 /* A setting of one tells the main thread to spin wait on helper threads to finish up.  A setting above one tells the main thread to spin wait plus */
@@ -553,9 +547,6 @@ void gwunfft2 (gwhandle *, gwnum s, gwnum d, int options);
 
 #define gw_test_for_error(h)		((h)->GWERROR)
 #define gw_test_illegal_sumout(h)	((h)->GWERROR & 1)
-#define gw_test_mismatched_sums(h)	((h)->GWERROR & 2)
-#define gwsuminp(h,g)			((g)[-2])
-#define gwsumout(h,g)			((g)[-3])
 #define gw_clear_error(h)		((h)->GWERROR = 0)
 
 /* Get or clear the roundoff error.  Remember that if the roundoff error exceeds 0.5 then the FFT results will be wrong. */
@@ -831,6 +822,15 @@ int gwtogiant (gwhandle *, gwnum, giant);
 #define gwaddsub4quick(h,s1,s2,d1,d2)	gwaddsub4o (h,s1,s2,d1,d2,GWADD_DELAY_NORMALIZE)
 #define force_normalize(x)		DEPRECATED - use GWADD_FORCE_NORMALIZE
 
+/* DEPRECATED.  The gwsetup routines pick the fastest FFT implementation by default.  Setting this option will cause gwsetup to give */
+/* preference to FFT implementations that support the SUM(INPUTS) != SUM(OUTPUTS) error check.  GEC makes this option obsolete. */
+/* NOTE: This error check was not available for k*b^n+c IBDWT FFTs when c is positive.  Setting this option had no effect. */
+/* NOTE: sum_inputs checking was only available in SSE2 FFTs and earlier. */
+#define gwset_sum_inputs_checking(h,b)
+#define gw_test_mismatched_sums(h)	FALSE
+#define gwsuminp(h,g)			((g)[-2])
+#define gwsumout(h,g)			((g)[-3])
+
 /* DEPRECATED.  Using gwerror_checking macro and the GWMUL_MULBYCONST option is preferred. */
 /* The multiplication code has two options that you can set using this macro.  The e argument tells the multiplication */
 /* code whether or not it should perform round-off error checking - returning the maximum difference from an integer result */
@@ -1027,7 +1027,6 @@ struct gwhandle_struct {
 	char	hyperthread_prefetching; /* Set to true to launch a separate thread for prefetching.  Caller must set */
 					/* affinity to make sure hyperthread and compute thread share the same physical core */
 	char	larger_fftlen_count;	/* Force using larger FFT sizes.  This is a count of how many FFT sizes to "skip over". */
-	char	sum_inputs_checking;	/* If possible, pick an FFT implementation that supports the SUM(INPUTS) != SUM(OUTPUTS) error check. */
 	char	force_general_mod;	/* Forces gwsetup_general_mod to not check for a k*2^n+c reduction */
 	char	use_irrational_general_mod; /* Force using an irrational FFT when doing a general mod. */
 					/* This is slower but more immune to round off errors from pathological bit patterns in the modulus. */
@@ -1104,7 +1103,6 @@ struct gwhandle_struct {
 	unsigned int NORMNUM;		/* The post-multiply normalize routine index */
 	int	GWERROR;		/* Set if an error is detected */
 	int	mulbyconst;		/* Current mul-by-const value */
-	double	MAXDIFF;		/* Maximum allowable difference between sum of inputs and outputs */
 	double	fft_count;		/* Count of forward and inverse FFTs */
 	uint64_t read_count;		/* For memory bandwidth optimizing, a count of gwnums read (ex. a gwsquare without startnext FFT does 2 read/writes) */
 	uint64_t write_count;		/* For memory bandwidth optimizing, a count of gwnums written (ex. a gwadd3 does 2 reads and one write) */
@@ -1229,7 +1227,7 @@ unsigned long gwmap_to_estimated_size (double, unsigned long, unsigned long, sig
 /* Generate a human-readable string for k*b^n+c */
 void gw_as_string(char *buf, double k, unsigned long b, unsigned long n, signed long c);
 
-/* Other routines used internally */
+/* Other routines used (mostly) internally */
 int gwinfo (gwhandle *, double, unsigned long, unsigned long, signed long);
 double virtual_bits_per_word (gwhandle *);
 unsigned long addr_offset (gwhandle *, unsigned long);
@@ -1241,6 +1239,27 @@ void bitaddr (gwhandle *, unsigned long, unsigned long *, unsigned long *);
 void specialmodg (gwhandle *, giant);
 #define gw_set_max_allocs(h,n)	if ((h)->gwnum_alloc==NULL) (h)->gwnum_alloc_array_size=n
 void init_FFT1 (gwhandle *);
+
+/* Use this iterator for faster incrementing through FFT data elements */
+typedef struct gwiter_struct {
+	gwhandle *gwdata;		/* Saved gwhandle */
+	gwnum	g;			/* Saved pointer to gwnum to iterate through */
+	uint32_t index;			/* Element the iterator is currently positioned on */
+	intptr_t addr_offset;		/* Offset to address of the FFT data */
+	bool	big_word;		/* TRUE if element is a big word */
+	uint32_t switcher;		/* Combination of CPU_FLAGS, one vs. two pass, FFT type */
+	uint32_t ao_values[9];		/* Nine values used to accelerate next addr_offset calculations */
+	uint64_t cached_data[12];	/* Cached data to accelerate sequential access to a gwnum */
+} gwiter;
+void gwiter_init_zero (gwhandle *h, gwiter *iter, gwnum g);					/* Init iterator to gwnum g element zero */
+void gwiter_init (gwhandle *h, gwiter *iter, gwnum g, uint32_t);				/* Init iterator to gwnum g and given element */
+void gwiter_next (gwiter *iter);								/* Position to next element */
+#define gwiter_index(iter)		((iter)->index)						/* Return element iterator is positioned on */
+#define gwiter_addr_offset(iter)	((iter)->addr_offset)					/* Return byte offset to address of the FFT data element */
+#define gwiter_addr(iter)		((double *)((char *)((iter)->g) + (iter)->addr_offset))	/* Return pointer to FFT data element */
+#define gwiter_is_big_word(iter)	((iter)->big_word)					/* Return TRUE if FFT data element is a big word */
+int gwiter_get_fft_value (gwiter *iter, int32_t *);						/* Return unweighted value of FFT data element */
+void gwiter_set_fft_value (gwiter *iter, int32_t);						/* Weight and set FFT data element */
 
 /* Specialized routines that let the internal giants code share the free memory pool used by gwnums. */
 // void gwfree_temporarily (gwhandle *, gwnum);		DEPRECATED

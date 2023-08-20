@@ -384,25 +384,12 @@ int pnHttpServerCURL (char *pbuf, unsigned cbuf, char* postargs)
 
 /* armor parameter control chars as hex codes for transport */
 
-#define ARMOR_CHARS		"&+%\r\n"
-
-char *armor (char *d, char *s)
+char *armor (char *d, const char *s)
 {
-
-/* & is token delimiter, '+' is space char */
-
-	while (*s) {
-		if (strchr (ARMOR_CHARS, *s)) {	
-			*d++ = '%';	/* convert chars to %nn hex codes */
-			*d++ = hx[(*s) / 16];
-			*d++ = hx[(*s) % 16];
-		} else if (*s == ' ')	/* convert spaces to '+' */
-			*d++ = '+';
-		else *d++ = *s;		/* copy normal character */
-		s++;
-	}
-	*d = 0;
-	return (d);
+	char *armored_string = curl_easy_escape (NULL, s, 0);
+	strcpy (d, armored_string);
+	curl_free (armored_string);
+	return (d + strlen (d));
 }
 
 /*

@@ -2,7 +2,7 @@
 #
 
 CC = gcc
-CFLAGS = -I.. -I../sqlite-amalgamation-3180000 -O2 -march=i586 -malign-double
+CFLAGS = -I.. -I../sqlite-amalgamation-3420000 -O2 -march=i586 -malign-double
 
 CPP = g++
 CPPFLAGS = -I.. -I../qd -O2 -march=i586 -malign-double

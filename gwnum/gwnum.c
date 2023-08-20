@@ -8,7 +8,7 @@
 |  Copyright 2002-2023 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
-/* Include files */
+/* Include files and a forward declaration! */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +22,7 @@
 #include "gwtables.h"
 #include "gwini.h"
 #include "gwutil.h"
+#define DBLDBL_INLINES
 #include "gwdbldbl.h"
 #include "gwbench.h"
 #include "radix.h"
@@ -467,9 +468,8 @@ void auxiliary_hyperthread (void *);
 void gw_fixed_random_number (gwhandle *gwdata, gwnum x);
 gwnum gwalloc_internal (gwhandle *gwdata);
 
-/* Routine to split a r4dwpn FFT word into column and group multiplier indexes */
-/* We remove bit(s) associated with the upper SSE2/AVX/AVX-512 words because those are */
-/* handled by the group multipliers. */
+/* Routine to split a r4dwpn FFT word into column and group multiplier indexes. */
+/* We remove bit(s) associated with the upper SSE2/AVX words because those are handled by the group multipliers. */
 
 unsigned long dwpn_col (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
@@ -617,7 +617,8 @@ int is_pathological_distribution (
 
 int calculate_bif (
 	gwhandle *gwdata,	/* Gwnum global data */
-	unsigned long fftlen)
+	unsigned long fftlen,
+	int	all_complex)
 {
 	int	cpu_arch, retval;
 
@@ -728,13 +729,11 @@ int calculate_bif (
 	if (retval == BIF_FMA3 || retval == BIF_RYZEN) retval = BIF_I7;
 #endif
 
-/* For slower CPU architectures we didn't bother to find the best FFT implementation */
-/* for the larger FFTs.  This was done to reduce the size of the executable.  If we */
-/* are asked to run one of these large FFTs, select an FFT optimized for a different */
-/* CPU architecture. */
+/* For slower CPU architectures we didn't bother to find the best FFT implementation for the larger FFTs.  This was done to reduce the size of the executable. */
+/* If we are asked to run one of these large FFTs, select an FFT optimized for a different CPU architecture.  GW 2023-08-05: More FFTs removed for old CPUs. */
 
-	if (fftlen > 1572864 && retval == BIF_P4TP_256)
-		retval = BIF_P4_1024;	/* Tiny cache P4s have best FFT implementations up to 1536K */
+	if (retval == BIF_P4TP_256)
+		retval = BIF_P4TP_512;	/* Tiny cache P4s (Willamette) now default to FFTs optimized for larger cache Pentium 4s */
 	if (fftlen > 4194304 && retval == BIF_P4TP_512)
 		retval = BIF_P4_1024;	/* Small cache P4s have best FFT implementations up to 4M */
 	if (fftlen > 6291456 && retval == BIF_P4_1024)
@@ -743,6 +742,8 @@ int calculate_bif (
 		retval = BIF_K10;	/* K8s have best FFT implementations up to 6M */
 	if (fftlen > 4194304 && retval == BIF_CORE2_512)
 		retval = BIF_CORE2;	/* Small cache Core 2 Celerons have best FFT implementations up to 4M */
+	if (fftlen > 7864320 && (all_complex || fftlen < 18874368 || fftlen > 19660800) && (retval == BIF_CORE2 || retval == BIF_K10))
+		retval = BIF_I7;	/* Core 2 and K10 have best FFT implementations up to 7680K and negacyclic FFTs 18M to 19200K */
 
 /* Return the result */
 
@@ -804,7 +805,7 @@ int is_fft_implemented (
 /* the CPU_ARCHITECTURE.  However, for some CPU architectures, like Pentium M and Core Solo, we */
 /* don't have jmptable entries detailing the fastest FFT implementations for those architectures. */
 
-	desired_bif = calculate_bif (gwdata, jmptab->fftlen);
+	desired_bif = calculate_bif (gwdata, jmptab->fftlen, all_complex);
 
 /* Assume we will use the old school method (no benchmark database) where the */
 /* best FFT implementation is hardwired into the mult.asm jmptable. */
@@ -873,15 +874,14 @@ int is_fft_implemented (
 
 		for (i = 0; i <= 1; i++) {
 			const struct gwasm_jmptab *next_jmptab;
-			int	error_check, no_r4dwpn, impl, next_impl;
+			int	error_check, impl, next_impl;
 			double	throughput, next_throughput;
 
 			if (gwdata->will_error_check == 0) error_check = i;	/* Look for no-error-checking benchmarks first */
 			if (gwdata->will_error_check == 1) error_check = !i;	/* Look for error-checking benchmarks first */
 			if (gwdata->will_error_check == 2) error_check = i;	/* Need a more sophisticated approach in this case */
-			no_r4dwpn = (gwdata->sum_inputs_checking && ! gwdata->ALL_COMPLEX_FFT && ! (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX)));
 			gwbench_get_max_throughput (jmptab->fftlen, arch, num_cores, num_workers, num_hyperthreads,
-						    all_complex, error_check, no_r4dwpn, &impl, &throughput);
+						    all_complex, error_check, &impl, &throughput);
 			if (throughput <= 0.0) continue;
 
 			for (next_jmptab = NEXT_SET_OF_JMPTABS(jmptab); ; next_jmptab = NEXT_SET_OF_JMPTABS(next_jmptab)) {
@@ -891,7 +891,7 @@ int is_fft_implemented (
 					return (TRUE);
 				}
 				gwbench_get_max_throughput (next_jmptab->fftlen, arch, num_cores, num_workers, num_hyperthreads,
-							    all_complex, error_check, no_r4dwpn, &next_impl, &next_throughput);
+							    all_complex, error_check, &next_impl, &next_throughput);
 				if (next_throughput <= 0.0) continue;			/* No bench data, assume larger FFT will be slower */
 				if (next_throughput > throughput) return (FALSE);	/* Larger FFT length is faster */
 			}
@@ -916,7 +916,8 @@ int is_fft_implemented (
 
 const struct gwasm_jmptab *choose_one_pass_or_two_pass_impl (
 	gwhandle *gwdata,	/* Gwnum global data */
-	const struct gwasm_jmptab *jmptab)
+	const struct gwasm_jmptab *jmptab,
+	int	all_complex)
 {
 	const struct gwasm_jmptab *orig_jmptab;	
 	int	desired_bif;		/* The "best implementation for" value we will look for. */
@@ -944,7 +945,7 @@ const struct gwasm_jmptab *choose_one_pass_or_two_pass_impl (
 /* the CPU_ARCHITECTURE.  However, for some CPU architectures, like Pentium M and Core Solo, we */
 /* don't have jmptable entries detailing the fastest FFT implementations for those architectures. */
 
-	desired_bif = calculate_bif (gwdata, jmptab->fftlen);
+	desired_bif = calculate_bif (gwdata, jmptab->fftlen, all_complex);
 
 /* Loop through the FFT implementations to see if we find a one-pass implementation */
 /* that matches our desired "bif" value.  Otherwise, return first two-pass implementation. */
@@ -1231,7 +1232,7 @@ next1:			zpad_jmptab = NEXT_SET_OF_JMPTABS (zpad_jmptab);
 /* However, some FFTs have both a one-pass and two-pass implementation.  In such cases, */
 /* we must make sure that jmptab points to the implementation that we will actually use. */
 
-		impl_jmptab = choose_one_pass_or_two_pass_impl (gwdata, jmptab);
+		impl_jmptab = choose_one_pass_or_two_pass_impl (gwdata, jmptab, c > 0);
 
 /* Check if this FFT length will work with this k,n,c combo */
 
@@ -1484,11 +1485,10 @@ next2:		jmptab = NEXT_SET_OF_JMPTABS (jmptab);
 /* Decide which implementation of this FFT length is best for this CPU. */
 /************************************************************************/
 
-/* Loop through all the implementations for this FFT length until we find */
-/* the one best suited to this CPU. */
+/* Loop through all the implementations for this FFT length until we find the one best suited to this CPU. */
 
 	qa_nth_fft = gwdata->ZERO_PADDED_FFT ? 100 : 1000;
-	desired_bif = calculate_bif (gwdata, gwdata->FFTLEN);
+	desired_bif = calculate_bif (gwdata, gwdata->FFTLEN, gwdata->ALL_COMPLEX_FFT);
 	prev_proc_ptrs[0] = NULL;
 	prev_proc_ptrs[1] = NULL;
 	prev_proc_ptrs[2] = NULL;
@@ -1583,23 +1583,10 @@ next2:		jmptab = NEXT_SET_OF_JMPTABS (jmptab);
 				break;
 		}
 
-/* The Radix-4/8 DJB FFT with partial normalization saves a few multiplies by doing part */
-/* of the normalization during the forward and inverse FFT.  Unfortunately, this optimization */
-/* makes the SUM(INPUTS) != SUM(OUTPUTS) error check impossible.  If the user prefers */
-/* SUM(INPUTS) != SUM(OUTPUTS) error checking, then skip r4dwpn FFT type (except all-complex */
-/* FFTs which never could support SUM(INPUTS) != SUM(OUTPUTS) error checking. */
-/* Ignore this preference for AVX-512/AVX FFTs as we do not support two-pass FFTs with this error check. */
-
-		fft_type = (jmptab->flags >> 21) & 0xF;
-		if (gwdata->sum_inputs_checking &&
-		    ! gwdata->ALL_COMPLEX_FFT &&
-		    ! (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX)) &&
-		    fft_type == FFT_TYPE_RADIX_4_DWPN)
-			goto next3;
-
 /* If we got a best_impl_id using the benchmark_database, then see if this jmptable matches the best_impl_id */
 /* Unfortunately, this duplicates much of the flags parsing found later on in this routine. */
 
+		fft_type = (jmptab->flags >> 21) & 0xF;
 		if (best_impl_id != -1) {
 			int	flags, fft_type, arch, clm, p2size, no_prefetch, in_place;
 			flags = jmptab->flags;
@@ -2088,10 +2075,6 @@ void gwinit2 (
 		return;
 	}
 
-/* Read the gwnum.txt INI file */
-
-	gwbench_read_data ();
-
 /* Initialize gwhandle structure with the default values */
 
 	memset (gwdata, 0, sizeof (gwhandle));
@@ -2145,6 +2128,10 @@ void gwinit2 (
 
 	if (CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_BULLDOZER && ((CPU_SIGNATURE >> 16) & 0xF) < 3)
 		gwdata->cpu_flags &= ~(CPU_AVX512F | CPU_AVX | CPU_FMA3);
+
+/* Read the benchmark data from gwnum.txt INI file.  Pass in cpu_flags to aid in determining which bench data to ignore from older gwnum versions. */
+
+	gwbench_read_data (gwdata->cpu_flags);
 }
 
 /* Allocate memory and initialize assembly code for arithmetic */
@@ -2544,14 +2531,6 @@ int gwsetup_general_mod_giant (
 /* Set flag indicating general-purpose modulo operations are in force */
 
 		gwdata->GENERAL_MOD = TRUE;
-
-/* Reciprocals in generic modular reduction may well have a nasty bit pattern. */
-/* Two test cases that brought this to light are 3*2^77574+3, and 3*8^86103+1 */
-/* (when forced to use generic reduction).  These nasty patterns can trigger */
-/* spurious SUM(INPUTS) != SUM(OUTPUTS) errors.  To counter this we increase */
-/* the MAXDIFF setting. */
-	
-		gwdata->MAXDIFF *= 1000.0;
 	}
 
 /* Create dummy string representation. Calling gtoc to get the first */
@@ -4853,32 +4832,6 @@ int internal_gwsetup (
 	gwdata->FFT1_state = 2;
 #endif
 
-/* Compute maximum allowable difference for error checking */
-/* This error check is disabled for mod B^N+1 arithmetic */
-/* and for radix-4 delay with partial normalization FFTs. */
-
-	if (gwdata->ALL_COMPLEX_FFT || gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN)
-		gwdata->MAXDIFF = 1.0E80;
-
-/* We have observed that the difference seems to vary based on the size */
-/* the FFT result word.  This is two times the number of bits per double. */
-/* Subtract 1 from bits per double because one bit is the sign bit. */
-/* Add log2(b) for the FFT weight that range from 1 to b. */
-/* Add in a percentage of the log(FFTLEN) to account for carries. */
-/* We use a different threshold for AVX-512/AVX/SSE2 which uses 64-bit instead of */
-/* 80-bit doubles during the FFT */
-
-	else {
-		double bits_per_double, total_bits, loglen;
-		bits_per_double = gwdata->avg_num_b_per_word * log2 (b) - 1.0;
-		if (!gwdata->RATIONAL_FFT) bits_per_double += log2 (b);
-		if (!gwdata->ZERO_PADDED_FFT) bits_per_double += log2 (-c);
-		loglen = log2 (gwdata->FFTLEN);
-		loglen *= 0.69;
-		total_bits = bits_per_double * 2.0 + loglen * 2.0;
-		gwdata->MAXDIFF = pow ((double) 2.0, total_bits - ((gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX | CPU_SSE2)) ? 49.08 : 49.65));
-	}
-
 /* Clear counters, init internal timers */
 
 	if (!gwdata->information_only) {
@@ -4911,6 +4864,45 @@ int internal_gwsetup (
 		int retcode = multithread_init (gwdata);
 		if (retcode) { gwdone (gwdata); return (retcode); }
 	}
+
+/* Test new gwiter routines */
+
+#ifdef GDEBUG
+	if (!gwdata->information_only) {
+	gwiter iter;
+	gwnum g = gwalloc (gwdata);
+	long val;
+	int32_t val2;
+	gwiter_init_zero (gwdata, &iter, g);
+	for (unsigned long i = 0; i < gwdata->FFTLEN; i++, gwiter_next (&iter)) {
+		ASSERTG (gwiter_index (&iter) == i);
+		ASSERTG (gwiter_addr_offset (&iter) == addr_offset (gwdata, i));
+		ASSERTG (gwiter_addr (&iter) == addr (gwdata, g, i));
+		ASSERTG (gwiter_is_big_word (&iter) == is_big_word (gwdata, i));
+		set_fft_value (gwdata, g, i, 987654321);
+		gwiter_get_fft_value (&iter, &val2);
+		ASSERTG (val2 == 987654321);
+		gwiter_set_fft_value (&iter, -123456789);
+		gwiter_get_fft_value (&iter, &val);
+		ASSERTG (val == -123456789);
+	}
+	unsigned long rand_start = ((rand () << 16) + rand ()) % gwdata->FFTLEN;
+	gwiter_init (gwdata, &iter, g, rand_start);
+	for (unsigned long i = rand_start; i < gwdata->FFTLEN; i++, gwiter_next (&iter)) {
+		ASSERTG (gwiter_index (&iter) == i);
+		ASSERTG (gwiter_addr_offset (&iter) == addr_offset (gwdata, i));
+		ASSERTG (gwiter_addr (&iter) == addr (gwdata, g, i));
+		ASSERTG (gwiter_is_big_word (&iter) == is_big_word (gwdata, i));
+		set_fft_value (gwdata, g, i, 987654321);
+		gwiter_get_fft_value (&iter, &val2);
+		ASSERTG (val2 == 987654321);
+		gwiter_set_fft_value (&iter, -123456789);
+		gwiter_get_fft_value (&iter, &val);
+		ASSERTG (val == -123456789);
+	}
+	gwfree (gwdata, g);
+	}
+#endif
 
 /* Success */
 
@@ -7441,6 +7433,326 @@ double *addr (
 	return ((double *) ((char *) g + addr_offset (gwdata, i)));
 }
 
+// gwiter_next switching constants
+
+#define AVX512_ONE_PASS		0
+#define AVX512_TWO_PASS		1
+#define AVX_ONE_PASS		2
+#define AVX_TWO_PASS		3
+#define	SSE2_ONE_PASS		4
+#define SSE2_HG_TWO_PASS	5
+#define SSE2_TWO_PASS		6
+#define X87_ONE_OR_TWO_PASS	7
+
+/* An iterator can be used for faster incrementing through FFT data elements */
+
+void gwiter_init_zero (		/* Init iterator to element zero */
+	gwhandle *gwdata,	/* Handle initialized by gwsetup */
+	gwiter	*iter,		/* Iterator to initialize */
+	gwnum	g)		/* gwnum to iterate through */	  
+{
+
+/* Make sure data is not FFTed.  Caller should really try to avoid this scenario. */
+
+	if (FFT_state (g) != NOT_FFTed) gwunfft (gwdata, g, g);
+
+/* Initialize iterator state */
+
+	iter->gwdata = gwdata;
+	iter->g = g;
+	iter->index = 0;
+	gwcached_init_zero (iter->cached_data);
+	iter->addr_offset = 0;
+	iter->big_word = ((double) gwdata->NUM_B_PER_SMALL_WORD != gwdata->avg_num_b_per_word);
+
+	set_cached_dwpncol_counter (iter->cached_data, 0);		// First partial column is zero
+	set_cached_dwpncol_value (iter->cached_data, 0);
+	clear_cached_partial_weights (iter->cached_data);		// Flag that cached partial weights are not set
+
+	// Create an index to quickly switch to the appropriate code in gwiter_next
+	if (gwdata->cpu_flags & CPU_AVX512F) {
+		if (gwdata->PASS1_SIZE == 0) iter->switcher = AVX512_ONE_PASS;
+		else iter->switcher = AVX512_TWO_PASS;
+	} else if (gwdata->cpu_flags & CPU_AVX) {
+		if (gwdata->PASS1_SIZE == 0) iter->switcher = AVX_ONE_PASS;
+		else iter->switcher = AVX_TWO_PASS;
+	} else if (gwdata->cpu_flags & CPU_SSE2) {
+		if (gwdata->PASS2_SIZE == 0) iter->switcher = SSE2_ONE_PASS;
+		else if (gwdata->FFT_TYPE == FFT_TYPE_HOME_GROWN) iter->switcher = SSE2_HG_TWO_PASS;
+		else iter->switcher = SSE2_TWO_PASS;
+	} else 
+		iter->switcher = X87_ONE_OR_TWO_PASS;
+
+	// Init constants and counters for next addr_offset calculations
+	uint32_t *ao_values = iter->ao_values;
+	memset (ao_values, 0, 9 * sizeof (uint32_t));
+	switch (iter->switcher) {
+	case AVX512_TWO_PASS:
+		// Distance one is (usually) PASS2_SIZE/8 128-byte cache lines + pads
+		ao_values[0] = gwdata->PASS2_SIZE*16 + (gwdata->PASS2_SIZE >> 8) * gwdata->FOURKBGAPSIZE + gwdata->PASS2GAPSIZE;
+		break;
+	case AVX_ONE_PASS:
+		ao_values[4] = gwdata->FOURKBGAPSIZE ? gwdata->FOURKBGAPSIZE : gwdata->FFTLEN/2/4/4;
+		break;
+	case AVX_TWO_PASS:
+		// Distance one is (usually) PASS2_SIZE/4 64-byte cache lines + pads
+		ao_values[0] = gwdata->PASS2_SIZE*16 + (gwdata->PASS2_SIZE >> 8) * gwdata->FOURKBGAPSIZE + gwdata->PASS2GAPSIZE;
+		break;
+	case SSE2_ONE_PASS: {
+		uint32_t num_cache_lines = gwdata->FFTLEN/8;
+		uint32_t pfa;
+		for (pfa = num_cache_lines; pfa >= 8; pfa >>= 1);	// Top 3 bits gives us the pfa
+		if (pfa == 4 || pfa == 6) ao_values[4] = 1, ao_values[5] = num_cache_lines;
+		if (pfa == 5) ao_values[4] = 2, ao_values[5] = num_cache_lines/5, ao_values[6] = 4*num_cache_lines/5;
+		if (pfa == 7) ao_values[4] = 3, ao_values[5] = num_cache_lines/7, ao_values[6] = 2*num_cache_lines/7, ao_values[7] = 4*num_cache_lines/7;
+		break; }
+	case SSE2_HG_TWO_PASS: {
+		uint32_t num_cache_lines = gwdata->FFTLEN/gwdata->PASS2_SIZE/4;
+		uint32_t pfa;
+		for (pfa = num_cache_lines; pfa >= 8; pfa >>= 1);	// Top 3 bits gives us the pfa
+		if (pfa == 4 || pfa == 6) ao_values[5] = 1, ao_values[6] = num_cache_lines;
+		if (pfa == 5) ao_values[5] = 2, ao_values[6] = num_cache_lines/5, ao_values[7] = 4*num_cache_lines/5;
+		if (pfa == 7) ao_values[5] = 3, ao_values[6] = num_cache_lines/7, ao_values[7] = 2*num_cache_lines/7, ao_values[8] = 4*num_cache_lines/7;
+		break; }
+	}
+}
+
+void gwiter_init (		/* Init iterator to given element (typically zero) */
+	gwhandle *gwdata,	/* Handle initialized by gwsetup */
+	gwiter	*iter,		/* Iterator to initialize */
+	gwnum	g,		/* gwnum to iterate through */	  
+	uint32_t n)		/* Initial position for the iterator */
+{
+	// Init many of the constants by positioning to element zero
+	gwiter_init_zero (gwdata, iter, g); 
+
+	// Init iterator to specified element
+	iter->index = n;
+	gwcached_init (gwdata->dd_data, iter->cached_data, n);
+	iter->addr_offset = addr_offset (gwdata, n);
+	iter->big_word = gwcached_is_big_word (gwdata->dd_data, iter->cached_data);
+
+	// Init constants and counters for next addr_offset calculations
+	uint32_t *ao_values = iter->ao_values;
+	uint32_t ntmp = n;
+	switch (iter->switcher) {
+	case AVX512_ONE_PASS:
+		ao_values[0] = ntmp % 8; ntmp /= 8;
+		ao_values[1] = ntmp % 8; ntmp /= 8;
+		ao_values[2] = ntmp % (gwdata->FFTLEN/2/8/8);
+		break;
+	case AVX512_TWO_PASS:
+		ao_values[1] = ntmp % 8; ntmp /= 8;
+		ao_values[2] = ntmp % (gwdata->PASS2_SIZE/8); ntmp /= (gwdata->PASS2_SIZE/8);
+		ao_values[3] = ntmp % 8; ntmp /= 8;
+		ao_values[4] = ntmp % (gwdata->FFTLEN/2/(gwdata->PASS2_SIZE*8));
+		break;
+	case AVX_ONE_PASS:
+		ao_values[0] = ntmp % ao_values[4]; ntmp /= ao_values[4];
+		ao_values[1] = ntmp % (gwdata->FFTLEN/2/4/4/ao_values[4]); ntmp /= (gwdata->FFTLEN/2/4/4/ao_values[4]);
+		ao_values[2] = ntmp % 4; ntmp /= 4;
+		ao_values[3] = ntmp % 4;
+		break;
+	case AVX_TWO_PASS:
+		if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN) {
+			set_cached_dwpncol_counter (iter->cached_data, n % gwdata->PASS2_SIZE);
+			set_cached_dwpncol_value (iter->cached_data, dwpn_col (gwdata, n));
+			clear_cached_partial_weights (iter->cached_data);		// Flag that cached partial weights are not set
+		}
+		ao_values[1] = ntmp % 4; ntmp /= 4;
+		ao_values[2] = ntmp % (gwdata->PASS2_SIZE/4); ntmp /= (gwdata->PASS2_SIZE/4);
+		ao_values[3] = ntmp % 4; ntmp /= 4;
+		ao_values[4] = ntmp % (gwdata->FFTLEN/2/(gwdata->PASS2_SIZE*4));
+		break;
+	case SSE2_ONE_PASS:
+		ntmp = ntmp % (gwdata->FFTLEN/2);
+		ao_values[0] = ntmp % 2; ntmp /= 2;
+		if (ntmp < 2*ao_values[5]) {		// section 0
+			ao_values[1] = ntmp % ao_values[5]; ntmp = ntmp / ao_values[5];
+			ao_values[3] = 0;
+		} else {
+			ntmp -= 2*ao_values[5];
+			if (ntmp < 2*ao_values[6]) {	// section 1
+				ao_values[1] = ntmp % ao_values[6]; ntmp = ntmp / ao_values[6];
+				ao_values[3] = 1;
+			} else {			// section 2
+				ntmp -= 2*ao_values[6];
+				ao_values[1] = ntmp % ao_values[7]; ntmp = ntmp / ao_values[7];
+				ao_values[3] = 2;
+			}
+		}
+		ao_values[2] = ntmp;
+		break;
+	case SSE2_HG_TWO_PASS: {
+		uint32_t num_cache_lines = gwdata->FFTLEN/gwdata->PASS2_SIZE/4;
+		uint32_t pfa;
+		for (pfa = num_cache_lines; pfa >= 8; pfa >>= 1);	// Top 3 bits gives us the pfa
+		if (pfa == 4 || pfa == 6) ao_values[5] = 1, ao_values[6] = num_cache_lines;
+		if (pfa == 5) ao_values[5] = 2, ao_values[6] = num_cache_lines/5, ao_values[7] = 4*num_cache_lines/5;
+		if (pfa == 7) ao_values[5] = 3, ao_values[6] = num_cache_lines/7, ao_values[7] = 2*num_cache_lines/7, ao_values[8] = 4*num_cache_lines/7;
+		ntmp = ntmp % (gwdata->FFTLEN/2);
+		ao_values[0] = ntmp % (gwdata->PASS2_SIZE/2); ntmp /= (gwdata->PASS2_SIZE/2);
+		ao_values[1] = ntmp % 2; ntmp /= 2;
+		if (ntmp < 2*ao_values[6]) {		// section 0
+			ao_values[2] = ntmp % ao_values[6]; ntmp = ntmp / ao_values[6];
+			ao_values[4] = 0;
+		} else {
+			ntmp -= 2*ao_values[6];
+			if (ntmp < 2*ao_values[7]) {	// section 1
+				ao_values[2] = ntmp % ao_values[7]; ntmp = ntmp / ao_values[7];
+				ao_values[4] = 1;
+			} else {			// section 2
+				ntmp -= 2*ao_values[7];
+				ao_values[2] = ntmp % ao_values[8]; ntmp = ntmp / ao_values[8];
+				ao_values[4] = 2;
+			}
+		}
+		ao_values[3] = ntmp;
+		break; }
+	case SSE2_TWO_PASS:
+		if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN) {
+			set_cached_dwpncol_counter (iter->cached_data, n % (gwdata->PASS2_SIZE/2));
+			set_cached_dwpncol_value (iter->cached_data, dwpn_col (gwdata, n));
+			clear_cached_partial_weights (iter->cached_data);		// Flag that cached partial weights are not set
+		}
+		ao_values[0] = ntmp % 128; ntmp /= 128;
+		ao_values[1] = ntmp % (gwdata->PASS2_SIZE/2/128); ntmp /= (gwdata->PASS2_SIZE/2/128);
+		ao_values[2] = ntmp % 2; ntmp /= 2;
+		ao_values[3] = ntmp % (gwdata->FFTLEN/4/gwdata->PASS2_SIZE);
+		break;
+	}
+}
+
+void gwiter_next (		/* Position to next element */
+	gwiter	*iter)		/* Iterator to initialize */
+{
+	gwhandle *gwdata = iter->gwdata;	/* Handle initialized by gwsetup */
+
+	if (++iter->index < gwdata->FFTLEN) {
+
+		// Update cached values used in optimizing big/little and weight calculations
+		gwcached_next (gwdata->dd_data, iter->cached_data, iter->index);
+		iter->big_word = gwcached_is_big_word (gwdata->dd_data, iter->cached_data);
+
+		// Determine the next addr_offset from the last addr_offset.  This should be much faster than a call to addr_offset.
+		uint32_t *ao_values = iter->ao_values;
+		switch (iter->switcher) {
+		case AVX512_ONE_PASS:
+			iter->addr_offset += 128;
+			if (++ao_values[0] == 8) { ao_values[0] = 0; iter->addr_offset -= 8*128;
+			iter->addr_offset += 8;
+			if (++ao_values[1] == 8) { ao_values[1] = 0; iter->addr_offset -= 8*8;
+			iter->addr_offset += 1024 + ((++ao_values[2] & 3) == 0 ? gwdata->FOURKBGAPSIZE : 0);
+			if (ao_values[2] == gwdata->FFTLEN/2/8/8) { ao_values[2] = 0; iter->addr_offset = 64;}}}
+			break;
+		case AVX512_TWO_PASS: {
+			uint32_t dist1 = ao_values[0];			// PASS2_SIZE/8 128-byte cache lines + pads
+			iter->addr_offset += dist1;
+			if (++ao_values[1] == 8) { ao_values[1] = 0; iter->addr_offset -= 8*dist1;
+			iter->addr_offset += 128 + ((++ao_values[2] & 31) == 0 ? gwdata->FOURKBGAPSIZE : 0);
+			if (ao_values[2] == gwdata->PASS2_SIZE/8) { ao_values[2] = 0; iter->addr_offset -= gwdata->PASS2_SIZE/8*128 + gwdata->PASS2_SIZE/8/32*gwdata->FOURKBGAPSIZE;
+			iter->addr_offset += 8;
+			if (++ao_values[3] == 8) { ao_values[3] = 0; iter->addr_offset -= 8*8;
+			iter->addr_offset += 8*dist1;
+			if (++ao_values[4] == gwdata->FFTLEN/2/(gwdata->PASS2_SIZE*8)) { ao_values[4] = 0; iter->addr_offset = 64;}}}}
+			break; }
+		case AVX_ONE_PASS: {
+			uint32_t count1 = ao_values[4];			// gwdata->FOURKBGAPSIZE ? gwdata->FOURKBGAPSIZE : gwdata->FFTLEN/2/4/4;
+			iter->addr_offset += 64;
+			if (++ao_values[0] == count1) { ao_values[0] = 0;
+			iter->addr_offset += 64;			// pad every 1KB, 2KB, or 4KB
+			uint32_t count2 = gwdata->FOURKBGAPSIZE ? gwdata->FFTLEN/2/4/4/count1 : 1;
+			if (++ao_values[1] == count2) { ao_values[1] = 0; iter->addr_offset -= gwdata->FFTLEN/2/4/4*64 + count2*64;
+			iter->addr_offset += 8;
+			if (++ao_values[2] == 4) { ao_values[2] = 0; iter->addr_offset -= 4*8;
+			iter->addr_offset += gwdata->FFTLEN/2/4/4*64 + (gwdata->FOURKBGAPSIZE ? gwdata->FFTLEN/2/4/4/gwdata->FOURKBGAPSIZE*64 : 0);
+			if (++ao_values[3] == 4) { ao_values[2] = 0; iter->addr_offset = 32;}}}}
+			break; }
+		case AVX_TWO_PASS: {
+			// Calculate next dwpncol value used in partial weights
+			if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN) {
+				inc_cached_dwpncol_counter (iter->cached_data);
+				inc_cached_dwpncol_value (iter->cached_data);
+				if (get_cached_dwpncol_counter (iter->cached_data) == gwdata->PASS2_SIZE) {
+					set_cached_dwpncol_counter (iter->cached_data, 0);
+					set_cached_dwpncol_value (iter->cached_data, dwpn_col (gwdata, iter->index));
+					clear_cached_partial_weights (iter->cached_data);		// Flag that cached partial weights are not set
+				}
+			}
+			// Now the next addr_offset calculations
+			uint32_t dist1 = ao_values[0];			// PASS2_SIZE/4 64-byte cache lines + pads
+			iter->addr_offset += dist1;
+			if (++ao_values[1] == 4) { ao_values[1] = 0; iter->addr_offset -= 4*dist1;
+			iter->addr_offset += 64 + ((++ao_values[2] & 63) == 0 ? gwdata->FOURKBGAPSIZE : 0);
+			if (ao_values[2] == gwdata->PASS2_SIZE/4) { ao_values[2] = 0; iter->addr_offset -= gwdata->PASS2_SIZE/4*64 + gwdata->PASS2_SIZE/4/64*gwdata->FOURKBGAPSIZE;
+			iter->addr_offset += 8;
+			if (++ao_values[3] == 4) { ao_values[3] = 0; iter->addr_offset -= 4*8;
+			iter->addr_offset += 4*dist1;
+			if (++ao_values[4] == gwdata->FFTLEN/2/(gwdata->PASS2_SIZE*4)) { ao_values[4] = 0; iter->addr_offset = 32;}}}}
+			break; }
+		case SSE2_ONE_PASS: {
+			iter->addr_offset += 16;
+			if (++ao_values[0] == 2) { ao_values[0] = 0; iter->addr_offset -= 2*16;
+			iter->addr_offset += 64;
+			uint32_t pfa_section_number = ao_values[3];
+			uint32_t count = ao_values[5+pfa_section_number];
+			if (++ao_values[1] == count) { ao_values[1] = 0; iter->addr_offset -= count*64;
+			iter->addr_offset += 8;
+			if (++ao_values[2] == 2) { ao_values[2] = 0; iter->addr_offset -= 2*8;
+			iter->addr_offset += count*64;
+			uint32_t num_pfa_sections = ao_values[4];
+			if (++ao_values[3] == num_pfa_sections) { ao_values[3] = 0; iter->addr_offset = 32;}}}}
+			break; }
+		case SSE2_HG_TWO_PASS: {					// Extremely rare?  s.b. eliminated?
+			iter->addr_offset += 64 + ((++ao_values[0] & 127) == 0 ? 128 : 0);	// Pad 128 every 8KB
+			if (ao_values[0] == gwdata->PASS2_SIZE/2) { ao_values[0] = 0; iter->addr_offset -= gwdata->PASS2_SIZE/2*64 + gwdata->PASS2_SIZE/2/128*128;
+			iter->addr_offset += 8;
+			if (++ao_values[1] == 2) { ao_values[1] = 0; iter->addr_offset -= 2*8;
+			uint32_t dist = gwdata->PASS2_SIZE/2*64 + gwdata->PASS2_SIZE/2/128*128 + gwdata->PASS2GAPSIZE;
+			iter->addr_offset += dist;
+			uint32_t pfa_section_number = ao_values[4];
+			uint32_t count = ao_values[6+pfa_section_number];
+			if (++ao_values[2] == count) { ao_values[2] = 0; iter->addr_offset -= count*dist;
+			iter->addr_offset += 16;
+			if (++ao_values[3] == 2) { ao_values[3] = 0; iter->addr_offset -= 2*16;
+			iter->addr_offset += count*dist;
+			uint32_t num_pfa_sections = ao_values[5];
+			if (++ao_values[4] == num_pfa_sections) { ao_values[4] = 0; iter->addr_offset = 32;}}}}}
+			break; }
+		case SSE2_TWO_PASS: {
+			// Calculate next dwpncol value used in partial weights
+			if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN) {
+				inc_cached_dwpncol_counter (iter->cached_data);
+				inc_cached_dwpncol_value (iter->cached_data);
+				if (get_cached_dwpncol_counter (iter->cached_data) == gwdata->PASS2_SIZE / 2) {
+					set_cached_dwpncol_counter (iter->cached_data, 0);
+					set_cached_dwpncol_value (iter->cached_data, dwpn_col (gwdata, iter->index));
+					clear_cached_partial_weights (iter->cached_data);		// Flag that cached partial weights are not set
+				}
+			}
+			// Now the next addr_offset calculations
+			ASSERTG ((gwdata->PASS2_SIZE/2) % 128 == 0);
+			iter->addr_offset += 64;
+			if (++ao_values[0] == 128) { ao_values[0] = 0;
+			iter->addr_offset += 128;						// Pad 128 every 8KB
+			uint32_t count1 = gwdata->PASS2_SIZE/2/128;
+			if (++ao_values[1] == count1) { ao_values[1] = 0; iter->addr_offset -= gwdata->PASS2_SIZE/2*64 + count1*128;
+			iter->addr_offset += 8;
+			if (++ao_values[2] == 2) { ao_values[2] = 0; iter->addr_offset -= 2*8;
+			uint32_t dist = gwdata->PASS2_SIZE/2*64 + gwdata->PASS2_SIZE/2/128*128 + gwdata->PASS2GAPSIZE;
+			iter->addr_offset += dist;
+			uint32_t count3 = gwdata->FFTLEN/4/gwdata->PASS2_SIZE;
+			if (++ao_values[3] == count3) { ao_values[3] = 0; iter->addr_offset -= count3*dist;
+			iter->addr_offset += 16;}}}}
+			break; }
+		case X87_ONE_OR_TWO_PASS:
+			// Not bothering to optimize x87 FFTs.  Fall back to a function call.
+			iter->addr_offset = addr_offset (gwdata, iter->index);
+			break;
+		}
+	}
+}
+
 /* Return the amount of data allocated by gwsetup */
 
 unsigned long gwmemused (
@@ -7458,9 +7770,7 @@ unsigned long gwnum_size (
 	return (gwnum_datasize (gwdata) + GW_HEADER_SIZE (gwdata) + sizeof (void *) + gwdata->GW_ALIGNMENT + 2 * sizeof (void *));
 }
 
-/* Each FFT word is multiplied by a two-to-phi value.  These */
-/* routines set and get the FFT value without the two-to-phi */
-/* multiplier. */
+/* Each FFT word is multiplied by a two-to-phi value.  These routines set and get the FFT value without the two-to-phi multiplier. */
 
 int get_fft_value (
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
@@ -7497,10 +7807,48 @@ int get_fft_value (
 
 /* Round the value to the nearest integer */
 
-	if (val < -0.5)
-		*retval = (long) (val - 0.5);
-	else
-		*retval = (long) (val + 0.5);
+	round_double_to_int32 (val, *retval);
+
+/* Return success */
+
+	return (0);
+}
+
+int gwiter_get_fft_value (			/* Return unweighted value of FFT data element */
+	gwiter	*iter,
+	int32_t	*retval)
+{
+	gwhandle *gwdata = iter->gwdata;	/* Handle initialized by gwsetup */
+	gwnum	g = iter->g;
+	double	val, *valaddr;
+
+	ASSERTG (FFT_state (g) == NOT_FFTed);
+	ASSERTG (iter->index < gwdata->FFTLEN);
+
+/* Get the FFT data and validate it */
+
+	valaddr = gwiter_addr (iter);
+	if (! is_valid_double_addr (valaddr)) return (GWERROR_BAD_FFT_DATA);
+	val = *valaddr;
+
+/* Rational and AVX-512 FFTs are not weighted */
+
+	if (!gwdata->RATIONAL_FFT && !(gwdata->cpu_flags & CPU_AVX512F)) {
+
+/* Handle r4dwpn FFTs which are only partially normalized */
+
+		if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN)
+			val = val * gwcached_partial_weight_inverse_sloppy (gwdata->dd_data, iter->cached_data, iter->index);
+
+/* Multiply by two-to-minus-phi to generate an integer. */
+
+		else
+			val = val * gwcached_weight_inverse_sloppy (gwdata->dd_data, iter->cached_data, iter->index);
+	}
+
+/* Round the value to the nearest integer */
+
+	round_double_to_int32 (val, *retval);
 
 /* Return success */
 
@@ -7533,6 +7881,32 @@ void set_fft_value (
 	* addr (gwdata, g, i) = val * gwfft_weight_sloppy (gwdata->dd_data, i);
 }
 
+void gwiter_set_fft_value (		/* Weight and set FFT data element */
+	gwiter	*iter,
+	int32_t	val)
+{
+	gwhandle *gwdata = iter->gwdata;
+	gwnum	g = iter->g;
+	double *valaddr = gwiter_addr (iter);
+
+	ASSERTG (iter->index < gwdata->FFTLEN);
+
+/* Handle the rational and AVX-512 FFT case quickly (not weighted) */
+
+	if (gwdata->RATIONAL_FFT || (gwdata->cpu_flags & CPU_AVX512F) || val == 0)
+		*valaddr = val;
+
+/* Handle r4dwpn FFTs which are only partially weighted */
+
+	else if (gwdata->FFT_TYPE == FFT_TYPE_RADIX_4_DWPN)
+		*valaddr = val * gwcached_partial_weight_sloppy (gwdata->dd_data, iter->cached_data, iter->index);
+
+/* Multiply by two-to-phi to generate the proper double */
+
+	else
+		*valaddr = gwcached_weight_sloppy (gwdata->dd_data, iter->cached_data, iter->index, val);
+}
+
 /* Some words in the FFT data contain floor(p/N), some words contain */
 /* floor(p/N)+1 bits.  This function returns TRUE in the latter case. */
 
@@ -7542,8 +7916,7 @@ int is_big_word (
 {
 	unsigned long base, next_base;
 
-/* Compute the number of b in this word.  It is a big word if */
-/* the number of b is more than NUM_B_PER_SMALL_WORD. */
+/* Compute the number of b in this word.  It is a big word if the number of b is more than NUM_B_PER_SMALL_WORD. */
 
 	base = gwfft_base (gwdata->dd_data, i);
 	next_base = gwfft_base (gwdata->dd_data, i+1);
@@ -8861,7 +9234,7 @@ void gianttogw (
 /* Now convert the giant to gwnum format.  For base 2 we simply copy bits. */
 
 		if (gwdata->b == 2) {
-			unsigned long i, limit;
+			unsigned long limit;
 			int	bits, bits1, bits2, e1len, accumbits;
 			int64_t	accum, value;
 			uint32_t *e1;
@@ -8880,7 +9253,8 @@ void gianttogw (
 			accum = 0;
 			accumbits = 0;
 
-			for (i = 0; i < limit; i++) {
+			gwiter iter;
+			for (gwiter_init_zero (gwdata, &iter, g); gwiter_index (&iter) < limit; gwiter_next (&iter)) {
 
 				// If needed, add another 32 input bits to accumulator
 				if (accumbits < 28) {
@@ -8890,15 +9264,15 @@ void gianttogw (
 
 				// Process top word without sign extension, otherwise grab bits with sign extension.
 				// Special case zero bits as shift left 64 may be undefined.
-				bits = (i == limit - 1) ? 32 : is_big_word (gwdata, i) ? bits2 : bits1;
+				bits = (gwiter_index (&iter) == limit - 1) ? 32 : gwiter_is_big_word (&iter) ? bits2 : bits1;
 				value = bits ? (accum << (64 - bits)) >> (64 - bits) : 0;
-				set_fft_value (gwdata, g, i, (long) value);
+				gwiter_set_fft_value (&iter, (int32_t) value);
 				accum = (accum - value) >> bits;
 				accumbits -= bits;
 			}
 
 			// Clear the upper words
-			for ( ; i < gwdata->FFTLEN; i++) set_fft_value (gwdata, g, i, 0);
+			for ( ; gwiter_index (&iter) < gwdata->FFTLEN; gwiter_next (&iter)) gwiter_set_fft_value (&iter, 0);
 		}
 
 /* Otherwise (non-base 2), we do a recursive divide and conquer radix conversion. */
@@ -9012,6 +9386,7 @@ int gwtogiant (
 	gwnum	gg,
 	giant	v)
 {
+	stackgiant(k,2);
 	int	err_code;
 	unsigned long limit;
 
@@ -9027,6 +9402,16 @@ int gwtogiant (
 /* a result value of zero is less likely to cause problems/crashes. */
 
 	v->sign = 0;
+
+/* Rather than a separate never-will-be-multithreaded giants call to mul-by-k, prepare to mul-by-k as we go (at least in the b=2 case). */
+
+	dbltog (gwdata->k, k);
+	bool k_is_small = (k->sign <= 1);
+	bool k_is_one = (k_is_small && k->n[0] == 1);
+#define klo	(k->n[0])
+#define khi	(k->n[1])
+#define k64	(*(uint64_t *)k->n)
+	if (k_is_small) khi = 0;	// Needed for k64 to work
 
 /* If this is a general-purpose mod, then only convert the needed words */
 /* which will be less than half the FFT length.  If this is a zero padded */
@@ -9063,47 +9448,26 @@ int gwtogiant (
 /* If base is 2 we can simply copy the bits out of each FFT word */
 
 	if (gwdata->b == 2) {
-		long	val;
+		gwiter	iter;
+		int32_t	val;
 		int64_t accum;
-		int	j, bits, accumbits;
-		unsigned long i;
-		uint32_t *outptr, khi, klo, outval;
-		uint64_t k, outcarry;
-		bool	negative_gwnum, k_is_one, k_is_small;
-
-/* Detect if gwnum is negative.  At least most of the time: say maximum FFT value is 100, then top words of (0, -25) is negative and properly detected, */
-/* but top words of (1, -125) wouldn't be properly detected as negative.  Handling negative values in the main loop is faster than a postprocessing */
-/* pass that negates the result. */
-
-		for ( ; limit > 0; limit--) {		/* Find top word */
-			err_code = get_fft_value (gwdata, gg, limit-1, &val);
-			if (err_code) return (err_code);
-			if (val != 0) break;
-		}
-		negative_gwnum = (val < 0);
-
-/* Rather than a separate not-multithreaded giants call to mul-by-k, prepare to mul-by-k as we go. */
-
-		k = (uint64_t) gwdata->k;
-		khi = (uint32_t) (k >> 32);
-		klo = (uint32_t) k;
-		k_is_small = (khi == 0);
-		k_is_one = (k_is_small && klo == 1);
-		outcarry = 0;
+		int	bits, accumbits;
+		uint32_t *outptr, outval;
+		uint64_t outcarry;
 
 /* Collect bits until we have all of them */
 
 		accum = 0;
 		accumbits = 0;
 		outptr = v->n;
-		for (i = 0; ; i++) {
+		outcarry = 0;
+		for (gwiter_init_zero (gwdata, &iter, gg); ; gwiter_next (&iter)) {
 			// Process next FFT word
-			if (i < limit) {
-				err_code = get_fft_value (gwdata, gg, i, &val);
+			if (gwiter_index (&iter) < limit) {
+				err_code = gwiter_get_fft_value (&iter, &val);
 				if (err_code) return (err_code);
-				if (negative_gwnum) val = -val;
 				bits = gwdata->NUM_B_PER_SMALL_WORD;
-				if (is_big_word (gwdata, i)) bits++;
+				if (gwiter_is_big_word (&iter)) bits++;
 				accum += ((int64_t) val) << accumbits;
 				accumbits += bits;
 				// See if we have 32-bits to output
@@ -9131,22 +9495,35 @@ int gwtogiant (
 			}
 
 			// Are we done?  We need to process limit FFT words plus the outcarry.
-			if (i >= limit && ((accum == 0 && outcarry == 0) || (accum == -1 && outcarry == k - 1))) break;
+			if (gwiter_index (&iter) >= limit && ((accum == 0 && outcarry == 0) || (accum == -1 && outcarry == k64 - 1))) break;
 		}
 
 /* Set the length */
 
-		v->sign = (long) (outptr - v->n);
+		v->sign = (int) (outptr - v->n);
 		while (v->sign && v->n[v->sign-1] == 0) v->sign--;
-		if (negative_gwnum) v->sign = -v->sign;
 
-/* If accumulator is -1, the gwnum is negative.  Ugh.  Flip the bits and sign.   This should be exceedingly rare as we detected most negative gwnums earlier. */
+/* Divide the upper bits by k, leave the remainder in the upper bits and multiply the quotient by c and subtract that from the lower bits. */
 
-		if (accum == -1) {
-			for (j = 0; j < v->sign; j++) v->n[j] = ~v->n[j];
-			while (v->sign && v->n[v->sign-1] == 0) v->sign--;
-			iaddg (1, v);
-			v->sign = -v->sign;
+		stackgiant(upper,5);					// Upper bits shouldn't be much more than k^2 (100 bits)
+		gtogshiftrightsplit (gwdata->n, v, upper, accum);	// Split v at bit n into two giants optionally negating upper bits
+		if (!isZero (upper)) {
+			if (k_is_one) {
+				imulg (gwdata->c, upper);	// Upper bits times c
+				subg (upper, v);		// Lower bits minus upper bits * c
+			} else {
+				stackgiant(quot,5);
+				gtog (upper, quot);
+				divg (k, quot);			// Upper bits over k
+				stackgiant(tmp,5);
+				gtog (k, tmp);
+				mulg (quot, tmp);
+				subg (tmp, upper);		// Upper bits mod k
+				if (upper->sign < 0) iaddg (-1, quot), addg (k, upper); // Make negative remainder positive
+				gtogshiftleftunsplit (gwdata->n, upper, v);	// Copy remainder to high bits of v
+				imulg (gwdata->c, quot);	// Upper bits over k times c
+				subg (quot, v);
+			}
 		}
 	}
 
@@ -9158,12 +9535,12 @@ int gwtogiant (
 
 /* Since all gwnums are premultiplied by the inverse of k, we must now multiply by k to get the true result. */
 
-		if (gwdata->k > 1.0) {
-			stackgiant(k,2);
-			dbltog (gwdata->k, k);
-			mulgi (&gwdata->gdata, k, v);
-		}
+		if (!k_is_one) mulgi (&gwdata->gdata, k, v);
 	}
+
+#undef klo
+#undef khi
+#undef k64
 
 /* The gwnum is not guaranteed to be smaller than k*b^n+c.  Handle this possibility.  This also converts negative values to positive. */
 
@@ -9477,26 +9854,6 @@ void asm_mul (
 		d = (gwnum) ((char *) d + (intptr_t) asm_data->DEST2ARG);
 	}
 
-/* Adjust if necessary the SUM(INPUTS) vs. SUM(OUTPUTS).  If an unnormalized add count is set, then the sums will be larger than normal. */
-/* This could trigger spurious MAXDIFF warnings.  Shrink the two SUMS to compensate. */
-/* 2023: This ancient error check does not work with new gwmuladd4, gwsubmul4, etc.  I'm sure it could be made to work, but is not worth the effort. */
-
-	if (gwdata->sum_inputs_checking && asm_data->mul4_opcode == 0) {
-		float	unnorm_count1, unnorm_count2;
-
-		unnorm_count1 = unnorms (s1);
-		unnorm_count2 = unnorms (s2);
-		if (unnorm_count1 != 0.0f || unnorm_count2 != 0.0f) {
-			double	adjustment = pow (0.5, (double) (unnorm_count1 + unnorm_count2));
-			gwsuminp (gwdata, d) *= adjustment;
-			gwsumout (gwdata, d) *= adjustment;
-		}
-
-/* Test SUM(INPUTS) vs. SUM(OUTPUTS) */
-
-		if (fabs (gwsuminp (gwdata, d) - gwsumout (gwdata, d)) > gwdata->MAXDIFF) gwdata->GWERROR |= 2;
-	}
-
 /* Reset the unnormalized add count, set the FFT state */
 
 	unnorms (d) = 0.0f;
@@ -9711,7 +10068,6 @@ void gwunfft2 (
 	int	options)	/* Any of GWMUL_ADDINCONST, GWMUL_MULBYCONST, GWMUL_STARTNEXTFFT */
 {
 	int	save_count;
-	char	save_sum_inputs_checking;
 
 	ASSERTG (unnorms (s) >= 0.0f);
 
@@ -9728,11 +10084,8 @@ void gwunfft2 (
 	save_count = gwdata->careful_count;
 	gwdata->careful_count = 0;
 
-/* Turn off sum(inputs) checking.  Polymult produces results where the sum(inputs) value is not valid.  Polymult then unffts these results. */
-/* Also clear unnorms so if we call gwmul3 it won't assert when polymult has set unnorms very high. */
+/* Clear unnorms so if we call gwmul3 it won't assert when polymult has set unnorms very high. */
 
-	save_sum_inputs_checking = gwdata->sum_inputs_checking;
-	gwdata->sum_inputs_checking = 0;
 	unnorms (s) = 0.0f;
 
 /* For partially or fully FFTed data, multiply source by 1.0 */
@@ -9821,7 +10174,6 @@ void gwunfft2 (
 
 /* Restore state */
 
-	gwdata->sum_inputs_checking = save_sum_inputs_checking;
 	gwdata->careful_count = save_count;
 }
 

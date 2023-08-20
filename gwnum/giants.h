@@ -10,7 +10,7 @@
  *	    20 Apr 97  RDW
  *
  *	c. 1997 Perfectly Scientific, Inc.
- *	c. 1998-2022 Mersenne Research, Inc.
+ *	c. 1998-2023 Mersenne Research, Inc.
  *	All Rights Reserved.
  *
  **************************************************************/
@@ -188,6 +188,13 @@ void 	gshiftleft(int bits, giant g);
 #define	gshiftright(n,g)	{if (n) gtogshiftright (n, g, g);}
 void 	gtogshiftright (int bits, giant src, giant dest);
 
+// Highly specialized routine for gwnum's gwtogiant.  Like gtogshiftright extract top bits of src and copy them to dest.
+// However if accum == -1 then flip dest bits and make dest negative.  Also clear src bits that were copied to dest.
+void gtogshiftrightsplit (int bits, giant src, giant dest, int64_t accum);
+
+// Highly specialized routine for gwnum's gwtogiant, sets top bits of dest.  dest = (dest % 2^bits) + (src * 2^bits)
+void gtogshiftleftunsplit (int bits, giant src, giant dest);
+
 /* If 1/x exists (mod n), then x := 1/x.  If
  * inverse does not exist, then x := - GCD(n, x). */
 int 	invg(giant n, giant x);
@@ -255,12 +262,9 @@ int 	gcdgi(ghandle *, int, giant n, giant x);
 
 extern void addhlp (uint32_t *res, uint32_t *carry, uint32_t val);
 extern void subhlp (uint32_t *res, uint32_t *carry, uint32_t val);
-extern void muladdhlp (uint32_t *res, uint32_t *carryl,
-		       uint32_t *carryh, uint32_t val1, uint32_t val2);
-extern void muladd2hlp (uint32_t *res, uint32_t *carryl,
-			uint32_t *carryh, uint32_t val1, uint32_t val2);
-extern void mulsubhlp (uint32_t *res, uint32_t *carryl,
-		       uint32_t *carryh, uint32_t val1, uint32_t val2);
+extern void muladdhlp (uint32_t *res, uint32_t *carryl, uint32_t *carryh, uint32_t val1, uint32_t val2);
+extern void muladd2hlp (uint32_t *res, uint32_t *carryl, uint32_t *carryh, uint32_t val1, uint32_t val2);
+extern void mulsubhlp (uint32_t *res, uint32_t *carryl, uint32_t *carryh, uint32_t val1, uint32_t val2);
 
 /* External routine pointers. */
 

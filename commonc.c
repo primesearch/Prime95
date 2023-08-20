@@ -33,7 +33,6 @@ int	DIAL_UP = 0;
 unsigned int DAYS_OF_WORK = 5;
 int	STRESS_TESTER = 0;
 int volatile ERRCHK = 0;
-int volatile SUM_INPUTS_ERRCHK = 0;	/* 1 to turn on sum(inputs) != sum(outputs) error checking */
 unsigned int PRIORITY = 1;
 unsigned int NUM_WORKERS = 1;		/* Number of workers to launch */
 unsigned int WORK_PREFERENCE[MAX_NUM_WORKERS] = {0};
@@ -1785,8 +1784,6 @@ int readIniFiles (void)
 	STRESS_TESTER = (int) IniGetInt (INI_FILE, "StressTester", 99);
 	temp = (int) IniGetInt (INI_FILE, "ErrorCheck", 0);
 	ERRCHK = (temp != 0);
-	temp = (int) IniGetInt (INI_FILE, "SumInputsErrorCheck", 0);
-	SUM_INPUTS_ERRCHK = (temp != 0);
 	NUM_WORKERS = IniGetInt (INI_FILE, KEY_NumWorkers, good_default_for_num_workers ());
 	if (NUM_WORKERS < 1) NUM_WORKERS = 1;
 	if (NUM_WORKERS > MAX_NUM_WORKERS) NUM_WORKERS = MAX_NUM_WORKERS;
@@ -4763,10 +4760,11 @@ void formatMsgForResultsFile (
 /* Open a results file and write a line to the end of it. */
 
 int writeResultsInternal (
-	int	which_results_file,	/* 0 = results.txt, 1 = results.bench.txt */
-	const char *msg)
+	int	which_results_file,	/* 0 = results.txt, 1 = results.bench.txt, 2 = results.json.txt */
+	const char *msg,
+	int	output_nl)
 {
-static	time_t	last_time[2] = {0};
+static	time_t	last_time[3] = {0};
 	time_t	this_time;
 	int	fd;
 	int	write_interval;
@@ -4790,8 +4788,7 @@ static	time_t	last_time[2] = {0};
 		return (FALSE);
 	}
 
-/* If it has been at least 5 minutes (a user-adjustable value) since the last time stamp */
-/* was output, then output a new timestamp */
+/* If it has been at least 5 minutes (a user-adjustable value) since the last time stamp was output, then output a new timestamp */
 
 	time (&this_time);
 	if (write_interval && this_time - last_time[which_results_file] > (time_t) write_interval) {
@@ -4807,6 +4804,7 @@ static	time_t	last_time[2] = {0};
 /* Output the message */
 
 	if (_write (fd, msg, (unsigned int) strlen (msg)) < 0) goto fail;
+	if (output_nl && _write (fd, "\n", 1) < 0) goto fail;
 	_close (fd);
 	gwmutex_unlock (&OUTPUT_MUTEX);
 	return (TRUE);
@@ -4825,7 +4823,7 @@ fail:	_close (fd);
 int writeResults (
 	const char *msg)
 {
-	return (writeResultsInternal (0, msg));
+	return (writeResultsInternal (0, msg, FALSE));
 }
 
 /* Open the results.bench file and write a line to the end of it. */
@@ -4833,7 +4831,7 @@ int writeResults (
 int writeResultsBench (
 	const char *msg)
 {
-	return (writeResultsInternal (1, msg));
+	return (writeResultsInternal (1, msg, FALSE));
 }
 
 /* Open the results.json file and write a line to the end of it. */
@@ -4841,7 +4839,7 @@ int writeResultsBench (
 int writeResultsJSON (
 	const char *msg)
 {
-	return (writeResultsInternal (2, msg));
+	return (writeResultsInternal (2, msg, TRUE));
 }
 
 
@@ -5991,7 +5989,7 @@ retry:
 		if (CPU_FLAGS & CPU_SSE41) strcat (pkt.cpu_features, "SSE4,");
 		if (CPU_FLAGS & CPU_AVX) strcat (pkt.cpu_features, "AVX,");
 		if (CPU_FLAGS & CPU_AVX2) strcat (pkt.cpu_features, "AVX2,");
-		if (CPU_FLAGS & (CPU_FMA3 | CPU_FMA4)) strcat (pkt.cpu_features, "FMA, ");
+		if (CPU_FLAGS & (CPU_FMA3 | CPU_FMA4)) strcat (pkt.cpu_features, "FMA,");
 		if (CPU_FLAGS & CPU_AVX512F) strcat (pkt.cpu_features, "AVX512F,");
 		if (pkt.cpu_features[0])
 			pkt.cpu_features[strlen (pkt.cpu_features) - 1] = 0;
