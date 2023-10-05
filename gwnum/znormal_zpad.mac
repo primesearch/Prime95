@@ -1,4 +1,4 @@
-; Copyright 2011-2019 - Mersenne Research, Inc.  All rights reserved.
+; Copyright 2011-2023 - Mersenne Research, Inc.  All rights reserved.
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -1907,7 +1907,7 @@ ttp	vmovsd	xmm21, ZMM_RNDVAL_OVER_LARGE_BASE  ;; RNDVAL / large_word_base - RNDV
 	je	short noncon			;; Jump if not const
 	vmovsd	xmm19, ZMM_MINUS_C_TIMES_MULCONST ;; -c * small mul const
 	vmulsd	xmm1, xmm1, ZMM_MULCONST	;; Multiply the add in value by the small mul const
-noncon:
+noncon:	vaddsd	xmm1, xmm1, POSTADDIN_VALUE	;; Add the post-mul-by-const addin value
 
 	;; when c = -1, 1 = b^n
 	;; when c = 1, -1 = b^n, 1 = -b^n

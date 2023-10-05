@@ -150,7 +150,7 @@ giant allocgiant (		/* Create a new giant */
 }
 
 void itog (		/* The giant g becomes set to the integer value i. */
-	int	i,
+	int32_t	i,
 	giant	g)
 {
 	if (i > 0) {
@@ -175,6 +175,18 @@ void ultog (		/* The giant g becomes set to the integer value i. */
 	} else {
 		g->sign = 1;
 		g->n[0] = i;
+	}
+}
+
+void slltog (		/* The giant g becomes set to the integer value i. */
+	int64_t i,
+	giant	g)
+{
+	if (i >= 0) {
+		ulltog (i, g);
+	} else {
+		ulltog (-i, g);
+		g->sign = -g->sign;
 	}
 }
 
@@ -759,6 +771,10 @@ void modgi (		/* n becomes n%d. n is arbitrary, but the
 	ASSERTG (d->sign > 0);
 	ASSERTG (d->n[d->sign-1] != 0);
 	ASSERTG (n->sign == 0 || n->n[abs(n->sign)-1] != 0);
+
+/* Quick check for n already less than d */
+
+	if (n->sign >= 0 && (n->sign < d->sign || (n->sign == d->sign && gcompg (n, d) < 0))) return;
 
 /* Use divg to compute the mod */
 
@@ -1593,15 +1609,13 @@ int invg_common (	/* Common invg code */
 	while (y->sign < 0) addg (x, y);
 	modgi (gdata, x, y);
 
-/* Compute the GCD and inverse the fastest way possible */
-/* The inverse is computed in the matrix A, and only the */
-/* right side of the matrix is needed.  However, the recursive */
-/* ggcd code needs the left side of the array allocated. */
+/* Compute the GCD and inverse the fastest way possible.  The inverse is computed in the matrix A, and only the */
+/* right side of the matrix is needed.  However, the recursive ggcd code needs the left side of the array allocated. */
 
-	A.ur = popg (gdata, x->sign);
+	A.ur = popg (gdata, x->sign + 1);			// In theory, +1 not needed.  See second test_paul.c in mersenne forum thread mentioned below.
 	if (A.ur == NULL) { stop_reason = GIANT_OUT_OF_MEMORY; goto done; }
 	setzero (A.ur);
-	A.lr = popg (gdata, x->sign);
+	A.lr = popg (gdata, x->sign + 1);			// In theory, +1 not needed.  But https://www.mersenneforum.org/showpost.php?p=638742&postcount=75 fails.
 	if (A.lr == NULL) { stop_reason = GIANT_OUT_OF_MEMORY; goto done; }
 	setone (A.lr);
 	if (y->sign <= GCDLIMIT) {
@@ -2610,7 +2624,7 @@ int ggcd (		/* A giant gcd.  Modifies its arguments. */
 	return (cextgcdg (gdata, x, y, NULL, interruptable));
 
 /* Error exit */
-	
+
 done:	pushall (gdata, ss);
 	return (stop_reason);
 }
@@ -2633,10 +2647,10 @@ int rhgcd (	/* recursive hgcd calls accumulating extended GCD info */
 	A.ll = popg (gdata, (*x)->sign);
 	if (A.ll == NULL) { stop_reason = GIANT_OUT_OF_MEMORY; goto done; }
 	setzero (A.ll);
-	A.ur = popg (gdata, (*x)->sign);
+	A.ur = popg (gdata, (*x)->sign + 1);					// In theory, +1 not needed.  But general mod on 27*2^100000-1 will then fail.
 	if (A.ur == NULL) { stop_reason = GIANT_OUT_OF_MEMORY; goto done; }
 	setzero (A.ur);
-	A.lr = popg (gdata, (*x)->sign);
+	A.lr = popg (gdata, (*x)->sign + 1);					// In theory, +1 not needed.  But general mod on 2163*2^1255556+1 will then fail.
 	if (A.lr == NULL) { stop_reason = GIANT_OUT_OF_MEMORY; goto done; }
 	setone (A.lr);
 

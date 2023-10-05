@@ -206,17 +206,16 @@ void inline gwcached_init (void *dd_data_arg, uint64_t *cached_data, unsigned lo
 	base128[1] = 0xFFFFFFFFULL;
 
 	uint64_t tmp = (uint64_t) n * (uint64_t) dd_data->frac_bpw3;
-	base128[0] += tmp;
-	base128[1] += (base128[0] < tmp);
+	base128[0] += tmp;			// Add all 64-bits of tmp to low base word
+	base128[1] += (base128[0] < tmp);	// Propagate carry
 
 	tmp = (uint64_t) n * (uint64_t) dd_data->frac_bpw2;	// This product will need splitting and shifting
-	base128[1] += tmp >> 32;
-	tmp = (uint32_t) tmp;
-	base128[0] += tmp;
-	base128[1] += (base128[0] < tmp);
+	base128[1] += tmp >> 32;		// Add upper 32-bits of tmp to lower 32-bits of high base word
+	base128[0] += tmp << 32;		// Add lower 32-bits of tmp to upper 32-bits of low base word
+	base128[1] += (base128[0] < tmp);	// Propagate carry
 
 	tmp = (uint64_t) n * (* ((uint64_t *) &dd_data->frac_bpw1));
-	base128[1] += tmp;
+	base128[1] += tmp;			// Add all 64-bits of tmp to high base word
 
 	last_weight_j = 0xFFFFFFF0;		// Init weight_sloppy cache
 	last_inv_weight_j = 0xFFFFFFF0;		// Init inv_weight_sloppy cache

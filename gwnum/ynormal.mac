@@ -1764,6 +1764,7 @@ const	vmulsd	xmm3, xmm3, Q YMM_MULCONST
 	;; Work on zero-pad addin value.
 	vmovsd	xmm4, ADDIN_VALUE		;; Load the add in value
 const	vmulsd	xmm4, xmm4, YMM_MULCONST	;; Multiply the add in value by the small mul const
+	vaddsd	xmm4, xmm4, POSTADDIN_VALUE	;; Add the post-mul-by-const addin value
 	;; when c = -1, 1 = b^n
 	;; when c = 1, -1 = b^n, 1 = -b^n
 	;; when c = -3, 3 = b^n, 1 = b^n - 2
@@ -4379,6 +4380,7 @@ zsetdn:
 	;; Work on zero-pad addin value.
 	vmovsd	xmm4, ADDIN_VALUE		;; Load the add in value
 const	vmulsd	xmm4, xmm4, YMM_MULCONST	;; Multiply the add in value by the small mul const
+	vaddsd	xmm4, xmm4, POSTADDIN_VALUE	;; Add the post-mul-by-const addin value
 	;; when c = -1, 1 = b^n
 	;; when c = 1, -1 = b^n, 1 = -b^n
 	;; when c = -3, 3 = b^n, 1 = b^n - 2
@@ -5618,66 +5620,6 @@ ttp	vmulpd	ymm7, ymm7, [rbx+32]			;; carry2 *= two-to-phi
 	vmovapd	ymm7, ymm5				;; Install next section's carry
 	ENDM
 
-; *************** 1D normalized smalladd macro ******************
-; This macro adds a small constant, then propagates the carry
-; xmm7 = addin value
-; rsi = pointer to destination
-; rbp = pointer two-to-phi multipliers
-; rdi = pointer to array of big vs. little flags
-; rax = big vs. little word flag #1
-
-ynorm_smalladd_1d MACRO base2
-	lea	rdi, YMM_FIRST_BIGLIT_VALUES	;; Address of first big/little flags
-	mov	rbp, norm_col_mults		;; Address of the multipliers
-
-	movzx	rax, BYTE PTR [rdi]		;; First biglit flag
-	vmovsd	xmm0, Q [rsi]			;; Load value1
-	vaddsd	xmm0, xmm0, xmm7		;; Add in carry
-base2	vaddsd	xmm0, xmm0, Q YMM_BIGVAL
-	single_rounding base2, xmm0, xmm2, xmm4, rax*2
-	vmovsd	Q [rsi], xmm0			;; Save value1
-
-	add	rbp, YMM_NORM_INCR1		;; Next ttp/ttmp pointer
-	add	rsi, YMM_SRC_INCR1		;; Next source pointer
-	movzx	rax, BYTE PTR [rdi+1]		;; Load big vs. little flags
-	vmovsd	xmm0, Q [rsi]			;; Load FFT data
-	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values2 by two-to-minus-phi
-	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
-	vaddsd	xmm0, xmm0, xmm2		;; x2 = value + carry
-	single_rounding base2, xmm0, xmm2, xmm4, rax*2
-	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value2 = val * two-to-phi
-	vmovsd	Q [rsi], xmm0			;; Save value2
-
-	add	rbp, YMM_NORM_INCR2		;; Next ttp/ttmp pointer
-	add	rsi, YMM_SRC_INCR2		;; Next source pointer
-	movzx	rax, BYTE PTR [rdi+2]		;; Load big vs. little flags
-	vmovsd	xmm0, Q [rsi]			;; Load FFT data
-	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values3 by two-to-minus-phi
-	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
-	vaddsd	xmm0, xmm0, xmm2		;; x3 = value + carry
-	single_rounding base2, xmm0, xmm2, xmm4, rax*2
-	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value3 = val * two-to-phi
-	vmovsd	Q [rsi], xmm0			;; Save value3
-
-	add	rbp, YMM_NORM_INCR3		;; Next ttp/ttmp pointer
-	add	rsi, YMM_SRC_INCR3		;; Next source pointer
-	movzx	rax, BYTE PTR [rdi+3]		;; Load big vs. little flags
-	vmovsd	xmm0, Q [rsi]			;; Load FFT data
-	vmulsd	xmm0, xmm0, Q [rbp]		;; Mul values2 by two-to-minus-phi
-	vmulsd	xmm0, xmm0, Q YMM_NORM012_FF	;; Mul by FFTLEN/2
-	vaddsd	xmm0, xmm0, xmm2		;; x4 = value + carry
-	single_rounding base2, xmm0, xmm2, xmm4, rax*2
-	vmulsd	xmm0, xmm0, Q [rbp+32]		;; new value4 = val * two-to-phi
-	vmovsd	Q [rsi], xmm0			;; Save value4
-
-	add	rbp, YMM_NORM_INCR4		;; Next ttp/ttmp pointer
-	add	rsi, YMM_SRC_INCR4		;; Next source pointer
-base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL
-	vmulsd	xmm2, xmm2, Q [rbp+32]		;; carry *= two-to-phi
-	vaddsd	xmm2, xmm2, Q [rsi]		;; Add in FFT data
-	vmovsd	Q [rsi], xmm2			;; Save value5
-	ENDM
-
 ; *************** 1D normalized smallmul macro ******************
 ; This macro multiplies by a small constant, then "normalizes" eight FFT
 ; data values.
@@ -6627,58 +6569,6 @@ ttp		vmulpd	ymm5, ymm5, [rbp+0*YMM_GMD+YMM_GMD/2][rcx] ;; value2 *= fudged grp t
 		ystore	[rsi+0*32], ymm4		;; Save new value1
 		ystore	[rsi+1*32], ymm5		;; Save new value1
 		sub	rsi, dist_to_dest2		;; Change back to a pointer into the first input number
-	ENDM
-
-; *************** WPN normalized small add macro ******************
-; This macro implements the smalladd with normalization feature by adding the
-; provided small value to the first FFT word and propagating any carries.
-; NOTE: caller can assume xmm6,xmm7 are left untouched (for better prolog/epilog handling)
-
-ynorm_smalladd_wpn MACRO ttp, base2
-	LOCAL	clmloop, cloop, done
-
-	mov	rsi, DESTARG			;; Address of destination
-	vmovsd	xmm2, DBLARG			;; Small addin value
-base2	vaddsd	xmm2, xmm2, Q YMM_BIGVAL
-ttp	mov	rbp, norm_grp_mults		;; Addr of the group multipliers
-ttp	mov	rdi, norm_biglit_array		;; Addr of the big/little flags array
-
-clmloop:
-ttp	mov	edx, cache_line_multiplier	;; We must increment rdi by a funky amount every 4*clm cache lines
-no ttp	sub	rdx, rdx			;; Init loop counter
-
-cloop:
-ttp	movzx	rbx, WORD PTR [rdi]		;; Load big vs. little flags
-ttp	movzx	eax, bh				;; Big/lit flags 1-2
-ttp	and	rbx, 0e0h			;; Fudge flags 1
-
-	vmovsd	xmm0, Q [rsi]			;; Load value
-ttp	vmulsd	xmm0, xmm0, Q [rbp+0*YMM_GMD][rbx] ;; Mul values by fudged two-to-minus-phi
-	vaddsd	xmm0, xmm0, xmm2		;; x = values + carry
-	new_single_rounding ttp, base2, xmm0, xmm2, xmm4, rax*8
-ttp	vmulsd	xmm0, xmm0, Q [rbp+0*YMM_GMD+YMM_GMD/2][rbx] ;; value = rounded value * fudged grp two-to-phi
-	vmovsd	Q [rsi], xmm0			;; Save new value
-
-base2	vmovsd	xmm1, Q YMM_BIGVAL		;; Load comparison value
-no base2 vxorpd	xmm1, xmm1, xmm1		;; Create comparison value
-	vcmpsd	xmm0, xmm2, xmm1, 0Ch		;; Test for non-zero carry
-	vmovmskpd rax, xmm0			;; Extract comparison bit
-	or	rax, rax			;; Is bit on?
-	jz	short done			;; No, we are done
-
-ttp	bump	rdi, 2				;; Advance pointers
-	add	rsi, pass2blkdst		;; Next FFT data ptr
- 	add	dl, 256/4			;; Special increment needed every 4th iteration
-	jnc	cloop				;; Loop if not 4th iteration
-	sub	rsi, pass1blkdst		;; Each pass1 block consists of 4 pass 2 blocks
-	bump	rsi, 64				;; Next cache line
-ttp	sub	dl, 4				;; Do we need to bump rdi yet?
-ttp	jnz	cloop				;; No, repeat carry propagation loop
-ttp	add	rdi, normval2			;; Adjust ptr to little/big flags
-ttp	jmp	clmloop				;; Yes, reload 4*clm counter and propagate
-no ttp	jmp	cloop				;; No, repeat carry propagation loop
-
-done:	
 	ENDM
 
 ; *************** WPN normalized small mul macro ******************

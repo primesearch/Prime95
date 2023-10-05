@@ -116,7 +116,7 @@ buildfor                        + K8_64         ,	r4_pass1sc112 28K, 8, 2
 buildfor                                        ,	r4_pass1sc128 32K, 8, 4
 buildfor         + P4_32                        ,	r4_pass1sc224 56K, 8, 4
 buildfor                                        ,	r4_pass1sc256 64K, 8, 4
-buildfor                        + K8_64         ,	r4_pass1sc32 24K, 768, 4
+buildfor CORE                   + K8_64         ,	r4_pass1sc32 24K, 768, 4
 buildfor CORE                                   ,	r4_pass1sc64 48K, 768, 4
 buildfor                                        ,	r4_pass1sc80 60K, 768, 4
 buildfor CORE                                   ,	r4_pass1sc96 72K, 768, 4
@@ -128,7 +128,7 @@ buildfor                                        ,	r4_pass1sc80 80K, 10, 4
 buildfor                                        ,	r4_pass1sc96 96K, 10, 4
 buildfor                                        ,	r4_pass1sc112 112K, 10, 4
 buildfor CORE    + P4_64                        ,	r4_pass1sc32 40K, 1280, 4
-buildfor                                        ,	r4_pass1sc64 80K, 1280, 4
+buildfor CORE                                   ,	r4_pass1sc64 80K, 1280, 4
 buildfor                                        ,	r4_pass1sc96 120K, 1280, 4
 
 buildfor CORE    + P4           + K8    + K10   ,	r4_pass1sc32ac 8K, 8, 4

@@ -1,4 +1,4 @@
-; Copyright 2011-2022 Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2023 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 
@@ -1391,38 +1391,6 @@ cz4:	ycopyzero
 	jnz	cz1			; Loop if necessary
 	ad_epilog 0,0,rbx,rsi,rdi,rbp
 gwycopyzero3 ENDP
-
-;;
-;; Add in a small number with carry propagation (four different versions)
-;;
-
-	; Base 2, irrational version
-PROCFL	gwyadds3
-	ad_prolog 0,0,rbx,rbp,rsi,rdi
-	ynorm_smalladd_wpn exec, exec
-	ad_epilog 0,0,rbx,rbp,rsi,rdi
-gwyadds3 ENDP
-
-	; Base 2, rational version
-PROCFL	gwyaddsr3
-	ad_prolog 0,0,rbx,rbp,rsi,rdi
-	ynorm_smalladd_wpn noexec, exec
-	ad_epilog 0,0,rbx,rbp,rsi,rdi
-gwyaddsr3 ENDP
-
-	; Non base 2, irrational version
-PROCFL	gwyaddsn3
-	ad_prolog 0,0,rbx,rbp,rsi,rdi
-	ynorm_smalladd_wpn exec, noexec
-	ad_epilog 0,0,rbx,rbp,rsi,rdi
-gwyaddsn3 ENDP
-
-	; Non base 2, rational version
-PROCFL	gwyaddsnr3
-	ad_prolog 0,0,rbx,rbp,rsi,rdi
-	ynorm_smalladd_wpn noexec, noexec
-	ad_epilog 0,0,rbx,rbp,rsi,rdi
-gwyaddsnr3 ENDP
 
 ;;
 ;; Multiply a number by a small value with carry propagation (eight different versions)

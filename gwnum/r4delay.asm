@@ -245,7 +245,7 @@ buildfor                                        ,	r4delay_pass1sc3584 7M, 11, 4
 buildfor                                        ,	r4delay_pass1sc4096 8M, 11, 4
 buildfor                                        ,	r4delay_pass1sc4096 8M, 11, 2
 
-	; The all-complex 8 levels variants
+	; The negacyclic 8 levels variants
 
 buildfor                                        ,	r4delay_pass1sc128ac 32K, 8, 4
 buildfor                                        ,	r4delay_pass1sc128ac 32K, 8, 2
@@ -260,7 +260,7 @@ buildfor                                        ,	r4delay_pass1sc768ac 192K, 8, 
 buildfor                                        ,	r4delay_pass1sc1024ac 256K, 8, 4
 buildfor                                        ,	r4delay_pass1sc1280ac 320K, 8, 4
 
-	; The all-complex 10 levels variants (768, 1024, 1280)
+	; The negacyclic 10 levels variants (768, 1024, 1280)
 
 buildfor                                        ,	r4delay_pass1sc128ac 96K, 768, 4
 buildfor                                        ,	r4delay_pass1sc128ac 128K, 10, 4
@@ -309,7 +309,7 @@ buildfor                                        ,	r4delay_pass1sc4096ac 4M, 10, 
 
 buildfor                                        ,	r4delay_pass1sc5120ac 5M, 10, 4
 
-	; The all-complex 11 levels variants (1536, 2048, 2560)
+	; The negacyclic 11 levels variants (1536, 2048, 2560)
 
 buildfor                                        ,	r4delay_pass1sc256ac 384K, 1536, 4
 buildfor                                        ,	r4delay_pass1sc256ac 512K, 11, 4

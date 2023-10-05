@@ -424,7 +424,7 @@ bcast	vbroadcastsd zmm5, Q [screg+4*16+8]	;; cosine/sine for R6/I6 and R8/I8
 	ENDM
 
 
-;; This code applies the roots-of-minus-1 premultipliers in an all-complex FFT as well as
+;; This code applies the roots-of-minus-1 premultipliers in an negacyclic FFT as well as
 ;; the group weight multipliers (the column weights are applied later).
 ;; It also applies the eleven sin/cos multipliers after the first radix-12 butterfly.
 ;; We save memory by splitting the roots-of-minus-1 premultipliers such that every
@@ -1264,7 +1264,7 @@ bcast	vbroadcastsd zmm27, Q [screg+4*16]	;; sine for R6/I6 and R8/I8
 
 
 ;; This code applies the sin/cos multipliers before a radix-12 butterfly.
-;; Then it applies the postmultipliers since the all-complex inverse FFT is complete
+;; Then it applies the postmultipliers since the negacyclic inverse FFT is complete
 ;; as well as the group weight multipliers.
 ;; We save memory by splitting the roots-of-minus-1 premultipliers such that every
 ;; macro uses the same premultiplier data.  The rest of the premultiplier is applied

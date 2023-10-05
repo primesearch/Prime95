@@ -541,7 +541,7 @@ no bcast vmovapd zmm26, [screg+1*128]		;; sine for R3/I3
 ;; ******************************* eight-complex first and last variants (two pass FFTs) ***********************************
 ;;
 
-;; This code applies the roots-of-minus-1 premultipliers in an all-complex FFT as well as
+;; This code applies the roots-of-minus-1 premultipliers in an negacyclic FFT as well as
 ;; the group weight multipliers (the column weights are applied later).
 ;; It also applies the seven sin/cos multipliers after the first radix-8 butterfly.
 ;; We save memory by splitting the roots-of-minus-1 premultipliers such that every
@@ -846,7 +846,7 @@ zr8_csc_wpn_eight_complex_first_djbfft MACRO srcreg,srcinc,d1,d2,d4,screg,scinc,
 	ENDM
 
 ;; This code applies the sin/cos multipliers before a radix-8 butterfly.
-;; Then it applies the postmultipliers since the all-complex inverse FFT is complete
+;; Then it applies the postmultipliers since the negacyclic inverse FFT is complete
 ;; as well as the group weight multipliers.
 ;; We save memory by splitting the roots-of-minus-1 premultipliers such that every
 ;; macro uses the same premultiplier data.  The rest of the premultiplier is applied

@@ -24,6 +24,10 @@ objconv=c:\objconv\objconv
 all:	gwnumd.lib gwnum.lib polymult.lib polymultd.lib linux\gwnum.a macosx\gwnum.a release\ecmstag1.obj debug\ecmstag1.obj
 
 # Make libraries out of the object files
+# Recently removed (empty) object files
+#	    r4delay_core.obj r4delay_p4.obj r4delay_k8.obj r4delay_k10.obj \
+#	    r4delay3_core.obj r4delay3_p4.obj r4delay3_p4tp.obj r4delay3_k8.obj r4delay3_k10.obj \
+#	    r4delay5_core.obj r4delay5_p4.obj r4delay5_k8.obj r4delay5_k10.obj \
 
 gwnumd.lib: debug\cpuid.obj debug\gwnum.obj debug\gwtables.obj debug\gwthread.obj debug\gwini.obj debug\gwbench.obj debug\gwutil.obj \
 	    debug\gwdbldbl.obj debug\giants.obj debug\radix.obj mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj mult2aux.obj \
@@ -31,9 +35,7 @@ gwnumd.lib: debug\cpuid.obj debug\gwnum.obj debug\gwtables.obj debug\gwthread.ob
 	    xmult1ax.obj xmult2.obj xmult2a_core.obj xmult2a_k8.obj xmult2ax.obj xmult3.obj xmult3a_core.obj xmult3a_k8.obj xmult3ax.obj \
 	    hg_blend.obj hg_core.obj hg_p4.obj hg_p4tp.obj hg_k8.obj hg_k10.obj \
 	    r4_core.obj r4_p4.obj r4_p4tp.obj r4_k8.obj r4_k10.obj \
-	    r4delay_core.obj r4delay_p4.obj r4delay_p4tp.obj r4delay_k8.obj r4delay_k10.obj \
-	    r4delay3_core.obj r4delay3_p4.obj r4delay3_p4tp.obj r4delay3_k8.obj r4delay3_k10.obj \
-	    r4delay5_core.obj r4delay5_p4.obj r4delay5_p4tp.obj r4delay5_k8.obj r4delay5_k10.obj \
+	    r4delay_p4tp.obj r4delay5_p4tp.obj \
 	    r4dwpn_core.obj r4dwpn_p4.obj r4dwpn_p4tp.obj r4dwpn_k8.obj r4dwpn_k10.obj \
 	    r4dwpn3_core.obj r4dwpn3_p4.obj r4dwpn3_p4tp.obj r4dwpn3_k8.obj r4dwpn3_k10.obj \
 	    r4dwpn5_core.obj r4dwpn5_p4.obj r4dwpn5_p4tp.obj r4dwpn5_k8.obj r4dwpn5_k10.obj \
@@ -50,9 +52,7 @@ gwnum.lib: release\cpuid.obj release\gwnum.obj release\gwtables.obj release\gwth
 	   xmult1ax.obj xmult2.obj xmult2a_core.obj xmult2a_k8.obj xmult2ax.obj xmult3.obj xmult3a_core.obj xmult3a_k8.obj xmult3ax.obj \
 	   hg_blend.obj hg_core.obj hg_p4.obj hg_p4tp.obj hg_k8.obj hg_k10.obj \
 	   r4_core.obj r4_p4.obj r4_p4tp.obj r4_k8.obj r4_k10.obj \
-	   r4delay_core.obj r4delay_p4.obj r4delay_p4tp.obj r4delay_k8.obj r4delay_k10.obj \
-	   r4delay3_core.obj r4delay3_p4.obj r4delay3_p4tp.obj r4delay3_k8.obj r4delay3_k10.obj \
-	   r4delay5_core.obj r4delay5_p4.obj r4delay5_p4tp.obj r4delay5_k8.obj r4delay5_k10.obj \
+	   r4delay_p4tp.obj r4delay5_p4tp.obj \
 	   r4dwpn_core.obj r4dwpn_p4.obj r4dwpn_p4tp.obj r4dwpn_k8.obj r4dwpn_k10.obj \
 	   r4dwpn3_core.obj r4dwpn3_p4.obj r4dwpn3_p4tp.obj r4dwpn3_k8.obj r4dwpn3_k10.obj \
 	   r4dwpn5_core.obj r4dwpn5_p4.obj r4dwpn5_p4tp.obj r4dwpn5_k8.obj r4dwpn5_k10.obj \
@@ -76,9 +76,7 @@ linux\gwnum.a: mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult2a.obj m
 	       xmult1ax.obj xmult2.obj xmult2a_core.obj xmult2a_k8.obj xmult2ax.obj xmult3.obj xmult3a_core.obj xmult3a_k8.obj xmult3ax.obj \
 	       hg_blend.obj hg_core.obj hg_p4.obj hg_p4tp.obj hg_k8.obj hg_k10.obj \
 	       r4_core.obj r4_p4.obj r4_p4tp.obj r4_k8.obj r4_k10.obj \
-	       r4delay_core.obj r4delay_p4.obj r4delay_p4tp.obj r4delay_k8.obj r4delay_k10.obj \
-	       r4delay3_core.obj r4delay3_p4.obj r4delay3_p4tp.obj r4delay3_k8.obj r4delay3_k10.obj \
-	       r4delay5_core.obj r4delay5_p4.obj r4delay5_p4tp.obj r4delay5_k8.obj r4delay5_k10.obj \
+	       r4delay_p4tp.obj r4delay5_p4tp.obj \
 	       r4dwpn_core.obj r4dwpn_p4.obj r4dwpn_p4tp.obj r4dwpn_k8.obj r4dwpn_k10.obj \
 	       r4dwpn3_core.obj r4dwpn3_p4.obj r4dwpn3_p4tp.obj r4dwpn3_k8.obj r4dwpn3_k10.obj \
 	       r4dwpn5_core.obj r4dwpn5_p4.obj r4dwpn5_p4tp.obj r4dwpn5_k8.obj r4dwpn5_k10.obj \
@@ -99,12 +97,6 @@ macosx\gwnum.a: macosx\mult.obj mult1.obj mult1aux.obj mult2.obj mult2p.obj mult
 		xmult1ax.obj xmult2.obj xmult2a_core.obj xmult2ax.obj xmult3.obj xmult3a_core.obj xmult3ax.obj \
 		hg_blend.obj hg_core.obj hg_p4.obj \
 		r4_core.obj r4_p4.obj \
-		r4delay_core.obj r4delay_p4.obj \
-		r4delay3_core.obj r4delay3_p4.obj \
-		r4delay5_core.obj r4delay5_p4.obj \
-		r4dwpn_core.obj r4dwpn_p4.obj \
-		r4dwpn3_core.obj r4dwpn3_p4.obj \
-		r4dwpn5_core.obj r4dwpn5_p4.obj \
 		ymult1ax_core.obj yr4_core.obj \
 		ymult3.obj ymult3a_core.obj ymult3ax.obj \
 		yr4dwpn_core.obj yr4dwpn3_core.obj yr4dwpn4_core.obj yr4dwpn5_core.obj \

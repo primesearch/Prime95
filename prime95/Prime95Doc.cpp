@@ -785,7 +785,7 @@ void CPrime95Doc::OnBenchmark()
 	dlg.m_minFFT = IniGetInt (INI_FILE, "MinBenchFFT", 2048);
 	dlg.m_maxFFT = IniGetInt (INI_FILE, "MaxBenchFFT", 8192);
 	dlg.m_errchk = ERRCHK;				// IniGetInt (INI_FILE, "BenchErrorCheck", 0);
-	dlg.m_all_complex = 0;				// IniGetInt (INI_FILE, "BenchAllComplex", 0);
+	dlg.m_negacyclic = 0;				// IniGetInt (INI_FILE, "BenchNegacyclic", 0);
 	dlg.m_limit_FFT_sizes = 0;			// IniGetInt (INI_FILE, "OnlyBench5678", 1);
 
 	// Init CPU cores dialog box entries
@@ -815,7 +815,7 @@ void CPrime95Doc::OnBenchmark()
 			IniWriteInt (INI_FILE, "MinBenchFFT", dlg.m_minFFT);
 			IniWriteInt (INI_FILE, "MaxBenchFFT", dlg.m_maxFFT);
 			IniWriteInt (INI_FILE, "BenchErrorCheck", dlg.m_errchk);
-			IniWriteInt (INI_FILE, "BenchAllComplex", dlg.m_all_complex ? 2 : 0);
+			IniWriteInt (INI_FILE, "BenchNegacyclic", dlg.m_negacyclic ? 2 : 0);
 			IniWriteInt (INI_FILE, "OnlyBench5678", dlg.m_limit_FFT_sizes);
 		}
 		IniWriteString (INI_FILE, "BenchCores", dlg.m_bench_cores);

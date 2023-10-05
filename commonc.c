@@ -341,7 +341,7 @@ void getCpuSpeed (void)
 
 	guessCpuSpeed ();
 
-/* Now let the user override the cpu speed from the local.txt file */
+/* Now let the user override the cpu speed from the prime.txt file */
 
 	temp = IniGetInt (INI_FILE, "CpuSpeed", 99);
 	if (temp != 99) CPU_SPEED = temp;
@@ -638,7 +638,7 @@ void getCpuInfo (void)
 
 	calc_hardware_guid ();
 
-/* Let the user override the cpu flags from the local.txt file */
+/* Let the user override the cpu flags from the prime.txt file */
 
 	temp = IniGetInt (INI_FILE, "CpuSupportsRDTSC", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_RDTSC;
@@ -683,7 +683,7 @@ void getCpuInfo (void)
 	if (temp == 0) CPU_FLAGS &= ~CPU_AVX512F;
 	if (temp == 1) CPU_FLAGS |= CPU_AVX512F;
 
-/* Let the user override the L1/L2/L3/L4 cache size in local.txt file */
+/* Let the user override the L1/L2/L3/L4 cache size in prime.txt file */
 
 	CPU_TOTAL_L1_CACHE_SIZE = IniGetInt (INI_FILE, "CpuL1TotalCacheSize", CPU_TOTAL_L1_CACHE_SIZE);
 	CPU_NUM_L1_CACHES = IniGetInt (INI_FILE, "CpuL1NumCaches", CPU_NUM_L1_CACHES);
@@ -1399,6 +1399,7 @@ void nameAndReadIniFiles (
 
 	renameIniKey (NULL, "WorkerThreads", KEY_NumWorkers);			// Renamed in 30.10b5
 	renameIniKey (NULL, "NoMoreWork", KEY_QuitGIMPS);			// Renamed in 30.11b1
+	renameIniKey (NULL, "BenchAllComplex", "BenchNegacyclic");		// Renamed in 30.16b2
 
 	IniWriteString (INI_FILE, "RollingAverageIsFromV27", NULL);		// Deprecated 30.10b5
 	IniWriteString (INI_FILE, "V24OptionsConverted", NULL);			// Deprecated 30.10b5
@@ -1700,7 +1701,7 @@ void read_cores_per_test (void)
 			PTOSetOne (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, temp[i]);
 	}
 
-/* Sanity check the CoresPerTest.  In case user hand-edited local.txt */
+/* Sanity check the CoresPerTest.  In case user hand-edited prime.txt */
 
 	for (i = 0; i < (int) NUM_WORKERS; i++) {
 		if (CORES_PER_TEST[i] < 1) CORES_PER_TEST[i] = 1;
@@ -2343,6 +2344,24 @@ void JSONaddExponent (
 {
 	if (w->k == 1.0 && w->b == 2 && w->c == -1) sprintf (JSONbuf+strlen(JSONbuf), ", \"exponent\":%lu", w->n);
 	else sprintf (JSONbuf+strlen(JSONbuf), ", \"k\":%.0f, \"b\":%lu, \"n\":%lu, \"c\":%ld", w->k, w->b, w->n, w->c);
+	if (w->known_factors != NULL) {
+		char	fac_string[1210];
+		char	*in, *out;
+		fac_string[0] = 0;
+		// Copy known factors changing commas to quote-comma-quote
+		for (in = w->known_factors, out = fac_string; ; in++) {
+			if (*in == ',') {
+				strcpy (out, "\",\"");
+				out += 3;
+			} else if (out - fac_string > 1200) {
+				strcpy (out, "...");
+				break;
+			} else
+				*out++ = *in;
+			if (*in == 0) break;
+		}
+		sprintf (JSONbuf+strlen(JSONbuf), ", \"known-factors\":[\"%s\"]", fac_string);
+	}
 }
 
 /* Append program and timestamp to JSON message */
@@ -3984,7 +4003,7 @@ unsigned int factorLimit (
 /*            Routines to compute the rolling average         */
 /**************************************************************/
 
-//bug - someway to avoid local.txt updates (to disk) if well_behaved_work is set!!
+//bug - someway to avoid prime.txt updates (to disk) if well_behaved_work is set!!
 
 /* Convert a string to a hash value */
 
@@ -4170,7 +4189,7 @@ void adjust_rolling_average (void)
 	if (ROLLING_AVERAGE < 20) ROLLING_AVERAGE = 20;
 	if (ROLLING_AVERAGE > 4000) ROLLING_AVERAGE = 4000;
 
-/* Update rolling average data in the local.txt file */
+/* Update rolling average data in the prime.txt file */
 
 no_update:
 	IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_RollingHash, hash);
@@ -7038,7 +7057,7 @@ void timed_events_scheduler (void *arg)
 			case TE_SAVE_FILES:	/* Timer to trigger writing save files */
 						/* Also check for add files */
 				timed_events[i].active = FALSE;
-				if (addFileExists ()) stop_workers_for_add_files ();	// Look for prime.add or local.add
+				if (addFileExists ()) stop_workers_for_add_files ();	// Look for prime.add
 				incorporateWorkToDoAddFile ();				// Append work from worktodo.add
 				saveFilesTimer ();
 				break;

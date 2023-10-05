@@ -2,8 +2,6 @@
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
-#define bool int
-
 #include <windows.h> 
 #include <winnls.h>
 #include <tchar.h>
@@ -100,7 +98,7 @@ VOID ServiceStart (DWORD dwArgc, LPTSTR *lpszArgv)
 VOID ServiceStop()
 {
 	SetThreadPriority (GetCurrentThread (), THREAD_PRIORITY_NORMAL);
-	raiseAllWorkerThreadPriority ();
+	raiseAllWorkersPriority ();
 	stop_workers_for_escape ();
 }
 
@@ -113,25 +111,6 @@ void GetIniSettings()
 	nameAndReadIniFiles (-1);
 	initCommCode ();
 
-	IniGetString (INI_FILE, "ServiceName", SZSERVICENAME,
-		      sizeof (SZSERVICENAME), "ppp");
-	if (strcmp (SZSERVICENAME, "ppp") != 0) {
-		IniWriteString (INI_FILE, "ServiceName", NULL);
-		IniWriteString (LOCALINI_FILE, "ServiceName", SZSERVICENAME);
-	} else {
-		IniGetString (LOCALINI_FILE, "ServiceName", SZSERVICENAME,
-			      sizeof (SZSERVICENAME), "NTPrimeService");
-	}
-
-	IniGetString (INI_FILE, "DisplayName", SZSERVICEDISPLAYNAME,
-		      sizeof (SZSERVICEDISPLAYNAME), "ppp");
-	if (strcmp (SZSERVICEDISPLAYNAME, "ppp") != 0) {
-		IniWriteString (INI_FILE, "DisplayName", NULL);
-		IniWriteString (LOCALINI_FILE, "DisplayName",
-				SZSERVICEDISPLAYNAME);
-	} else {
-		IniGetString (LOCALINI_FILE, "DisplayName",
-			      SZSERVICEDISPLAYNAME,
-			      sizeof (SZSERVICEDISPLAYNAME), "Prime Service");
-	}
+	IniGetString (INI_FILE, "ServiceName", SZSERVICENAME, sizeof (SZSERVICENAME), "NTPrimeService");
+	IniGetString (INI_FILE, "DisplayName", SZSERVICEDISPLAYNAME, sizeof (SZSERVICEDISPLAYNAME), "Prime Service");
 }

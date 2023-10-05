@@ -57,7 +57,7 @@ buildfor                                        ,	r4dwpn_pass1sc320 2560K, 13, 4
 buildfor                                        ,	r4dwpn_pass1sc320 3200K, 10240, 4
 buildfor                                        ,	r4dwpn_pass1sc320 4000K, 12800, 4
 
-buildfor                                + K10   ,	r4dwpn_pass1sc384 1728K, 4608, 4
+buildfor CORE                           + K10   ,	r4dwpn_pass1sc384 1728K, 4608, 4
 buildfor                                        ,	r4dwpn_pass1sc384 2304K, 6144, 4
 buildfor                                        ,	r4dwpn_pass1sc384 2880K, 7680, 4
 buildfor                                        ,	r4dwpn_pass1sc384 3M, 13, 4
@@ -88,7 +88,7 @@ buildfor CORE            + P4TP                 ,	r4dwpn_pass1sc640 2880K, 4608,
 buildfor         + P4    + P4TP         + K10_32,	r4dwpn_pass1sc640 3840K, 6144, 4
 buildfor CORE_32 + P4                           ,	r4dwpn_pass1sc640 4800K, 7680, 4
 buildfor CORE_64 + P4                           ,	r4dwpn_pass1sc640 5M, 13, 4
-buildfor CORE_32                                ,	r4dwpn_pass1sc640 6400K, 10240, 4
+buildfor                                        ,	r4dwpn_pass1sc640 6400K, 10240, 4
 buildfor CORE_64                                ,	r4dwpn_pass1sc640 8000K, 12800, 4
 
 buildfor CORE_64                        + K10   ,	r4dwpn_pass1sc768 3456K, 4608, 4
@@ -174,7 +174,7 @@ buildfor                                        ,	r4dwpn_pass1sc4096 32M, 13, 1
 ;buildfor                                       ,	r4dwpn_pass1sc4096 40M, 10240, 4
 ;buildfor                                       ,	r4dwpn_pass1sc4096 50M, 12800, 4
 
-	; The all-complex 13 levels variants (4608, 6144, 7680, 8192, 10240, 12800)
+	; The negacyclic 13 levels variants (4608, 6144, 7680, 8192, 10240, 12800)
 
 buildfor CORE    + P4    + P4TP                 ,	r4dwpn_pass1sc256ac 1152K, 4608, 4
 buildfor         + P4                           ,	r4dwpn_pass1sc256ac 1536K, 6144, 4
@@ -207,7 +207,7 @@ buildfor         + P4_32                        ,	r4dwpn_pass1sc640ac 3840K, 614
 buildfor         + P4_32                        ,	r4dwpn_pass1sc640ac 4800K, 7680, 4
 buildfor                                        ,	r4dwpn_pass1sc640ac 5M, 13, 4
 buildfor                                        ,	r4dwpn_pass1sc640ac 6400K, 10240, 4
-buildfor                                        ,	r4dwpn_pass1sc640ac 8000K, 12800, 4
+buildfor CORE_64                                ,	r4dwpn_pass1sc640ac 8000K, 12800, 4
 
 buildfor CORE    + P4    + P4TP         + K10   ,	r4dwpn_pass1sc768ac 3456K, 4608, 4
 buildfor         + P4_32                + K10_32,	r4dwpn_pass1sc768ac 4608K, 6144, 4
@@ -228,7 +228,7 @@ buildfor                                + K10_32,	r4dwpn_pass1sc1280ac 7680K, 61
 buildfor                                        ,	r4dwpn_pass1sc1280ac 9600K, 7680, 4
 buildfor                                        ,	r4dwpn_pass1sc1280ac 10M, 13, 4
 buildfor                                        ,	r4dwpn_pass1sc1280ac 12800K, 10240, 4
-buildfor CORE_64                                ,	r4dwpn_pass1sc1280ac 16000K, 12800, 4
+buildfor                                        ,	r4dwpn_pass1sc1280ac 16000K, 12800, 4
 
 buildfor                                + K10_32,	r4dwpn_pass1sc1536ac 6912K, 4608, 4
 buildfor                                        ,	r4dwpn_pass1sc1536ac 9M, 6144, 4
@@ -247,10 +247,10 @@ buildfor                                        ,	r4dwpn_pass1sc2048ac 20M, 1024
 buildfor                                        ,	r4dwpn_pass1sc2048ac 20M, 10240, 2
 buildfor                                        ,	r4dwpn_pass1sc2048ac 25M, 12800, 4
 
-buildfor                                        ,	r4dwpn_pass1sc2560ac 11520K, 4608, 4
+buildfor CORE                                   ,	r4dwpn_pass1sc2560ac 11520K, 4608, 4
 buildfor                                        ,	r4dwpn_pass1sc2560ac 15M, 6144, 4
 buildfor                                        ,	r4dwpn_pass1sc2560ac 19200K, 7680, 4
-buildfor                                        ,	r4dwpn_pass1sc2560ac 20M, 13, 4
+buildfor CORE_32                                ,	r4dwpn_pass1sc2560ac 20M, 13, 4
 buildfor                                        ,	r4dwpn_pass1sc2560ac 25M, 10240, 4
 buildfor                                        ,	r4dwpn_pass1sc2560ac 32000K, 12800, 4
 
@@ -262,16 +262,16 @@ buildfor                                        ,	r4dwpn_pass1sc3072ac 30M, 1024
 ;buildfor                                       ,	r4dwpn_pass1sc3072ac 38400K, 12800, 4
 
 buildfor CORE                                   ,	r4dwpn_pass1sc4096ac 18M, 4608, 4
-buildfor CORE_32                                ,	r4dwpn_pass1sc4096ac 24M, 6144, 4
-buildfor                                        ,	r4dwpn_pass1sc4096ac 30M, 7680, 4
+buildfor CORE                                   ,	r4dwpn_pass1sc4096ac 24M, 6144, 4
+buildfor CORE_64                                ,	r4dwpn_pass1sc4096ac 30M, 7680, 4
 buildfor CORE                                   ,	r4dwpn_pass1sc4096ac 32M, 13, 4
 buildfor                                        ,	r4dwpn_pass1sc4096ac 32M, 13, 2
 buildfor                                        ,	r4dwpn_pass1sc4096ac 32M, 13, 1
 ;buildfor                                       ,	r4dwpn_pass1sc4096ac 40M, 10240, 4
 ;buildfor                                       ,	r4dwpn_pass1sc4096ac 50M, 12800, 4
 
-buildfor CORE                                   ,	r4dwpn_pass1sc5120ac 23040K, 4608, 4
-buildfor CORE                                   ,	r4dwpn_pass1sc5120ac 30M, 6144, 4
+buildfor                                        ,	r4dwpn_pass1sc5120ac 23040K, 4608, 4
+buildfor                                        ,	r4dwpn_pass1sc5120ac 30M, 6144, 4
 ;buildfor                                       ,	r4dwpn_pass1sc5120ac 38400K, 7680, 4
 ;buildfor                                       ,	r4dwpn_pass1sc5120ac 40M, 13, 4
 ;buildfor                                       ,	r4dwpn_pass1sc5120ac 50M, 10240, 4
@@ -412,7 +412,7 @@ buildfor                                        ,	r4dwpn_pass1sc3584 32256K, 921
 ;buildfor                                       ,	r4dwpn_pass1sc4096 80M, 20480, 4
 ;buildfor                                       ,	r4dwpn_pass1sc4096 100M, 25600, 4
 
-	; The all-complex 14 levels variants (9216, 12288, 15360, 16384, 20480, 25600)
+	; The negacyclic 14 levels variants (9216, 12288, 15360, 16384, 20480, 25600)
 
 buildfor         + P4                           ,	r4dwpn_pass1sc256ac 2304K, 9216, 4
 buildfor                                        ,	r4dwpn_pass1sc256ac 3M, 12288, 4
@@ -442,11 +442,11 @@ buildfor                                        ,	r4dwpn_pass1sc640ac 7680K, 122
 buildfor                                        ,	r4dwpn_pass1sc640ac 9600K, 15360, 4
 buildfor                                        ,	r4dwpn_pass1sc640ac 10M, 14, 4
 buildfor                                        ,	r4dwpn_pass1sc640ac 12800K, 20480, 4
-buildfor                                        ,	r4dwpn_pass1sc640ac 16000K, 25600, 4
+buildfor CORE_64                                ,	r4dwpn_pass1sc640ac 16000K, 25600, 4
 
 buildfor CORE                           + K10_64,	r4dwpn_pass1sc768ac 6912K, 9216, 4
 buildfor                                        ,	r4dwpn_pass1sc768ac 9M, 12288, 4
-buildfor CORE                                   ,	r4dwpn_pass1sc768ac 11520K, 15360, 4
+buildfor                                        ,	r4dwpn_pass1sc768ac 11520K, 15360, 4
 buildfor CORE_64                                ,	r4dwpn_pass1sc768ac 12M, 14, 4
 buildfor                                        ,	r4dwpn_pass1sc768ac 15M, 20480, 4
 buildfor CORE                                   ,	r4dwpn_pass1sc768ac 19200K, 25600, 4
@@ -467,8 +467,8 @@ buildfor CORE_64                                ,	r4dwpn_pass1sc1280ac 32000K, 2
 
 buildfor                                        ,	r4dwpn_pass1sc1536ac 13824K, 9216, 4
 buildfor                                        ,	r4dwpn_pass1sc1536ac 18M, 12288, 4
-buildfor                                        ,	r4dwpn_pass1sc1536ac 23040K, 15360, 4
-buildfor CORE_64                                ,	r4dwpn_pass1sc1536ac 24M, 14, 4
+buildfor CORE_64                                ,	r4dwpn_pass1sc1536ac 23040K, 15360, 4
+buildfor                                        ,	r4dwpn_pass1sc1536ac 24M, 14, 4
 buildfor                                        ,	r4dwpn_pass1sc1536ac 30M, 20480, 4
 ;buildfor                                       ,	r4dwpn_pass1sc1536ac 38400K, 25600, 4
 
@@ -479,8 +479,8 @@ buildfor                                        ,	r4dwpn_pass1sc2048ac 32M, 14, 
 ;buildfor                                       ,	r4dwpn_pass1sc2048ac 40M, 20480, 4
 ;buildfor                                       ,	r4dwpn_pass1sc2048ac 50M, 25600, 4
 
-buildfor                                        ,	r4dwpn_pass1sc2560ac 23040K, 9216, 4
-buildfor                                        ,	r4dwpn_pass1sc2560ac 30M, 12288, 4
+buildfor CORE_32                                ,	r4dwpn_pass1sc2560ac 23040K, 9216, 4
+buildfor CORE_32                                ,	r4dwpn_pass1sc2560ac 30M, 12288, 4
 ;buildfor                                       ,	r4dwpn_pass1sc2560ac 38400K, 15360, 4
 ;buildfor                                       ,	r4dwpn_pass1sc2560ac 40M, 14, 4
 ;buildfor                                       ,	r4dwpn_pass1sc2560ac 50M, 20480, 4

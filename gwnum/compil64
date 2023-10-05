@@ -29,6 +29,10 @@ all:	gwnum64.lib gwnum64d.lib polymult64.lib polymult64d.lib linux64\gwnum.a mac
 #all:	linux64\gwnum.a
 
 # Make libraries out of the object files
+# Recently removed (empty) object files
+#	     amd64\r4delay_core.obj amd64\r4delay_p4.obj amd64\r4delay_k8.obj amd64\r4delay_k10.obj \
+#	     amd64\r4delay3_core.obj amd64\r4delay3_p4.obj amd64\r4delay3_k8.obj amd64\r4delay3_k10.obj \
+#	     amd64\r4delay5_core.obj amd64\r4delay5_p4.obj amd64\r4delay5_k8.obj amd64\r4delay5_k10.obj \
 
 gwnum64.lib: amd64\release\cpuid.obj amd64\release\gwnum.obj amd64\release\gwtables.obj amd64\release\gwthread.obj \
 	     amd64\release\gwini.obj amd64\release\gwbench.obj amd64\release\gwutil.obj amd64\release\gwdbldbl.obj \
@@ -36,9 +40,6 @@ gwnum64.lib: amd64\release\cpuid.obj amd64\release\gwnum.obj amd64\release\gwtab
 	     amd64\xmult2a_k8.obj amd64\xmult2ax.obj amd64\xmult3.obj amd64\xmult3a_core.obj amd64\xmult3a_k8.obj amd64\xmult3ax.obj \
 	     amd64\hg_blend.obj amd64\hg_core.obj amd64\hg_p4.obj amd64\hg_k8.obj amd64\hg_k10.obj \
 	     amd64\r4_core.obj amd64\r4_p4.obj amd64\r4_k8.obj amd64\r4_k10.obj \
-	     amd64\r4delay_core.obj amd64\r4delay_p4.obj amd64\r4delay_k8.obj amd64\r4delay_k10.obj \
-	     amd64\r4delay3_core.obj amd64\r4delay3_p4.obj amd64\r4delay3_k8.obj amd64\r4delay3_k10.obj \
-	     amd64\r4delay5_core.obj amd64\r4delay5_p4.obj amd64\r4delay5_k8.obj amd64\r4delay5_k10.obj \
 	     amd64\r4dwpn_core.obj amd64\r4dwpn_p4.obj amd64\r4dwpn_k8.obj amd64\r4dwpn_k10.obj \
 	     amd64\r4dwpn3_core.obj amd64\r4dwpn3_p4.obj amd64\r4dwpn3_k8.obj amd64\r4dwpn3_k10.obj \
 	     amd64\r4dwpn5_core.obj amd64\r4dwpn5_p4.obj amd64\r4dwpn5_k8.obj amd64\r4dwpn5_k10.obj \
@@ -57,9 +58,6 @@ gwnum64d.lib: amd64\debug\cpuid.obj amd64\debug\gwnum.obj amd64\debug\gwtables.o
 	      amd64\xmult2a_k8.obj amd64\xmult2ax.obj amd64\xmult3.obj amd64\xmult3a_core.obj amd64\xmult3a_k8.obj amd64\xmult3ax.obj \
 	      amd64\hg_blend.obj amd64\hg_core.obj amd64\hg_p4.obj amd64\hg_k8.obj amd64\hg_k10.obj \
 	      amd64\r4_core.obj amd64\r4_p4.obj amd64\r4_k8.obj amd64\r4_k10.obj \
-	      amd64\r4delay_core.obj amd64\r4delay_p4.obj amd64\r4delay_k8.obj amd64\r4delay_k10.obj \
-	      amd64\r4delay3_core.obj amd64\r4delay3_p4.obj amd64\r4delay3_k8.obj amd64\r4delay3_k10.obj \
-	      amd64\r4delay5_core.obj amd64\r4delay5_p4.obj amd64\r4delay5_k8.obj amd64\r4delay5_k10.obj \
 	      amd64\r4dwpn_core.obj amd64\r4dwpn_p4.obj amd64\r4dwpn_k8.obj amd64\r4dwpn_k10.obj \
 	      amd64\r4dwpn3_core.obj amd64\r4dwpn3_p4.obj amd64\r4dwpn3_k8.obj amd64\r4dwpn3_k10.obj \
 	      amd64\r4dwpn5_core.obj amd64\r4dwpn5_p4.obj amd64\r4dwpn5_k8.obj amd64\r4dwpn5_k10.obj \

@@ -292,6 +292,8 @@ extern "C"
 void gwevent_destroy (
 	gwevent	*event)			/* Event to destroy */
 {
+	if (*event == NULL) return;
+
 #ifdef _WIN32
 	BOOL	rc;
 
@@ -304,8 +306,8 @@ void gwevent_destroy (
 	pthread_mutex_destroy (&e->event_mutex);
 	pthread_cond_destroy (&e->event_cond);
 	free (e);
-	*event = NULL;
 #endif
+	*event = NULL;
 }
 
 /******************************************************************************

@@ -87,6 +87,18 @@ typedef int pid_t;
 #include <sys/time.h>
 #endif
 
+/* Required OS/2 header files (EMX and Netlabs GCC) */
+#ifdef __EMX__
+#include <dirent.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <sys/param.h>
+#include <sys/resource.h>
+#include <sys/sysctl.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#endif
+
 /* Globals */
 
 int volatile KILL_MENUS = 0;
@@ -525,7 +537,7 @@ void linuxContinue (
 	running_pid = IniSectionGetInt (INI_FILE, SEC_Internals, KEY_Pid, 0);
 	if (running_pid == 0 || my_pid == running_pid) goto ok;
 
-#if defined (__APPLE__) || defined (__HAIKU__)
+#if defined (__APPLE__) || defined (__HAIKU__) || defined (__EMX__)
 	goto ok;
 #elif defined (__OS2__)
 

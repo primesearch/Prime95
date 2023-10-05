@@ -29,7 +29,7 @@ Linux 32-bit:
 	Linux machine and to finish building the gwnum.a library.
 
 	A C application using gwnum must link with:
-		gwnum.a gwnum.ld -lpthread -lstdc++
+		gwnum.a -lpthread -lstdc++
 
 Linux 64-bit:
 	The assembly code object files have already been converted to ELF format using
@@ -39,7 +39,7 @@ Linux 64-bit:
 	Linux machine and to finish building the gwnum.a library.
 
 	A C application using gwnum must link with:
-		gwnum.a gwnum.ld -lpthread -lstdc++
+		gwnum.a -lpthread -lstdc++
 
 FreeBSD 32-bit:
 	The assembly code object files have already been converted to ELF format using
@@ -49,7 +49,7 @@ FreeBSD 32-bit:
 	and to finish building the gwnum.a library
 
 	A C application must link with:
-		-lcompat gwnum.a gwnum.ld -lpthread -lstdc++
+		-lcompat gwnum.a -lpthread -lstdc++
 
 FreeBSD 64-bit:
 	The assembly code object files have already been converted to ELF format using
@@ -59,7 +59,7 @@ FreeBSD 64-bit:
 	and to finish building the gwnum.a library
 
 	A C application must link with:
-		-lcompat gwnum.a gwnum.ld -lpthread -lstdc++
+		-lcompat gwnum.a -lpthread -lstdc++
 
 Mac OS X (Intel CPUs only):
 	The Mac OS X build procedure is different than linux (because universal
@@ -81,7 +81,7 @@ Haiku (probably no longer works):
 	Haiku machine to finish building the gwnum.a library.
 
 	A C application using gwnum must link with:
-		gwnum.a gwnum.ld and either -lstdc++.r4 (for GCC2) or -lstdc++ (for GCC4)
+		gwnum.a and either -lstdc++.r4 (for GCC2) or -lstdc++ (for GCC4)
 
 -> Legal stuff
 

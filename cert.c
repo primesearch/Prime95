@@ -157,7 +157,6 @@ int cert (
 /* Init the FFT code for squaring modulo k*b^n+c */
 
 	if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&cs.gwdata);
-	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&cs.gwdata);
 	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&cs.gwdata, 2);
 	gwset_bench_cores (&cs.gwdata, HW_NUM_CORES);
 	gwset_bench_workers (&cs.gwdata, NUM_WORKERS);

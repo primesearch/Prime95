@@ -101,10 +101,11 @@ void 	gtog(giant src, giant dest);
 /* Integer -> giant. */
 #define setzero(g)	(g)->sign = 0
 #define setone(g)	(g)->sign = (g)->n[0] = 1
-void 	itog(int n, giant g);
+void 	itog(int32_t n, giant g);
 void 	ultog(uint32_t n, giant g);
 
 /* Long long -> giant. */
+void 	slltog(int64_t n, giant g);
 void 	ulltog(uint64_t n, giant g);
 
 /* Double -> giant. */

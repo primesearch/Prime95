@@ -174,7 +174,7 @@ buildfor                                        ,	r4delay_pass1sc4096 32M, 13, 1
 ;buildfor                                       ,	r4delay_pass1sc4096 40M, 10240, 4
 ;buildfor                                       ,	r4delay_pass1sc4096 50M, 12800, 4
 
-	; The all-complex 13 levels variants (4608, 6144, 7680, 8192, 10240, 12800)
+	; The negacyclic 13 levels variants (4608, 6144, 7680, 8192, 10240, 12800)
 
 buildfor                                        ,	r4delay_pass1sc256ac 1152K, 4608, 4
 buildfor                                        ,	r4delay_pass1sc256ac 1536K, 6144, 4
@@ -412,7 +412,7 @@ buildfor                                        ,	r4delay_pass1sc3584 32256K, 92
 ;buildfor                                       ,	r4delay_pass1sc4096 80M, 20480, 4
 ;buildfor                                       ,	r4delay_pass1sc4096 100M, 25600, 4
 
-	; The all-complex 14 levels variants (9216, 12288, 15360, 16384, 20480, 25600)
+	; The negacyclic 14 levels variants (9216, 12288, 15360, 16384, 20480, 25600)
 
 buildfor                                        ,	r4delay_pass1sc256ac 2304K, 9216, 4
 buildfor                                        ,	r4delay_pass1sc256ac 3M, 12288, 4

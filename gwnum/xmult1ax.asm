@@ -1,4 +1,4 @@
-; Copyright 2001-2016 Mersenne Research, Inc.  All rights reserved
+; Copyright 2001-2023 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -377,27 +377,6 @@ cz1:	xcopyzero			; Copy/zero 8 values
 gwxcopyzero1 ENDP
 
 ;;
-;; Add in a small number with carry propagation
-;;
-
-PROCFL	gwxadds1
-	ad_prolog 0,0,rbx,rbp,rsi,rdi,xmm6,xmm7
-	mov	rsi, DESTARG		; Address of destination
-	movsd	xmm7, DBLARG		; Small addin value
-
-	mov	rbp, norm_col_mults	; Address of the multipliers
-	mov	rdi, norm_biglit_array	; Addr of the big/little flags array
-	sub	rax, rax		; Clear big/lit flag
-	cmp	B_IS_2, 0		; Is b = 2?
-	jne	b2adds			; yes, do simpler normalization
-	xnorm_smalladd_1d noexec
-	jmp	addsdn
-b2adds:	xnorm_smalladd_1d exec
-addsdn:
-	ad_epilog 0,0,rbx,rbp,rsi,rdi,xmm6,xmm7
-gwxadds1 ENDP
-
-;;
 ;; Multiply a number by a small value
 ;;
 
@@ -533,6 +512,11 @@ ttp	mov	rbp, saved_reg1		;; Restore ttp pointer
 
 	shr	edx, 11			;; Get next loop amount
 	jnz	ilp0
+no zero	mov	rsi, DESTARG		;; Addr of multiplied number
+no zero	mov	edi, ADDIN_OFFSET	;; Get address to add value into
+no zero	movsd	xmm0, Q [rsi][rdi]	;; Get the value
+no zero	addsd	xmm0, POSTADDIN_VALUE	;; Add in the requested value
+no zero	movsd	Q [rsi][rdi], xmm0	;; Save the new value
 no base2 jmp	non2dn			;; Go to non-base2 end code
 zero	jmp	zdn			;; Go to zero upper half end code
 base2 no zero jmp idn			;; Go to normal end code

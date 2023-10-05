@@ -1,4 +1,4 @@
-; Copyright 2011-2022 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2023 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -28,7 +28,7 @@ ENDIF
 ;;
 ;; ************************************* eight-complex-fft8 variants ******************************************
 ;;
-;; In the all-complex split premultiplier case, we apply part of the roots of -1 at the
+;; In the negacyclic split premultiplier case, we apply part of the roots of -1 at the
 ;; end of the first pass.  Also, in the r4delay case we apply part of the first level
 ;; twiddles at the end of the first pass.  Thus we have 8 sin/cos multiplies instead
 ;; of the usual 7.
@@ -1206,7 +1206,7 @@ ENDIF
 ;;
 
 ;
-; Radix-8 inverse FFT building block for all-complex delayed twiddle multipliers from
+; Radix-8 inverse FFT building block for negacyclic delayed twiddle multipliers from
 ; the first few levels (r4delay).  Has 8 premult/sin/cos multipliers.
 ;
 

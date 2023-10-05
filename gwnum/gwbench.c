@@ -421,14 +421,14 @@ int gwbench_implementation_id (
 	if (gwdata->cpu_flags & CPU_AVX512F) clm = gwdata->PASS1_CACHE_LINES / 8;
 	else if (gwdata->cpu_flags & CPU_AVX) clm = gwdata->PASS1_CACHE_LINES / 4;
 	else clm = gwdata->PASS1_CACHE_LINES / 2;
-	return (internal_implementation_id (gwdata->FFTLEN, gwdata->FFT_TYPE, gwdata->ALL_COMPLEX_FFT, gwdata->NO_PREFETCH_FFT,
+	return (internal_implementation_id (gwdata->FFTLEN, gwdata->FFT_TYPE, gwdata->NEGACYCLIC_FFT, gwdata->NO_PREFETCH_FFT,
 					    gwdata->IN_PLACE_FFT, error_checking, gwdata->PASS2_SIZE, gwdata->ARCH, clm));
 }
 
 int internal_implementation_id (
 	int	fftlen,
 	int	fft_type,
-	int	all_complex,
+	int	negacyclic,
 	int	no_prefetch,
 	int	in_place,
 	int	error_check,
@@ -440,7 +440,7 @@ int internal_implementation_id (
 	int	pass2_pow2;
 
 /* Compress the data as follows:
-	fft_type = 1-bit for all_complex + 2-bits (home-grown=0, radix-4=1, r4delay=2, r4dwpn=3)  +1 bits for future use
+	fft_type = 1-bit for negacyclic + 2-bits (home-grown=0, radix-4=1, r4delay=2, r4dwpn=3)  +1 bits for future use
 	fft_sub_type = 2-bits (no-prefetching, in-place)  +2 bits for future use
 	normalization_variants = 1 bit (error-checking) + 3-bits for future, we might bench zeropad, non-base-2, etc.
 	architecture = 3-bits  +1 for future use
@@ -468,15 +468,15 @@ int internal_implementation_id (
 	else if (pass2_size % 16 == 0) pass2_multiplier = 3, pass2_size /= 16;		// Pass2_size = 16 * 2^x
 	else pass2_multiplier = 10;							// Can't happen
 	for (pass2_pow2 = 0; pass2_size >= 2; pass2_pow2++, pass2_size >>= 1);
-	// Make sure error_check, all_complex, other flags are one bit
+	// Make sure error_check, negacyclic, other flags are one bit
 	error_check = !!error_check;
-	all_complex = !!all_complex;
+	negacyclic = !!negacyclic;
 	no_prefetch = !!no_prefetch;
 	in_place = !!in_place;
 
 /* For readability as hex, we try to start values on 4-bit boundaries */
 
-	return ((all_complex << 27) + (fft_type << 24) +	// All-complex (which jmptable to use) and FFT type
+	return ((negacyclic << 27) + (fft_type << 24) +		// Negacyclic (which jmptable to use) and FFT type
 		(no_prefetch << 21) + (in_place << 20) +	// FFT sub-type (no_prefetch and in-place)
 		(error_check << 16) +				// Normalization options that affected benchmark
 		(architecture << 12) +				// CPU architecture
@@ -521,7 +521,7 @@ int internal_implementation_ids_match (
 	else if (pass2_size % 16 == 0) pass2_multiplier = 3, pass2_size /= 16;		// Pass2_size = 16 * 2^x
 	else pass2_multiplier = 10;							// Can't happen
 	for (pass2_pow2 = 0; pass2_size >= 2; pass2_pow2++, pass2_size >>= 1);
-	// Strip all-complex, error-check, 32-bit flags from implementation id -- gwbench_get_max_throughput will have made sure these match.
+	// Strip negacyclic, error-check, 32-bit flags from implementation id -- gwbench_get_max_throughput will have made sure these match.
 	impl_id &= ~0x8010008;
 	// Make sure flags are one bit
 	no_prefetch = !!no_prefetch;
@@ -540,7 +540,7 @@ void gwbench_get_max_throughput (
 	int	num_cores,			/* Return bench data where this number of cores were used */
 	int	num_workers,			/* Return bench data where this number of workers were used */
 	int	num_hyperthreads,		/* Return bench data where this number of hyperthreads were used */
-	int	all_complex,			/* TRUE if all complex FFT bench data should be returned */
+	int	negacyclic,			/* TRUE if negacyclic FFT bench data should be returned */
 	int	error_check,			/* TRUE if error_checking bench data should be returned */
 	int	*impl,				/* Implementation ID of best FFT implementation */
 	double	*throughput)			/* Throughput of best FFT implementation (or -1 if cannot be determined) */
@@ -572,7 +572,7 @@ void gwbench_get_max_throughput (
 #else
 	impl_bits = 0;			// 64-bit FFT bench data desired
 #endif
-	if (all_complex) impl_bits |= 0x8000000;
+	if (negacyclic) impl_bits |= 0x8000000;
 	if (error_check) impl_bits |= 0x10000;
 
 /* We really made a mess here.  What we really want is the best implementation for the jmptable we are using. */
@@ -678,7 +678,7 @@ void gwbench_get_num_benchmarks (
 	int	error_check,
 	unsigned long *min_fftlen,
 	unsigned long *max_fftlen,
-	int	*all_complex,
+	int	*negacyclic,
 	int	*num_benchmarks)
 {
 	gwhandle gwdata;			/* Temporary gwnum handle */
@@ -707,7 +707,7 @@ void gwbench_get_num_benchmarks (
 	gwdata.bench_pick_nth_fft = 1;				// This forces smallest usable FFT length to be returned
 	if (gwinfo (&gwdata, k, b, n, c)) return;		// Return if k*b^n+c is untestable
 	minimum_fftlen = gwdata.jmptab->fftlen;			// Remember first FFT length that might need benchmarking
-	*all_complex = gwdata.ALL_COMPLEX_FFT;
+	*negacyclic = gwdata.NEGACYCLIC_FFT;
 
 /* Obtain the lock to the database */
 
@@ -730,7 +730,7 @@ void gwbench_get_num_benchmarks (
 #else
 		impl_bits = 0;			// 64-bit FFT bench data desired
 #endif
-		if (gwdata.ALL_COMPLEX_FFT) impl_bits |= 0x8000000;
+		if (gwdata.NEGACYCLIC_FFT) impl_bits |= 0x8000000;
 		if (error_check) impl_bits |= 0x10000;
 
 /* Prepare a SQL statement to get benchmark data */

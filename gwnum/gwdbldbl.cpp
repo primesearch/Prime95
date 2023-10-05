@@ -1037,7 +1037,7 @@ double gwfft_weight_inverse (
 	return (double (result));
 }
 
-// Compute the inverse of the fft weight squared over fftlen (special code for one pass AVX-512 all-complex wrapper)
+// Compute the inverse of the fft weight squared over fftlen (special code for one pass AVX-512 negacyclic wrapper)
 
 extern "C"
 double gwfft_weight_inverse_squared (
@@ -1283,7 +1283,7 @@ void gwsincos15by_weighted (
 	END_x86_FIX
 }
 
-// Compute several column weights to later be applied to sine values of all-complex pre-multipliers.  One pass AVX-512 FFTs.
+// Compute several column weights to later be applied to sine values of negacyclic pre-multipliers.  One pass AVX-512 FFTs.
 
 extern "C"
 void gwfft_colweights (
@@ -1304,7 +1304,7 @@ void gwfft_colweights (
 	END_x86_FIX
 }
 
-// Apply the column weights to the all-complex premultipliers.  One pass AVX-512 FFTs.
+// Apply the column weights to the negacyclic premultipliers.  One pass AVX-512 FFTs.
 
 extern "C"
 void gwsincos1plusby_colweighted (
@@ -1372,7 +1372,7 @@ void gwfft_weights_fudged (
 }
 
 /* Special version that merges group multiplier with the sine value from gwsincos1plus0123456789ABby. */
-/* Used in AVX-512 all-complex FFTs. */
+/* Used in AVX-512 negacyclic FFTs. */
 
 extern "C"
 void gwfft_weights_times_sine (

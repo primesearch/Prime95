@@ -111,7 +111,7 @@
 #define IDC_P6                          1017
 #define IDC_ERRCHK                      1017
 #define IDC_USERNAME                    1018
-#define IDC_ALL_COMPLEX                 1018
+#define IDC_NEGACYCLIC                  1018
 #define IDC_CORES                       1019
 #define IDC_HYPERTHREADING              1021
 #define IDC_WORKERS_TEXT                1022

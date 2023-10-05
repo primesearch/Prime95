@@ -811,7 +811,7 @@ int nonbase2_gwtogiant (	/* Returns an error code or zero for success */
 		accumbits = 0;
 		outptr = g->n;
 		limit = divide_rounding_up ((int) ceil (gwdata->bit_length), 32) + 1;
-		for (gwiter_init_zero (work_gwdata, &iter, t1); ; gwiter_next (&iter)) {
+		for (gwiter_init_zero (work_gwdata, &iter, t1); ; ) {
 			if (gwiter_index (&iter) < (int) work_gwdata->FFTLEN) {
 				err_code = gwiter_get_fft_value (&iter, &val);
 				if (err_code) goto err;
@@ -819,6 +819,7 @@ int nonbase2_gwtogiant (	/* Returns an error code or zero for success */
 				if (gwiter_is_big_word (&iter)) bits++;
 				accum += ((int64_t) val) << accumbits;
 				accumbits += bits;
+				gwiter_next (&iter);
 				if (accumbits < 32) continue;
 			}
 			*outptr++ = (uint32_t) accum;

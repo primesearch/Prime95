@@ -413,7 +413,7 @@ void test_it_all (
 
 /* Test gwsmalladd and gwsmallmul */
 
-		gwsmalladd (&gwdata, GWSMALLADD_MAX, x);
+		gwsmalladd (&gwdata, 0x7FFFFFFFFFFFFFFFLL, x);
 		gwsmallmul (&gwdata, GWSMALLMUL_MAX-1.0, x);
 
 /* Do some multiplies to make sure that the adds and subtracts above normalized properly. */
@@ -815,8 +815,8 @@ void test_it (
 
 /* Test gwsmalladd and gwsmallmul */
 
-	gwsmalladd (gwdata, GWSMALLADD_MAX, x);
-	dbltog (GWSMALLADD_MAX, g4); addg (g4, g); specialmodg (gwdata, g);
+	gwsmalladd (gwdata, 0x7FFFFFFFFFFFFFFFLL, x);
+	ulltog (0x7FFFFFFFFFFFFFFFULL, g4); addg (g4, g); specialmodg (gwdata, g);
 	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x, g, "smalladd");
 	i = rand() % 10 + 2;
 	gwsmallmul (gwdata, i, x);
@@ -981,9 +981,10 @@ void test_it (
 
 	gwsetmulbyconst (gwdata, 3);
 	gwsetaddin (gwdata, 4);
+	gwsetpostmulbyconstaddin (gwdata, 2);
 
 	gwsquare2 (gwdata, x, x4, GWMUL_MULBYCONST | GWMUL_ADDINCONST);
-	gtog (g, g4); squaregi (&gwdata->gdata, g4); iaddg (4, g4); imulg (3, g4); specialmodg (gwdata, g4);
+	gtog (g, g4); squaregi (&gwdata->gdata, g4); iaddg (4, g4); imulg (3, g4); iaddg (2, g4); specialmodg (gwdata, g4);
 	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "mul by const and addin const #1");
 
 	gwcopy (gwdata, x, x4);
@@ -998,7 +999,7 @@ void test_it (
 	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "mul by const and addin const #4");
 
 	gwaddmul4 (gwdata, x, x2, x3, x4, GWMUL_MULBYCONST | GWMUL_ADDINCONST);
-	gtog (g, g4); addg (g2, g4); mulg (g3, g4); iaddg (4, g4); imulg (3, g4); specialmodg (gwdata, g4);
+	gtog (g, g4); addg (g2, g4); mulg (g3, g4); iaddg (4, g4); imulg (3, g4); iaddg (2, g4); specialmodg (gwdata, g4);
 	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "mul by const and addin const #5");
 
 	gwdata->careful_count = 1;
@@ -1006,7 +1007,7 @@ void test_it (
 	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "mul by const and addin const #6");
 
 	gwmuladd4 (gwdata, x, x2, x3, x4, GWMUL_MULBYCONST | GWMUL_ADDINCONST);
-	gtog (g, g4); mulg (g2, g4); addg (g3, g4); iaddg (4, g4); imulg (3, g4); specialmodg (gwdata, g4);
+	gtog (g, g4); mulg (g2, g4); addg (g3, g4); iaddg (4, g4); imulg (3, g4); iaddg (2, g4); specialmodg (gwdata, g4);
 	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "mul by const and addin const #7");
 
 	gwdata->careful_count = 1;
@@ -1014,6 +1015,7 @@ void test_it (
 	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "mul by const and addin const #8");
 
 	gwsetaddin (gwdata, 0);
+	gwsetpostmulbyconstaddin (gwdata, 0);
 
 /* Do the final compare */
 

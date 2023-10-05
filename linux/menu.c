@@ -1215,7 +1215,7 @@ void options_benchmark (void)
 {
 	unsigned long m_bench_type, m_minFFT, m_maxFFT, m_bench_time;
 	char	m_cores[512], m_workers[512];
-	int	m_errchk, m_all_complex, m_limit_FFT_sizes, m_hyperthreading, m_all_FFT_impl;
+	int	m_errchk, m_negacyclic, m_limit_FFT_sizes, m_hyperthreading, m_all_FFT_impl;
 
 	m_bench_type = 0;
 	askNum ("Benchmark type (0 = Throughput, 1 = FFT timings, 2 = Trial factoring)", &m_bench_type, 0, 2);
@@ -1228,8 +1228,8 @@ void options_benchmark (void)
 		askNum ("Maximum FFT size (in K)", &m_maxFFT, m_minFFT, 65536);
 		m_errchk = ERRCHK;			// IniGetInt (INI_FILE, "BenchErrorCheck", 0);
 		askYN ("Benchmark with round-off checking enabled", &m_errchk);
-		m_all_complex = 0;			// IniGetInt (INI_FILE, "BenchAllComplex", 0);
-		askYN ("Benchmark all-complex FFTs (for LLR,PFGW,PRP users)", &m_all_complex);
+		m_negacyclic = 0;			// IniGetInt (INI_FILE, "BenchNegacyclic", 0);
+		askYN ("Benchmark negacyclic FFTs (for LLR,PFGW users)", &m_negacyclic);
 		m_limit_FFT_sizes = 0;			// IniGetInt (INI_FILE, "OnlyBench5678", 1);
 		if (m_minFFT != m_maxFFT) askYN ("Limit FFT sizes (mimic older benchmarking code)", &m_limit_FFT_sizes);
 	}
@@ -1279,7 +1279,7 @@ void options_benchmark (void)
 			IniWriteInt (INI_FILE, "MinBenchFFT", m_minFFT);
 			IniWriteInt (INI_FILE, "MaxBenchFFT", m_maxFFT);
 			IniWriteInt (INI_FILE, "BenchErrorCheck", m_errchk);
-			IniWriteInt (INI_FILE, "BenchAllComplex", m_all_complex ? 2 : 0);
+			IniWriteInt (INI_FILE, "BenchNegacyclic", m_negacyclic ? 2 : 0);
 			IniWriteInt (INI_FILE, "OnlyBench5678", m_limit_FFT_sizes);
 		}
 		IniWriteString (INI_FILE, "BenchCores", m_cores);

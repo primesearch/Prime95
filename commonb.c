@@ -1085,7 +1085,7 @@ void read_mem_info (void)
 /* Read and parse the Memory data from the INI file */
 
 	seconds_until_reread = 0;
-	AVAIL_MEM = IniGetTimedInt (INI_FILE, "Memory", physical_memory () / 16, &seconds);
+	AVAIL_MEM = IniGetTimedInt (INI_FILE, "Memory", 256, &seconds);
 	if (seconds && (seconds_until_reread == 0 || seconds < seconds_until_reread))
 		seconds_until_reread = seconds;
 	for (tnum = 0; tnum < (int) MAX_NUM_WORKERS; tnum++) {
@@ -1096,9 +1096,9 @@ void read_mem_info (void)
 			seconds_until_reread = seconds;
 	}
 
-/* Compute the maximum memory setting.  If not found, assume 8MB. */
+/* Compute the maximum memory setting.  If not found, assume 256MB. */
 
-	MAX_MEM = 8;
+	MAX_MEM = 256;
 	p = IniSectionGetStringRaw (INI_FILE, NULL, "Memory");
 	if (p != NULL) for ( ; ; ) {
 		unsigned long mem = atol (p);
@@ -6520,7 +6520,6 @@ int prime (
 
 begin:	gwinit (&lldata.gwdata);
 	if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&lldata.gwdata);
-	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&lldata.gwdata);
 	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&lldata.gwdata, 2);
 	gwset_bench_cores (&lldata.gwdata, HW_NUM_CORES);
 	gwset_bench_workers (&lldata.gwdata, NUM_WORKERS);
@@ -6703,7 +6702,7 @@ begin:	gwinit (&lldata.gwdata);
 
 /* Check if we should send residue to server, output residue to screen, or create an interediate save file */
 
-		sending_residue = ((counter+1) == 500002 || ((counter+1) % 5000000 == 2 && IniGetInt (INI_FILE, "SendInterimResidues", 1)));
+		sending_residue = ((counter+1) == 500002 || ((counter+1) % 5000000 == 2)) && IniGetInt (INI_FILE, "SendInterimResidues", 0);
 		interim_residue = (INTERIM_RESIDUES && (counter+1) % INTERIM_RESIDUES <= 2);
 		interim_file = (INTERIM_FILES && (counter+1) % INTERIM_FILES == 0);
 
@@ -8605,7 +8604,7 @@ int primeTime (
 	unsigned long p,
 	unsigned long iterations)
 {
-static	int	time_all_complex = 0;	/* TRUE if we should time all-complex FFTs */
+static	int	time_negacyclic = 0;		/* TRUE if we should time negacyclic FFTs */
 	struct PriorityInfo sp_info;
 #define SAVED_LIMIT	10
 	llhandle lldata;
@@ -8642,7 +8641,7 @@ static	int	time_all_complex = 0;	/* TRUE if we should time all-complex FFTs */
 		if (p == 9950)
 			return (cpuid_dump (thread_num));
 		if (p == 9951) {
-			time_all_complex = !time_all_complex;
+			time_negacyclic = !time_negacyclic;
 			return (0);
 		}
 		if (p >= 9900 && p <= 9919)
@@ -8821,7 +8820,6 @@ static	int	time_all_complex = 0;	/* TRUE if we should time all-complex FFTs */
 			if (ERRCHK) gwset_will_error_check (&lldata.gwdata);
 			else gwset_will_error_check_near_limit (&lldata.gwdata);
 			if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&lldata.gwdata);
-			if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&lldata.gwdata);
 			// Here is a hack to let me time different FFT implementations.
 			// For example, 39000001 times the first 2M FFT implementation,
 			// 39000002 times the second 2M FFT implementation, etc.
@@ -8830,7 +8828,7 @@ static	int	time_all_complex = 0;	/* TRUE if we should time all-complex FFTs */
 			gwset_thread_callback (&lldata.gwdata, SetAuxThreadPriority);
 			gwset_thread_callback_data (&lldata.gwdata, &sp_info);
 			gwset_use_spin_wait (&lldata.gwdata, IniGetInt (INI_FILE, "SpinWait", 0));
-			stop_reason = lucasSetup (thread_num, p, time_all_complex, &lldata);
+			stop_reason = lucasSetup (thread_num, p, time_negacyclic, &lldata);
 			if (stop_reason) return (stop_reason);
 			ASM_TIMERS = get_asm_timers (&lldata.gwdata);
 			memset (ASM_TIMERS, 0, 32 * sizeof (uint32_t));
@@ -9218,7 +9216,7 @@ int primeBenchMultipleWorkersInternal (
 	unsigned long min_FFT_length,
 	unsigned long max_FFT_length,
 	int	only_time_5678,
-	int	time_all_complex,
+	int	time_negacyclic,
 	int	all_bench,
 	const char *bench_cores,
 	int	bench_hyperthreading,
@@ -9251,8 +9249,8 @@ int primeBenchMultipleWorkersInternal (
 /* Loop over a variety of FFT lengths */
 
 	for (plus1 = 0; plus1 <= 1; plus1++) {
-	  if (plus1 == 0 && time_all_complex == 2) continue;
-	  if (plus1 == 1 && time_all_complex == 0) continue;
+	  if (plus1 == 0 && time_negacyclic == 2) continue;
+	  if (plus1 == 1 && time_negacyclic == 0) continue;
 	  for (fftlen = min_FFT_length * 1024; fftlen <= max_FFT_length * 1024; fftlen += 10) {
 
 /* Initialize this FFT length */
@@ -9660,7 +9658,7 @@ void autoBench (void)
 	struct {
 		unsigned long min_fftlen;
 		unsigned long max_fftlen;
-		int	all_complex;
+		int	negacyclic;
 	} ffts_to_bench[200];
 	struct primenetBenchmarkData pkt;
 
@@ -9715,7 +9713,7 @@ void autoBench (void)
 	    est = 0.0;
 	    for (int pass = 0; pass <= 1; pass++)
 	    for (w = NULL; ; ) {
-		int	all_complex, num_benchmarks;
+		int	negacyclic, num_benchmarks;
 		unsigned long min_fftlen, max_fftlen;    
 
 /* Read the next line of the work file.  Handle CERT lines first in computing estimated completion dates. */
@@ -9743,7 +9741,7 @@ void autoBench (void)
 /* If we have enough benchmarks, skip this worktodo entry */
 
 		gwbench_get_num_benchmarks (w->k, w->b, w->n, w->c, w->minimum_fftlen, num_cores, num_workers, HYPERTHREAD_LL, ERRCHK,
-					    &min_fftlen, &max_fftlen, &all_complex, &num_benchmarks);
+					    &min_fftlen, &max_fftlen, &negacyclic, &num_benchmarks);
 		if (num_benchmarks >= autobench_num_benchmarks) continue;
 
 /* For this release, we do not run automatic benchmarks for FFT lengths below 8K */
@@ -9757,11 +9755,11 @@ void autoBench (void)
 			if (i == num_ffts_to_bench) {
 				ffts_to_bench[num_ffts_to_bench].min_fftlen = min_fftlen;
 				ffts_to_bench[num_ffts_to_bench].max_fftlen = max_fftlen;
-				ffts_to_bench[num_ffts_to_bench].all_complex = all_complex;
+				ffts_to_bench[num_ffts_to_bench].negacyclic = negacyclic;
 				num_ffts_to_bench++;
 				break;
 			}
-			if (ffts_to_bench[i].all_complex != all_complex) continue;
+			if (ffts_to_bench[i].negacyclic != negacyclic) continue;
 			if (min_fftlen >= ffts_to_bench[i].min_fftlen && min_fftlen <= ffts_to_bench[i].max_fftlen) {
 				if (max_fftlen > ffts_to_bench[i].max_fftlen) ffts_to_bench[i].max_fftlen = max_fftlen;
 				break;
@@ -9819,7 +9817,7 @@ void autoBench (void)
 			ffts_to_bench[i].min_fftlen / 1024,		/* Minimum FFT length (in K) to bench */
 			ffts_to_bench[i].max_fftlen / 1024,		/* Maximum FFT length (in K) to bench */
 			FALSE,						/* Do not limit FFT sizes benchmarked */
-			ffts_to_bench[i].all_complex,
+			ffts_to_bench[i].negacyclic,
 			TRUE,						/* Benchmark all FFT implementations */
 			bench_cores,
 			HYPERTHREAD_LL,					/* Benchmark hyperthreading if LL testing uses hyperthreads */
@@ -9873,7 +9871,7 @@ int primeBench (
 	char	buf[512];
 	char	bench_cores[512];
 	int	min_cores, max_cores, incr_cores, cores, hypercpu;
-	int	all_bench, only_time_5678, time_all_complex, plus1, stop_reason;
+	int	all_bench, only_time_5678, time_negacyclic, plus1, stop_reason;
 	int	is_a_5678, bench_hyperthreading, bench_arch;
 	unsigned long fftlen, min_FFT_length, max_FFT_length;
 	double	timers[2];
@@ -9939,7 +9937,7 @@ int primeBench (
 	min_FFT_length = IniGetInt (INI_FILE, "MinBenchFFT", 1024);
 	max_FFT_length = IniGetInt (INI_FILE, "MaxBenchFFT", 8192);
 	only_time_5678 = IniGetInt (INI_FILE, "OnlyBench5678", 1);
-	time_all_complex = IniGetInt (INI_FILE, "BenchAllComplex", 0);
+	time_negacyclic = IniGetInt (INI_FILE, "BenchNegacyclic", 0);
 	all_bench = 0; //IniGetInt (INI_FILE, "AllBench", 0);			/* Benchmark all implementations of each FFT length */
 	bench_arch = IniGetInt (INI_FILE, "BenchArch", 0);			/* CPU architecture to benchmark */
 	IniGetString (INI_FILE, "BenchCores", bench_cores, sizeof(bench_cores), NULL); /* Cpu cores to benchmark (comma separated list) */
@@ -9997,8 +9995,8 @@ int primeBench (
 /* Loop over a variety of FFT lengths */
 
 	    for (plus1 = 0; plus1 <= 1; plus1++) {
-	      if (plus1 == 0 && time_all_complex == 2) continue;
-	      if (plus1 == 1 && time_all_complex == 0) continue;
+	      if (plus1 == 0 && time_negacyclic == 2) continue;
+	      if (plus1 == 1 && time_negacyclic == 0) continue;
 	      for (fftlen = min_FFT_length * 1024; fftlen <= max_FFT_length * 1024; fftlen += 10) {
 	        for (impl = 1; ; impl++) {
 		  if (impl > 1 && !all_bench) break;
@@ -10008,7 +10006,6 @@ int primeBench (
 
 		  gwinit (&lldata.gwdata);
 		  if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&lldata.gwdata);
-		  if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&lldata.gwdata);
 		  gwset_num_threads (&lldata.gwdata, get_ranked_num_threads (0, cores, hypercpu > 1));
 		  sp_info.bench_base_core_num = 0;
 		  sp_info.bench_hyperthreading = (hypercpu > 1);
@@ -10867,7 +10864,7 @@ int generateProofFile (
    
 // Reset counters and errors, turn on error checking
 
-		gwdata->fft_count = 0;			// Reset count of FFTs performed
+		gw_clear_fft_count (gwdata);		// Reset count of FFTs performed
 		gw_clear_error (gwdata);
 		gw_clear_maxerr (gwdata);
 		gwsetnormroutine (gwdata, 0, 1, 0);	// Error checking on
@@ -10937,7 +10934,7 @@ int generateProofFile (
 
 // Print message on cost of proof construction
 
-		sprintf (buf, "Proof construction cost %d squarings\n", (int) ceil (gwdata->fft_count / 2.0));
+		sprintf (buf, "Proof construction cost %" PRIu64 " squarings\n", gw_get_fft_count (gwdata) / 2);
 		OutputStr (ps->thread_num, buf);
 
 // Generate an MD5 hash of the bytes just written to the proof file.  This will be a unique identifier to thwart a bad actor from uploading a counterfeit proof file.
@@ -11732,7 +11729,6 @@ begin:	N = exp = NULL;
 	gwinit (&gwdata);
 	gwsetmaxmulbyconst (&gwdata, ps.prp_base);
 	if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&gwdata);
-	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&gwdata);
 	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&gwdata, 2);
 	gwset_bench_cores (&gwdata, HW_NUM_CORES);
 	gwset_bench_workers (&gwdata, NUM_WORKERS);
@@ -12941,24 +12937,6 @@ pushg(&gwdata.gdata, 2);}
 
 	sprintf (JSONbuf, "{\"status\":\"%s\"", ps.isProbablePrime ? "P" : "C");
 	JSONaddExponent (JSONbuf, w);
-	if (w->known_factors != NULL) {
-		char	fac_string[1210];
-		char	*in, *out;
-		fac_string[0] = 0;
-		// Copy known factors changing commas to quote-comma-quote
-		for (in = w->known_factors, out = fac_string; ; in++) {
-			if (*in == ',') {
-				strcpy (out, "\",\"");
-				out += 3;
-			} else if (out - fac_string > 1200) {
-				strcpy (out, "...");
-				break;
-			} else
-				*out++ = *in;
-			if (*in == 0) break;
-		}
-		sprintf (JSONbuf+strlen(JSONbuf), ", \"known-factors\":[\"%s\"]", fac_string);
-	}
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"worktype\":\"PRP-%u\"", ps.prp_base);
 	if (!ps.isProbablePrime) {
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"res64\":\"%s\"", ps.res64);

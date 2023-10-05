@@ -29,7 +29,7 @@
 #if defined (__HAIKU__)
 #include <unistd.h>
 #endif
-#if defined (__linux__) || defined (__FreeBSD__) || defined (__APPLE__) || defined (__HAIKU__)
+#if defined (__linux__) || defined (__FreeBSD__) || defined (__APPLE__) || defined (__HAIKU__) || defined (__EMX__)
 #include <sys/time.h>
 #endif
 #include "cpuid.h"

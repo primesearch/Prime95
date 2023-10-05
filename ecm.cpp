@@ -46,7 +46,13 @@ std::reverse_iterator<Iterator> make_reverse_iterator(Iterator i)
 }
 }
 
-/* Forward declaration for a structure used to track a Montgomery ECM point -- needed for Dmultiple class */
+/* Forward declarations for structures used to track a Weierstrass, Edwards, and Montgomery ECM point -- needed for Dmultiple class and ecm handle */
+
+struct ws {
+	gwnum	x;		/* x or FFT(x) */
+	gwnum	y;		/* y or FFT(y) */
+	gwnum	z;		/* z or FFT(z) */
+};
 
 struct xz {
 	gwnum	x;		/* x or FFT(x) */
@@ -1527,6 +1533,7 @@ typedef struct {
 	int	norm_pool_temps_count; /* Number of free gwnums in norm_pool_temps */
 	int	Ftree_polys_in_mem; /* Number of Ftree polys to store in memory rather than on disk or rebuilding */
 	gwarray polyFtree[40];	/* Saved entries from polyF tree.  Needed by scaled remainders to work down the tree. */
+	gwarray	Ftree;		/* Array of gwnums used in Ftree reconstruction */
 
 	/* Helper routine data */
 //	int	num_points;	/* Number of points (multiples of D) that can be evalualted with each polymult. */
@@ -1556,6 +1563,7 @@ void ecm_mini_cleanup (
 	free (ecmdata->nQx), ecmdata->nQx = NULL;
 	free (ecmdata->pairmap), ecmdata->pairmap = NULL;
 	free (ecmdata->factor), ecmdata->factor = NULL;
+	free (ecmdata->Ftree), ecmdata->Ftree = NULL;
 	end_sieve (ecmdata->sieve_info), ecmdata->sieve_info = NULL;
 	polymult_done (&ecmdata->polydata);
 	gwfreeall (&ecmdata->gwdata);
@@ -1572,9 +1580,286 @@ void ecm_cleanup (
 	gwdone (&ecmdata->gwdata);
 }
 
-/**********************************************************************************************************************/
-/*                                Manage buffers for a Montgomery ECM point                                           */
-/**********************************************************************************************************************/
+/**************************************************************
+ *	Weierstrass ECM Functions
+ **************************************************************/
+
+/* This routine initializes an ws struct with three allocated gwnums */
+
+bool ws_alloc (			/* Returns TRUE if successful */
+	ecmhandle *ecmdata,
+	struct ws *arg)
+{
+	arg->x = gwalloc (&ecmdata->gwdata);
+	if (arg->x == NULL) return (FALSE);
+	arg->y = gwalloc (&ecmdata->gwdata);
+	if (arg->y == NULL) return (FALSE);
+	arg->z = gwalloc (&ecmdata->gwdata);
+	if (arg->z == NULL) return (FALSE);
+	return (TRUE);
+}
+
+/* This routine cleans up an xz pair with two allocated gwnums */
+
+void ws_free (
+	ecmhandle *ecmdata,
+	struct ws *arg)
+{
+	gwfree (&ecmdata->gwdata, arg->x); arg->x = NULL;
+	gwfree (&ecmdata->gwdata, arg->y); arg->y = NULL;
+	gwfree (&ecmdata->gwdata, arg->z); arg->z = NULL;
+}
+
+/* Verify a point is on the elliptic curve */
+
+#ifdef GDEBUG
+void ws_check (
+	ecmhandle *ecmdata,
+	struct ws *in)
+{
+	gwnum	t0, t1, t2;
+	int	a = -8;
+	int	b = -32;
+
+	t0 = gwalloc (&ecmdata->gwdata);
+	t1 = gwalloc (&ecmdata->gwdata);
+	t2 = gwalloc (&ecmdata->gwdata);
+
+	// Verify Y^2Z = X^3 + aXZ^2 + bZ^3
+
+	gwmul3 (&ecmdata->gwdata, in->y, in->y, t0, 0);			// t0 = Y * Y
+	gwmul3 (&ecmdata->gwdata, t0, in->z, t0, 0);			// t0 *= Z
+	gwmul3 (&ecmdata->gwdata, in->x, in->x, t1, 0);			// t1 = X * X
+	gwmul3 (&ecmdata->gwdata, t1, in->x, t1, 0);			// t1 *= X
+	gwmul3 (&ecmdata->gwdata, in->x, in->z, t2, 0);			// t2 = X * Z
+	gwmul3 (&ecmdata->gwdata, t2, in->z, t2, 0);			// t2 *= Z
+	gwsmallmul (&ecmdata->gwdata, a, t2);				// t2 *= a
+	gwadd3 (&ecmdata->gwdata, t1, t2, t1);				// t1 = t1 + t2
+	gwmul3 (&ecmdata->gwdata, in->z, in->z, t2, 0);			// t2 = Z * Z
+	gwmul3 (&ecmdata->gwdata, t2, in->z, t2, 0);			// t2 *= Z
+	gwsmallmul (&ecmdata->gwdata, b, t2);				// t2 *= b
+	gwadd3 (&ecmdata->gwdata, t1, t2, t1);				// t1 = t1 + t2
+	gwsub3 (&ecmdata->gwdata, t0, t1, t0);				// t0 = t0 - t1, should be zero
+
+	giant tmp = popg (&ecmdata->gwdata.gdata, ((unsigned long) ecmdata->gwdata.bit_length >> 5) + 5);
+	gwtogiant (&ecmdata->gwdata, t0, tmp);
+	ASSERTG (tmp->sign == 0);
+	pushg (&ecmdata->gwdata.gdata, 1);
+
+	gwfree (&ecmdata->gwdata, t0);
+	gwfree (&ecmdata->gwdata, t1);
+	gwfree (&ecmdata->gwdata, t2);
+}
+#else
+#define ws_check(a,b)
+#endif
+
+/* Add two Weierstrass points */
+/* For our purposes, speed is not critical.  This is only used during Atkin-Morain contruction of an Edwards curve. */
+
+void ws_add (
+	ecmhandle *ecmdata,
+	struct ws *in0,
+	struct ws *in1,
+	struct ws *out)
+{
+//	int	a = -8;
+//	int	b = -32;
+
+// From https://www.nayuki.io/page/elliptic-curve-point-addition-in-projective-coordinates
+// Let T0 = Y0Z1
+// Let T1 = Y1Z0
+// Let T = T0−T1
+// Let U0 = X0Z1
+// Let U1 = X1Z0
+// Let U = U0−U1
+// Let U2 = U^2
+// Let V = Z0Z1
+// Let W = T^2V − U2(U0+U1)
+// Let U3 = UU2
+// X2 = UW
+// Y2 = T(U0U2−W)−T0U3
+// Z2 = U3V
+
+	gwnum	T0, T1, T, U0, U1, U, U2, V, W, t0, U3;
+	T0 = gwalloc (&ecmdata->gwdata);
+	T1 = gwalloc (&ecmdata->gwdata);
+	U0 = gwalloc (&ecmdata->gwdata);
+	U1 = gwalloc (&ecmdata->gwdata);
+	U = gwalloc (&ecmdata->gwdata);
+	U2 = gwalloc (&ecmdata->gwdata);
+	V = gwalloc (&ecmdata->gwdata);
+	W = gwalloc (&ecmdata->gwdata);
+	t0 = gwalloc (&ecmdata->gwdata);
+
+	gwmul3 (&ecmdata->gwdata, in0->y, in1->z, T0, 0);		// T0 = Y0 * Z1
+	gwmul3 (&ecmdata->gwdata, in1->y, in0->z, T1, 0);		// T1 = Y1 * Z0
+	gwsub3 (&ecmdata->gwdata, T0, T1, T = T1);			// T = T0 - T1		last use of T1
+
+	gwmul3 (&ecmdata->gwdata, in0->x, in1->z, U0, 0);		// U0 = X0 * Z1
+	gwmul3 (&ecmdata->gwdata, in1->x, in0->z, U1, 0);		// U1 = X1 * Z0
+	gwsub3 (&ecmdata->gwdata, U0, U1, U);				// U = U0 - U1
+
+	gwmul3 (&ecmdata->gwdata, U, U, U2, 0);				// U2 = U^2
+
+	gwmul3 (&ecmdata->gwdata, in0->z, in1->z, V, 0);		// V = Z0 * Z1
+
+	gwmul3 (&ecmdata->gwdata, T, T, W, 0);				// W = T^2
+	gwmul3 (&ecmdata->gwdata, W, V, W, 0);				// W *= V
+	gwadd3 (&ecmdata->gwdata, U0, U1, t0);				// t0 = U0 + U1		last use of U1
+	gwmul3 (&ecmdata->gwdata, U2, t0, t0, 0);			// t0 = U2 * t0
+	gwsub3 (&ecmdata->gwdata, W, t0, W);				// W -= t0
+
+	gwmul3 (&ecmdata->gwdata, U, U2, U3 = U1, 0);			// U3 = U * U2
+
+	gwmul3 (&ecmdata->gwdata, U, W, out->x, 0);			// X2 = U * W
+
+	gwmul3 (&ecmdata->gwdata, T0, U3, out->y, 0);			// Y2 = T0 * U3
+	gwmul3 (&ecmdata->gwdata, U0, U2, t0, 0);			// t0 = U0 * U2
+	gwsub3 (&ecmdata->gwdata, t0, W, t0);				// t0 -= W
+	gwmul3 (&ecmdata->gwdata, T, t0, t0, 0);			// t0 = T * t0
+	gwsub3 (&ecmdata->gwdata, t0, out->y, out->y);			// Y2 = t0 - Y2
+
+	gwmul3 (&ecmdata->gwdata, U3, V, out->z, 0);			// Z2 = U3 * V
+
+	gwfree (&ecmdata->gwdata, T0);
+	gwfree (&ecmdata->gwdata, T1);
+	gwfree (&ecmdata->gwdata, U0);
+	gwfree (&ecmdata->gwdata, U1);
+	gwfree (&ecmdata->gwdata, U);
+	gwfree (&ecmdata->gwdata, U2);
+	gwfree (&ecmdata->gwdata, V);
+	gwfree (&ecmdata->gwdata, W);
+	gwfree (&ecmdata->gwdata, t0);
+
+	ws_check (ecmdata, out);
+}
+
+/* Double a Weierstrass point */
+/* For our purposes, speed is not critical.  This is only used during Atkin-Morain contruction of an Edwards curve. */
+
+void ws_dbl (
+	ecmhandle *ecmdata,
+	struct ws *in,
+	struct ws *out)
+{
+	int	a = -8;
+//	int	b = -32;
+
+// From https://www.nayuki.io/page/elliptic-curve-point-addition-in-projective-coordinates
+// Let T = 3X^2 + aZ^2
+// Let U = 2YZ
+// Let V = 2UXY
+// Let W = T^2 − 2V
+// X2 = UW
+// Y2 = T(V−W)−2(UY)^2
+// Z2 = U^3
+
+	gwnum	T, U, V, W, t0;
+	T = gwalloc (&ecmdata->gwdata);
+	U = gwalloc (&ecmdata->gwdata);
+	V = gwalloc (&ecmdata->gwdata);
+	W = gwalloc (&ecmdata->gwdata);
+	t0 = gwalloc (&ecmdata->gwdata);
+
+	gwsetmulbyconst (&ecmdata->gwdata, 3);
+	gwmul3 (&ecmdata->gwdata, in->x, in->x, T, GWMUL_MULBYCONST);				// T = X^2
+	gwmul3 (&ecmdata->gwdata, in->z, in->z, t0, 0);						// t0 = Z^2
+	gwsmallmul (&ecmdata->gwdata, a, t0);							// t0 *= a
+	gwadd3 (&ecmdata->gwdata, T, t0, T);							// T += t0
+
+	gwsetmulbyconst (&ecmdata->gwdata, 2);
+	gwmul3 (&ecmdata->gwdata, in->y, in->z, U, GWMUL_MULBYCONST);				// U = Y * Z * 2
+
+	gwmul3 (&ecmdata->gwdata, in->x, in->y, V, GWMUL_MULBYCONST);				// V = X * Y * 2
+	gwmul3 (&ecmdata->gwdata, V, U, V, 0);							// V *= U
+
+	gwmul3 (&ecmdata->gwdata, T, T, W, 0);							// W = T^2
+	gwsub3 (&ecmdata->gwdata, W, V, W);							// W -= V
+	gwsub3 (&ecmdata->gwdata, W, V, W);							// W -= V
+
+	gwmul3 (&ecmdata->gwdata, U, W, out->x, 0);						// X2 = U * W
+
+	gwmul3 (&ecmdata->gwdata, U, in->y, out->y, 0);						// Y2 = U * Y
+	gwmul3 (&ecmdata->gwdata, out->y, out->y, out->y, GWMUL_MULBYCONST);			// Y2 = 2(Y2)^2
+	gwsub3 (&ecmdata->gwdata, V, W, t0);							// t0 = V - W
+	gwmul3 (&ecmdata->gwdata, T, t0, t0, 0);						// t0 = T * t0
+	gwsub3 (&ecmdata->gwdata, t0, out->y, out->y);						// Y2 = t0 - Y2
+
+	gwmul3 (&ecmdata->gwdata, U, U, out->z, 0);						// Z2 = U * U
+	gwmul3 (&ecmdata->gwdata, out->z, U, out->z, 0);					// Z2 *= U
+
+	gwfree (&ecmdata->gwdata, T);
+	gwfree (&ecmdata->gwdata, U);
+	gwfree (&ecmdata->gwdata, V);
+	gwfree (&ecmdata->gwdata, W);
+	gwfree (&ecmdata->gwdata, t0);
+
+	ws_check (ecmdata, out);
+}
+
+/* Multiply a Weierstrass point by n */
+
+void ws_mul (
+	ecmhandle *ecmdata,
+	struct ws *arg,
+	uint64_t n)
+{
+	struct ws orig;
+
+	// Copy the input arg for later additions
+	ws_alloc (ecmdata, &orig);
+	gwcopy (&ecmdata->gwdata, arg->x, orig.x);
+	gwcopy (&ecmdata->gwdata, arg->y, orig.y);
+	gwcopy (&ecmdata->gwdata, arg->z, orig.z);
+
+	// Find the topmost bit in power
+	uint64_t current_bit;
+	for (current_bit = 0x8000000000000000ULL; n < current_bit; current_bit >>= 1);
+
+	// Exponentiate
+	for (current_bit >>= 1; current_bit; current_bit >>= 1) {
+		ws_dbl (ecmdata, arg, arg);
+		if (n & current_bit) ws_add (ecmdata, arg, &orig, arg);
+	}
+
+	// Free allocated memory
+	ws_free (ecmdata, &orig);
+}
+
+/**************************************************************
+ *	Edwards ECM Functions
+ **************************************************************/
+
+void choose_atkin_morain (
+	ecmhandle *ecmdata)
+{
+	struct ws w;
+
+	ws_alloc (ecmdata, &w);
+	u64togw (&ecmdata->gwdata, 12, w.x);
+	u64togw (&ecmdata->gwdata, 40, w.y);
+	u64togw (&ecmdata->gwdata, 1, w.z);
+
+	ws_mul (ecmdata, &w, ecmdata->sigma);
+
+#ifdef XXXXX
+	normalize w.x and w.y;
+
+	Define α = ((t + 25)/(s − 9) + 1)−1, β = 2α(4α + 1)/(8α2 − 1),
+c = (2β − 1)(β − 1)/β, and b = βc. 
+Define d = (2(2β − 1)2 − 1)/(2β − 1)4. Then the
+Edwards curve x2 + y2 = 1 + dx2y2 has torsion group isomorphic to Z/2Z × Z/8Z
+and a point (x1, y1) with x1 = (2β − 1)(4β − 3)/(6β − 5) and y1 = (2β − 1)(t2 +
+		50t − 2s3 + 27s2 − 104)/((t + 3s − 2)(t + s + 16)).
+#endif
+
+	ws_free (ecmdata, &w);
+}
+
+/**************************************************************
+ *	Montgomery ECM Functions
+ **************************************************************/
 
 /* This routine initializes an xz pair with two allocated gwnums */
 
@@ -1602,10 +1887,6 @@ __inline void free_xz (
 /* Macro to swap to xz structs */
 
 #define xzswap(a,b)	{ struct xz t; t = a; a = b; b = t; }
-
-/**************************************************************
- *	ECM Functions
- **************************************************************/
 
 /* Computes 2P=(out.x:out.z) from P=(in.x:in.z), uses the global variable Ad4. */
 /* Input arguments may be in FFTed state.  Out argument can be same as input argument. */
@@ -2146,6 +2427,10 @@ int ell_mul (
 	}
 	return (0);
 }
+
+/**************************************************************
+ *	Modular inverse functions 
+ **************************************************************/
 
 /* Computes the modular inverse of a number.  This is done using the */
 /* extended GCD algorithm.  If a factor is accidentally found, it is */
@@ -3331,7 +3616,11 @@ oom:	return (OutOfMemory (ecmdata->thread_num));
 }
 
  
-/* From R. P. Brent, priv. comm. 1996:
+/**************************************************************
+ *	Other ECM functions 
+ **************************************************************/
+
+/* From R. P. Brent, priv. comm. 1996 and https://eprint.iacr.org/2008/016.pdf section 7.5
 Let s > 5 be a pseudo-random seed (called $\sigma$ in the Tech. Report),
 
 	u/v = (s^2 - 5)/(4s)
@@ -3339,8 +3628,11 @@ Let s > 5 be a pseudo-random seed (called $\sigma$ in the Tech. Report),
 Then starting point is (x_1, y_1) where
 
 	x_1 = (u/v)^3
+	y_1 = (s^2 - 1)(s^2 - 25)(s^4 - 25)/(v^3)
 and
-	a = (v-u)^3(3u+v)/(4u^3 v) - 2
+	A = (v-u)^3(3u+v)/(4u^3 v) - 2
+	B = u/(v^3)
+where Montgomery curve is defined as By^2 = x^3 + Ax^2 + x
 */
 int choose12 (
 	ecmhandle *ecmdata,
@@ -3360,7 +3652,7 @@ int choose12 (
 
 	u64togw (&ecmdata->gwdata, ecmdata->sigma, zs);
 	gwsquare2 (&ecmdata->gwdata, zs, xs, 0);	/* s^2 */
-	gwsmalladd (&ecmdata->gwdata, -5.0, xs);	/* u = s^2 - 5 */
+	gwsmalladd (&ecmdata->gwdata, -5, xs);		/* u = s^2 - 5 */
 	gwsmallmul (&ecmdata->gwdata, 4.0, zs);		/* v = 4*s */
 	if (xz != NULL) {
 		gwsquare2 (&ecmdata->gwdata, xs, xz->x, GWMUL_STARTNEXTFFT);
@@ -3382,11 +3674,11 @@ int choose12 (
 	gwmul3 (&ecmdata->gwdata, xs, ecmdata->Ad4, ecmdata->Ad4, 0);			/* u^3 * v */
 	gwsmallmul (&ecmdata->gwdata, 4.0, ecmdata->Ad4);				/* An/Ad is now A + 2 */
 
-	/* Normalize so that An is one */
+	/* Normalize so that An is one, thus Ad4 is 1/(A + 2) */
 	stop_reason = normalize (ecmdata, ecmdata->Ad4, t2);
 	if (stop_reason) return (stop_reason);
-
-	/* For extra speed, precompute Ad * 4 */
+	
+	/* For extra speed, precompute Ad * 4, a.k.a 4/(A + 2) */
 	gwsmallmul (&ecmdata->gwdata, 4.0, ecmdata->Ad4);
 
 	/* Even more speed, save FFT of Ad4 */
@@ -4591,7 +4883,7 @@ double ecm_stage2_impl (
 
 	cost_data.c.total_cost = 0.0;						// Special value indicating no workable plan found
 	ecm_stage2_impl_given_numvals (ecmdata, numvals, forced_stage2_type, &cost_data);
-	sprintf (msgbuf + strlen (msgbuf), "Actual B2 will be %" PRIu64 ".  Curve is worth %.2g B2=B1*100 curves.\n",
+	sprintf (msgbuf + strlen (msgbuf), "Actual B2 will be %" PRIu64 ".  Curve is worth %.2f B2=100*B1 curves.\n",
 		 cost_data.c.B2_start + cost_data.c.numDsections * cost_data.c.D,
 		 kruppa_adjust (cost_data.c.B2_start + cost_data.c.numDsections * cost_data.c.D, ecmdata->B));
 
@@ -5201,10 +5493,9 @@ int ecm (
 	struct work_unit *w)
 {
 	ecmhandle ecmdata;
-	uint64_t sieve_start, next_prime;
+	uint64_t sieve_start, next_prime, last_output, last_output_t;
 	unsigned long SQRT_B;
-	double	last_output, last_output_t, one_over_B;
-	double	output_frequency, output_title_frequency;
+	double	one_over_B, output_frequency, output_title_frequency;
 	double	base_pct_complete, one_relp_pct;
 	int	i;
 	unsigned int memused;
@@ -5558,7 +5849,6 @@ if (w->n == 604) {
 
 	gwinit (&ecmdata.gwdata);
 	if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
-	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&ecmdata.gwdata);
 	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&ecmdata.gwdata, 2);
 	gwset_bench_cores (&ecmdata.gwdata, HW_NUM_CORES);
 	gwset_bench_workers (&ecmdata.gwdata, NUM_WORKERS);
@@ -5809,7 +6099,7 @@ restart1:
 
 	end_timer (timers, 0);
 	end_timer (timers, 1);
-	sprintf (buf, "Stage 1 complete. %.0f transforms, %lu modular inverses. Total time: ", gw_get_fft_count (&ecmdata.gwdata), ecmdata.modinv_count);
+	sprintf (buf, "Stage 1 complete. %" PRIu64 " transforms, %lu modular inverses. Total time: ", gw_get_fft_count (&ecmdata.gwdata), ecmdata.modinv_count);
 	print_timer (timers, 1, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
 	last_output = last_output_t = ecmdata.modinv_count = 0;
@@ -5828,7 +6118,8 @@ restart1:
 
 	if (ecmdata.C <= ecmdata.B) {
 skip_stage_2:	start_timer_from_zero (timers, 0);
-		stop_reason = gcd (&ecmdata.gwdata, thread_num, ecmdata.xz.z, ecmdata.N, &ecmdata.factor);
+		if (ecmdata.xz.z != NULL) stop_reason = gcd (&ecmdata.gwdata, thread_num, ecmdata.xz.z, ecmdata.N, &ecmdata.factor);
+		else stop_reason = gcd (thread_num, ecmdata.Qz_binary, ecmdata.N, &ecmdata.factor);
 		if (stop_reason) {
 			ecm_save (&ecmdata);
 			goto exit;
@@ -6074,7 +6365,6 @@ OutputStr (thread_num, buf); }
 			gwinit (&ecmdata.gwdata);
 			if (next_fftlen != best_fftlen) gwset_information_only (&ecmdata.gwdata);
 			if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
-			if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&ecmdata.gwdata);
 			if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&ecmdata.gwdata, 2);
 			gwset_bench_cores (&ecmdata.gwdata, HW_NUM_CORES);
 			gwset_bench_workers (&ecmdata.gwdata, NUM_WORKERS);
@@ -6739,7 +7029,7 @@ OutputStr (thread_num, buf); }
 	title (thread_num, buf);
 
 	end_timer (timers, 0);
-	sprintf (buf, "Stage 2 init complete. %.0f transforms, %lu modular inverses. Time: ", gw_get_fft_count (&ecmdata.gwdata), ecmdata.modinv_count);
+	sprintf (buf, "Stage 2 init complete. %" PRIu64 " transforms, %lu modular inverses. Time: ", gw_get_fft_count (&ecmdata.gwdata), ecmdata.modinv_count);
 	print_timer (timers, 0, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
 	gw_clear_fft_count (&ecmdata.gwdata);
@@ -7459,7 +7749,7 @@ start_timer_from_zero (timers, 0);
 	title (thread_num, buf);
 
 	end_timer (timers, 1);
-	sprintf (buf, "Stage 2 init complete. %.0f transforms, %lu modular inverses. Time: ", gw_get_fft_count (&ecmdata.gwdata), ecmdata.modinv_count);
+	sprintf (buf, "Stage 2 init complete. %" PRIu64 " transforms, %lu modular inverses. Time: ", gw_get_fft_count (&ecmdata.gwdata), ecmdata.modinv_count);
 	print_timer (timers, 1, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
 	gw_clear_fft_count (&ecmdata.gwdata);
@@ -7677,7 +7967,6 @@ OutputStr (thread_num, buf);
 start_timer_from_zero (timers, 0);
 
 	// Work down the F(X) tree in a memory efficient way.  This involves recomputing the Ftree.
-	gwarray	Ftree;
 
 	// Free up memory.  PolyF and PolyR may have been compressed and thus their gwnums cannot be recycled, they must be freed.
 	// The polyGH and polyGaux arrays have been co-mingled using gwswap.  They must be freed together.  We can't do that as polyH is still in use.
@@ -7691,12 +7980,13 @@ start_timer_from_zero (timers, 0);
 //GW: When we combine a length 0 and length 1 poly (no-op) we copy the gwnum -- we're likely overcounting the needed gwnums in pass 2
 	ecmdata.polyF = gwalloc_array (&ecmdata.gwdata, gwnums_needed - (ecmdata.poly_size + ecmdata.polyGaux_size));
 	if (ecmdata.polyF == NULL) goto lowmem;
-	Ftree = (gwarray) malloc ((size_t) (gwnums_needed * sizeof (gwnum)));
-	if (Ftree == NULL) goto lowmem;
+	ecmdata.Ftree = (gwarray) malloc ((size_t) (gwnums_needed * sizeof (gwnum)));
+	if (ecmdata.Ftree == NULL) goto lowmem;
 //GW: if num_polyGs == 1, polyG and polyH are the same  -- allocate a bigger polyF and don't copy polyG?
-	memcpy (Ftree, polyG, (size_t) (ecmdata.poly_size * sizeof (gwnum)));
-	memcpy (Ftree + ecmdata.poly_size, ecmdata.polyGaux, (size_t) (ecmdata.polyGaux_size * sizeof (gwnum)));
-	memcpy (Ftree + ecmdata.poly_size + ecmdata.polyGaux_size, ecmdata.polyF, (size_t) ((gwnums_needed - (ecmdata.poly_size + ecmdata.polyGaux_size)) * sizeof (gwnum)));
+	memcpy (ecmdata.Ftree, polyG, (size_t) (ecmdata.poly_size * sizeof (gwnum)));
+	memcpy (ecmdata.Ftree + ecmdata.poly_size, ecmdata.polyGaux, (size_t) (ecmdata.polyGaux_size * sizeof (gwnum)));
+	memcpy (ecmdata.Ftree + ecmdata.poly_size + ecmdata.polyGaux_size, ecmdata.polyF,
+		(size_t) ((gwnums_needed - (ecmdata.poly_size + ecmdata.polyGaux_size)) * sizeof (gwnum)));
 
 	// Use two passes.  The first pass does only 3 levels operating on the entire H(X) poly.  The second pass does the remaining levels operating
 	// on 1/8th of H(X) at a time.
@@ -7717,7 +8007,7 @@ start_timer_from_zero (timers, 0);
 		// Re-build this slice of Ftree working up the tree combining polys
 		for (int level = 0; level < num_levels_this_pass; level++) {
 			int	tree_level = level + (pass == 1 ? num_tree_levels - 3 : 0);
-			gwarray polyF = Ftree + level * slice_size;
+			gwarray polyF = ecmdata.Ftree + level * slice_size;
 
 			// Read in polyF from a saved location
 //GW: Problem? the len1-or-len2 Ftree level was not saved
@@ -7804,7 +8094,7 @@ start_timer_from_zero (timers, 0);
 
 		// Now work down this slice of Ftree
 		for (int level = num_levels_this_pass - 1; level >= 0; level--) {
-			gwarray polyF = Ftree + level * slice_size;
+			gwarray polyF = ecmdata.Ftree + level * slice_size;
 			int	log2_num_polys = num_levels_this_pass - level + log2_num_slices;		// Number of polyF polys in this level
 			uint64_t poly_base_calculator;	// Accumulator that lets us calculate floor (i*ecmdata.poly_size/num_polys)
 			int	poly_base = 0;
@@ -7878,7 +8168,7 @@ start_timer_from_zero (timers, 0);
 		_close (fd);
 		_unlink (ftree_filename);
 	}
-	free (Ftree);
+	free (ecmdata.Ftree), ecmdata.Ftree = NULL;
 
 // Multiply the coefficients in polyH together for a later GCD.  We launch single-threaded helpers to do this because the gwnum FFT size may not be
 // large enough to support multi-threading.  The results are stored in the first coefficients of polyG.
@@ -7961,7 +8251,7 @@ stage2_done:
 	mallocFreeForOS ();
 	set_memory_usage (thread_num, 0, cvt_gwnums_to_mem (&ecmdata.gwdata, 1));	// Let other high memory workers resume
 	end_timer (timers, 1);
-	sprintf (buf, "Stage 2 complete. %.0f transforms, %lu modular inverses. Total time: ", gw_get_fft_count (&ecmdata.gwdata), ecmdata.modinv_count);
+	sprintf (buf, "Stage 2 complete. %" PRIu64 " transforms, %lu modular inverses. Total time: ", gw_get_fft_count (&ecmdata.gwdata), ecmdata.modinv_count);
 	print_timer (timers, 1, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
 	last_output = last_output_t = ecmdata.modinv_count = 0;
@@ -8005,7 +8295,6 @@ more_curves:
 			gwdone (&ecmdata.gwdata);
 			gwinit (&ecmdata.gwdata);
 			if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
-			if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&ecmdata.gwdata);
 			if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&ecmdata.gwdata, 2);
 			gwset_bench_cores (&ecmdata.gwdata, HW_NUM_CORES);
 			gwset_bench_workers (&ecmdata.gwdata, NUM_WORKERS);
@@ -9064,7 +9353,7 @@ double pm1_stage2_cost (
 /* Estimate stage 2 costs using polymult and all available numvals */
 
 	else {
-		uint64_t poly1_size, poly2_size, min_poly2_size, max_poly2_size;
+		uint64_t poly1_size, poly2_size, min_poly2_size, max_poly2_size, acceptable_poly2_size, unacceptable_poly2_size;
 		double	mem_used_by_a_gwnum, mem_saved_by_compression, mem_used_by_polymult;
 
 /* No pairing costs when using polymult */
@@ -9081,21 +9370,23 @@ double pm1_stage2_cost (
 			mem_used_by_a_gwnum = (double) cost_data->c.stage2_fftlen * sizeof (double) * 1.016;
 			max_poly2_size = cost_data->c.numvals;
 		}
-		mem_saved_by_compression = (double) poly1_size * mem_used_by_a_gwnum * (1.0 - cost_data->c.poly_compression);
+		min_poly2_size = 2*poly1_size;
+		if (min_poly2_size > max_poly2_size) return (-1.0);
 
 		// Binary search for largest poly2_size that does not use too much memory
-		min_poly2_size = 2*poly1_size;
-		if (max_poly2_size < min_poly2_size) return (-1.0);
-//		cpu_flags = (cost_data->c.gwdata != NULL ? cost_data->c.gwdata->cpu_flags : CPU_FLAGS);
-		while (max_poly2_size - min_poly2_size >= 2) {
-			uint64_t midpoint = (min_poly2_size + max_poly2_size) / 2;
+		mem_saved_by_compression = (double) poly1_size * mem_used_by_a_gwnum * (1.0 - cost_data->c.poly_compression);
+		acceptable_poly2_size = min_poly2_size - 1;
+		unacceptable_poly2_size = max_poly2_size + 1;
+		while (unacceptable_poly2_size - acceptable_poly2_size >= 2) {
+			uint64_t midpoint = (acceptable_poly2_size + unacceptable_poly2_size) / 2;
 			mem_used_by_polymult = (double) polymult_mem_required (cost_data->c.polydata, poly1_size, midpoint, POLYMULT_INVEC1_MONIC_RLP | POLYMULT_CIRCULAR);
 			if (poly1_size + midpoint + floor ((mem_used_by_polymult - mem_saved_by_compression) / mem_used_by_a_gwnum + 0.5) <= cost_data->c.numvals)
-				min_poly2_size = midpoint;		// Acceptable poly2 size
+				acceptable_poly2_size = midpoint;		// Acceptable poly2 size
 			else
-				max_poly2_size = midpoint;		// Unacceptable poly2 size
+				unacceptable_poly2_size = midpoint;		// Unacceptable poly2 size
 		}
-		poly2_size = min_poly2_size;
+		if (acceptable_poly2_size < min_poly2_size) return (-1.0); 
+		poly2_size = acceptable_poly2_size;
 		mem_used_by_polymult = (double) polymult_mem_required (cost_data->c.polydata, poly1_size, poly2_size, POLYMULT_INVEC1_MONIC_RLP | POLYMULT_CIRCULAR);
 
 		// Calc num poly1 points evaluated by each poly2
@@ -9736,7 +10027,7 @@ int pminus1 (
 	char	filename[32], buf[255], JSONbuf[4000], testnum[100];
 	int	pminus1_base, res, stop_reason, saving, near_fft_limit, echk;
 	double	one_over_len, one_over_B, base_pct_complete, one_relp_pct;
-	double	last_output, last_output_t, last_output_r;
+	uint64_t last_output, last_output_t, last_output_r;
 	double	allowable_maxerr, output_frequency, output_title_frequency;
 	int	first_iter_msg;
 	int	msglen;
@@ -9804,7 +10095,7 @@ int pminus1 (
 		OutputStr (thread_num, buf);
 		if (w->sieve_depth > 0.0 && !pm1data.optimal_B2) {
 			double prob = guess_pminus1_probability (w);
-			sprintf (buf, "Chance of finding a factor is an estimated %.3g%%\n", prob * 100.0);
+			sprintf (buf, "Chance of finding a new factor is an estimated %.3g%%\n", prob * 100.0);
 			OutputStr (thread_num, buf);
 		}
 	}
@@ -9823,7 +10114,6 @@ restart:
 	gwinit (&pm1data.gwdata);
 	gwset_maxmulbyconst (&pm1data.gwdata, pminus1_base);
 	if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pm1data.gwdata);
-	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&pm1data.gwdata);
 	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&pm1data.gwdata, 2);
 	gwset_bench_cores (&pm1data.gwdata, HW_NUM_CORES);
 	gwset_bench_workers (&pm1data.gwdata, NUM_WORKERS);
@@ -10269,7 +10559,7 @@ more_B:		if (pm1data.x_binary != NULL) {			// pm1_restore can return x as binary
 /* Stage 1 complete, print a message */
 
 	end_timer (timers, 1);
-	sprintf (buf, "%s stage 1 complete. %.0f transforms. Total time: ", gwmodulo_as_string (&pm1data.gwdata), gw_get_fft_count (&pm1data.gwdata));
+	sprintf (buf, "%s stage 1 complete. %" PRIu64 " transforms. Total time: ", gwmodulo_as_string (&pm1data.gwdata), gw_get_fft_count (&pm1data.gwdata));
 	print_timer (timers, 1, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
 	gw_clear_fft_count (&pm1data.gwdata);
@@ -10353,7 +10643,7 @@ restart3a:
 /* Inversion to 1/x format complete */
 
 	end_timer (timers, 0);
-	sprintf (buf, "Inversion of stage 1 result complete. %.0f transforms, 1 modular inverse. Time: ", gw_get_fft_count (&pm1data.gwdata));
+	sprintf (buf, "Inversion of stage 1 result complete. %" PRIu64 " transforms, 1 modular inverse. Time: ", gw_get_fft_count (&pm1data.gwdata));
 	print_timer (timers, 0, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
 	gw_clear_fft_count (&pm1data.gwdata);
@@ -10545,7 +10835,6 @@ OutputStr (thread_num, buf); }
 			gwinit (&pm1data.gwdata);
 			if (next_fftlen != best_fftlen) gwset_information_only (&pm1data.gwdata);
 			if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pm1data.gwdata);
-			if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&pm1data.gwdata);
 			if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&pm1data.gwdata, 2);
 			gwset_bench_cores (&pm1data.gwdata, HW_NUM_CORES);
 			gwset_bench_workers (&pm1data.gwdata, NUM_WORKERS);
@@ -10995,7 +11284,7 @@ OutputStr (thread_num, buf); }
 	title (thread_num, buf);
 
 	end_timer (timers, 0);
-	sprintf (buf, "Stage 2 init complete. %.0f transforms. Time: ", gw_get_fft_count (&pm1data.gwdata));
+	sprintf (buf, "Stage 2 init complete. %" PRIu64 " transforms. Time: ", gw_get_fft_count (&pm1data.gwdata));
 	print_timer (timers, 0, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
 	gw_clear_fft_count (&pm1data.gwdata);
@@ -11143,7 +11432,7 @@ OutputStr (thread_num, buf); }
 |		Volume 54, number 190
 |		April 1990, pages 839-854
 |	as well as
-|		IMPROVED STAGE 2 TO P�1 FACTORING ALGORITHMS
+|		IMPROVED STAGE 2 TO P±1 FACTORING ALGORITHMS
 |		by Montgomery & Kruppa
 |		2008, inria-00188192v3
 |		https://hal.inria.fr/inria-00188192v3/document
@@ -11469,7 +11758,7 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&pm1data.gwdata);
 	title (thread_num, buf);
 
 	end_timer (timers, 0);
-	sprintf (buf, "Stage 2 init complete. %.0f transforms. Time: ", gw_get_fft_count (&pm1data.gwdata));
+	sprintf (buf, "Stage 2 init complete. %" PRIu64 " transforms. Time: ", gw_get_fft_count (&pm1data.gwdata));
 	print_timer (timers, 0, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
 	gw_clear_fft_count (&pm1data.gwdata);
@@ -11695,7 +11984,7 @@ stage2_done:
 	mallocFreeForOS ();
 	set_memory_usage (thread_num, 0, cvt_gwnums_to_mem (&pm1data.gwdata, 1));	// Let other high memory workers resume
 	end_timer (timers, 1);
-	sprintf (buf, "%s stage 2 complete. %.0f transforms. Total time: ", gwmodulo_as_string (&pm1data.gwdata), gw_get_fft_count (&pm1data.gwdata));
+	sprintf (buf, "%s stage 2 complete. %" PRIu64 " transforms. Total time: ", gwmodulo_as_string (&pm1data.gwdata), gw_get_fft_count (&pm1data.gwdata));
 	print_timer (timers, 1, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
 
@@ -12452,8 +12741,13 @@ int pfactor (
 	gw_as_string (testnum, w->k, w->b, w->n, w->c);
 	sprintf (buf, "Optimal P-1 factoring of %s using up to %luMB of memory.\n", testnum, max_mem (thread_num));
 	OutputStr (thread_num, buf);
-	sprintf (buf, "Assuming no factors below 2^%.2g and %.2g primality test%s saved if a factor is found.\n",
-		 w->sieve_depth, w->tests_saved, w->tests_saved == 1.0 ? "" : "s");
+	if (w->known_factors != NULL) {
+		OutputStr (thread_num, "Skipping known factors: ");
+		OutputStr (thread_num, w->known_factors);
+		OutputStr (thread_num, "\n");
+	}
+	sprintf (buf, "Assuming no%s factors below 2^%.2g and %.2g primality test%s saved if a factor is found.\n",
+		 w->known_factors != NULL ? " other" : "", w->sieve_depth, w->tests_saved, w->tests_saved == 1.0 ? "" : "s");
 	OutputStr (thread_num, buf);
 
 /* Deduce the proper P-1 bounds */
@@ -12480,7 +12774,7 @@ int pfactor (
 
 	sprintf (buf, "Optimal bounds are B1=%" PRIu64 ", B2=%" PRIu64 "\n", bound1, bound2);
 	OutputStr (thread_num, buf);
-	sprintf (buf, "Chance of finding a factor is an estimated %.3g%%\n", prob * 100.0);
+	sprintf (buf, "Chance of finding a new factor is an estimated %.3g%%\n", prob * 100.0);
 	OutputStr (thread_num, buf);
 
 /* Call the P-1 factoring code */
@@ -12970,7 +13264,7 @@ void pp1_choose_B2 (
 	pp1data->C = best[1].i * pp1data->B;
 	sprintf (buf, "With trial factoring done to 2^%d, optimal B2 is %d*B1 = %" PRIu64 ".\n", sieve_depth, best[1].i, pp1data->C);
 	OutputStr (pp1data->thread_num, buf);
-	sprintf (buf, "Chance of a new factor assuming no ECM has been done is %.3g%%\n", best[1].fac_pct * 100.0);
+	sprintf (buf, "Chance of finding a new factor assuming no ECM has been done is %.3g%%\n", best[1].fac_pct * 100.0);
 	OutputStr (pp1data->thread_num, buf);
 }
 #undef p1eval
@@ -13458,7 +13752,7 @@ int pplus1 (
 	char	filename[32], buf[255], JSONbuf[4000], testnum[100];
 	uint64_t sieve_start, next_prime;
 	double	one_over_B, base_pct_complete, one_relp_pct;
-	double	last_output, last_output_t, last_output_r;
+	uint64_t last_output, last_output_t, last_output_r;
 	double	allowable_maxerr, output_frequency, output_title_frequency;
 	int	maxerr_restart_count = 0;
 	char	*str, *msg;
@@ -13548,7 +13842,7 @@ int pplus1 (
 	OutputStr (thread_num, buf);
 	if (w->sieve_depth > 0.0 && !pp1data.optimal_B2) {
 		double prob = pm1prob (pp1data.takeAwayBits, (unsigned int) w->sieve_depth, pp1data.B, pp1data.C) * pp1data.success_rate;
-		sprintf (buf, "Chance of finding a factor assuming no ECM has been done is an estimated %.3g%%\n", prob * 100.0);
+		sprintf (buf, "Chance of finding a new factor assuming no ECM has been done is an estimated %.3g%%\n", prob * 100.0);
 		OutputStr (thread_num, buf);
 	}
 
@@ -13564,7 +13858,6 @@ restart:
 
 	gwinit (&pp1data.gwdata);
 	if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&pp1data.gwdata);
-	if (IniGetInt (INI_FILE, "HyperthreadPrefetch", 0)) gwset_hyperthread_prefetch (&pp1data.gwdata);
 	if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&pp1data.gwdata, 2);
 	gwset_bench_cores (&pp1data.gwdata, HW_NUM_CORES);
 	gwset_bench_workers (&pp1data.gwdata, NUM_WORKERS);
@@ -13875,7 +14168,7 @@ more_B:		pp1data.interim_B = pp1data.B;
 
 /* Stage 1 complete, print a message */
 
-	sprintf (buf, "%s stage 1 complete. %.0f transforms. Total time: ", gwmodulo_as_string (&pp1data.gwdata), gw_get_fft_count (&pp1data.gwdata));
+	sprintf (buf, "%s stage 1 complete. %" PRIu64 " transforms. Total time: ", gwmodulo_as_string (&pp1data.gwdata), gw_get_fft_count (&pp1data.gwdata));
 	print_timer (timers, 1, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
 	gw_clear_fft_count (&pp1data.gwdata);
@@ -14325,7 +14618,7 @@ replan:	{
 	title (thread_num, buf);
 
 	end_timer (timers, 0);
-	sprintf (buf, "Stage 2 init complete. %.0f transforms. Time: ", gw_get_fft_count (&pp1data.gwdata));
+	sprintf (buf, "Stage 2 init complete. %" PRIu64 " transforms. Time: ", gw_get_fft_count (&pp1data.gwdata));
 	print_timer (timers, 0, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
 	gw_clear_fft_count (&pp1data.gwdata);
@@ -14463,7 +14756,7 @@ replan:	{
 /* Stage 2 is complete */
 
 	end_timer (timers, 1);
-	sprintf (buf, "%s stage 2 complete. %.0f transforms. Total time: ", gwmodulo_as_string (&pp1data.gwdata), gw_get_fft_count (&pp1data.gwdata));
+	sprintf (buf, "%s stage 2 complete. %" PRIu64 " transforms. Total time: ", gwmodulo_as_string (&pp1data.gwdata), gw_get_fft_count (&pp1data.gwdata));
 	print_timer (timers, 1, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
 
