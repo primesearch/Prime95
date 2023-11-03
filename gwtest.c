@@ -765,6 +765,9 @@ void test_it (
 	squaregi (&gwdata->gdata, g);
 	specialmodg (gwdata, g);
 	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x, g, "unfft2");
+	gwfft_for_fma (gwdata, x, x);
+	gwunfft (gwdata, x, x);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x, g, "unfft3");
 
 /* Test gwaddquick, gwsubquick */
 
@@ -841,11 +844,70 @@ void test_it (
 
 /* Test gwmul4 routines */
 
-	gwsquare2 (gwdata, x, x2, 0); gtog (g, g2); squaregi (&gwdata->gdata, g2); specialmodg (gwdata, g2);
-	gwsquare2 (gwdata, x2, x3, 0); gtog (g2, g3); squaregi (&gwdata->gdata, g3); specialmodg (gwdata, g3);
-	gwaddmul4 (gwdata, x2, x3, x, x, 0); gtog (g2, g4); addg (g3, g4); mulg (g4, g); specialmodg (gwdata, g);
-	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x, g, "addmul4");
+	gwsquare2 (gwdata, x, x2, GWMUL_FFT_S1); gtog (g, g2); squaregi (&gwdata->gdata, g2); specialmodg (gwdata, g2);
+	gwsquare2 (gwdata, x2, x3, GWMUL_FFT_S1); gtog (g2, g3); squaregi (&gwdata->gdata, g3); specialmodg (gwdata, g3);
+	gwaddmul4 (gwdata, x2, x, x3, x4, GWMUL_PRESERVE_S3); gtog (g2, g4); addg (g, g4); mulg (g3, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "addmul nosave");
 
+	gwaddmul4 (gwdata, x2, x, x3, x4, GWMUL_FFT_S3); //gtog (g2, g4); addg (g, g4); mulg (g3, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "addmul save");
+
+	gwunfft (gwdata, x, x);
+	gwaddmul4 (gwdata, x2, x, x3, x4, GWMUL_PRESERVE_S2); //gtog (g2, g4); addg (g, g4); mulg (g3, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "addmul132 nosave");
+
+	gwunfft (gwdata, x, x);
+	gwaddmul4 (gwdata, x2, x, x3, x4, GWMUL_FFT_S2); //gtog (g2, g4); addg (g, g4); mulg (g3, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "addmul132 save");
+
+	gwunfft (gwdata, x, x);
+	gwaddmul4 (gwdata, x2, x, x, x4, GWMUL_PRESERVE_S2 | GWMUL_PRESERVE_S3); gtog (g2, g4); addg (g, g4); mulg (g, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "addmul133 nosave");
+
+	gwunfft (gwdata, x, x);
+	gwaddmul4 (gwdata, x2, x, x, x4, GWMUL_FFT_S2 | GWMUL_FFT_S3); //gtog (g2, g4); addg (g, g4); mulg (g, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "addmul133 save");
+
+	gwunfft (gwdata, x3, x3);
+	gwsubmul4 (gwdata, x2, x, x3, x4, GWMUL_PRESERVE_S3); gtog (g2, g4); subg (g, g4); mulg (g3, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "submul nosave");
+
+	gwsubmul4 (gwdata, x2, x, x3, x4, GWMUL_FFT_S3); //gtog (g2, g4); subg (g, g4); mulg (g3, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "submul save");
+
+	gwunfft (gwdata, x, x);
+	gwsubmul4 (gwdata, x2, x, x3, x4, GWMUL_PRESERVE_S2); //gtog (g2, g4); subg (g, g4); mulg (g3, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "submul132 nosave");
+
+	gwunfft (gwdata, x, x);
+	gwsubmul4 (gwdata, x2, x, x3, x4, GWMUL_FFT_S2); //gtog (g2, g4); subg (g, g4); mulg (g3, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "submul132 save");
+
+	gwunfft (gwdata, x2, x2);
+	gwsubmul4 (gwdata, x2, x, x3, x4, GWMUL_PRESERVE_S1); //gtog (g2, g4); subg (g, g4); mulg (g3, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "submul312 nosave");
+
+	gwunfft (gwdata, x2, x2);
+	gwsubmul4 (gwdata, x2, x, x3, x4, GWMUL_FFT_S1); //gtog (g2, g4); subg (g, g4); mulg (g3, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "submul312 save");
+
+	gwunfft (gwdata, x, x);
+	gwsubmul4 (gwdata, x2, x, x, x4, GWMUL_PRESERVE_S2 | GWMUL_PRESERVE_S3); gtog (g2, g4); subg (g, g4); mulg (g, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "submul133 nosave");
+
+	gwunfft (gwdata, x, x);
+	gwsubmul4 (gwdata, x2, x, x, x4, GWMUL_FFT_S2 | GWMUL_FFT_S3); //gtog (g2, g4); subg (g, g4); mulg (g, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "submul133 save");
+
+	gwunfft (gwdata, x, x);
+	gwsubmul4 (gwdata, x, x2, x, x4, GWMUL_PRESERVE_S1 | GWMUL_PRESERVE_S3); gtog (g, g4); subg (g2, g4); mulg (g, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "submul133 nosave");
+
+	gwunfft (gwdata, x, x);
+	gwsubmul4 (gwdata, x, x2, x, x4, GWMUL_FFT_S1 | GWMUL_FFT_S3); //gtog (g2, g4); subg (g, g4); mulg (g, g4); specialmodg (gwdata, g4);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "submul133 save");
+
+	// Older tests
 	gwcopy (gwdata, x2, x4);
 	gwsubmul4 (gwdata, x4, x3, x, x4, 0); gtog (g2, g4); subg (g3, g4); mulg (g4, g); specialmodg (gwdata, g);
 	gwcopy (gwdata, x4, x);
@@ -942,14 +1004,18 @@ void test_it (
 /* Test gwmul3, gwmul4 where there are 2 destinations */
 
 	gwfft (gwdata, x, x2);
+	ASSERTG (FFT_state(x) != FULLY_FFTed);
 	gwsquare2 (gwdata, x, x3, GWMUL_FFT_S1);
+	ASSERTG (FFT_state(x) == FULLY_FFTed);
 	gwsquare2 (gwdata, x, x, 0);
 	squaregi (&gwdata->gdata, g); specialmodg (gwdata, g);
 	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x, g, "gwsquare2 two dest #1");
 	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x3, g, "gwsquare2 two dest #2");
 
 	gwfft (gwdata, x, x2);
+	ASSERTG (FFT_state(x) != FULLY_FFTed);
 	gwmul3 (gwdata, x, x2, x3, GWMUL_FFT_S1 | GWMUL_FFT_S2);
+	ASSERTG (FFT_state(x) == FULLY_FFTed);
 	gwmul3 (gwdata, x, x, x, 0);
 	squaregi (&gwdata->gdata, g); specialmodg (gwdata, g);
 	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x, g, "gwmul3 two dest #1");

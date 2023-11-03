@@ -7704,13 +7704,13 @@ xcopy_7_words MACRO
 	cmp	ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
 	je	short nozpad		;; No, skip 7 word copy
 	movsd	xmm0, Q [rsi+rbx+32]	;; Copy 1st word above half-way point
-	movsd	Q [rsi-40], xmm0
+	movsd	Q [rsi-64], xmm0
 	movsd	xmm1, Q [rsi+rbx+48]	;; Copy 2nd word
-	movsd	Q [rsi-48], xmm1
+	movsd	Q [rsi-56], xmm1
 	movsd	xmm2, Q [rsi+rbx+96]	;; Copy 3rd word
-	movsd	Q [rsi-56], xmm2
+	movsd	Q [rsi-48], xmm2
 	movsd	xmm3, Q [rsi+rbx+112]	;; Copy 4th word
-	movsd	Q [rsi-64], xmm3
+	movsd	Q [rsi-40], xmm3
 	mov	eax, HIGH_WORD1_OFFSET	;; Copy 1st word below half-way
 	add	rax, rsi
 	movsd	xmm0, Q [rax+rbx]

@@ -55,9 +55,9 @@ typedef gwnum *gwarray;
 /* are new prime95 versions without any changes in the gwnum code.  This version number is also embedded in the assembly code and */
 /* gwsetup verifies that the version numbers match.  This prevents bugs from accidentally linking in the wrong gwnum library. */
 
-#define GWNUM_VERSION		"30.18"
+#define GWNUM_VERSION		"30.19"
 #define GWNUM_MAJOR_VERSION	30
-#define GWNUM_MINOR_VERSION	18
+#define GWNUM_MINOR_VERSION	19
 
 /* Error codes returned by the three gwsetup routines */
 

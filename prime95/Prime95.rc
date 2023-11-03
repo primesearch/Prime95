@@ -642,8 +642,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 30,18,1,0
- PRODUCTVERSION 30,18,0,0
+ FILEVERSION 30,19,1,0
+ PRODUCTVERSION 30,19,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -659,12 +659,12 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "FileDescription", "PRIME95 Application"
-            VALUE "FileVersion", "30, 18, 1, 0"
+            VALUE "FileVersion", "30, 19, 1, 0"
             VALUE "InternalName", "PRIME95"
             VALUE "LegalCopyright", "Copyright © 1996-2023, Mersenne Research Inc."
             VALUE "OriginalFilename", "PRIME95.EXE"
             VALUE "ProductName", "PRIME95 Application"
-            VALUE "ProductVersion", "30, 18, 0, 0"
+            VALUE "ProductVersion", "30, 19, 0, 0"
         END
     END
     BLOCK "VarFileInfo"

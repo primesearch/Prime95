@@ -3,7 +3,7 @@
 |
 | This file contains handy #defines that I use in all my projects
 | 
-|  Copyright 2005-2021 Mersenne Research, Inc.
+|  Copyright 2005-2023 Mersenne Research, Inc.
 |  All Rights Reserved.
 +---------------------------------------------------------------------*/
 
@@ -104,6 +104,10 @@ __inline char *debug_strcpy(char *d, const char *s) {assert((d) >= ((s)+strlen(s
 #define mpz_mul_d(d,s,flt)	{ mpz_t t; mpz_init_set_d(t,flt); mpz_mul(d,s,t); mpz_clear(t); }
 #define mpz_eq(a,b)		(mpz_cmp(a,b) == 0)
 #define mpz_eq_ui(a,b)		(mpz_cmp_ui(a,b) == 0)
+// Work around bug in mpz_tstbit accessing bits above 2^32.  Presumably, mpz_setbit and mpz_clrbit has the same problem.
+#define mpz_tstbit64(a,b)	(mpz_getlimbn ((a), (mp_size_t) ((b) / GMP_LIMB_BITS)) & (1ULL << ((b) % GMP_LIMB_BITS)))
+#define mpz_setbit64(a,b)	mpz_limbs_modify(a,1)[(b) / GMP_LIMB_BITS] |= (1ULL << ((b) % GMP_LIMB_BITS))
+#define mpz_clrbit64(a,b)	mpz_limbs_modify(a,1)[(b) / GMP_LIMB_BITS] &= ~(1ULL << ((b) % GMP_LIMB_BITS))
 
 /* Windows/Linux differences */
 

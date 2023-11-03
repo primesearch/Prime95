@@ -54,6 +54,13 @@ struct ws {
 	gwnum	z;		/* z or FFT(z) */
 };
 
+struct ed {
+	gwnum	x;		/* x or FFT(x) */
+	gwnum	y;		/* y or FFT(y) */
+	gwnum	z;		/* z or FFT(z) */
+	gwnum	t;		/* Extended coordinates, see "Twisted Edwards Curves Revisited" by Huseyin Hisil, et.al. */
+};
+
 struct xz {
 	gwnum	x;		/* x or FFT(x) */
 	gwnum	z;		/* z or FFT(z) */
@@ -1155,7 +1162,7 @@ int setN (
 			char	*comma, facstr[500];
 			int	res;
 
-/* Get the factor - raise error is it is less than or equal to one */
+/* Get the factor - raise error if it is less than or equal to one */
 
 			comma = strchr (p, ',');
 			if (comma != NULL) *comma = 0;
@@ -1461,17 +1468,32 @@ typedef struct {
 	uint64_t C;		/* Bound #2 (a.k.a. B2) */
 	giant	N;		/* Number being factored */
 	giant	factor;		/* Factor found, if any */
-	int	optimal_B2;	/* TRUE if we calculate optimal bound #2 given currently available memory.  FALSE for a fixed bound #2. */
+	bool	sigma_montg;	/* TRUE for old-style Suyama sigma (choose12 for Montgomery curves), FALSE for new-style Atkin-Morain Edward curves */
+	bool	stage1_montg;	/* TRUE for old-style Montgomery stage 1, FALSE for new-style Edward curves */
+	bool	optimal_B2;	/* TRUE if we calculate optimal bound #2 given currently available memory.  FALSE for a fixed bound #2. */
 	uint64_t average_B2;	/* Average Kruppa-adjusted bound #2 work done on ECM curves thusfar */
 	unsigned long stage1_fftlen; /* FFT length used in stage 1 */
 
-	gwnum	Ad4;		/* Pre-computed value used for doubling */
+	gwnum	Ad4;		/* Pre-computed value used for Montgomery doubling */
+	gwnum	ed_a;		/* "a" value in a twisted Edwards curve: ax^2 + y^2 = 1 + dx^2y^2 */
+	gwnum	ed_d;		/* "d" value in a non-twisted or twisted Edwards curve */
+
 	readSaveFileState read_save_file_state;	/* Manage savefile names during reading */
 	writeSaveFileState write_save_file_state; /* Manage savefile names during writing */
 	void	*sieve_info;	/* Prime number sieve */
 	uint64_t stage1_prime;	/* Prime number being processed */
 
-	struct xz xz;		/* The stage 1 value being computed */
+	mpz_t	stage1_exp;	/* Edwards stage 1 exponent */
+	char	*NAF_codes;	/* NAF indexes extracted from stage 1 exponent stored in a bit array */
+	bool	stage1_exp_initialized;/* Edwards stage 1 exponent initialized with mpz_init */
+	uint64_t stage1_start_prime; /* First prime in the Edwards stage 1 exponent */
+	uint64_t stage1_exp_buffer_size; /* Buffer size (in bytes) used to build stage 1 exponent */
+	uint64_t stage1_bitnum;	/* Edwards stage 1 bit number being processed in the stage 1 exponent */
+	uint32_t NAF_dictionary_size; /* Number of gwnums in the NAF dictionary */
+	struct ed *NAF_dictionary; /* Array of gwnums that will be used in ed_add calls during NAF exponentiation */
+
+	struct xz xz;		/* The stage 1 Montgomery value being computed */
+	struct ed e;		/* The stage 1 Edwards value being computed */
 	gwnum	gg;		/* The stage 2 accumulated value */
 
 	int32_t	pool_type;	/* Modinv algorithm type to use */
@@ -1546,8 +1568,9 @@ typedef struct {
 
 /* Forward declarations */
 
-void normalize_pool_term (ecmhandle *ecmdata);
-void mQ_term (ecmhandle *ecmdata);
+void normalize_pool_term (ecmhandle *);
+void mQ_term (ecmhandle *);
+void NAF_dictionary_free (ecmhandle *);
 
 /* Perform cleanup functions */
 
@@ -1566,10 +1589,15 @@ void ecm_mini_cleanup (
 	free (ecmdata->Ftree), ecmdata->Ftree = NULL;
 	end_sieve (ecmdata->sieve_info), ecmdata->sieve_info = NULL;
 	polymult_done (&ecmdata->polydata);
+	if (ecmdata->stage1_exp_initialized) mpz_clear (ecmdata->stage1_exp), ecmdata->stage1_exp_initialized = FALSE;
+	NAF_dictionary_free (ecmdata);
 	gwfreeall (&ecmdata->gwdata);
-	ecmdata->xz.x = NULL;
-	ecmdata->xz.z = NULL;
+	memset (&ecmdata->xz, 0, sizeof (ecmdata->xz));
+	memset (&ecmdata->e, 0, sizeof (ecmdata->e));
 	ecmdata->gg = NULL;
+	ecmdata->Ad4 = NULL;
+	ecmdata->ed_a = NULL;
+	ecmdata->ed_d = NULL;
 }
 
 void ecm_cleanup (
@@ -1599,24 +1627,24 @@ bool ws_alloc (			/* Returns TRUE if successful */
 	return (TRUE);
 }
 
-/* This routine cleans up an xz pair with two allocated gwnums */
+/* This routine frees a ws struct's gwnums */
 
 void ws_free (
 	ecmhandle *ecmdata,
 	struct ws *arg)
 {
-	gwfree (&ecmdata->gwdata, arg->x); arg->x = NULL;
-	gwfree (&ecmdata->gwdata, arg->y); arg->y = NULL;
-	gwfree (&ecmdata->gwdata, arg->z); arg->z = NULL;
+	gwfree (&ecmdata->gwdata, arg->x), arg->x = NULL;
+	gwfree (&ecmdata->gwdata, arg->y), arg->y = NULL;
+	gwfree (&ecmdata->gwdata, arg->z), arg->z = NULL;
 }
 
 /* Verify a point is on the elliptic curve */
 
-#ifdef GDEBUG
 void ws_check (
 	ecmhandle *ecmdata,
 	struct ws *in)
 {
+#ifdef GDEBUG
 	gwnum	t0, t1, t2;
 	int	a = -8;
 	int	b = -32;
@@ -1627,19 +1655,19 @@ void ws_check (
 
 	// Verify Y^2Z = X^3 + aXZ^2 + bZ^3
 
-	gwmul3 (&ecmdata->gwdata, in->y, in->y, t0, 0);			// t0 = Y * Y
-	gwmul3 (&ecmdata->gwdata, t0, in->z, t0, 0);			// t0 *= Z
-	gwmul3 (&ecmdata->gwdata, in->x, in->x, t1, 0);			// t1 = X * X
-	gwmul3 (&ecmdata->gwdata, t1, in->x, t1, 0);			// t1 *= X
-	gwmul3 (&ecmdata->gwdata, in->x, in->z, t2, 0);			// t2 = X * Z
-	gwmul3 (&ecmdata->gwdata, t2, in->z, t2, 0);			// t2 *= Z
-	gwsmallmul (&ecmdata->gwdata, a, t2);				// t2 *= a
-	gwadd3 (&ecmdata->gwdata, t1, t2, t1);				// t1 = t1 + t2
-	gwmul3 (&ecmdata->gwdata, in->z, in->z, t2, 0);			// t2 = Z * Z
-	gwmul3 (&ecmdata->gwdata, t2, in->z, t2, 0);			// t2 *= Z
-	gwsmallmul (&ecmdata->gwdata, b, t2);				// t2 *= b
-	gwadd3 (&ecmdata->gwdata, t1, t2, t1);				// t1 = t1 + t2
-	gwsub3 (&ecmdata->gwdata, t0, t1, t0);				// t0 = t0 - t1, should be zero
+	gwsquare2 (&ecmdata->gwdata, in->y, t0, GWMUL_PRESERVE_S1);				// t0 = Y * Y
+	gwmul3 (&ecmdata->gwdata, t0, in->z, t0, GWMUL_PRESERVE_S2);				// t0 *= Z
+	gwsquare2 (&ecmdata->gwdata, in->x, t1, GWMUL_PRESERVE_S1);				// t1 = X * X
+	gwmul3 (&ecmdata->gwdata, t1, in->x, t1, GWMUL_PRESERVE_S2);				// t1 *= X
+	gwmul3 (&ecmdata->gwdata, in->x, in->z, t2, GWMUL_PRESERVE_S1 | GWMUL_PRESERVE_S2);	// t2 = X * Z
+	gwmul3 (&ecmdata->gwdata, t2, in->z, t2, GWMUL_PRESERVE_S2);				// t2 *= Z
+	gwsmallmul (&ecmdata->gwdata, a, t2);							// t2 *= a
+	gwadd3 (&ecmdata->gwdata, t1, t2, t1);							// t1 = t1 + t2
+	gwsquare2 (&ecmdata->gwdata, in->z, t2, GWMUL_PRESERVE_S1);				// t2 = Z * Z
+	gwmul3 (&ecmdata->gwdata, t2, in->z, t2, GWMUL_PRESERVE_S2);				// t2 *= Z
+	gwsmallmul (&ecmdata->gwdata, b, t2);							// t2 *= b
+	gwadd3 (&ecmdata->gwdata, t1, t2, t1);							// t1 = t1 + t2
+	gwsub3 (&ecmdata->gwdata, t0, t1, t0);							// t0 = t0 - t1, should be zero
 
 	giant tmp = popg (&ecmdata->gwdata.gdata, ((unsigned long) ecmdata->gwdata.bit_length >> 5) + 5);
 	gwtogiant (&ecmdata->gwdata, t0, tmp);
@@ -1649,10 +1677,8 @@ void ws_check (
 	gwfree (&ecmdata->gwdata, t0);
 	gwfree (&ecmdata->gwdata, t1);
 	gwfree (&ecmdata->gwdata, t2);
-}
-#else
-#define ws_check(a,b)
 #endif
+}
 
 /* Add two Weierstrass points */
 /* For our purposes, speed is not critical.  This is only used during Atkin-Morain contruction of an Edwards curve. */
@@ -1700,7 +1726,7 @@ void ws_add (
 	gwmul3 (&ecmdata->gwdata, in1->x, in0->z, U1, 0);		// U1 = X1 * Z0
 	gwsub3 (&ecmdata->gwdata, U0, U1, U);				// U = U0 - U1
 
-	gwmul3 (&ecmdata->gwdata, U, U, U2, 0);				// U2 = U^2
+	gwsquare2 (&ecmdata->gwdata, U, U2, 0);				// U2 = U^2
 
 	gwmul3 (&ecmdata->gwdata, in0->z, in1->z, V, 0);		// V = Z0 * Z1
 
@@ -1731,8 +1757,6 @@ void ws_add (
 	gwfree (&ecmdata->gwdata, V);
 	gwfree (&ecmdata->gwdata, W);
 	gwfree (&ecmdata->gwdata, t0);
-
-	ws_check (ecmdata, out);
 }
 
 /* Double a Weierstrass point */
@@ -1763,8 +1787,8 @@ void ws_dbl (
 	t0 = gwalloc (&ecmdata->gwdata);
 
 	gwsetmulbyconst (&ecmdata->gwdata, 3);
-	gwmul3 (&ecmdata->gwdata, in->x, in->x, T, GWMUL_MULBYCONST);				// T = X^2
-	gwmul3 (&ecmdata->gwdata, in->z, in->z, t0, 0);						// t0 = Z^2
+	gwsquare2 (&ecmdata->gwdata, in->x, T, GWMUL_MULBYCONST);				// T = X^2
+	gwsquare2 (&ecmdata->gwdata, in->z, t0, 0);						// t0 = Z^2
 	gwsmallmul (&ecmdata->gwdata, a, t0);							// t0 *= a
 	gwadd3 (&ecmdata->gwdata, T, t0, T);							// T += t0
 
@@ -1774,19 +1798,19 @@ void ws_dbl (
 	gwmul3 (&ecmdata->gwdata, in->x, in->y, V, GWMUL_MULBYCONST);				// V = X * Y * 2
 	gwmul3 (&ecmdata->gwdata, V, U, V, 0);							// V *= U
 
-	gwmul3 (&ecmdata->gwdata, T, T, W, 0);							// W = T^2
+	gwsquare2 (&ecmdata->gwdata, T, W, 0);							// W = T^2
 	gwsub3 (&ecmdata->gwdata, W, V, W);							// W -= V
 	gwsub3 (&ecmdata->gwdata, W, V, W);							// W -= V
 
 	gwmul3 (&ecmdata->gwdata, U, W, out->x, 0);						// X2 = U * W
 
 	gwmul3 (&ecmdata->gwdata, U, in->y, out->y, 0);						// Y2 = U * Y
-	gwmul3 (&ecmdata->gwdata, out->y, out->y, out->y, GWMUL_MULBYCONST);			// Y2 = 2(Y2)^2
+	gwsquare2 (&ecmdata->gwdata, out->y, out->y, GWMUL_MULBYCONST);				// Y2 = 2(Y2)^2
 	gwsub3 (&ecmdata->gwdata, V, W, t0);							// t0 = V - W
 	gwmul3 (&ecmdata->gwdata, T, t0, t0, 0);						// t0 = T * t0
 	gwsub3 (&ecmdata->gwdata, t0, out->y, out->y);						// Y2 = t0 - Y2
 
-	gwmul3 (&ecmdata->gwdata, U, U, out->z, 0);						// Z2 = U * U
+	gwsquare2 (&ecmdata->gwdata, U, out->z, 0);						// Z2 = U * U
 	gwmul3 (&ecmdata->gwdata, out->z, U, out->z, 0);					// Z2 *= U
 
 	gwfree (&ecmdata->gwdata, T);
@@ -1794,8 +1818,6 @@ void ws_dbl (
 	gwfree (&ecmdata->gwdata, V);
 	gwfree (&ecmdata->gwdata, W);
 	gwfree (&ecmdata->gwdata, t0);
-
-	ws_check (ecmdata, out);
 }
 
 /* Multiply a Weierstrass point by n */
@@ -1822,6 +1844,7 @@ void ws_mul (
 		ws_dbl (ecmdata, arg, arg);
 		if (n & current_bit) ws_add (ecmdata, arg, &orig, arg);
 	}
+	ws_check (ecmdata, arg);
 
 	// Free allocated memory
 	ws_free (ecmdata, &orig);
@@ -1831,31 +1854,316 @@ void ws_mul (
  *	Edwards ECM Functions
  **************************************************************/
 
-void choose_atkin_morain (
-	ecmhandle *ecmdata)
+/* Macro to swap to xz structs */
+
+#define ed_swap(a,b)	{ struct ed t; t = a; a = b; b = t; }
+
+/* This routine initializes an ed struct with four allocated gwnums */
+
+bool ed_alloc (			/* Returns TRUE if successful */
+	ecmhandle *ecmdata,
+	struct ed *arg)
 {
-	struct ws w;
-
-	ws_alloc (ecmdata, &w);
-	u64togw (&ecmdata->gwdata, 12, w.x);
-	u64togw (&ecmdata->gwdata, 40, w.y);
-	u64togw (&ecmdata->gwdata, 1, w.z);
-
-	ws_mul (ecmdata, &w, ecmdata->sigma);
-
-#ifdef XXXXX
-	normalize w.x and w.y;
-
-	Define α = ((t + 25)/(s − 9) + 1)−1, β = 2α(4α + 1)/(8α2 − 1),
-c = (2β − 1)(β − 1)/β, and b = βc. 
-Define d = (2(2β − 1)2 − 1)/(2β − 1)4. Then the
-Edwards curve x2 + y2 = 1 + dx2y2 has torsion group isomorphic to Z/2Z × Z/8Z
-and a point (x1, y1) with x1 = (2β − 1)(4β − 3)/(6β − 5) and y1 = (2β − 1)(t2 +
-		50t − 2s3 + 27s2 − 104)/((t + 3s − 2)(t + s + 16)).
-#endif
-
-	ws_free (ecmdata, &w);
+	arg->x = gwalloc (&ecmdata->gwdata);
+	if (arg->x == NULL) return (FALSE);
+	arg->y = gwalloc (&ecmdata->gwdata);
+	if (arg->y == NULL) return (FALSE);
+	arg->z = gwalloc (&ecmdata->gwdata);
+	if (arg->z == NULL) return (FALSE);
+	arg->t = NULL;
+	return (TRUE);
 }
+
+/* This routine frees an ed struct's gwnums */
+
+void ed_free (
+	ecmhandle *ecmdata,
+	struct ed *arg)
+{
+	gwfree (&ecmdata->gwdata, arg->x), arg->x = NULL;
+	gwfree (&ecmdata->gwdata, arg->y), arg->y = NULL;
+	gwfree (&ecmdata->gwdata, arg->z), arg->z = NULL;
+	gwfree (&ecmdata->gwdata, arg->t), arg->t = NULL;
+}
+
+/* Verify a point is on the Edwards elliptic curve */
+
+void ed_check (
+	ecmhandle *ecmdata,
+	struct ed *in)
+{
+	gwnum	t0, t1, t2, t3;
+
+	t0 = gwalloc (&ecmdata->gwdata);
+	t1 = gwalloc (&ecmdata->gwdata);
+	t2 = gwalloc (&ecmdata->gwdata);
+	t3 = gwalloc (&ecmdata->gwdata);
+
+	// Verify ax^2 + y^2 = 1 + dx^2y^2 or in projective: (ax^2 + y^2)z^2 = z^4 + dx^2y^2
+
+	gwsquare2 (&ecmdata->gwdata, in->x, t0, GWMUL_PRESERVE_S1);			// t0 = X * X
+	gwsquare2 (&ecmdata->gwdata, in->y, t1, GWMUL_PRESERVE_S1);			// t1 = Y * Y
+	gwsquare2 (&ecmdata->gwdata, in->z, t2, GWMUL_PRESERVE_S1);			// t2 = Z * Z
+	gwmul3 (&ecmdata->gwdata, t0, t1, t3, 0);					// t3 = t0 * t1	(x^2y^2)
+	gwmul3 (&ecmdata->gwdata, t3, ecmdata->ed_d, t3, 0);				// t3 *= d	(dx^2y^2)
+	if (ecmdata->ed_a != NULL) gwmul3 (&ecmdata->gwdata, t0, ecmdata->ed_a, t0, 0);	// t0 *= a	(ax^2)
+	gwadd3 (&ecmdata->gwdata, t0, t1, t0);						// t0 += t1	(ax^2 + y^2)
+	gwmul3 (&ecmdata->gwdata, t0, t2, t0, 0);					// t0 *= t2	(ax^2 + y^2)z^2
+	gwsquare2 (&ecmdata->gwdata, t2, t2, 0);					// t2 *= t2	(z^4)
+	gwadd3 (&ecmdata->gwdata, t2, t3, t2);						// t2 += t3	(z^4 + dx^2y^2)
+
+	gwsub3 (&ecmdata->gwdata, t0, t2, t0);						// t0 = t0 - t2, should be zero mod N
+	giant tmp = popg (&ecmdata->gwdata.gdata, ((unsigned long) ecmdata->gwdata.bit_length >> 5) + 5);
+	gwtogiant (&ecmdata->gwdata, t0, tmp);
+	modg (ecmdata->N, tmp);
+	ASSERTG (tmp->sign == 0);
+	pushg (&ecmdata->gwdata.gdata, 1);
+
+	gwfree (&ecmdata->gwdata, t0);
+	gwfree (&ecmdata->gwdata, t1);
+	gwfree (&ecmdata->gwdata, t2);
+	gwfree (&ecmdata->gwdata, t3);
+}
+
+/* Options for ed_add, ed_dbl, and even ed_extend */
+
+#define ED_RESULT_FOR_ADD	0x1	// Result will be used in ed_add next.  Implies extended coordinates.
+#define ED_RESULT_FOR_DBL	0x2	// Result will be used in ed_dbl next.  Implies not extended coordinates.
+#define ED_STARTNEXTFFT		0x4	// Results may be partially FFTed.  Typically a final result or result used to create a save file should not be FFTed.
+#define ED_FFT_S1		0x8	// For ed_dbl, FFT Z in first source arg.
+#define ED_FFT_S1Z		0x10	// For ed_add, FFT Z in first source arg.  Second source arg is always FFTed.
+#define ED_FFT_S1T		0x20	// For ed_add, FFT T in first source arg.  Second source arg is always FFTed.
+#define ED_SUBTRACT		0x40	// For ed_add, subtract instead of add.
+
+/* Turn an (X:Y:Z) Edwards point into an extended (X:Y:T:Z) extended Edwards point */
+
+void ed_extend (
+	ecmhandle *ecmdata,
+	struct ed *e,
+	int	options)
+{
+	int mul_options = (options & ED_STARTNEXTFFT) ? GWMUL_STARTNEXTFFT : 0;
+
+	// Check if already using extended coordinates
+	if (e->t != NULL) return;
+	// Allocate a buffer for the new coordinate
+	e->t = gwalloc (&ecmdata->gwdata);
+	// Extend (X,Y,Z) to (XZ, YZ, XY, Z^2)
+	gwmul3 (&ecmdata->gwdata, e->x, e->y, e->t, GWMUL_FFT_S1 | GWMUL_FFT_S2 | mul_options);	// t = xy
+	if (e->z != NULL) {
+		gwmul3 (&ecmdata->gwdata, e->x, e->z, e->x, GWMUL_FFT_S2 | mul_options);	// x = xz
+		gwmul3 (&ecmdata->gwdata, e->y, e->z, e->y, GWMUL_FFT_S2 | mul_options);	// y = yz
+		gwsquare2 (&ecmdata->gwdata, e->z, e->z, mul_options);				// z = z^2
+	}
+}
+
+/* Add or subtract two Edwards points (optionally twisted) */
+
+void ed_add (
+	ecmhandle *ecmdata,
+	struct ed *in1,			// Can be not FFTed, partially FFTed, or fully FFTed (on return in1->x, in1->y will be FFTed)
+	struct ed *in2,			// Can be not FFTed, partially FFTed, or fully FFTed (on return in2 will be FFTed)
+	struct ed *out,			// Output can be same as an in1 or in2.  z,t will be allocated if needed.
+	int	options)
+{
+	gwnum	tmp1, tmp2;
+	bool	safe11 = mul_safe (&ecmdata->gwdata, 1, 1);					// T3 = E * H will be safe if E,H are unnormalized
+	int	subtract = options & ED_SUBTRACT;
+	int	extended = options & ED_RESULT_FOR_ADD;
+	int	mul_S1Z_options = (options & ED_FFT_S1Z) ? GWMUL_FFT_S1 : 0;
+	int	mul_S1T_options = (options & ED_FFT_S1T) ? GWMUL_FFT_S1 : 0;
+	int	mul_options = (options & ED_STARTNEXTFFT) ? GWMUL_STARTNEXTFFT : 0;
+
+	//ASSERTG (safe11 || !extended || FFT_state (in1->t) == NOT_FFTed || in2->z != NULL);	// FFTed in1->t and Z2=NULL is OK but triggers a gwunfft
+	//ASSERTG (safe11 || !extended || FFT_state (in2->t) == NOT_FFTed || in1->z != NULL);	// FFTed in2->t and Z1=NULL is OK but triggers a gwunfft
+	ASSERTG (ecmdata->ed_a == NULL || FFT_state (ecmdata->ed_a) == FULLY_FFTed);
+
+	// Extended coordinates are required
+	if (in1->t == NULL) ed_extend (ecmdata, in1, ED_STARTNEXTFFT);
+	if (in2->t == NULL) ed_extend (ecmdata, in2, ED_STARTNEXTFFT);
+
+	// Allocate temporaries and out->z (also used as a temporary)
+	gwnum in1z = in1->z;						// Remember in case allocating out->z clobbers this value
+	gwnum in2z = in2->z;						// Remember in case allocating out->z clobbers this value
+	if (out->z == NULL) out->z = gwalloc (&ecmdata->gwdata);	// Do not use out->z until in1->z and in2->z are longer needed
+	if (out->t != NULL) tmp1 = out->t;				// Do not use tmp1 until in1->t and in2->t are longer needed
+	else tmp1 = gwalloc (&ecmdata->gwdata);
+	tmp2 = gwalloc (&ecmdata->gwdata);
+
+	// Add algorithm from https://eprint.iacr.org/2021/1061, "Edwards curves and FFT-based multiplication" by Pavel Atnashev et.al.
+
+	// With a normalized dictionary entry as in2, this gwmul3 will not take place
+	gwnum D;
+	if (in2z == NULL) D = in1->t;
+	else gwmul3 (&ecmdata->gwdata, in1->t, in2z, D = tmp2, mul_S1T_options | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT_IF(safe11 || !extended)); // D = T1 * Z2
+	// With a normalized dictionary entry as in2, this gwmul3 will take place (in1z and out->z will be equal and source = dest is more efficient)
+	gwnum C;
+	if (in1z == NULL) C = in2->t;
+	else gwmul3 (&ecmdata->gwdata, in1z, in2->t, C = out->z, mul_S1Z_options | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT_IF(safe11 || !extended)); // C = Z1 * T2
+	gwaddsub4o (&ecmdata->gwdata, D, C, tmp2, out->z, GWADD_DELAYNORM_IF(safe11 || !extended));		// E = D + C, H = D - C
+        if (subtract) {
+		gwswap (tmp2, out->z);										// swap E,H since C should have been negated
+		gwmulmuladd5 (&ecmdata->gwdata, in1->x, in2->y, in1->y, in2->x, tmp1,
+			      GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT);	// F = X1*Y2 - Y1*[-]X2
+		if (ecmdata->ed_a == NULL)
+			gwmulmulsub5 (&ecmdata->gwdata, in1->y, in2->y, in1->x, in2->x, out->y, GWMUL_STARTNEXTFFT); // G = Y1*Y2 + X1*[-]X2
+		else {
+			gwmul3 (&ecmdata->gwdata, in1->x, in2->x, out->x, GWMUL_STARTNEXTFFT);
+			gwmulmulsub5 (&ecmdata->gwdata, in1->y, in2->y, ecmdata->ed_a, out->x, out->y, GWMUL_STARTNEXTFFT); // G = Y1*Y2 + aX1*[-]X2
+		}
+        } else {
+		gwmulmulsub5 (&ecmdata->gwdata, in1->x, in2->y, in1->y, in2->x, tmp1,
+			      GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT);	// F = X1*Y2 - Y1*X2
+		if (ecmdata->ed_a == NULL)
+			gwmulmuladd5 (&ecmdata->gwdata, in1->y, in2->y, in1->x, in2->x, out->y, GWMUL_STARTNEXTFFT); // G = Y1*Y2 + X1*X2
+		else {
+			gwmul3 (&ecmdata->gwdata, in1->x, in2->x, out->x, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
+			gwmulmuladd5 (&ecmdata->gwdata, in1->y, in2->y, ecmdata->ed_a, out->x, out->y, GWMUL_STARTNEXTFFT); // G = Y1*Y2 + aX1*X2
+		}
+	}
+	if (!extended) {
+		gwmul3 (&ecmdata->gwdata, tmp2, tmp1, tmp2, GWMUL_FFT_S2 | mul_options);			// X3 = E * F
+		gwmul3 (&ecmdata->gwdata, tmp1, out->y, tmp1, GWMUL_FFT_S2 | mul_options);			// Z3 = F * G
+		gwmul3 (&ecmdata->gwdata, out->y, out->z, out->y, mul_options);					// Y3 = G * H
+		gwswap (tmp2, out->x);
+		gwswap (tmp1, out->z);
+		out->t = NULL;
+	} else {
+		gwmul3 (&ecmdata->gwdata, tmp2, tmp1, out->x, GWMUL_FFT_S1 | GWMUL_FFT_S2 | mul_options);	// X3 = E * F
+		gwmul3 (&ecmdata->gwdata, tmp1, out->y, tmp1, GWMUL_FFT_S2 | mul_options);			// Z3 = F * G
+		gwmul3 (&ecmdata->gwdata, out->y, out->z, out->y, GWMUL_FFT_S2 | mul_options);			// Y3 = G * H
+		gwmul3 (&ecmdata->gwdata, tmp2, out->z, tmp2, mul_options);					// T3 = E * H
+		gwswap (tmp1, out->z);
+		out->t = tmp2, tmp2 = NULL;
+	}
+
+	// Cleanup
+	gwfree (&ecmdata->gwdata, tmp1);
+	gwfree (&ecmdata->gwdata, tmp2);
+}
+
+/* Double an Edwards point (optionally twisted) */
+
+void ed_dbl (
+	ecmhandle *ecmdata,
+	struct ed *in,			// Inputs may be not FFTed, partially FFTed, or fully FFTed.  X and Y coordinates will be FFTed.
+	struct ed *out,			// Output can be same as input
+	int	options)
+{
+	gwnum	tmp1, tmp2;
+	int	subtract = options & ED_SUBTRACT;
+	int	extended = options & ED_RESULT_FOR_ADD;
+	int	mul_S1_options = (options & ED_FFT_S1) ? GWMUL_FFT_S1 : 0;
+	int	mul_options = (options & ED_STARTNEXTFFT) ? GWMUL_STARTNEXTFFT : 0;
+
+	ASSERTG (ecmdata->ed_a == NULL || FFT_state (ecmdata->ed_a) == FULLY_FFTed);
+
+	// Get algorithm preference
+	static int pref_algo5 = 2;		// FALSE = prefer algorithm 4, TRUE = prefer algorithm 5, 2 = not yet initialized
+	if (pref_algo5 == 2) pref_algo5 = IniGetInt (INI_FILE, "EdDblAlgo5", 0); // Default is prefer algorithm 4, even though algorithm 5 does fewer read/writes
+
+	// Allocate temporaries and out->z (also used as a temporary)
+	gwnum inz = in->z;						// Remember in case allocating out->z clobbers this value
+	if (out->z == NULL) out->z = gwalloc (&ecmdata->gwdata);	// Do not use out->z until in->z is no longer needed
+	if (out->t != NULL) tmp1 = out->t, out->t = NULL;
+	else tmp1 = gwalloc (&ecmdata->gwdata);
+	tmp2 = gwalloc (&ecmdata->gwdata);
+
+	// Double algorithms from https://eprint.iacr.org/2021/1061, "Edwards curves and FFT-based multiplication" by Pavel Atnashev et.al.
+	gwsetmulbyconst (&ecmdata->gwdata, 2);
+	if (inz == NULL) dbltogw (&ecmdata->gwdata, 2.0, out->z);
+	else gwsquare2 (&ecmdata->gwdata, inz, out->z, mul_S1_options | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);		// C = 2Z^2, two-dest squaring
+	if (pref_algo5 && squaresquareadd_safe (&ecmdata->gwdata, 0, 0, 0, 0)) {					// Algorithm 5
+	    if (ecmdata->ed_a == NULL) {			// Not a twisted Edwards curve
+		gwsquare2 (&ecmdata->gwdata, in->x, tmp2, GWMUL_FFT_S1 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// G-H = 2X^2, two-dest squaring
+		gwmul3 (&ecmdata->gwdata, in->x, in->y, tmp1, GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// E = 2XY
+		gwmulmuladd5 (&ecmdata->gwdata, in->y, in->y, in->x, in->x, out->y, GWMUL_STARTNEXTFFT);		// G = Y^2 + X^2
+	    } else {						// Twisted Edwards curve
+		gwsquare2 (&ecmdata->gwdata, in->x, tmp2, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);				// X^2, two-dest squaring
+		gwmul3 (&ecmdata->gwdata, in->x, in->y, out->x, GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// E = 2XY
+		gwmulmuladd5 (&ecmdata->gwdata, ecmdata->ed_a, tmp2, in->y, in->y, out->y, GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT); // G = Y^2 + aX^2
+		gwmul3 (&ecmdata->gwdata, ecmdata->ed_a, tmp2, tmp2, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);		// G-H = 2aX^2
+		gwswap (tmp1, out->x);
+	    }
+	    if (!extended) {
+		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, out->y, tmp2, GWMUL_FFT_S1 | GWMUL_FFT_S3 | mul_options);	// Y3 = (H=G-(G-H)) * G
+		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, out->y, out->x, GWMUL_FFT_S1 | mul_options);		// Z3 = (F=C-G) * G
+		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, tmp1, out->z, mul_options);				// X3 = (F=C-G) * E
+		gwswap (tmp2, out->y);
+		gwswap (out->x, out->z);
+	    } else {
+		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, out->y, out->x, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | mul_options); // Y3 = (H=G-(G-H)) * G
+		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, tmp1, tmp2, GWMUL_FFT_S3 | mul_options);			// T3 = (H=G-(G-H)) * E
+		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, tmp1, tmp1, GWMUL_FFT_S1 | mul_options);			// X3 = (F=C-G) * E
+		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, out->y, out->z, mul_options);				// Z3 = (F=C-G) * G
+		gwswap (out->x, out->y);
+		gwswap (tmp2, out->t);
+		gwswap (tmp1, out->x);
+	    }
+	} else {													// Algorithm 4
+	    bool safe21 = mul_safe (&ecmdata->gwdata, 2, 1);								// Z3 will be safe if G & H are unnormalized
+	    if (ecmdata->ed_a == NULL) {			// Not a twisted Edwards curve
+		gwsquare2 (&ecmdata->gwdata, in->x, tmp2, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT_IF(safe21));		// A = X^2, two-dest squaring
+	    } else {					// Twisted Edwards curve
+		gwsquare2 (&ecmdata->gwdata, in->x, tmp2, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);				// A = X^2, two-dest squaring
+		gwmul3 (&ecmdata->gwdata, ecmdata->ed_a, tmp2, tmp2, GWMUL_STARTNEXTFFT_IF(safe21));			// A = aX^2
+	    }
+	    gwmul3 (&ecmdata->gwdata, in->x, in->y, out->x, GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// E = 2XY
+	    gwsquare2 (&ecmdata->gwdata, in->y, out->y, GWMUL_STARTNEXTFFT_IF(safe21));					// B = Y^2
+	    gwaddsub4o (&ecmdata->gwdata, out->y, tmp2, tmp2, out->y, GWADD_DELAYNORM_IF(safe21));			// G = B + A, H = B - A
+	    if (!extended) {
+		gwmul3 (&ecmdata->gwdata, tmp2, out->y, out->y, GWMUL_FFT_S1 | mul_options);				// Y3 = G * H
+		gwsubmul4 (&ecmdata->gwdata, out->z, tmp2, tmp2, tmp1, GWMUL_FFT_S1 | mul_options);			// Z3 = (F=C-G) * G
+		gwsubmul4 (&ecmdata->gwdata, out->z, tmp2, out->x, out->x, mul_options);				// X3 = (F=C-G) * E
+		gwswap (tmp1, out->z);
+	    } else {
+		gwmul3 (&ecmdata->gwdata, tmp2, out->y, tmp1, GWMUL_FFT_S1 | GWMUL_FFT_S2 | mul_options);		// Y3 = G * H
+		gwmul3 (&ecmdata->gwdata, out->x, out->y, out->y, GWMUL_FFT_S1 | mul_options);				// T3 = E * H
+		gwsubmul4 (&ecmdata->gwdata, out->z, tmp2, out->x, out->x, GWMUL_FFT_S1 | mul_options);			// X3 = (F=C-G) * E
+		gwsubmul4 (&ecmdata->gwdata, out->z, tmp2, tmp2, out->z, mul_options);					// Z3 = (F=C-G) * G
+		gwswap (out->y, out->t);
+		gwswap (tmp1, out->y);
+	    }
+	}
+
+	// Cleanup
+	gwfree (&ecmdata->gwdata, tmp1);
+	gwfree (&ecmdata->gwdata, tmp2);
+}
+
+/* Multiply an Edwards point by n */
+
+#ifdef NOT_USED
+void ed_mul (
+	ecmhandle *ecmdata,
+	struct ed *arg,
+	uint64_t n)
+{
+	struct ed orig;
+
+	// Copy the input arg for later additions
+	ed_extend (ecmdata, arg, 0);
+	ed_alloc (ecmdata, &orig);
+	gwcopy (&ecmdata->gwdata, arg->x, orig.x);
+	gwcopy (&ecmdata->gwdata, arg->y, orig.y);
+	gwcopy (&ecmdata->gwdata, arg->z, orig.z);
+	orig.t = gwalloc (&ecmdata->gwdata);
+	gwcopy (&ecmdata->gwdata, arg->t, orig.t);
+
+	// Find the topmost bit in power
+	uint64_t current_bit;
+	for (current_bit = 0x8000000000000000ULL; n < current_bit; current_bit >>= 1);
+
+	// Exponentiate
+	for (current_bit >>= 1; current_bit; current_bit >>= 1) {
+		ed_dbl (ecmdata, arg, arg, ED_RESULT_FOR_ADD);
+		if (n & current_bit) ed_add (ecmdata, arg, &orig, arg, ED_RESULT_FOR_DBL);
+	}
+
+	// Free allocated memory
+	ed_free (ecmdata, &orig);
+}
+#endif
 
 /**************************************************************
  *	Montgomery ECM Functions
@@ -2432,10 +2740,8 @@ int ell_mul (
  *	Modular inverse functions 
  **************************************************************/
 
-/* Computes the modular inverse of a number.  This is done using the */
-/* extended GCD algorithm.  If a factor is accidentally found, it is */
-/* returned in factor.  Function returns stop_reason if it was */
-/* interrupted by an escape. */
+/* Computes the modular inverse of a number.  This is done using the extended GCD algorithm.  If a factor is accidentally found, it is */
+/* returned in factor.  Function returns stop_reason if it was interrupted by an escape. */
 
 int ecm_modinv (
 	ecmhandle *ecmdata,
@@ -3636,64 +3942,690 @@ where Montgomery curve is defined as By^2 = x^3 + Ax^2 + x
 */
 int choose12 (
 	ecmhandle *ecmdata,
-	struct xz *xz)		/* Return the curve starting value here */
+	bool	gen_edwards,	/* TRUE if twisted Edward curve should also be generated */
+	struct xz *xz,		/* Return the curve's Montgomery starting point here */
+	struct ed *e)		/* Return the curve's Edward starting point here */
 {
-	gwnum	xs, zs, t2, t3;
 	int	stop_reason;
 
-	xs = gwalloc (&ecmdata->gwdata);
-	if (xs == NULL) goto oom;
-	zs = gwalloc (&ecmdata->gwdata);
-	if (zs == NULL) goto oom;
-	t2 = gwalloc (&ecmdata->gwdata);
-	if (t2 == NULL) goto oom;
-	t3 = ecmdata->Ad4 = gwalloc (&ecmdata->gwdata);
-	if (ecmdata->Ad4 == NULL) goto oom;
+	ASSERTG (gen_edwards || e == NULL);	// Don't generate Edwards start point if not generating Edwards curve
 
-	u64togw (&ecmdata->gwdata, ecmdata->sigma, zs);
-	gwsquare2 (&ecmdata->gwdata, zs, xs, 0);	/* s^2 */
-	gwsmalladd (&ecmdata->gwdata, -5, xs);		/* u = s^2 - 5 */
-	gwsmallmul (&ecmdata->gwdata, 4.0, zs);		/* v = 4*s */
-	if (xz != NULL) {
-		gwsquare2 (&ecmdata->gwdata, xs, xz->x, GWMUL_STARTNEXTFFT);
-		gwmul3 (&ecmdata->gwdata, xs, xz->x, xz->x, 0);	/* x = u^3 */
-		gwsquare2 (&ecmdata->gwdata, zs, xz->z, GWMUL_STARTNEXTFFT);
-		gwmul3 (&ecmdata->gwdata, zs, xz->z, xz->z, 0);	/* z = v^3 */
+	/* Compute u,v (sometimes called alpha,beta in the literature) */
+	gwnum u, v, vPu, vMu, u2, vP3u, vM3u, u3, v3, An, Ad;
+	u = gwalloc (&ecmdata->gwdata);	if (u == NULL) goto oom;
+	v = gwalloc (&ecmdata->gwdata);	if (v == NULL) goto oom;
+	u64togw (&ecmdata->gwdata, ecmdata->sigma, v);
+	gwsquare2 (&ecmdata->gwdata, v, u, 0);					/* s^2 */
+	gwsmalladd (&ecmdata->gwdata, -5, u);					/* u = s^2 - 5 */
+	gwsmallmul (&ecmdata->gwdata, 4.0, v);					/* v = 4*s */
+
+	/* Gen some needed values -- especially those made by addition (before we start FFTing values) */
+	vPu = gwalloc (&ecmdata->gwdata); if (vPu == NULL) goto oom;
+	vMu = gwalloc (&ecmdata->gwdata); if (vMu == NULL) goto oom;
+	gwaddsub4o (&ecmdata->gwdata, v, u, vPu, vMu, GWADD_GUARANTEED_OK);	/* v+u, v-u */
+	u2 = gwalloc (&ecmdata->gwdata); if (u2 == NULL) goto oom;
+	gwadd3o (&ecmdata->gwdata, u, u, u2, GWADD_GUARANTEED_OK);		/* 2u */
+
+	vP3u = gwalloc (&ecmdata->gwdata); if (vP3u == NULL) goto oom;
+	gwadd3o (&ecmdata->gwdata, vPu, u2, vP3u, GWADD_GUARANTEED_OK);		/* 3u+v */
+	vM3u = NULL;
+	if (gen_edwards) {
+		vM3u = gwalloc (&ecmdata->gwdata); if (vM3u == NULL) goto oom;
+		gwsub3o (&ecmdata->gwdata, vMu, u2, vM3u, GWADD_GUARANTEED_OK);	/* v-3u */
+	}
+	if (e != NULL) {
+		gwnum twoV1 = u2;									/* 2V1 = u2 = 2(s^2 - 5), u2 no longer used */
+		gwsmalladd (&ecmdata->gwdata, 10, u);							/* s^2 + 5 */
+		gwmul3 (&ecmdata->gwdata, twoV1, u, twoV1, GWMUL_PRESERVE_S2 | GWMUL_STARTNEXTFFT);	/* 2V1 *= s^2 + 5 = 2(s^4 - 25) */
+		gwsmalladd (&ecmdata->gwdata, -6, u);							/* s^2 - 1 */
+		gwmul3 (&ecmdata->gwdata, twoV1, u, twoV1, GWMUL_PRESERVE_S2 | GWMUL_STARTNEXTFFT);	/* 2V1 = 2(s^2 - 1)(s^4 - 25) */
+		gwsmalladd (&ecmdata->gwdata, -24, u);							/* s^2 - 25 */
+		gwmul3 (&ecmdata->gwdata, twoV1, u, twoV1, GWMUL_PRESERVE_S2 | GWMUL_STARTNEXTFFT);	/* 2V1 = 2(s^2 - 1)(s^2 - 25)(s^4 - 25) */
+		gwsmalladd (&ecmdata->gwdata, 20, u);							/* Restore u = s^2 - 5 */
 	}
 
-	/* Now for A. */
-	gwsub3o (&ecmdata->gwdata, zs, xs, t2, GWADD_GUARANTEED_OK | GWADD_SQUARE_INPUT);
-	gwsquare2 (&ecmdata->gwdata, t2, t3, GWMUL_STARTNEXTFFT);
-	gwmul3 (&ecmdata->gwdata, t3, t2, t2, GWMUL_STARTNEXTFFT);			/* (v-u)^3 */
-	gwadd3o (&ecmdata->gwdata, xs, xs, t3, GWADD_GUARANTEED_OK | GWADD_MUL_INPUT);
-	gwadd3o (&ecmdata->gwdata, xs, t3, t3, GWADD_GUARANTEED_OK | GWADD_MUL_INPUT);
-	gwadd3o (&ecmdata->gwdata, zs, t3, t3, GWADD_GUARANTEED_OK | GWADD_MUL_INPUT);	/* 3u+v */
-	gwmul3 (&ecmdata->gwdata, t2, t3, t2, 0);					/* An = (v-u)^3 (3u+v) */
-	gwmul3 (&ecmdata->gwdata, xs, zs, ecmdata->Ad4, GWMUL_STARTNEXTFFT);
-	gwsquare2 (&ecmdata->gwdata, xs, xs, GWMUL_STARTNEXTFFT);
-	gwmul3 (&ecmdata->gwdata, xs, ecmdata->Ad4, ecmdata->Ad4, 0);			/* u^3 * v */
-	gwsmallmul (&ecmdata->gwdata, 4.0, ecmdata->Ad4);				/* An/Ad is now A + 2 */
+	/* More needed intermediate values */
+	u3 = gwalloc (&ecmdata->gwdata); if (u3 == NULL) goto oom;
+	v3 = gwalloc (&ecmdata->gwdata); if (v3 == NULL) goto oom;
+	gwsquare2 (&ecmdata->gwdata, u, u3, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
+	gwmul3 (&ecmdata->gwdata, u, u3, u3, 0);					/* u^3 (also Mongtgomery starting x) */
+	gwsquare2 (&ecmdata->gwdata, v, v3, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
+	gwmul3 (&ecmdata->gwdata, v, v3, v3, 0);					/* v^3 (also Mongtgomery starting z) */
 
-	/* Normalize so that An is one, thus Ad4 is 1/(A + 2) */
-	stop_reason = normalize (ecmdata, ecmdata->Ad4, t2);
+	/* Now for Montgomery A */
+	gwmul3 (&ecmdata->gwdata, vMu, vP3u, vP3u, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);	/* (v-u)(3u+v) */
+	gwsquare2 (&ecmdata->gwdata, vMu, vMu, GWMUL_STARTNEXTFFT);			/* (v-u)^2 */
+	gwmul3 (&ecmdata->gwdata, vMu, vP3u, vP3u, 0);					/* An = (v-u)^3(3u+v), this is also Edwards a. */
+	An = vP3u;									/* Rename for readability */
+	if (gen_edwards) {								/* Copy An before normalize destroys it */
+		ecmdata->ed_a = gwalloc (&ecmdata->gwdata); if (ecmdata->ed_a == NULL) goto oom;
+		gwfft (&ecmdata->gwdata, An, ecmdata->ed_a);
+	}
+	Ad = vMu;									/* vMu is no longer used */
+	gwsetmulbyconst (&ecmdata->gwdata, 4);
+	gwmul3 (&ecmdata->gwdata, u3, v, Ad, GWMUL_MULBYCONST);				/* Ad = 4u^3v, A + 2 = An/Ad */
+
+	/* Normalize so that An is one, thus Ad is 1/(A + 2) */
+	stop_reason = normalize (ecmdata, Ad, An);					// This destroys An
 	if (stop_reason) return (stop_reason);
-	
+	gwfree (&ecmdata->gwdata, An);
+
 	/* For extra speed, precompute Ad * 4, a.k.a 4/(A + 2) */
-	gwsmallmul (&ecmdata->gwdata, 4.0, ecmdata->Ad4);
+	gwsmallmul (&ecmdata->gwdata, 4.0, Ad);
 
 	/* Even more speed, save FFT of Ad4 */
-	gwfft (&ecmdata->gwdata, ecmdata->Ad4, ecmdata->Ad4);
+	gwfft (&ecmdata->gwdata, Ad, Ad);
+	ecmdata->Ad4 = Ad;
+
+/* Now generate the rest of the twisted Edwards curve */
+
+	if (gen_edwards) {
+		gwmul3 (&ecmdata->gwdata, vPu, vM3u, vM3u, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);	/* (v+u)(v-3u) */
+		gwsquare2 (&ecmdata->gwdata, vPu, vPu, GWMUL_STARTNEXTFFT);			/* (v+u)^2 */
+		gwmul3 (&ecmdata->gwdata, vPu, vM3u, vM3u, GWMUL_STARTNEXTFFT);			/* d = (v+u)^3(v-3u) */
+		ecmdata->ed_d = vM3u;
+	}
+
+/* Now generate the twisted Edward curve's starting point */
+
+	if (e != NULL) {
+		gwnum yz = vPu;								/* vPu no longer used */
+		gwnum twoV1 = u2;							/* Previously computed 2V1 */
+
+		ed_alloc (ecmdata, e);
+
+		gwmul3 (&ecmdata->gwdata, u, v, e->x, GWMUL_STARTNEXTFFT);		/* x = uv */
+		gwaddsub4o (&ecmdata->gwdata, u3, v3, yz, e->y, GWADD_GUARANTEED_OK);	/* u^3+v^3, u^3-v^3 */
+
+		gwmul3 (&ecmdata->gwdata, e->x, yz, e->x, GWMUL_STARTNEXTFFT);		/* x *= u^3+v^3 */
+		gwmul3 (&ecmdata->gwdata, e->y, twoV1, e->y, GWMUL_STARTNEXTFFT);	/* y *= 2V1 */
+		gwmul3 (&ecmdata->gwdata, twoV1, yz, e->z, GWMUL_STARTNEXTFFT);		/* z = 2V1 * (u^3+v^3) */
+
+		ed_check (ecmdata, e);
+	}
+
+/* Return Montgomery starting point */
+
+	if (xz != NULL) {
+		gwswap (xz->x, u3);	/* x = u^3 */
+		gwswap (xz->z, v3);	/* z = v^3 */
+	}
 
 /* Clean up temporaries */
 
-	gwfree (&ecmdata->gwdata, xs);
-	gwfree (&ecmdata->gwdata, zs);
-	gwfree (&ecmdata->gwdata, t2);
+	gwfree (&ecmdata->gwdata, u);
+	gwfree (&ecmdata->gwdata, v);
+	gwfree (&ecmdata->gwdata, vPu);
+	gwfree (&ecmdata->gwdata, u2);
+	gwfree (&ecmdata->gwdata, u3);
+	gwfree (&ecmdata->gwdata, v3);
 	return (0);
 
 /* Out of memory exit path */
 
 oom:	return (OutOfMemory (ecmdata->thread_num));
+}
+
+/* Create a random Edwards curve using Atkin-Morain construction.  See section 7.1 of https://eprint.iacr.org/2008/016.pdf for details. */
+
+int choose_atkin_morain (
+	ecmhandle *ecmdata,
+	struct ed *e)		/* Return the curve's Edward starting point here */
+{
+	// Create a starting Weierstrass point of (12,40) on the curve T^2 = S^3 - 8S - 32
+	struct ws w;
+	ws_alloc (ecmdata, &w);
+	u64togw (&ecmdata->gwdata, 12, w.x);
+	u64togw (&ecmdata->gwdata, 40, w.y);
+	u64togw (&ecmdata->gwdata, 1, w.z);
+
+	// Multiply point by random 64-bit value (sigma)
+	ws_mul (ecmdata, &w, ecmdata->sigma);
+
+#ifdef STRAIGHT_FORWARD
+	// Normalize the point to get point named (s,t) in the literature
+	ecm_modinv (ecmdata, w.z);				// Inverse of w.z
+	gwmul3 (&ecmdata->gwdata, w.z, w.x, w.x, 0);		// Normalize w.x
+	gwmul3 (&ecmdata->gwdata, w.z, w.y, w.y, 0);		// Normalize w.y
+	gwnum s = w.x;
+	gwnum t = w.y;
+
+	// Compute alpha from the literature.  a = ((t + 25)/(s - 9) + 1)^-1.  Simplifying, a = (s-9) / ((t+25)+(s-9)).
+	gwnum a = gwalloc (&ecmdata->gwdata);
+	gwnum tmp = gwalloc (&ecmdata->gwdata);
+	gwsetmulbyconst (&ecmdata->gwdata, 2);
+	gwcopy (&ecmdata->gwdata, s, a);
+	gwsmalladd (&ecmdata->gwdata, -9, a);				// s-9
+	gwcopy (&ecmdata->gwdata, t, tmp);
+	gwsmalladd (&ecmdata->gwdata, 25, tmp);				// t+25
+	gwadd (&ecmdata->gwdata, a, tmp);				// ((t+25)+(s-9))
+	normalize (ecmdata, a, tmp);					// a = (s-9) / ((t+25)+(s-9))
+
+	// Compute beta from the literature.  b = 2a(4a+1) / (8a^2 - 1)
+	gwnum b = gwalloc (&ecmdata->gwdata);
+	gwcopy (&ecmdata->gwdata, a, b);
+	gwsmallmul (&ecmdata->gwdata, 4, b);				// 4a
+	gwsmalladd (&ecmdata->gwdata, 1, b);				// 4a+1
+	gwmul3 (&ecmdata->gwdata, a, b, b, GWMUL_MULBYCONST);		// 2a(4a+1)
+	gwsquare2 (&ecmdata->gwdata, a, tmp, 0);			// a^2
+	gwsmallmul (&ecmdata->gwdata, 8, tmp);				// 8a^2
+	gwsmalladd (&ecmdata->gwdata, -1, tmp);				// 8a^2-1
+	normalize (ecmdata, b, tmp);					// b = 2a(4a+1) / (8a^2 - 1)
+
+	// Compute d from the literature.  d = (2(2b - 1)^2 - 1)/(2b - 1)^4
+	ecmdata->ed_d = gwalloc (&ecmdata->gwdata);
+	gwnum b2m1 = gwalloc (&ecmdata->gwdata);
+	gwadd3o (&ecmdata->gwdata, b, b, b2m1, GWADD_FORCE_NORMALIZE);	// 2b, make (2b-1)^2 safe
+	gwsmalladd (&ecmdata->gwdata, -1, b2m1);			// 2b-1		(save for later)
+	gwsquare2 (&ecmdata->gwdata, b2m1, tmp, GWMUL_PRESERVE_S1);	// (2b-1)^2
+	gwadd3 (&ecmdata->gwdata, tmp, tmp, ecmdata->ed_d);		// 2(2b-1)^2
+	gwsmalladd (&ecmdata->gwdata, -1, ecmdata->ed_d);		// 2(2b-1)^2-1
+	gwsquare2 (&ecmdata->gwdata, tmp, tmp, 0);			// (2b-1)^4
+	normalize (ecmdata, ecmdata->ed_d, tmp);			// d = (2(2b - 1)^2 - 1)/(2b - 1)^4
+
+	// Now compute starting point from the literature.
+	// x = (2b − 1)(4b − 3)/(6b − 5)
+	// y = (2b - 1)(t^2 + 50t - 2s^3 + 27s^2 - 104)/((t + 3s - 2)(t + s + 16))
+	if (e != NULL) {
+		ed_alloc (ecmdata, e);
+		gwadd3o (&ecmdata->gwdata, b2m1, b2m1, e->x, GWADD_FORCE_NORMALIZE); // 4b-2
+		gwsmalladd (&ecmdata->gwdata, -1, e->x);			// 4b-3
+		gwadd3o (&ecmdata->gwdata, b2m1, e->x, e->z, GWADD_FORCE_NORMALIZE); // 6b-4
+		gwsmalladd (&ecmdata->gwdata, -1, e->z);			// 6b-5
+		gwmul3 (&ecmdata->gwdata, b2m1, e->x, e->x, GWMUL_STARTNEXTFFT);// (2b-1)(4b-3)
+		gwsquare2 (&ecmdata->gwdata, t, e->y, GWMUL_PRESERVE_S1);	// t^2
+		gwcopy (&ecmdata->gwdata, t, tmp);
+		gwsmallmul (&ecmdata->gwdata, 50, tmp);				// 50t
+		gwadd3 (&ecmdata->gwdata, e->y, tmp, e->y);			// t^2 + 50t
+		gwsquare2 (&ecmdata->gwdata, s, tmp, GWMUL_PRESERVE_S1 | GWMUL_STARTNEXTFFT); // s^2
+		gwmul3 (&ecmdata->gwdata, s, tmp, tmp, GWMUL_PRESERVE_S1 | GWMUL_MULBYCONST); // 2s^3
+		gwsub3 (&ecmdata->gwdata, e->y, tmp, e->y);			// t^2 + 50t - 2s^3
+		gwsquare2 (&ecmdata->gwdata, s, tmp, GWMUL_PRESERVE_S1);	// s^2
+		gwsmallmul (&ecmdata->gwdata, 27, tmp);				// 27s^2
+		gwadd3 (&ecmdata->gwdata, e->y, tmp, e->y);			// t^2 + 50t - 2s^3 + 27s^2
+		gwsmalladd (&ecmdata->gwdata, -104, e->y);			// t^2 + 50t - 2s^3 + 27s^2 - 104
+		gwmul3 (&ecmdata->gwdata, b2m1, e->y, e->y, GWMUL_STARTNEXTFFT);// (2b-1)(t^2 + 50t - 2s^3 + 27s^2 - 104)
+		gwnum z2 = b2m1;
+		gwcopy (&ecmdata->gwdata, t, z2);				// t
+		gwcopy (&ecmdata->gwdata, s, tmp);				// s
+		gwsmallmul (&ecmdata->gwdata, 3, tmp);				// 3s
+		gwadd3o (&ecmdata->gwdata, z2, tmp, z2, GWADD_FORCE_NORMALIZE); // t + 3s, make (t + 3s - 2)(t + s + 16) safe
+		gwsmalladd (&ecmdata->gwdata, -2, z2);				// t + 3s - 2
+		gwadd3 (&ecmdata->gwdata, t, s, tmp);				// t + s
+		gwsmalladd (&ecmdata->gwdata, 16, tmp);				// t + s + 16
+		gwmul3 (&ecmdata->gwdata, z2, tmp, z2, GWMUL_STARTNEXTFFT);	// (t + 3s - 2)(t + s + 16)
+
+		gwmul3 (&ecmdata->gwdata, e->x, z2, e->x, 0);
+		gwmul3 (&ecmdata->gwdata, e->y, e->z, e->y, 0);
+		gwmul3 (&ecmdata->gwdata, e->z, z2, e->z, 0);
+		ed_extend (ecmdata, e, 0);
+
+		ed_check (ecmdata, e);
+	}
+
+	// Cleanup
+	ws_free (ecmdata, &w);
+	gwfree (&ecmdata->gwdata, tmp);
+	gwfree (&ecmdata->gwdata, b2m1);
+
+#else
+
+	// Same formulas as above, but do only one modular inverse.
+	// Leave s,t unnormalized.  Adopt syntax sN for s numerator and sD for s denominator.  Same for t, a, b, d.
+
+	// Compute alpha from the literature.  a = ((t + 25)/(s - 9) + 1)^-1.  Simplifying, a = (s-9) / ((t+25)+(s-9)).
+	//     (sN - 9sD)    (tN + 25tD)   (sN - 9sD)    (sN - 9sD)               sD                  (sN - 9sD)      aN
+	// a = ---------- / (----------- + ----------) = ---------- * (------------------------) = ---------------- = --	(tD equals sD)
+	//         sD            tD            sD            sD        (tN + 25sD) + (sN - 9sD)    (tN + sN + 16sD)   aD
+	gwnum sN = w.x, tN = w.y, sD = w.z;
+	gwnum aN = gwalloc (&ecmdata->gwdata);
+	gwnum aD = gwalloc (&ecmdata->gwdata);
+	gwnum tmp = gwalloc (&ecmdata->gwdata);
+	gwcopy (&ecmdata->gwdata, sD, tmp);
+	gwsmallmul (&ecmdata->gwdata, 9, tmp);					// 9sD
+	gwsub3o (&ecmdata->gwdata, sN, tmp, aN, GWADD_FORCE_NORMALIZE);		// aN = sN - 9sD
+	gwcopy (&ecmdata->gwdata, sD, tmp);
+	gwsmallmul (&ecmdata->gwdata, 16, tmp);					// 16sD
+	gwadd3o (&ecmdata->gwdata, sN, tmp, aD, GWADD_DELAY_NORMALIZE);		// sN + 16sD
+	gwadd3o (&ecmdata->gwdata, aD, tN, aD, GWADD_FORCE_NORMALIZE);		// aD = tN + sN + 16sD
+
+	// Compute beta from the literature.  b = 2a(4a+1) / (8a^2 - 1).  We won't need a after computing b.
+	//     2aN   (4aN + aD)        aD^2        (8aN^2 + 2aNaD)   bN
+	// b = --- * ---------- * -------------- = --------------- = --
+	//      aD       aD       (8aN^2 - aD^2)   (8aN^2 - aD^2)    bD
+	gwnum bN = gwalloc (&ecmdata->gwdata);
+	gwnum bD = gwalloc (&ecmdata->gwdata);
+	gwsetmulbyconst (&ecmdata->gwdata, 8);
+	gwsquare2 (&ecmdata->gwdata, aN, bD, GWMUL_FFT_S1 | GWMUL_MULBYCONST);	// 8aN^2
+	gwsetmulbyconst (&ecmdata->gwdata, 2);
+	gwmul3 (&ecmdata->gwdata, aN, aD, tmp, GWMUL_FFT_S2 | GWMUL_MULBYCONST);// 2aNaD
+	gwadd3o (&ecmdata->gwdata, bD, tmp, bN, GWADD_DELAY_NORMALIZE);		// bN = 8aN^2 + 2aNaD
+	gwsquare2 (&ecmdata->gwdata, aD, tmp, 0);				// aD^2
+	gwsub3o (&ecmdata->gwdata, bD, tmp, bD, GWADD_FORCE_NORMALIZE);		// bD = 8aN^2 - aD^2
+
+	// Compute 2b - 1 which will come in handy computing d and the starting point.  We won't need b after computing 2b - 1.
+	gwnum b2m1N, b2m1D;
+	gwadd3o (&ecmdata->gwdata, bN, bN, bN, GWADD_DELAY_NORMALIZE);		// 2bN
+	gwsub3o (&ecmdata->gwdata, bN, bD, b2m1N = bN, GWADD_FORCE_NORMALIZE);	// b2m1N = 2bN - bD
+	b2m1D = bD;
+
+	// Compute d from the literature.  d = (2(2b - 1)^2 - 1)/(2b - 1)^4 = (2 * b2m1^2 - 1) / b2m1^4
+	//     (2 * b2m1N^2 - b2m1D^2)   b2m1D^4   (2 * b2m1N^2 - b2m1D^2) * b2m1D^2   dN
+	// d = ----------------------- * ------- = --------------------------------- = --
+	//           b2m1D^2             b2m1N^4             b2m1N^4                   dD
+	gwnum dN = aN, dD = aD;
+	gwsquare2 (&ecmdata->gwdata, b2m1D, tmp, GWMUL_PRESERVE_S1);		// b2m1D^2
+	gwsquare2 (&ecmdata->gwdata, b2m1N, dD, GWMUL_PRESERVE_S1);		// b2m1N^2
+	gwadd3o (&ecmdata->gwdata, dD, dD, dN, GWADD_DELAY_NORMALIZE);		// 2*b2m1N^2
+	gwsub3o (&ecmdata->gwdata, dN, tmp, dN, GWADD_FORCE_NORMALIZE);		// 2*b2m1N^2 - b2m1D^2
+	gwmul3 (&ecmdata->gwdata, dN, tmp, dN, GWMUL_STARTNEXTFFT);		// dN = (2 * b2m1N^2 - b2m1D^2) * b2m1D^2
+	gwsquare2 (&ecmdata->gwdata, dD, dD, GWMUL_STARTNEXTFFT);		// dD = b2m1N^4
+
+	// To save a normalize in ed_to_Montgomery, emulate choose12 which computes 4/(A+2).  From the literature, A+2 = 4/(1-d) = 4dD / (dD-dN).
+	// Thus we want compute ecmdata->Ad4 = (dD-dN)/dD.
+	ecmdata->Ad4 = gwalloc (&ecmdata->gwdata);
+	gwsub3o (&ecmdata->gwdata, dD, dN, ecmdata->Ad4, GWADD_MUL_INPUT);
+
+	// Compute modular inverse of sD and dD.  This will be used to normalize either s, t, and d.  Leave b2m1 unnormalized.
+	gwnum	inv_sD, inv_dD, inv_sDdD, s, t;
+	gwmul3 (&ecmdata->gwdata, sD, dD, tmp, GWMUL_FFT_S1 | GWMUL_FFT_S2);				// sD * dD
+	ecm_modinv (ecmdata, inv_sDdD = tmp);								// 1 / (sD * dD)
+	gwmul3 (&ecmdata->gwdata, inv_sDdD, dD, inv_sD = dD, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);	// 1/sD = dD * 1 / (sD * dD)
+	gwmul3 (&ecmdata->gwdata, inv_sDdD, sD, inv_dD = sD, GWMUL_STARTNEXTFFT);			// 1/dD = sD * 1 / (sD * dD)
+	gwmul3 (&ecmdata->gwdata, dN, inv_dD, ecmdata->ed_d = dN, GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);	// Edwards curve parameter d = dN / dD
+	gwfft (&ecmdata->gwdata, ecmdata->ed_d, ecmdata->ed_d);
+	gwmul3 (&ecmdata->gwdata, ecmdata->Ad4, inv_dD, ecmdata->Ad4, GWMUL_STARTNEXTFFT);		// Montgomery curve variable Ad4 = (dD-dN) / dD
+	gwfft (&ecmdata->gwdata, ecmdata->Ad4, ecmdata->Ad4);
+	gwmul3 (&ecmdata->gwdata, sN, inv_sD, s = sN, 0);						// s = sN / sD
+	gwmul3 (&ecmdata->gwdata, tN, inv_sD, t = tN, 0);						// t = tN / sD, tD equals sD
+
+	// Now compute starting point from the literature.  Using normalized inputs, x = (2b − 1)(4b − 3)/(6b − 5) = b2m1 * (2*b2m1 − 1) / (3*b2m1 − 1),
+	// and y = (2b - 1)(t^2 + 50t - 2s^3 + 27s^2 - 104)/((t + 3s - 2)(t + s + 16))
+	// With normalized s and t, and unnormalized b2m1 inputs:
+	//     b2m1N   (2*b2m1N − b2m1D)          b2m1D          b2m1N    (2*b2m1N − b2m1D)    xN
+	// x = ----- * ----------------- * ------------------- = ----- * ------------------- = --
+	//     b2m1D         b2m1D         (3*b2m1N − 2*b2m1D)   b2m1D   (3*b2m1N − 2*b2m1D)   xD
+	//
+	//     b2m1N   (tN^2 + 50tN - 2sN^3 + 27sN^2 - 104)               sD                 b2m1N   (tN^2 + 50tN - 2sN^3 + 27sN^2 - 104)   yN
+	// y = ----- * ------------------------------------ * ---------------------------- = ----- * ------------------------------------ = --
+	//     b2m1D                   sD                     (tN + 3sN - 2)(tN + sN + 16)   b2m1D        (tN + 3sN - 2)(tN + sN + 16)      yD
+	if (e != NULL) {
+		gwnum xN, xD, yN, yD, tmp2;
+		ed_alloc (ecmdata, e);
+		xN = e->x; yN = e->y; xD = e->z; yD = sD; tmp2 = dD;
+		// Compute xN, xD (delay b2m1N / b2m1D to later)
+		gwadd3o (&ecmdata->gwdata, b2m1N, b2m1N, xN, GWADD_DELAY_NORMALIZE);		// 2 * b2m1N
+		gwsub3o (&ecmdata->gwdata, xN, b2m1D, xN, GWADD_FORCE_NORMALIZE);		// xN = 2 * b2m1N - b2m1D
+		gwadd3o (&ecmdata->gwdata, b2m1N, xN, xD, GWADD_DELAY_NORMALIZE);		// 3 * b2m1N - b2m1D
+		gwsub3o (&ecmdata->gwdata, xD, b2m1D, xD, GWADD_FORCE_NORMALIZE);		// xD = 3 * b2m1N - 2*b2m1D
+		// Compute yD (delay b2m1N / b2m1D to later)
+		gwadd3 (&ecmdata->gwdata, t, s, tmp);						// t + s
+		gwadd3o (&ecmdata->gwdata, tmp, s, yD, GWADD_DELAY_NORMALIZE);			// t + 2s
+		gwadd3o (&ecmdata->gwdata, yD, s, yD, GWADD_FORCE_NORMALIZE);			// t + 3s, make (t + 3s - 2)(t + s + 16) safe
+		gwsmalladd (&ecmdata->gwdata, -2, yD);						// t + 3s - 2
+		gwsmalladd (&ecmdata->gwdata, 16, tmp);						// t + s + 16
+		gwmul3 (&ecmdata->gwdata, yD, tmp, yD, GWMUL_STARTNEXTFFT);			// yD = (t + 3s - 2)(t + s + 16)
+		// Compute yN (delay b2m1N / b2m1D to later)
+		gwsquare2 (&ecmdata->gwdata, t, yN, GWMUL_PRESERVE_S1);				// t^2
+		gwsquare2 (&ecmdata->gwdata, s, tmp, GWMUL_FFT_S1);				// s^2
+		gwmul3 (&ecmdata->gwdata, s, tmp, tmp2, GWMUL_PRESERVE_S2 | GWMUL_MULBYCONST);	// 2s^3
+		gwsub3o (&ecmdata->gwdata, yN, tmp2, yN, GWADD_DELAY_NORMALIZE);		// t^2 - 2s^3
+		gwsmallmul (&ecmdata->gwdata, 50, t);						// 50t
+		gwadd3o (&ecmdata->gwdata, yN, t, yN, GWADD_DELAY_NORMALIZE);			// t^2 + 50t - 2s^3
+		gwsmallmul (&ecmdata->gwdata, 27, tmp);						// 27s^2
+		gwadd3o (&ecmdata->gwdata, yN, tmp, yN, GWADD_FORCE_NORMALIZE);			// t^2 + 50t - 2s^3 + 27s^2
+		gwsmalladd (&ecmdata->gwdata, -104, yN);					// yN = t^2 + 50t - 2s^3 + 27s^2 - 104
+		// Compute e->x, e->y, e->z (delay b2m1N / b2m1D to later)
+		gwmul3 (&ecmdata->gwdata, xN, yD, e->x = xN, GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+		gwmul3 (&ecmdata->gwdata, yN, xD, e->y = yN, GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+		gwmul3 (&ecmdata->gwdata, xD, yD, e->z = xD, GWMUL_STARTNEXTFFT);
+		// Handle common b2m1N / b2m1D
+		gwmul3 (&ecmdata->gwdata, b2m1N, e->x, e->x, GWMUL_FFT_S1);
+		gwmul3 (&ecmdata->gwdata, b2m1N, e->y, e->y, 0);
+		gwmul3 (&ecmdata->gwdata, b2m1D, e->z, e->z, 0);
+		// Sanity check
+		ed_check (ecmdata, e);
+	}
+
+	// Cleanup
+	ws_free (ecmdata, &w);
+	gwfree (&ecmdata->gwdata, tmp);
+	gwfree (&ecmdata->gwdata, b2m1N);
+	gwfree (&ecmdata->gwdata, b2m1D);
+	gwfree (&ecmdata->gwdata, dD);
+#endif
+
+	return (0);
+}
+
+/* Convert from Edwards to Montgomery */
+
+void ed_to_Montgomery (
+	ecmhandle *ecmdata,
+	struct ed *e,
+	struct xz *xz)
+{
+
+/* If the Montgomery A value has not been computed, do so now.  See section 3 of https://eprint.iacr.org/2008/013.pdf and */
+/* https://en.wikipedia.org/wiki/Montgomery_curve .  A = 2(a + d)/(a - d).  Our Montgomery arithmetic code wants 4/(A + 2). */
+/* A+2 = 2(a+d)/(a-d) + 2(a-d)/(a-d) = (2a+2d+2a-2d)/(a-d) = 4a/(a-d) */
+
+	ASSERTG (ecmdata->Ad4 != NULL);			// choose12 or choose_atkin_morain should have computed Ad4
+	//if (ecmdata->Ad4 == NULL) {
+	//	gwnum An = gwalloc (&ecmdata->gwdata);
+	//	gwnum Ad = gwalloc (&ecmdata->gwdata);
+
+		/* Compute An = numerator, Ad = denominator */
+	//	if (ecmdata->ed_a == NULL) dbltogw (&ecmdata->gwdata, 1.0, An);
+	//	else gwunfft (&ecmdata->gwdata, ecmdata->ed_a, An);
+	//	gwunfft (&ecmdata->gwdata, ecmdata->ed_d, Ad);
+	//	gwsub3 (&ecmdata->gwdata, An, Ad, Ad);					// (a-d)
+	//	gwsmallmul (&ecmdata->gwdata, 4, An);					// 4a, A + 2 = An/Ad
+
+		/* Copy code from choose12.  Normalize so that An is one, thus Ad is 1/(A + 2) */
+	//	int stop_reason = normalize (ecmdata, Ad, An);
+		/* For extra speed, precompute Ad * 4, a.k.a 4/(A + 2) */
+	//	gwsmallmul (&ecmdata->gwdata, 4, Ad);
+		/* Even more speed, save FFT of Ad4 */
+	//	gwfft (&ecmdata->gwdata, Ad, Ad);
+	//	ecmdata->Ad4 = Ad;
+
+	//	gwfree (&ecmdata->gwdata, An);
+	//}
+
+/* Convert the Edwards point.  From wikipedia: Montgomery x coordinate, u, equals (1+y)/(1-y).  But Edwards coordinates are in projective format, thus */
+/* u = (1+y/z)/(1-y/z) = ((z+y)/z)/((z-y)/z) = (z+y)/(z-y).  Or in our Montgomery xz format, x = z+y, z = z-y. */
+
+	if (xz->x == NULL) alloc_xz (ecmdata, xz);
+	gwaddsub4 (&ecmdata->gwdata, e->z, e->y, xz->x, xz->z);
+}
+
+/* Recursively compute big exponent used in Edwards stage 1.  Include an extra 12 or 16 for Suyama or Atkin-Morain constructed curves. */
+
+void ecm_calc_exp_internal (
+	void	*sieve_info,	/* Sieve to use calculating primes */
+	mpz_t	g,		/* Variable to accumulate multiplied small primes */
+	uint64_t B1,		/* ECM stage 1 bound */
+	uint64_t *p,		/* Variable to fetch next small prime into */
+	uint64_t len)		/* Bits to accumulate (approximate) */
+{
+
+/* Use recursion to compute the exponent.  This will perform better because mpz_mul will be handling arguments of equal size. */
+
+	if (len >= 1024) {
+		mpz_t	x;
+		ecm_calc_exp_internal (sieve_info, g, B1, p, len >> 1);
+		mpz_init (x);
+		mpz_set_ui (x, 1);
+		ecm_calc_exp_internal (sieve_info, x, B1, p, len >> 1);
+		mpz_mul (g, x, g);
+		mpz_clear (x);
+		return;
+	}
+
+/* Find all the primes in the range and use as many powers as possible */
+
+	for ( ; *p <= B1 && mpz_sizeinbase (g, 2) < len; *p = sieve (sieve_info)) {
+		uint64_t val, max;
+		val = *p;
+		max = B1 / *p;
+		while (val <= max) val *= *p;
+		if (sizeof (unsigned int) == 4 && val > 0xFFFFFFFF) {
+			mpz_t	mpz_val;
+			mpz_init_set_d (mpz_val, (double) val);		/* Works for B1 up to 2^53 */
+			mpz_mul (g, g, mpz_val);
+			mpz_clear (mpz_val);
+		} else
+			mpz_mul_ui (g, g, (unsigned int) val);
+	}
+}
+
+void ecm_calc_exp (
+	void	*sieve_info,	/* Sieve to use calculating primes */
+	mpz_t	g,		/* Variable to accumulate multiplied small primes */
+	uint64_t B1,		/* ECM stage 1 bound */
+	uint64_t *p,		/* Variable to fetch next small prime into */
+	uint64_t bufsize)	/* Desired limit on size of mpz_t generated (in bytes) */
+{
+
+/* See if the desired maximum buffer size limits our ability to reach the B1 target.  Primes generate about 1.44*B1 bits. */
+
+	uint64_t start_prime = *p;
+	uint64_t end_prime = B1;
+	uint64_t expected_bits = (end_prime - start_prime) * 144/100;
+	uint64_t bufsize_in_bits = bufsize * 8;
+	// If fully satisfying B1, trim bufsize down for equal length recursion (but big enough to always work)
+	if (expected_bits <= bufsize_in_bits) bufsize_in_bits = (end_prime - start_prime) * 150/100;
+	// If satisfying B1 requires 2 batches, split range in half
+	else if (expected_bits <= 2*bufsize_in_bits) bufsize_in_bits = expected_bits / 2;
+
+/* For ECM, include 12 or 16 for Suyama or Atkin-Morain curve construction. */
+
+	if (start_prime != 2) mpz_set_ui (g, 1);
+	else mpz_set_ui (g, 48);			/* Least common multiple of 12 and 16 */
+
+/* Use recursion to compute the exponent.  This will perform better because mpz_mul will be handling arguments of equal size. */
+
+	ecm_calc_exp_internal (sieve_info, g, B1, p, bufsize_in_bits);
+}
+
+// Normalize part of the dictionary
+bool dict_normalize (
+	ecmhandle *ecmdata,
+	uint32_t first_index,		// Index of first dictionary entry to normalize
+	uint32_t last_index)		// Index of last dictionary entry to normalize
+{
+if (!IniGetInt(INI_FILE, "DictNorm", 1)) return(1);
+	// Allocate a temporary for each number to be normalized
+	gwarray temps = gwalloc_array (&ecmdata->gwdata, last_index - first_index + 1);
+	if (temps == NULL) return (FALSE);
+
+	// Loop multiplying all the numbers together into temps
+	gwswap (ecmdata->NAF_dictionary[first_index].z, temps[0]);
+	for (uint32_t i = 1; i <= last_index - first_index; i++) {
+		gwmul3 (&ecmdata->gwdata, temps[i-1], ecmdata->NAF_dictionary[first_index+i].z, temps[i], GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+	}
+
+	// Invert the multiplied numbers
+	gwnum big_inverse = temps[last_index - first_index];
+	if (ecm_modinv (ecmdata, big_inverse)) return (FALSE);
+
+	// Work backwards creating each normalizing each dictionary entry
+	for (uint32_t i = last_index - first_index; i; i--) {
+		gwmul3 (&ecmdata->gwdata, big_inverse, temps[i-1], temps[i-1], GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);			// Compute this inverse
+		gwmul3 (&ecmdata->gwdata, big_inverse, ecmdata->NAF_dictionary[first_index+i].z, big_inverse, GWMUL_STARTNEXTFFT);	// Compute next big inverse
+		// Normalize x and y
+		gwmul3 (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index+i].x, temps[i-1], ecmdata->NAF_dictionary[first_index+i].x, GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+		gwmul3 (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index+i].y, temps[i-1], ecmdata->NAF_dictionary[first_index+i].y, GWMUL_STARTNEXTFFT);
+		// Free z,t
+		gwfree (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index+i].z), ecmdata->NAF_dictionary[first_index+i].z = NULL;
+		gwfree (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index+i].t), ecmdata->NAF_dictionary[first_index+i].t = NULL;
+	}
+	// First entry's inverse is big_inverse
+	gwmul3 (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index].x, big_inverse, ecmdata->NAF_dictionary[first_index].x, GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+	gwmul3 (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index].y, big_inverse, ecmdata->NAF_dictionary[first_index].y, GWMUL_STARTNEXTFFT);
+	// Swap first z back and free z,t
+	gwswap (ecmdata->NAF_dictionary[first_index].z, temps[0]);
+	gwfree (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index].z), ecmdata->NAF_dictionary[first_index].z = NULL;
+	gwfree (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index].t), ecmdata->NAF_dictionary[first_index].t = NULL;
+
+	// Cleanup
+	gwfree_array (&ecmdata->gwdata, temps);
+	return (TRUE);
+}
+
+/* Prepare for NAF exponentiation.  Convert the exponent to a bit array indicating which doublings will require an add.  Build the NAF dictionary. */
+
+bool NAF_dictionary_init (
+	ecmhandle *ecmdata,
+	int	*first_NAF_index,	// First NAF index to use to get the exponentiation started
+	uint64_t *num_doublings)	// Number of doubling that NAF exponentiation will need to perform
+{
+	// Allocate the dictionary array
+	ecmdata->NAF_dictionary = (struct ed *) malloc (ecmdata->NAF_dictionary_size * sizeof (struct ed));
+	if (ecmdata->NAF_dictionary == NULL) return (FALSE);
+	memset (ecmdata->NAF_dictionary, 0, ecmdata->NAF_dictionary_size * sizeof (struct ed));
+
+// Build the dictionary
+
+	// Move start point to first dictionary entry
+	ed_swap (ecmdata->e, ecmdata->NAF_dictionary[0]);
+
+	// Double first entry (use last dictionary entry as a temporary)
+	if (!ed_alloc (ecmdata, &ecmdata->NAF_dictionary[ecmdata->NAF_dictionary_size-1])) return (FALSE);
+	struct ed *two = &ecmdata->NAF_dictionary[ecmdata->NAF_dictionary_size-1];
+	ed_dbl (ecmdata, &ecmdata->NAF_dictionary[0], two, ED_FFT_S1 | ED_RESULT_FOR_ADD | ED_STARTNEXTFFT);
+
+	// Loop making next dictionary entry two more than previous entry.
+	// Do this while only using 3 gwnums for every dictionary entry!
+	for (uint32_t i = 1; i < ecmdata->NAF_dictionary_size; i++) {
+		// Allocate gwnums for next dictionary entry
+		if (i != ecmdata->NAF_dictionary_size-1 && !ed_alloc (ecmdata, &ecmdata->NAF_dictionary[i])) return (FALSE);
+		// Next dictionary entry equals two more than previous entry
+		ed_add (ecmdata, &ecmdata->NAF_dictionary[i-1], two, &ecmdata->NAF_dictionary[i], ED_FFT_S1Z | ED_RESULT_FOR_ADD | ED_STARTNEXTFFT);
+		// Switch back from extended coordinates.  Extended coordinates will be generated again after normalization.
+		gwfree (&ecmdata->gwdata, ecmdata->NAF_dictionary[i-1].t), ecmdata->NAF_dictionary[i-1].t = NULL;
+		// 50% of the way through the build, normalize the dictionary.  This will free up enough gwnums to safely do the rest of the dictionary.
+		// Also normalize two to save a few transforms for the remaining dictionary entries.
+		if (i == ecmdata->NAF_dictionary_size / 2) {
+			ed_swap (*two, ecmdata->NAF_dictionary[i+1]);		// Put two next in the array
+			if (!dict_normalize (ecmdata, 0, i+1)) return (FALSE);
+			ed_swap (*two, ecmdata->NAF_dictionary[i+1]);		// Put two back at the end of the array
+		}
+	}
+	gwfree (&ecmdata->gwdata, ecmdata->NAF_dictionary[ecmdata->NAF_dictionary_size-1].t), ecmdata->NAF_dictionary[ecmdata->NAF_dictionary_size-1].t = NULL;
+
+	// Normalize the remaining 50% of the dictionary, this will make adding dictionary entries one transform quicker
+	if (!dict_normalize (ecmdata, ecmdata->NAF_dictionary_size / 2 + 1, ecmdata->NAF_dictionary_size - 1)) return (FALSE);
+
+// Allocate a buffer for the NAF_codes
+
+	uint64_t len = mpz_sizeinbase (ecmdata->stage1_exp, 2);
+	ecmdata->NAF_codes = (char *) malloc ((size_t) divide_rounding_up (len, 8));
+	memset (ecmdata->NAF_codes, 0, (size_t) divide_rounding_up (len, 8));
+
+// The optimal scenario is for the first NAF code to consume as many most-significant bits as possible.  This will reduce the number of doublings
+// the exponentiation code needs to perform.
+
+	uint64_t bitnum = len - 1;
+	int max_dictionary_value = 2 * ecmdata->NAF_dictionary_size - 1;
+	int first_NAF_value;
+	for (int tmp = 0; tmp * 2 + 1 <= max_dictionary_value; bitnum--) {
+		tmp *= 2;
+		if (mpz_tstbit64 (ecmdata->stage1_exp, bitnum)) {
+			tmp++;
+			first_NAF_value = tmp;
+			*num_doublings = bitnum;
+		}
+		ASSERTG (bitnum > 0);
+	}
+
+// Generate the NAF codes working up from the least significant bit
+
+	int NAF_value_under_construction = 0;
+	int NAF_value_addin = 1;
+	int carry = 0;
+	for (bitnum = 0; bitnum < *num_doublings; bitnum++) {
+		// Combine carry from negative NAF code and the current exponent bit
+		int this_bit = carry + (mpz_tstbit64 (ecmdata->stage1_exp, bitnum) ? 1 : 0);
+		carry = this_bit / 2;
+		this_bit = this_bit & 1;
+		// Flag the start of a new NAF value.  This is where a double and add operation must take place during NAF exponentiation.
+		if (NAF_value_under_construction == 0 && this_bit) mpz_setbit64 (ecmdata->stage1_exp, bitnum);
+		else mpz_clrbit64 (ecmdata->stage1_exp, bitnum);
+		// Continue construction of the NAF value
+		if (this_bit) NAF_value_under_construction += NAF_value_addin;
+		if (NAF_value_under_construction == 0) continue;
+		NAF_value_addin *= 2;
+		// Check if there is another bit and whether getting another bit is required to complete the NAF value
+		if (bitnum != *num_doublings - 1) {
+			if (NAF_value_addin < max_dictionary_value) continue;
+			if (NAF_value_under_construction <= max_dictionary_value && NAF_value_addin - NAF_value_under_construction <= max_dictionary_value) continue;
+		}
+		// We have a completed NAF value, turn it into a code and output it
+		int NAF_code;
+		if (NAF_value_under_construction <= max_dictionary_value) NAF_code = (NAF_value_under_construction - 1) / 2;
+		else NAF_code = (NAF_value_addin - NAF_value_under_construction - 1) / 2 + ecmdata->NAF_dictionary_size, carry = 1;
+		for (uint64_t write_bitnum = bitnum; NAF_value_addin >>= 1; write_bitnum--) {
+			if (NAF_code & NAF_value_addin) bitset (ecmdata->NAF_codes, write_bitnum);
+		}
+		// Setup to construct next NAF value
+		NAF_value_under_construction = 0;
+		NAF_value_addin = 1;
+	}
+	// If there is a carry, the first NAF value needs to be changed
+	if (carry) for (first_NAF_value = first_NAF_value + 1; (first_NAF_value & 1) == 0; first_NAF_value /= 2) *num_doublings = *num_doublings + 1;
+	*first_NAF_index = (first_NAF_value - 1) / 2;
+
+	// Success
+	return (TRUE);
+}
+
+void NAF_code (			// Return the NAF code for the doubling at bit i
+	ecmhandle *ecmdata,
+	uint64_t i,		// bit number
+	int	*NAF_index,	// Returned index into NAF dictionary
+	bool	*subtract)	// Returned subtract vs. add boolean
+{
+	int NAF_code = 0;
+	for (int addin = 1; addin < (int) (2*ecmdata->NAF_dictionary_size); addin <<= 1, i++) {
+		if (bittst (ecmdata->NAF_codes, i)) NAF_code += addin;
+	}
+	if (NAF_code < (int) ecmdata->NAF_dictionary_size) *NAF_index = NAF_code, *subtract = FALSE;
+	else *NAF_index = NAF_code - ecmdata->NAF_dictionary_size, *subtract = TRUE;
+}
+
+void NAF_dictionary_free (
+	ecmhandle *ecmdata)
+{
+	free (ecmdata->NAF_codes), ecmdata->NAF_codes = NULL;
+	if (ecmdata->NAF_dictionary == NULL) return;
+	for (uint32_t i = 0; i < ecmdata->NAF_dictionary_size; i++) ed_free (ecmdata, &ecmdata->NAF_dictionary[i]);
+	free (ecmdata->NAF_dictionary), ecmdata->NAF_dictionary = NULL;
+}
+
+uint32_t NAF_best_size (	// Return the best size for the dictionary
+	ecmhandle *ecmdata)
+{
+	uint64_t explen = mpz_sizeinbase (ecmdata->stage1_exp, 2);
+
+// The "optimal" dictionary size occurs when the cost of adding one entry to the dictionary entry equals the savings from reduced ed_adds.
+// Initializing a dictionary and FFTing x,y,t costs 1 ed_add with 50% chance two is normalized, 3 muls to normalize z, 2 muls to norm x and y,
+// 1 mul for ed_extend, and one forward transform of t.  The ed_add costs 16 transforms half the time and 14 transforms the other half.  The 6 muls
+// cost 11 transforms.  For a total of 15 + 11 + 1 = 27 transforms.  The number of ed_adds is explen / (log2 (dictionary_size) + 3).  Each ed_add
+// costs 13 transforms plus 1 transform for the ed_dbl_for_add.  NOTE: Twisted Edward curves cost two more transforms.
+
+// Binary search for best dictionary size
+
+#define evalcost(x,s)	{ x.size = s; x.totcost = x.size * single_init_cost + (double) explen / (log2 (x.size) + 3.0) * single_ed_add_cost; }
+	double	single_init_cost = (ecmdata->ed_a == NULL) ? 27.0 : 29.0;
+	double	single_ed_add_cost = (ecmdata->ed_a == NULL) ? 14.0 : 16.0;
+	struct { uint32_t size; double totcost; } best[3], midpoint;
+	evalcost (best[0], 1);
+	evalcost (best[1], 1000);
+	evalcost (best[2], 1000000);
+	while (best[2].size - best[0].size > 2) {
+		// Work on the bigger of the lower section and upper section
+		if (best[1].size - best[0].size > best[2].size - best[1].size) {	// Work on lower section
+			evalcost (midpoint, (best[0].size + best[1].size) / 2);
+			if (midpoint.totcost < best[1].totcost) {			// Make middle the new end point
+				best[2] = best[1];
+				best[1] = midpoint;
+			} else {							// Create new start point
+				best[0] = midpoint;
+			}
+		} else {								// Work on upper section
+			evalcost (midpoint, (best[1].size + best[2].size) / 2);
+			if (midpoint.totcost < best[1].totcost) {			// Make middle the new start point
+				best[0] = best[1];
+				best[1] = midpoint;
+			} else {							// Create new end point
+				best[2] = midpoint;
+			}
+		}
+	}
+#undef evalcost
+	return (best[1].size);
 }
 
 /* Print message announcing the start of this curve */
@@ -5494,7 +6426,6 @@ int ecm (
 {
 	ecmhandle ecmdata;
 	uint64_t sieve_start, next_prime, last_output, last_output_t;
-	unsigned long SQRT_B;
 	double	one_over_B, output_frequency, output_title_frequency;
 	double	base_pct_complete, one_relp_pct;
 	int	i;
@@ -5866,6 +6797,7 @@ if (w->n == 604) {
 		OutputBoth (thread_num, buf);
 		return (STOP_FATAL_ERROR);
 	}
+	gwerror_checking (&ecmdata.gwdata, ERRCHK);
 	ecmdata.stage1_fftlen = gwfftlen (&ecmdata.gwdata);
 
 /* More random initializations */
@@ -5934,7 +6866,7 @@ if (w->n == 604) {
 
 		if (ecmdata.state == ECM_STATE_STAGE1) {
 			sieve_start = ecmdata.stage1_prime + 1;
-			stop_reason = choose12 (&ecmdata, NULL);	/* Compute Ad4 from sigma while ignoring the x,z starting point */
+			stop_reason = choose12 (&ecmdata, FALSE, NULL, NULL);	/* Compute Ad4 from sigma while ignoring the x,z starting point */
 			if (stop_reason) goto exit;
 			goto restart1;
 		}
@@ -5991,7 +6923,11 @@ restart0:
 		w->curves_to_do = 1;
 	}
 	curve_start_msg (&ecmdata);
-	stop_reason = choose12 (&ecmdata, &ecmdata.xz);
+ecmdata.sigma_montg=IniGetInt(INI_FILE, "MontgSigma", 1);
+ecmdata.stage1_montg=IniGetInt(INI_FILE, "MontgStage1", 1);
+	if (!ecmdata.sigma_montg) stop_reason = choose_atkin_morain (&ecmdata, &ecmdata.e);		// Edwards curve, Edwards stage 1
+	else if (ecmdata.stage1_montg) stop_reason = choose12 (&ecmdata, FALSE, &ecmdata.xz, NULL);	// Montgomery curve, Montgomery stage 1
+	else stop_reason = choose12 (&ecmdata, TRUE, NULL, &ecmdata.e);					// Montgomery curve, twisted Edwards stage 1
 	if (stop_reason) goto exit;
 	if (ecmdata.factor != NULL) goto bingo;
 	sieve_start = 2;
@@ -6000,100 +6936,248 @@ restart0:
 
 restart1:
 	ecmdata.state = ECM_STATE_STAGE1;
-	ecm_stage1_memory_usage (thread_num, &ecmdata);
 	one_over_B = 1.0 / (double) ecmdata.B;
-	sprintf (w->stage, "C%" PRIu32 "S1", ecmdata.curve);
 	w->pct_complete = sieve_start * one_over_B;
+	sprintf (w->stage, "C%" PRIu32 "S1", ecmdata.curve);
 	start_timer_from_zero (timers, 0);
 	start_timer_from_zero (timers, 1);
-	SQRT_B = (unsigned long) sqrt ((double) ecmdata.B);
-	// We guess the max sieve prime for stage 2.  If optimal B2 is less 256 * B, then max sieve prime will be less than 16 * sqrt(B).
-	// If our guess is wrong, that's no big deal -- sieve code is smart enough to handle it.
-	stop_reason = start_sieve_with_limit (thread_num, sieve_start, 16 * SQRT_B, &ecmdata.sieve_info);
-	if (stop_reason) goto exit;
-	for (ecmdata.stage1_prime = sieve (ecmdata.sieve_info); ecmdata.stage1_prime <= ecmdata.B; ecmdata.stage1_prime = next_prime) {
-		int	count;
 
-		next_prime = sieve (ecmdata.sieve_info);
+/* The old-style Montgomery stage 1 */
+
+	if (ecmdata.stage1_montg) {
+		ecm_stage1_memory_usage (thread_num, &ecmdata);
+		unsigned long SQRT_B = (unsigned long) sqrt ((double) ecmdata.B);
+		// We guess the max sieve prime for stage 2.  If optimal B2 is less 256 * B, then max sieve prime will be less than 16 * sqrt(B).
+		// If our guess is wrong, that's no big deal -- sieve code is smart enough to handle it.
+		stop_reason = start_sieve_with_limit (thread_num, sieve_start, 16 * SQRT_B, &ecmdata.sieve_info);
+		if (stop_reason) goto exit;
+		for (ecmdata.stage1_prime = sieve (ecmdata.sieve_info); ecmdata.stage1_prime <= ecmdata.B; ecmdata.stage1_prime = next_prime) {
+			int	count;
+
+			next_prime = sieve (ecmdata.sieve_info);
 
 /* Test for user interrupt, save files, and error checking */
 
-		stop_reason = stopCheck (thread_num);
-		saving = testSaveFilesFlag (thread_num);
+			stop_reason = stopCheck (thread_num);
+			saving = testSaveFilesFlag (thread_num);
 
 /* Count the number of prime powers where prime^n <= B */
 
-		if (ecmdata.stage1_prime <= SQRT_B) {
-			uint64_t mult, max;
-			count = 0;
-			max = ecmdata.B / ecmdata.stage1_prime;
-			for (mult = ecmdata.stage1_prime; ; mult *= ecmdata.stage1_prime) {
-				count++;
-				if (mult > max) break;
-			}
-		} else
-			count = 1;
+			if (ecmdata.stage1_prime <= SQRT_B) {
+				uint64_t mult, max;
+				count = 0;
+				max = ecmdata.B / ecmdata.stage1_prime;
+				for (mult = ecmdata.stage1_prime; ; mult *= ecmdata.stage1_prime) {
+					count++;
+					if (mult > max) break;
+				}
+			} else
+				count = 1;
 
 /* Adjust the count of prime powers.  I'm not sure, but I think choose12 means we should include 2 extra twos and 1 extra 3. */
 
-		if (ecmdata.stage1_prime <= 3) count += (ecmdata.stage1_prime == 2) ? 2 : 1;
+			if (ecmdata.stage1_prime <= 3) count += (ecmdata.stage1_prime == 2) ? 2 : 1;
 
 /* Apply the proper number of primes */
 
-		for ( ; count; count--) {
-			int	last_mul = (count == 1 && (saving || stop_reason || next_prime > ecmdata.B));
-			int	oom_stop_reason = ell_mul (&ecmdata, &ecmdata.xz, ecmdata.stage1_prime, last_mul);
-			if (oom_stop_reason) {	// Out of memory should be the only reason ell_mul fails.  Won't happen, but handle it gracefully anyway
-				stop_reason = oom_stop_reason;
-				goto exit;
+			for ( ; count; count--) {
+				int last_mul = (count == 1 && (saving || stop_reason || next_prime > ecmdata.B));
+				int oom_stop_reason = ell_mul (&ecmdata, &ecmdata.xz, ecmdata.stage1_prime, last_mul);
+				if (oom_stop_reason) {	// Out of memory should be the only reason ell_mul fails.  Won't happen, but handle it gracefully anyway
+					stop_reason = oom_stop_reason;
+					goto exit;
+				}
 			}
-		}
 
 /* Calculate stage 1 percent complete */
 
-		w->pct_complete = ecmdata.stage1_prime * one_over_B;
+			w->pct_complete = ecmdata.stage1_prime * one_over_B;
 
 /* Output the title every so often */
 
-		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
-			sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 1",
-				 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve);
-			title (thread_num, buf);
-			last_output_t = gw_get_fft_count (&ecmdata.gwdata);
-		}
+			if (first_iter_msg ||
+			    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
+				sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 1",
+					 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve);
+				title (thread_num, buf);
+				last_output_t = gw_get_fft_count (&ecmdata.gwdata);
+			}
 
 /* Print a message every so often */
 
-		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
-			sprintf (buf, "%s curve %" PRIu32 " stage 1 at prime %" PRIu64 " [%.*f%%].",
-				 gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve, ecmdata.stage1_prime, (int) PRECISION, trunc_percent (w->pct_complete));
-			end_timer (timers, 0);
-			if (first_iter_msg) {
-				strcat (buf, "\n");
-			} else {
-				strcat (buf, " Time: ");
-				print_timer (timers, 0, buf, TIMER_NL);
+			if (first_iter_msg ||
+			    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
+				sprintf (buf, "%s curve %" PRIu32 " stage 1 at prime %" PRIu64 " [%.*f%%].",
+					 gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve, ecmdata.stage1_prime, (int) PRECISION, trunc_percent (w->pct_complete));
+				end_timer (timers, 0);
+				if (first_iter_msg) {
+					strcat (buf, "\n");
+				} else {
+					strcat (buf, " Time: ");
+					print_timer (timers, 0, buf, TIMER_NL);
+				}
+				if (ecmdata.stage1_prime != 2)
+					OutputStr (thread_num, buf);
+				start_timer_from_zero (timers, 0);
+				last_output = gw_get_fft_count (&ecmdata.gwdata);
+				first_iter_msg = FALSE;
 			}
-			if (ecmdata.stage1_prime != 2)
-				OutputStr (thread_num, buf);
-			start_timer_from_zero (timers, 0);
-			last_output = gw_get_fft_count (&ecmdata.gwdata);
-			first_iter_msg = FALSE;
-		}
 
 /* Check for errors */
 
-		if (gw_test_for_error (&ecmdata.gwdata) || gw_get_maxerr (&ecmdata.gwdata) > allowable_maxerr) goto err;
+			if (gw_test_for_error (&ecmdata.gwdata) || gw_get_maxerr (&ecmdata.gwdata) > allowable_maxerr) goto err;
 
 /* Write a save file when the user interrupts the calculation and every DISK_WRITE_TIME minutes. */
 
-		if (stop_reason || saving) {
-			ecm_save (&ecmdata);
-			if (stop_reason) goto exit;
+			if (stop_reason || saving) {
+				ecm_save (&ecmdata);
+				if (stop_reason) goto exit;
+			}
 		}
 	}
+
+/* Edwards stage 1 */
+
+	else {
+
+/* Stage 1 pre-calculates an exponent that is the product of small primes.  The default maximum exponent size is 40MB (B1 of roughly 266 million). */
+/* Reports of GMP having trouble with products larger than 2^32 bits leads us to cap maximum exponent size at 128MB. */
+
+		ecmdata.stage1_start_prime = 2;		// Remember this for save files
+		ecmdata.stage1_bitnum = 0;		// Can't overwrite if read from save file
+		ecmdata.stage1_exp_buffer_size = IniGetInt (INI_FILE, "ECMStage1ExpBufferSize", 40);
+		if (ecmdata.stage1_exp_buffer_size < 1) ecmdata.stage1_exp_buffer_size = 1;
+		if (ecmdata.stage1_exp_buffer_size > 128) ecmdata.stage1_exp_buffer_size = 128;
+		ecmdata.stage1_exp_buffer_size <<= 20;
+
+//GW Save file will need sieve_start, exp_bufsize, bit_number in exp  to rebuild big exponent and resume
+//GW Save file will need dictionary value 1 and dictionary size to rebuild dictionary
+//GW Restart must use same dictionary size to get same NAF numbers
+
+// jump here for restart from save file?
+		ecm_stage1_memory_usage (thread_num, &ecmdata);		//GW this routine will need to change!
+		stop_reason = start_sieve_with_limit (thread_num, ecmdata.stage1_start_prime, (uint32_t) sqrt ((double) ecmdata.B), &ecmdata.sieve_info);
+		if (stop_reason) goto exit;
+		ecmdata.stage1_prime = sieve (ecmdata.sieve_info);	// Get first prime from sieve
+
+		mpz_init (ecmdata.stage1_exp), ecmdata.stage1_exp_initialized = TRUE;
+
+/* Process primes into big calculated exponents.  We may not be able to process all of them in one blast, so loop in case multiple big exponents are needed. */
+
+		for ( ; ecmdata.stage1_prime < ecmdata.B; ecmdata.stage1_bitnum = 0) {
+			int	NAF_index;
+			uint64_t num_doublings;
+
+/* Create the big exponent and init the dictionary */
+
+			ecmdata.stage1_start_prime = ecmdata.stage1_prime;	// Remember stage1_exp's starting prime for saving to a file
+			ecm_calc_exp (ecmdata.sieve_info, ecmdata.stage1_exp, ecmdata.B, &ecmdata.stage1_prime, ecmdata.stage1_exp_buffer_size);
+ecmdata.NAF_dictionary_size=IniGetInt(INI_FILE, "DictSize", 256);
+			sprintf (buf, "Exponent length is %" PRIu64 ", best dictionary size is %" PRIu32 ", actual dictionary size is %" PRIu32 "\n",
+				 (uint64_t) mpz_sizeinbase (ecmdata.stage1_exp, 2),
+				 NAF_best_size (&ecmdata),
+				 ecmdata.NAF_dictionary_size);
+			OutputStr (thread_num, buf);
+			NAF_dictionary_init (&ecmdata, &NAF_index, &num_doublings);
+
+/* Init variables used in calculating percent complete. */
+
+			double one_over_doublings = 1.0 / (double) num_doublings;
+			if (ecmdata.stage1_prime < ecmdata.B) one_over_doublings *= (double) ecmdata.stage1_prime / (double) ecmdata.B;
+
+/* Use first NAF_index to initialize the starting Edwards point (extended coordinate is not needed).  Do the first ed_dbl. */
+
+			if (!ed_alloc (&ecmdata, &ecmdata.e)) goto oom;
+			if (ecmdata.stage1_bitnum == 0) {
+				ed_dbl (&ecmdata, &ecmdata.NAF_dictionary[NAF_index], &ecmdata.e, ED_FFT_S1 | ED_RESULT_FOR_DBL | ED_STARTNEXTFFT);
+				ecmdata.stage1_bitnum = 1;
+			}
+
+/* Process each bit in the big exponent */
+
+			while (ecmdata.stage1_bitnum < num_doublings) {
+
+/* Set various flags.  They control whether error-checking or the next FFT can be started. */
+
+				stop_reason = stopCheck (thread_num);
+				saving = testSaveFilesFlag (thread_num);
+				bool echk = stop_reason || saving || ERRCHK || near_fft_limit || ((ecmdata.stage1_bitnum & 127) == 64);
+				gwerror_checking (&ecmdata.gwdata, echk);
+
+/* Either double point or double point and add from dictionary */
+
+				int options = (stop_reason || saving || ecmdata.stage1_bitnum+1 == num_doublings) ? 0 : ED_STARTNEXTFFT;
+				if (! mpz_tstbit64 (ecmdata.stage1_exp, num_doublings - ecmdata.stage1_bitnum - 1)) {
+					ed_dbl (&ecmdata, &ecmdata.e, &ecmdata.e, ED_RESULT_FOR_DBL | options);
+				} else {
+					bool	subtract;
+					NAF_code (&ecmdata, num_doublings - ecmdata.stage1_bitnum - 1, &NAF_index, &subtract);
+					ed_dbl (&ecmdata, &ecmdata.e, &ecmdata.e, ED_RESULT_FOR_ADD | ED_STARTNEXTFFT);
+					if (subtract) options |= ED_SUBTRACT;
+					ed_add (&ecmdata, &ecmdata.e, &ecmdata.NAF_dictionary[NAF_index], &ecmdata.e, ED_RESULT_FOR_DBL | options);
+				}
+
+/* Calculate our stage 1 percentage complete */
+
+				ecmdata.stage1_bitnum++;
+//GW pct must account for completed chunks as well as future chunks
+				w->pct_complete = (double) ecmdata.stage1_bitnum * one_over_doublings;
+
+/* Output the title every so often */
+
+				if (first_iter_msg ||
+				    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
+					sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 1",
+						 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve);
+					title (thread_num, buf);
+					last_output_t = gw_get_fft_count (&ecmdata.gwdata);
+				}
+
+/* Print a message every so often */
+
+				if (first_iter_msg ||
+				    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
+					sprintf (buf, "%s curve %" PRIu32 " stage 1 at exponent bit %" PRIu64 " [%.*f%%].",
+						 gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve, ecmdata.stage1_bitnum,
+						 (int) PRECISION, trunc_percent (w->pct_complete));
+					end_timer (timers, 0);
+					if (first_iter_msg) {
+						strcat (buf, "\n");
+					} else {
+						strcat (buf, " Time: ");
+						print_timer (timers, 0, buf, TIMER_NL);
+					}
+					if (ecmdata.stage1_bitnum != 2) OutputStr (thread_num, buf);
+					start_timer_from_zero (timers, 0);
+					last_output = gw_get_fft_count (&ecmdata.gwdata);
+					first_iter_msg = FALSE;
+				}
+
+/* Check for errors */
+
+				if (gw_test_for_error (&ecmdata.gwdata) || gw_get_maxerr (&ecmdata.gwdata) > allowable_maxerr) goto err;
+
+/* Write a save file when the user interrupts the calculation and every DISK_WRITE_TIME minutes. */
+
+				if (stop_reason || saving) {
+					ecm_save (&ecmdata);
+					if (stop_reason) goto exit;
+				}
+			}
+
+/* Free the NAF dictionary */
+
+			NAF_dictionary_free (&ecmdata);
+		}
+		mpz_clear (ecmdata.stage1_exp), ecmdata.stage1_exp_initialized = FALSE;
+
+/* Convert stage 1 end point to Montgomery for stage 2 */
+
+		ed_to_Montgomery (&ecmdata, &ecmdata.e, &ecmdata.xz);
+
+//GW Free edwards memory
+	}
+
 
 /* Stage 1 complete */
 
@@ -6415,7 +7499,7 @@ OutputStr (thread_num, buf); }
 			free (ecmdata.Ad4_binary), ecmdata.Ad4_binary = NULL;
 			gwfft (&ecmdata.gwdata, ecmdata.Ad4, ecmdata.Ad4);
 		} else {
-			stop_reason = choose12 (&ecmdata, NULL);
+			stop_reason = choose12 (&ecmdata, FALSE, NULL, NULL);
 			if (stop_reason) goto possible_lowmem;
 		}
 	}
@@ -10133,6 +11217,7 @@ restart:
 		OutputBoth (thread_num, buf);
 		return (STOP_FATAL_ERROR);
 	}
+	gwerror_checking (&pm1data.gwdata, ERRCHK);
 	pm1data.stage1_fftlen = gwfftlen (&pm1data.gwdata);
 
 /* More miscellaneous initializations */
@@ -10351,15 +11436,8 @@ restart0:
 /* Either square x or square x and multiply it by three. */
 
 #ifndef SERVER_TESTING
-// Work around bug in mpz_tstbit accessing bits above 2^32
 		int options = (!stop_reason && !saving && pm1data.stage0_bitnum+1 != len) ? GWMUL_STARTNEXTFFT : 0;
-		{
-			uint64_t bitnum = len - pm1data.stage0_bitnum - 1;
-			uint64_t limb = mpz_getlimbn (exp, (mp_size_t) (bitnum / GMP_LIMB_BITS));
-			uint64_t bit_in_limb = (1ULL << (bitnum % GMP_LIMB_BITS));
-			if (limb & bit_in_limb) options |= GWMUL_MULBYCONST;
-		}
-//		gwsetnormroutine (&pm1data.gwdata, 0, echk, mpz_tstbit (exp, len - pm1data.stage0_bitnum - 1));
+		if (mpz_tstbit64 (exp, len - pm1data.stage0_bitnum - 1)) options |= GWMUL_MULBYCONST;
 		int option = (!stop_reason && !saving && pm1data.stage0_bitnum+1 != len) ? GWMUL_STARTNEXTFFT : 0;
 		if (pm1data.stage0_bitnum < 30) gwmul3_carefully (&pm1data.gwdata, pm1data.x, pm1data.x, pm1data.x, options);
 		else gwsquare2 (&pm1data.gwdata, pm1data.x, pm1data.x, options);
@@ -13876,6 +14954,7 @@ restart:
 		OutputBoth (thread_num, buf);
 		return (STOP_FATAL_ERROR);
 	}
+	gwerror_checking (&pp1data.gwdata, ERRCHK);
 	pp1data.stage1_fftlen = gwfftlen (&pp1data.gwdata);
 	gwsetaddin (&pp1data.gwdata, -2);
 

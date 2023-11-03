@@ -41,13 +41,13 @@ ycopy_7_words MACRO dist_half_minus_3, dist_half_minus_2, dist_half_minus_1, dis
 	cmp	ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
 	je	short nozpad		;; No, skip 7 word copy
 	vmovsd	xmm0, Q [rsi+rbx+dist_half] ;; Copy half-way point word
-	vmovsd	Q [rsi-40], xmm0
+	vmovsd	Q [rsi-64], xmm0
 	vmovsd	xmm1, Q [rsi+rbx+dist_half_plus_1] ;; Copy 1st word above half-way
-	vmovsd	Q [rsi-48], xmm1
+	vmovsd	Q [rsi-56], xmm1
 	vmovsd	xmm2, Q [rsi+rbx+dist_half_plus_2] ;; Copy 2nd word above half-way
-	vmovsd	Q [rsi-56], xmm2
+	vmovsd	Q [rsi-48], xmm2
 	vmovsd	xmm3, Q [rsi+rbx+dist_half_plus_3] ;; Copy 3rd word above half-way
-	vmovsd	Q [rsi-64], xmm3
+	vmovsd	Q [rsi-40], xmm3
 	vmovsd	xmm0, Q [rsi+rbx+dist_half_minus_1] ;; Copy 1st word below half-way
 	vmovsd	Q [rsi-72], xmm0
 	vmovsd	xmm1, Q [rsi+rbx+dist_half_minus_2] ;; Copy 2nd word below half-way

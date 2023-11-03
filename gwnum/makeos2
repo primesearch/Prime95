@@ -4,10 +4,9 @@
 #
 # Requires OS/2 Warp 4 or later with RPM/YUM unix stuff installed.
 #
-# Last updated 2023-10-03
+# Last updated 2023-10-07
 
-# Only tested with v30.18b2b, later versions may require changes.
-# https://www.mersenneforum.org/showpost.php?p=639579&postcount=10
+# Only tested with v30.18b2, later versions may require changes.
 
 # [from "compile"]
 # Uasm is a MASM-compatible assembler that is supported much better than MASM.
@@ -19,12 +18,12 @@
 # I use the pentium4 architecture for RPM/YUM, it'll be a pain to switch to i686 if necessary, so I'll keep it like this for now.
 
 CC = gcc
-CFLAGS = -Zomf -I.. -I../sqlite-amalgamation-3420000 -I/usr/local/include -std=gnu99 -Wno-unused-result -march=pentium4 -malign-double -O2
-#CFLAGS = -g -Zomf -I.. -I../sqlite-amalgamation-3420000 -I/usr/local/include -std=gnu99 -Wno-unused-result -march=pentium4 -malign-double -DGDEBUG -O2
+CFLAGS = -Zomf -Zbin-files -I.. -I../sqlite-amalgamation-3420000 -I/usr/local/include -std=gnu99 -Wno-unused-result -march=pentium4 -malign-double -O2
+#CFLAGS = -g -Zomf -Zbin-files -I.. -I../sqlite-amalgamation-3420000 -I/usr/local/include -std=gnu99 -Wno-unused-result -march=pentium4 -malign-double -DGDEBUG -O2
 
 CPP = g++
-CPPFLAGS = -Zomf -I.. -I../qd -std=c++11 -O2 -march=pentium4 -malign-double
-#CPPFLAGS = -g -Zomf -I.. -I../qd -std=c++11 -O2 -march=pentium4 -malign-double -DGDEBUG
+CPPFLAGS = -Zomf -Zbin-files -I.. -I../qd -std=c++11 -O2 -march=pentium4 -malign-double
+#CPPFLAGS = -g -Zomf -Zbin-files -I.. -I../qd -std=c++11 -O2 -march=pentium4 -malign-double -DGDEBUG
 
 AR = ar
 EMXOMFAR = emxomfar

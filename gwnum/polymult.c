@@ -757,23 +757,13 @@ void zpad7_fft (
 	double r1, r2, r3, r4, r5, r6, r7;		// The 7 reals from the header (r7=MSW, r1=LSW)
 
 	// Load the zpad doubles from the header
-	if (gwdata->cpu_flags & CPU_AVX512F) {
-		r1 = g[-11];		// Load input FFT word at halfway - 3
-		r2 = g[-10];		// Load input FFT word at halfway - 2
-		r3 = g[-9];		// Load input FFT word at halfway - 1
-		r4 = g[-8];		// Load input FFT word at halfway + 0
-		r5 = g[-7];		// Load input FFT word at halfway + 1
-		r6 = g[-6];		// Load input FFT word at halfway + 2
-		r7 = g[-5];		// Load input FFT word at halfway + 3
-	} else {
-		r1 = g[-11];		// Load input FFT word at halfway - 3
-		r2 = g[-10];		// Load input FFT word at halfway - 2
-		r3 = g[-9];		// Load input FFT word at halfway - 1
-		r4 = g[-5];		// Load input FFT word at halfway + 0
-		r5 = g[-6];		// Load input FFT word at halfway + 1
-		r6 = g[-7];		// Load input FFT word at halfway + 2
-		r7 = g[-8];		// Load input FFT word at halfway + 3
-	}
+	r1 = g[-11];		// Load input FFT word at halfway - 3
+	r2 = g[-10];		// Load input FFT word at halfway - 2
+	r3 = g[-9];		// Load input FFT word at halfway - 1
+	r4 = g[-8];		// Load input FFT word at halfway + 0
+	r5 = g[-7];		// Load input FFT word at halfway + 1
+	r6 = g[-6];		// Load input FFT word at halfway + 2
+	r7 = g[-5];		// Load input FFT word at halfway + 3
 
 	// Brute force a zero padded 13-point FFT.  Hermetian symetry allows this to be stored in 7 complex values.
 	g[-12] = r1 + r2 + r3 + r4 + r5 + r6 + r7;
@@ -826,23 +816,13 @@ const	double INV13 = 0.07692307692307692307692307692308;	// 1/13
 	o[6] = r1 + 2.0 * (w12c*r2 + w11c*r3 + w10c*r4 +  w9c*r5 +  w8c*r6 +  w7c*r7 + w12s*i2 + w11s*i3 + w10s*i4 +  w9s*i5 +  w8s*i6 +  w7s*i7);
 
 	// Store the zpad doubles in the header
-	if (gwdata->cpu_flags & CPU_AVX512F) {
-		g[-11] = o[0] * INV13;	// Store output FFT word at halfway - 3
-		g[-10] = o[1] * INV13;	// Store output FFT word at halfway - 2
-		g[-9]  = o[2] * INV13;	// Store output FFT word at halfway - 1
-		g[-8]  = o[3] * INV13;	// Store output FFT word at halfway + 0
-		g[-7]  = o[4] * INV13;	// Store output FFT word at halfway + 1
-		g[-6]  = o[5] * INV13;	// Store output FFT word at halfway + 2
-		g[-5]  = o[6] * INV13;	// Store output FFT word at halfway + 3
-	} else {
-		g[-11] = o[0] * INV13;	// Store output FFT word at halfway - 3
-		g[-10] = o[1] * INV13;	// Store output FFT word at halfway - 2
-		g[-9]  = o[2] * INV13;	// Store output FFT word at halfway - 1
-		g[-5]  = o[3] * INV13;	// Store output FFT word at halfway + 0
-		g[-6]  = o[4] * INV13;	// Store output FFT word at halfway + 1
-		g[-7]  = o[5] * INV13;	// Store output FFT word at halfway + 2
-		g[-8]  = o[6] * INV13;	// Store output FFT word at halfway + 3
-	}
+	g[-11] = o[0] * INV13;	// Store output FFT word at halfway - 3
+	g[-10] = o[1] * INV13;	// Store output FFT word at halfway - 2
+	g[-9]  = o[2] * INV13;	// Store output FFT word at halfway - 1
+	g[-8]  = o[3] * INV13;	// Store output FFT word at halfway + 0
+	g[-7]  = o[4] * INV13;	// Store output FFT word at halfway + 1
+	g[-6]  = o[5] * INV13;	// Store output FFT word at halfway + 2
+	g[-5]  = o[6] * INV13;	// Store output FFT word at halfway + 3
 }
 
 // Helper routines for FFT code
