@@ -2344,6 +2344,12 @@ void JSONaddExponent (
 {
 	if (w->k == 1.0 && w->b == 2 && w->c == -1) sprintf (JSONbuf+strlen(JSONbuf), ", \"exponent\":%lu", w->n);
 	else sprintf (JSONbuf+strlen(JSONbuf), ", \"k\":%.0f, \"b\":%lu, \"n\":%lu, \"c\":%ld", w->k, w->b, w->n, w->c);
+}
+
+void JSONaddExponentKnownFactors (
+	char	*JSONbuf,
+	struct work_unit *w)
+{
 	if (w->known_factors != NULL) {
 		char	fac_string[1210];
 		char	*in, *out;
@@ -3036,7 +3042,12 @@ int parseWorkToDoLine (
 		goto illegal_line;
 	}
 	if (w->work_type == WORK_FACTOR && w->n > MAX_FACTOR && !IniGetInt (INI_FILE, "LargeTFexponents", 0)) {
-		sprintf (buf, "Error: Worktodo.txt file contained bad factoring assignment: %ld\n", w->n);
+		sprintf (buf, "Error: Worktodo.txt file contained bad factoring exponent: %ld\n", w->n);
+		OutputBoth (MAIN_THREAD_NUM, buf);
+		goto illegal_line;
+	}
+	if (w->work_type == WORK_FACTOR && w->factor_to > MAX_FACTOR_BITS && !IniGetInt (INI_FILE, "LargeTFbits", 0)) {
+		sprintf (buf, "Error: Worktodo.txt file contained bad factoring limit: %d\n", (int) w->factor_to);
 		OutputBoth (MAIN_THREAD_NUM, buf);
 		goto illegal_line;
 	}
@@ -4795,6 +4806,7 @@ static	time_t	last_time[3] = {0};
 /* Get the interval user-settable parameter for seconds that must have elapsed since the last time the date was output */
 
 	write_interval = IniGetInt (INI_FILE, "ResultsFileTimestampInterval", 300);
+	if (which_results_file == 2) write_interval = 2000000000;			// JSON output contains a timestamp
 
 /* Open file, position to end */
 
@@ -4947,10 +4959,7 @@ void set_comm_timers (void)
 	    current_time > (time_t)(last_time + DAYS_BETWEEN_CHECKINS * 86400.0))
 		UpdateEndDates ();
 	else
-		add_timed_event (TE_COMPLETION_DATES,
-				 (int) (last_time +
-					DAYS_BETWEEN_CHECKINS * 86400.0 -
-					current_time));
+		add_timed_event (TE_COMPLETION_DATES, (int) (last_time + DAYS_BETWEEN_CHECKINS * 86400.0 - current_time));
 
 /* Add the event that checks for CERT work and if the work queue has enough work.  As a side effect, this will */
 /* also start the comm thread in case there is an old spool file hanging around. */
@@ -4964,9 +4973,7 @@ void set_comm_timers (void)
 void do_manual_comm_now (void)
 {
 	gwmutex_lock (&SPOOL_FILE_MUTEX);
-	if (!COMMUNICATION_THREAD)
-		gwthread_create (&COMMUNICATION_THREAD,
-				 &communicateWithServer, NULL);
+	if (!COMMUNICATION_THREAD) gwthread_create (&COMMUNICATION_THREAD, &communicateWithServer, NULL);
 	gwmutex_unlock (&SPOOL_FILE_MUTEX);
 }
 
@@ -6650,8 +6657,8 @@ retry:
 		time_t current_time;
 		time (&current_time);
 		IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_LastEndDatesSent, (long) current_time);
-		if (!MANUAL_COMM)
-			add_timed_event (TE_COMPLETION_DATES, (int) (DAYS_BETWEEN_CHECKINS * 86400.0));
+		if (MANUAL_COMM) delete_timed_event (TE_COMPLETION_DATES);
+		add_timed_event (TE_COMPLETION_DATES, (int) (DAYS_BETWEEN_CHECKINS * 86400.0));
 	}
 
 /* Delete the spool file.  However, we don't delete the file if any writes */

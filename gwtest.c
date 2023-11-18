@@ -842,6 +842,14 @@ void test_it (
 	gwmul3 (gwdata, x, x3, x, 0); mulgi (&gwdata->gdata, g3, g); specialmodg (gwdata, g);
 	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x, g, "smallmul5");
 
+/* Test partial fft mul with s2 == d */
+	
+	gwsquare2 (gwdata, x, x, GWMUL_STARTNEXTFFT); squaregi (&gwdata->gdata, g); specialmodg (gwdata, g);
+	gwfft (gwdata, x2, x2);
+	gwmul3 (gwdata, x, x2, x2, 0); mulgi (&gwdata->gdata, g, g2); specialmodg (gwdata, g2);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x, g, "partial fft mul #1");
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x2, g2, "partial fft mul #2");
+
 /* Test gwmul4 routines */
 
 	gwsquare2 (gwdata, x, x2, GWMUL_FFT_S1); gtog (g, g2); squaregi (&gwdata->gdata, g2); specialmodg (gwdata, g2);
@@ -906,6 +914,11 @@ void test_it (
 	gwunfft (gwdata, x, x);
 	gwsubmul4 (gwdata, x, x2, x, x4, GWMUL_FFT_S1 | GWMUL_FFT_S3); //gtog (g2, g4); subg (g, g4); mulg (g, g4); specialmodg (gwdata, g4);
 	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x4, g4, "submul133 save");
+
+	gwunfft (gwdata, x2, x2);
+	gwsubmul4 (gwdata, x2, x3, x, x3, GWMUL_FFT_S1); gtog (g2, g4); subg (g3, g4); mulg (g, g4); gtog (g4, g3); specialmodg (gwdata, g3);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x3, g3, "submul312 save s2 == d");
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x2, g2, "submul312 save s2 == d arg1");
 
 	// Older tests
 	gwcopy (gwdata, x2, x4);

@@ -411,6 +411,18 @@ void gwfft_for_fma (		/* Forward FFT with extra processing for use in gwmuladd4 
 #define GWMUL_ADDINCONST	0x0100		/* Addin the optional gwsetaddin value to the multiplication result */
 #define GWMUL_MULBYCONST	0x0200		/* Multiply the final result by the small mulbyconst */
 #define GWMUL_STARTNEXTFFT	0x0400		/* Start the forward FFT of the multiplication result (for better performance) */
+/* These "combo" options are provided to make code more readable */
+#define GWMUL_FFT_S12		(GWMUL_FFT_S1 | GWMUL_FFT_S2)
+#define GWMUL_FFT_S13		(GWMUL_FFT_S1 | GWMUL_FFT_S3)
+#define GWMUL_FFT_S14		(GWMUL_FFT_S1 | GWMUL_FFT_S4)
+#define GWMUL_FFT_S23		(GWMUL_FFT_S2 | GWMUL_FFT_S3)
+#define GWMUL_FFT_S24		(GWMUL_FFT_S2 | GWMUL_FFT_S4)
+#define GWMUL_FFT_S34		(GWMUL_FFT_S3 | GWMUL_FFT_S4)
+#define GWMUL_FFT_S123		(GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3)
+#define GWMUL_FFT_S124		(GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S4)
+#define GWMUL_FFT_S134		(GWMUL_FFT_S1 | GWMUL_FFT_S3 | GWMUL_FFT_S4)
+#define GWMUL_FFT_S234		(GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4)
+#define GWMUL_FFT_S1234		(GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4)
 /* There are advanced GWMUL_ options described later */
 void gwmul3 (			/* Multiply two gwnums, one of s1 or s2 will be FFTed unless the PRESERVE option is set */
 	gwhandle *gwdata,	/* Handle initialized by gwsetup */
@@ -649,16 +661,14 @@ unsigned long gwmemused (gwhandle *);
 #define squareadd_safe(h,numadds1,numadds2,numadds3)	(FFT1_is_simple(h) ? square_safe(h,numadds1) : squaremuladd_safe(h,numadds1,numadds2,0,numadds3))
 #define FFT1_is_simple(h)				(!(h)->GENERAL_MMGW_MOD && ((h)->k == 1.0 || labs((h)->c) == 1))
 
-/* These macros are for gwmulmuladd safety calculations.  If s1 == s2 or s3 == s4, then the gwmulmuladd is doing squarings which behaves very */
-/* differently in safety calculations.  Thus, there are four macros to handle the different gwmulmuladd possibilities.  WARNING: the impact of */
-/* unnormalized adds before a squaring is poorly understood. */
+/* These macros are for gwmulmuladd safety calculations.  If s1 == s2 or s3 == s4, then the gwmulmuladd is doing squarings which behaves */
+/* differently in safety calculations.  Thus, there are four macros to handle the different gwmulmuladd possibilities. */
 
-#define mulmuladd_safe(h,adds1,adds2,adds3,adds4)	((h)->EXTRA_BITS >= numadds_to_eb(mma5_mul_pair(adds1,adds2)+mma5_mul_pair(adds3,adds4)+1))
-#define squaremuladd_safe(h,adds1,adds2,adds3,adds4)	((h)->EXTRA_BITS >= mma5_sqr_penalty+numadds_to_eb(mma5_sqr_pair(adds1)+mma5_mul_pair(adds3,adds4)+2))
-#define mulsquareadd_safe(h,adds1,adds2,adds3,adds4)	squaremuladd_safe(h,adds3,adds4,adds1,adds2)
-#define squaresquareadd_safe(h,adds1,adds2,adds3,adds4)	((h)->EXTRA_BITS >= mma5_sqr_penalty+numadds_to_eb(mma5_sqr_pair(adds1)+mma5_sqr_pair(adds3)+3))
-#define mma5_mul_pair(adds1,adds2)			(((adds1) + (adds2) + ((adds1) != 0 && (adds2) != 0)) ? 1 : 0)	/* helper macro */
-#define mma5_sqr_pair(adds1)				((adds1) * 4)							/* helper macro */
+#define mulmuladd_safe(h,adds1,adds2,adds3,adds4)	((h)->EXTRA_BITS >= mma5_pairs_eb((adds1)+(adds2),(adds3)+(adds4)))
+#define squaremuladd_safe(h,adds1,adds2,adds3,adds4)	((h)->EXTRA_BITS >= mma5_sqr_penalty+mma5_pairs_eb(2*(adds1)+1,2*(adds3)))
+#define mulsquareadd_safe(h,adds1,adds2,adds3,adds4)	((h)->EXTRA_BITS >= mma5_sqr_penalty+mma5_pairs_eb(2*(adds1),2*(adds3)+1))
+#define squaresquareadd_safe(h,adds1,adds2,adds3,adds4)	((h)->EXTRA_BITS >= 2*mma5_sqr_penalty+mma5_pairs_eb(2*(adds1)+1,2*(adds3)+1))
+#define mma5_pairs_eb(sum1,sum2)			((sum1)<(sum2)?numadds_to_eb(sum1)+numadds_to_eb((sum2)+1):numadds_to_eb((sum1)+1)+numadds_to_eb(sum2))	// Add one to larger pair
 #define mma5_sqr_penalty				(EB_GWMUL_SAVINGS - EB_FIRST_ADD)
 
 /*-----------------------------------------------------------------+

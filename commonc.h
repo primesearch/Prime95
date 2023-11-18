@@ -12,7 +12,7 @@ extern "C" {
 /* Constants */
 
 #define VERSION		"30.19"
-#define BUILD_NUM	"1"
+#define BUILD_NUM	"2"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -28,7 +28,8 @@ extern "C" {
 /* FreeBSD 64-bit  #12 */
 
 #define MIN_PRIME	5L		/* Smallest testable prime */
-#define MAX_FACTOR	2000000000	/* Largest factorable Mersenne number */
+#define MAX_FACTOR	1500000000	/* Largest factorable Mersenne number */
+#define MAX_FACTOR_BITS	87		/* Largest factor to bits allowed */
 #define ERROR_RATE	0.018		/* Estimated LL error rate on clean run */
 #define PRP_ERROR_RATE	0.0001		/* Estimated PRP error rate (assumes Gerbicz error-checking) */
 
@@ -518,6 +519,7 @@ int writeResults (const char *);
 int writeResultsBench (const char *);
 int writeResultsJSON (const char *);
 void JSONaddExponent (char *JSONbuf, struct work_unit *w);
+void JSONaddExponentKnownFactors (char *JSONbuf, struct work_unit *w);
 void JSONaddProgramTimestamp (char *JSONbuf);
 void JSONaddUserComputerAID (char *JSONbuf, struct work_unit *w);
 

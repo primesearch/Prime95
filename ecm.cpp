@@ -104,6 +104,10 @@ int16_t relp_set_hard7c[] = {7,0,1,  0,1,3,7,15,31,127  ,63};		// 87.50%
 //int16_t relp_set_NOTeasy9[]  = {9,0,0,  0,1,3,7,15,31,47,63,27};
 #endif
 
+//GW I'm getting occasional reports of crashes on big pairing jobs (https://www.mersenneforum.org/showpost.php?p=643362&postcount=511).
+//GW Polymult has pretty much made large pairing jobs irrelevant, so I'm capping the max relp sets at 12 in hopes that eliminates crashes.
+#define MAX_RELP_SETS	12
+
 /* This set of data requires no intermediate calculations (except for discarding the usable set -1) during initialization. */
 /* That is, every D/2 set can be calculated be adding a multiple-of-D to a previous D/2 set, where the difference is also a previous D/2 set. */
 /* NOTE: We might eek out a little more performance by using "negative sets".  Try building on 0,1,-3 = 61.13%.  If we do explore negative sets, */
@@ -133,6 +137,7 @@ int16_t relp_set_easy20[] = {20,0,0,  0,1,3,5,6,13,20,21,27,48,55,83,111,201,209
 /* Over time we may enhance this to return different relp_sets based on the bounds and/or cost of computing intermediate sets. */
 
 int16_t *relp_set_selection (int L) {
+	if (L > MAX_RELP_SETS) L = MAX_RELP_SETS;
 	if (L <= 2) return relp_set_easy2;
 	if (L <= 3) return relp_set_easy3;
 	if (L <= 4) return relp_set_easy4;
@@ -766,7 +771,8 @@ void init_gcd_costs (
 /* Returns the cost.  Cost function can return more information, such as best ECM pooling type. */
 
 double best_stage2_impl_internal (
-	uint64_t C_start,		/* Starting point for bound #2 (usually B1, but can be different when multiple pairmaps are required) */
+	uint64_t B,			/* Bound #1 */
+	uint64_t C_start,		/* Starting point for bound #2 (usually B1, but can be different for save files and required multiple pairmaps) */
 	uint64_t C,			/* Bound #2 */
 	uint64_t max_numvals,		/* Number of gwnum temporaries that can be used.  Different than c->numvals when binary searching on numvals. */
 	double	(*cost_func)(void *),	/* ECM, P-1 or P+1 costing function */
@@ -816,7 +822,7 @@ double best_stage2_impl_internal (
 
 		D = d_data[i].D;
 		// Compute values needed by the costing functions
-		c->B1 = C_start;
+		c->B1 = B;
 		c->B2 = C;
 		c->D = D;
 		c->numrels = d_data[i].numrels;
@@ -837,7 +843,7 @@ double best_stage2_impl_internal (
 			if (c->B2_start < C_start) c->B2_start = C_start;
 			if (c->gap_end && c->B2_start < c->gap_end) c->B2_start = c->gap_end;
 			c->B2_start = round_down_to_multiple_of (c->B2_start, D);
-		}			
+		}
 		c->numDsections = (B2_end - c->B2_start) / D;
 
 /* Perform pairing-specific and polymult-specific initializations */
@@ -851,7 +857,7 @@ double best_stage2_impl_internal (
 /* Estimate our prime pairing percentage and number of D sections that can fit in a pairing map */
 
 			/* We only support relp_sets up to 20 entries */
-			c->totrels = (max_numvals > 20 * d_data[i].numrels) ? 20 * d_data[i].numrels : (int) max_numvals;
+			c->totrels = (max_numvals > MAX_RELP_SETS * d_data[i].numrels) ? MAX_RELP_SETS * d_data[i].numrels : (int) max_numvals;
 			estimate_pairing (d_data[i].second_missing_prime, C_start, C, c->totrels, d_data[i].numrels, &pairing_percentage, &pairing_runtime);
 			c->est_pair_pct = pairing_percentage;
 			c->est_numpairs = (pairing_percentage * c->est_numprimes) / 2.0;
@@ -925,6 +931,7 @@ double best_stage2_impl_internal (
 /* Returns the cost.  Cost function can return more information, such as best D value, B2_start, B2_end. */
 
 double best_stage2_impl (
+	uint64_t B,			/* Bound #1 */
 	uint64_t C_start,		/* Starting point for bound #2 -- usually bound #1 */
 	uint64_t gap_start,		/* last_relocatable or zero (when pairmaps are split, c_start to gap_start are the remaining relocatables to pair) */
 	uint64_t gap_end,		/* a.k.a C_done (when pairmaps are split, gap_end to C are the remaining primes to pair) */
@@ -971,21 +978,21 @@ double best_stage2_impl (
 
 /* When binary searching on numvals is not needed (with poly stage 2 maximum numvals is always best), then just do one call to best_stage2_impl_internal */
 
-	if (c->use_poly_D_data) return (best_stage2_impl_internal (C_start, C, c->numvals, cost_func, cost_func_data));
+	if (c->use_poly_D_data) return (best_stage2_impl_internal (B, C_start, C, c->numvals, cost_func, cost_func_data));
 
 /* Prepare for a binary search looking for the most efficienct stage 2 implementation varying the number of gwnums available for relative primes data. */
 
 	best[0].numvals = 4;
-	best[0].efficiency = best_stage2_impl_internal (C_start, C, best[0].numvals, cost_func, cost_func_data);
+	best[0].efficiency = best_stage2_impl_internal (B, C_start, C, best[0].numvals, cost_func, cost_func_data);
 	if (numvals == 4) return (best[0].efficiency);
 	best[2].numvals = c->numvals;
-	best[2].efficiency = best_stage2_impl_internal (C_start, C, best[2].numvals, cost_func, cost_func_data);
+	best[2].efficiency = best_stage2_impl_internal (B, C_start, C, best[2].numvals, cost_func, cost_func_data);
 	if (numvals == 5) return (best[2].efficiency);
 	best[1].numvals = (c->numvals + 4) / 2;
-	best[1].efficiency = best_stage2_impl_internal (C_start, C, best[1].numvals, cost_func, cost_func_data);
+	best[1].efficiency = best_stage2_impl_internal (B, C_start, C, best[1].numvals, cost_func, cost_func_data);
 //for (int i = 200; i < 1685; i++) {
 //char buf[200];
-//double efficiency = best_stage2_impl_internal (C_start, C, i, cost_func, cost_func_data);
+//double efficiency = best_stage2_impl_internal (B, C_start, C, i, cost_func, cost_func_data);
 //sprintf (buf, "best %d, d: %d, efficiency: %g\n", i, c->D, efficiency);
 //writeResults (buf);
 //}
@@ -1004,19 +1011,19 @@ double best_stage2_impl (
 			ASSERTG (best[1].efficiency >= best[2].efficiency);
 			best[2] = best[1];
 			best[1].numvals = (best[0].numvals + best[2].numvals) / 2;
-			best[1].efficiency = best_stage2_impl_internal (C_start, C, best[1].numvals, cost_func, cost_func_data);
+			best[1].efficiency = best_stage2_impl_internal (B, C_start, C, best[1].numvals, cost_func, cost_func_data);
 		}
 		// If midpoint is worse than end point, make midpoint the new start point.
 		else if (best[1].efficiency < best[2].efficiency) {
 			ASSERTG (best[1].efficiency >= best[0].efficiency);
 			best[0] = best[1];
 			best[1].numvals = (best[0].numvals + best[2].numvals) / 2;
-			best[1].efficiency = best_stage2_impl_internal (C_start, C, best[1].numvals, cost_func, cost_func_data);
+			best[1].efficiency = best_stage2_impl_internal (B, C_start, C, best[1].numvals, cost_func, cost_func_data);
 		}
 		// Work on the bigger of the lower section and upper section
 		else if (best[1].numvals - best[0].numvals > best[2].numvals - best[1].numvals) {	// Work on lower section
 			midpoint.numvals = (best[0].numvals + best[1].numvals) / 2;
-			midpoint.efficiency = best_stage2_impl_internal (C_start, C, midpoint.numvals, cost_func, cost_func_data);
+			midpoint.efficiency = best_stage2_impl_internal (B, C_start, C, midpoint.numvals, cost_func, cost_func_data);
 			if (midpoint.efficiency > best[1].efficiency || best[1].efficiency == best[2].efficiency) {	// Make middle the new end point
 				best[2] = best[1];
 				best[1] = midpoint;
@@ -1025,7 +1032,7 @@ double best_stage2_impl (
 			}
 		} else {							// Work on upper section
 			midpoint.numvals = (best[1].numvals + best[2].numvals) / 2;
-			midpoint.efficiency = best_stage2_impl_internal (C_start, C, midpoint.numvals, cost_func, cost_func_data);
+			midpoint.efficiency = best_stage2_impl_internal (B, C_start, C, midpoint.numvals, cost_func, cost_func_data);
 			if (midpoint.efficiency > best[1].efficiency) {		// Make middle the new start point
 				best[0] = best[1];
 				best[1] = midpoint;
@@ -1039,10 +1046,10 @@ double best_stage2_impl (
 
 	if (best[2].efficiency > best[1].efficiency) best[1] = best[2];
 //{char buf[200];
-//double efficiency = best_stage2_impl_internal (C_start, C, best[1].numvals, cost_func, cost_func_data);
+//double efficiency = best_stage2_impl_internal (B, C_start, C, best[1].numvals, cost_func, cost_func_data);
 //sprintf (buf, "best %d, d: %d, efficiency: %g\n", best[1].numvals, c->D, efficiency);
 //writeResults (buf);}
-	return (best_stage2_impl_internal (C_start, C, best[1].numvals, cost_func, cost_func_data));
+	return (best_stage2_impl_internal (B, C_start, C, best[1].numvals, cost_func, cost_func_data));
 }
 
 /**********************************************************************************************************************/
@@ -1468,31 +1475,32 @@ typedef struct {
 	uint64_t C;		/* Bound #2 (a.k.a. B2) */
 	giant	N;		/* Number being factored */
 	giant	factor;		/* Factor found, if any */
-	bool	sigma_montg;	/* TRUE for old-style Suyama sigma (choose12 for Montgomery curves), FALSE for new-style Atkin-Morain Edward curves */
-	bool	stage1_montg;	/* TRUE for old-style Montgomery stage 1, FALSE for new-style Edward curves */
+	bool	montg_sigma;	/* TRUE for old-style Suyama sigma (choose12 for Montgomery curves), FALSE for new-style Atkin-Morain Edwards curves */
+	bool	montg_stage1;	/* TRUE for old-style Montgomery stage 1, FALSE for new-style Edward curves */
 	bool	optimal_B2;	/* TRUE if we calculate optimal bound #2 given currently available memory.  FALSE for a fixed bound #2. */
 	uint64_t average_B2;	/* Average Kruppa-adjusted bound #2 work done on ECM curves thusfar */
 	unsigned long stage1_fftlen; /* FFT length used in stage 1 */
 
 	gwnum	Ad4;		/* Pre-computed value used for Montgomery doubling */
 	gwnum	ed_a;		/* "a" value in a twisted Edwards curve: ax^2 + y^2 = 1 + dx^2y^2 */
-	gwnum	ed_d;		/* "d" value in a non-twisted or twisted Edwards curve */
+	gwnum	ed_d;		/* "d" value in a non-twisted or twisted Edwards curve (only used by ed_check) */
 
 	readSaveFileState read_save_file_state;	/* Manage savefile names during reading */
 	writeSaveFileState write_save_file_state; /* Manage savefile names during writing */
 	void	*sieve_info;	/* Prime number sieve */
 	uint64_t stage1_prime;	/* Prime number being processed */
 
-	mpz_t	stage1_exp;	/* Edwards stage 1 exponent */
-	char	*NAF_codes;	/* NAF indexes extracted from stage 1 exponent stored in a bit array */
+	mpz_t	stage1_exp;	/* Edwards stage 1 exponent chunk (later converted to bit array indicating when to ed_dbl vs. ed_dbl and ed_add) */
+	char	*NAF_codes;	/* Edwards stage 1 NAF indexes extracted from exponent chunk and stored in a bit array */
 	bool	stage1_exp_initialized;/* Edwards stage 1 exponent initialized with mpz_init */
-	uint64_t stage1_start_prime; /* First prime in the Edwards stage 1 exponent */
-	uint64_t stage1_exp_buffer_size; /* Buffer size (in bytes) used to build stage 1 exponent */
-	uint64_t stage1_bitnum;	/* Edwards stage 1 bit number being processed in the stage 1 exponent */
-	uint32_t NAF_dictionary_size; /* Number of gwnums in the NAF dictionary */
-	struct ed *NAF_dictionary; /* Array of gwnums that will be used in ed_add calls during NAF exponentiation */
+	uint64_t stage1_start_prime; /* Edwards stage 1 first prime in the current exponent chunk */
+	uint32_t stage1_exp_buffer_size; /* Edwards stage 1 buffer size (in bytes) used to build stage 1 exponent chunk */
+	uint32_t stage1_bitnum;	/* Edwards stage 1 bit number being processed in the exponent chunk */
+	uint32_t NAF_dictionary_size; /* Edwards stage 1 number of gwnums in the NAF dictionary */
+	struct ed *NAF_dictionary; /* Edwards stage 1 array of points used in ed_add calls during NAF exponentiation */
 
 	struct xz xz;		/* The stage 1 Montgomery value being computed */
+	struct ed dict_start;	/* The stage 1 Edwards value used to build the dictionary */
 	struct ed e;		/* The stage 1 Edwards value being computed */
 	gwnum	gg;		/* The stage 2 accumulated value */
 
@@ -1888,11 +1896,12 @@ void ed_free (
 
 /* Verify a point is on the Edwards elliptic curve */
 
-void ed_check (
+bool ed_check (				/* Returns TRUE if point is on the Edwards curve */
 	ecmhandle *ecmdata,
 	struct ed *in)
 {
 	gwnum	t0, t1, t2, t3;
+	bool	result;
 
 	t0 = gwalloc (&ecmdata->gwdata);
 	t1 = gwalloc (&ecmdata->gwdata);
@@ -1916,13 +1925,15 @@ void ed_check (
 	giant tmp = popg (&ecmdata->gwdata.gdata, ((unsigned long) ecmdata->gwdata.bit_length >> 5) + 5);
 	gwtogiant (&ecmdata->gwdata, t0, tmp);
 	modg (ecmdata->N, tmp);
-	ASSERTG (tmp->sign == 0);
+	result = (tmp->sign == 0);
 	pushg (&ecmdata->gwdata.gdata, 1);
 
 	gwfree (&ecmdata->gwdata, t0);
 	gwfree (&ecmdata->gwdata, t1);
 	gwfree (&ecmdata->gwdata, t2);
 	gwfree (&ecmdata->gwdata, t3);
+
+	return (result);
 }
 
 /* Options for ed_add, ed_dbl, and even ed_extend */
@@ -1949,7 +1960,7 @@ void ed_extend (
 	// Allocate a buffer for the new coordinate
 	e->t = gwalloc (&ecmdata->gwdata);
 	// Extend (X,Y,Z) to (XZ, YZ, XY, Z^2)
-	gwmul3 (&ecmdata->gwdata, e->x, e->y, e->t, GWMUL_FFT_S1 | GWMUL_FFT_S2 | mul_options);	// t = xy
+	gwmul3 (&ecmdata->gwdata, e->x, e->y, e->t, GWMUL_FFT_S12 | mul_options);		// t = xy
 	if (e->z != NULL) {
 		gwmul3 (&ecmdata->gwdata, e->x, e->z, e->x, GWMUL_FFT_S2 | mul_options);	// x = xz
 		gwmul3 (&ecmdata->gwdata, e->y, e->z, e->y, GWMUL_FFT_S2 | mul_options);	// y = yz
@@ -2000,36 +2011,35 @@ void ed_add (
 	gwnum C;
 	if (in1z == NULL) C = in2->t;
 	else gwmul3 (&ecmdata->gwdata, in1z, in2->t, C = out->z, mul_S1Z_options | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT_IF(safe11 || !extended)); // C = Z1 * T2
-	gwaddsub4o (&ecmdata->gwdata, D, C, tmp2, out->z, GWADD_DELAYNORM_IF(safe11 || !extended));		// E = D + C, H = D - C
+	gwaddsub4o (&ecmdata->gwdata, D, C, tmp2, out->z, GWADD_DELAYNORM_IF(safe11 || !extended));				// E = D + C, H = D - C
         if (subtract) {
-		gwswap (tmp2, out->z);										// swap E,H since C should have been negated
-		gwmulmuladd5 (&ecmdata->gwdata, in1->x, in2->y, in1->y, in2->x, tmp1,
-			      GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT);	// F = X1*Y2 - Y1*[-]X2
+		gwswap (tmp2, out->z);			// swap E,H since C should have been negated
+		gwmulmuladd5 (&ecmdata->gwdata, in1->x, in2->y, in1->y, in2->x, tmp1, GWMUL_FFT_S1234 | GWMUL_STARTNEXTFFT);	// F = X1*Y2 - Y1*[-]X2
 		if (ecmdata->ed_a == NULL)
-			gwmulmulsub5 (&ecmdata->gwdata, in1->y, in2->y, in1->x, in2->x, out->y, GWMUL_STARTNEXTFFT); // G = Y1*Y2 + X1*[-]X2
+			gwmulmulsub5 (&ecmdata->gwdata, in1->y, in2->y, in1->x, in2->x, out->y, GWMUL_STARTNEXTFFT);		// G = Y1*Y2 + X1*[-]X2
 		else {
 			gwmul3 (&ecmdata->gwdata, in1->x, in2->x, out->x, GWMUL_STARTNEXTFFT);
-			gwmulmulsub5 (&ecmdata->gwdata, in1->y, in2->y, ecmdata->ed_a, out->x, out->y, GWMUL_STARTNEXTFFT); // G = Y1*Y2 + aX1*[-]X2
+			gwmulmulsub5 (&ecmdata->gwdata, in1->y, in2->y, ecmdata->ed_a, out->x, out->y, GWMUL_STARTNEXTFFT);	// G = Y1*Y2 + aX1*[-]X2
 		}
         } else {
-		gwmulmulsub5 (&ecmdata->gwdata, in1->x, in2->y, in1->y, in2->x, tmp1,
-			      GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT);	// F = X1*Y2 - Y1*X2
+		gwmulmulsub5 (&ecmdata->gwdata, in1->x, in2->y, in1->y, in2->x, tmp1, GWMUL_FFT_S1234 | GWMUL_STARTNEXTFFT);	// F = X1*Y2 - Y1*X2
 		if (ecmdata->ed_a == NULL)
-			gwmulmuladd5 (&ecmdata->gwdata, in1->y, in2->y, in1->x, in2->x, out->y, GWMUL_STARTNEXTFFT); // G = Y1*Y2 + X1*X2
+			gwmulmuladd5 (&ecmdata->gwdata, in1->y, in2->y, in1->x, in2->x, out->y, GWMUL_STARTNEXTFFT);		// G = Y1*Y2 + X1*X2
 		else {
 			gwmul3 (&ecmdata->gwdata, in1->x, in2->x, out->x, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);
-			gwmulmuladd5 (&ecmdata->gwdata, in1->y, in2->y, ecmdata->ed_a, out->x, out->y, GWMUL_STARTNEXTFFT); // G = Y1*Y2 + aX1*X2
+			gwmulmuladd5 (&ecmdata->gwdata, in1->y, in2->y, ecmdata->ed_a, out->x, out->y, GWMUL_STARTNEXTFFT);	// G = Y1*Y2 + aX1*X2
 		}
 	}
 	if (!extended) {
 		gwmul3 (&ecmdata->gwdata, tmp2, tmp1, tmp2, GWMUL_FFT_S2 | mul_options);			// X3 = E * F
 		gwmul3 (&ecmdata->gwdata, tmp1, out->y, tmp1, GWMUL_FFT_S2 | mul_options);			// Z3 = F * G
-		gwmul3 (&ecmdata->gwdata, out->y, out->z, out->y, mul_options);					// Y3 = G * H
+		gwmul3 (&ecmdata->gwdata, out->y, out->z, out->z, mul_options);					// Y3 = G * H  (better to overwrite arg being FFTed)
+		gwswap (out->z, out->y);
 		gwswap (tmp2, out->x);
 		gwswap (tmp1, out->z);
 		out->t = NULL;
 	} else {
-		gwmul3 (&ecmdata->gwdata, tmp2, tmp1, out->x, GWMUL_FFT_S1 | GWMUL_FFT_S2 | mul_options);	// X3 = E * F
+		gwmul3 (&ecmdata->gwdata, tmp2, tmp1, out->x, GWMUL_FFT_S12 | mul_options);			// X3 = E * F
 		gwmul3 (&ecmdata->gwdata, tmp1, out->y, tmp1, GWMUL_FFT_S2 | mul_options);			// Z3 = F * G
 		gwmul3 (&ecmdata->gwdata, out->y, out->z, out->y, GWMUL_FFT_S2 | mul_options);			// Y3 = G * H
 		gwmul3 (&ecmdata->gwdata, tmp2, out->z, tmp2, mul_options);					// T3 = E * H
@@ -2060,7 +2070,9 @@ void ed_dbl (
 
 	// Get algorithm preference
 	static int pref_algo5 = 2;		// FALSE = prefer algorithm 4, TRUE = prefer algorithm 5, 2 = not yet initialized
-	if (pref_algo5 == 2) pref_algo5 = IniGetInt (INI_FILE, "EdDblAlgo5", 0); // Default is prefer algorithm 4, even though algorithm 5 does fewer read/writes
+	if (pref_algo5 == 2) pref_algo5 = IniGetInt (INI_FILE, "EdDblAlgo5", 0); // Default is prefer algorithm 6, even though algorithm 5 does fewer read/writes
+	static int pref_algo6 = 2;		// FALSE = prefer algorithm 6, TRUE = prefer algorithm 6, 2 = not yet initialized
+	if (pref_algo6 == 2) pref_algo6 = IniGetInt (INI_FILE, "EdDblAlgo6", 1); // Default is prefer algorithm 6, even though algorithm 5 does fewer read/writes
 
 	// Allocate temporaries and out->z (also used as a temporary)
 	gwnum inz = in->z;						// Remember in case allocating out->z clobbers this value
@@ -2086,19 +2098,45 @@ void ed_dbl (
 		gwswap (tmp1, out->x);
 	    }
 	    if (!extended) {
-		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, out->y, tmp2, GWMUL_FFT_S1 | GWMUL_FFT_S3 | mul_options);	// Y3 = (H=G-(G-H)) * G
+		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, out->y, tmp2, GWMUL_FFT_S13 | mul_options);			// Y3 = (H=G-(G-H)) * G
 		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, out->y, out->x, GWMUL_FFT_S1 | mul_options);		// Z3 = (F=C-G) * G
-		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, tmp1, out->z, mul_options);				// X3 = (F=C-G) * E
+		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, tmp1, tmp1, mul_options);					// X3 = (F=C-G) * E  (better to write result to argument that needs FFTing)
 		gwswap (tmp2, out->y);
 		gwswap (out->x, out->z);
+		gwswap (tmp1, out->x);
 	    } else {
-		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, out->y, out->x, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_FFT_S3 | mul_options); // Y3 = (H=G-(G-H)) * G
+		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, out->y, out->x, GWMUL_FFT_S123 | mul_options);		// Y3 = (H=G-(G-H)) * G
 		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, tmp1, tmp2, GWMUL_FFT_S3 | mul_options);			// T3 = (H=G-(G-H)) * E
 		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, tmp1, tmp1, GWMUL_FFT_S1 | mul_options);			// X3 = (F=C-G) * E
 		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, out->y, out->z, mul_options);				// Z3 = (F=C-G) * G
 		gwswap (out->x, out->y);
 		gwswap (tmp2, out->t);
 		gwswap (tmp1, out->x);
+	    }
+	}
+	else if (pref_algo6 && mul_safe (&ecmdata->gwdata, 2, 0)) {							// Algorithm 6 (new)
+	    if (ecmdata->ed_a == NULL) {			// Not a twisted Edwards curve
+		gwsquare2 (&ecmdata->gwdata, in->x, tmp2, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);				// A = X^2, two-dest squaring
+	    } else {						// Twisted Edwards curve
+		gwsquare2 (&ecmdata->gwdata, in->x, tmp2, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);				// A = X^2, two-dest squaring
+		gwmul3 (&ecmdata->gwdata, ecmdata->ed_a, tmp2, tmp2, GWMUL_STARTNEXTFFT);				// A = aX^2
+	    }
+	    gwmul3 (&ecmdata->gwdata, in->x, in->y, out->x, GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// E = 2XY
+	    gwmuladd4 (&ecmdata->gwdata, in->y, in->y, tmp2, out->y, GWMUL_FFT_S3 | GWMUL_STARTNEXTFFT);		// G = Y^2 + A (improved asm code could save a read here)
+	    gwadd3o (&ecmdata->gwdata, tmp2, tmp2, tmp2, GWADD_DELAY_NORMALIZE);					// 2A = A + A
+	    if (!extended) {
+		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, out->y, tmp2, GWMUL_FFT_S13 | mul_options);			// Y3 = (H=G-2A) * G
+		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, out->y, tmp1, GWMUL_FFT_S1 | mul_options);			// Z3 = (F=C-G) * G
+		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, out->x, out->x, mul_options);				// X3 = (F=C-G) * E  (better to write result to argument that needs FFTing)
+		gwswap (tmp2, out->y);
+		gwswap (tmp1, out->z);
+	    } else {
+		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, out->y, tmp1, GWMUL_FFT_S13 | mul_options);			// Y3 = (H=G-2A) * G
+		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, out->x, tmp2, GWMUL_FFT_S3 | mul_options);			// T3 = (H=G-2A) * E
+		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, out->x, out->x, GWMUL_FFT_S1 | mul_options);		// X3 = (F=C-G) * E
+		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, out->y, out->z, mul_options);				// Z3 = (F=C-G) * G
+		gwswap (tmp1, out->y);
+		gwswap (tmp2, out->t);
 	    }
 	} else {													// Algorithm 4
 	    bool safe21 = mul_safe (&ecmdata->gwdata, 2, 1);								// Z3 will be safe if G & H are unnormalized
@@ -2117,7 +2155,7 @@ void ed_dbl (
 		gwsubmul4 (&ecmdata->gwdata, out->z, tmp2, out->x, out->x, mul_options);				// X3 = (F=C-G) * E
 		gwswap (tmp1, out->z);
 	    } else {
-		gwmul3 (&ecmdata->gwdata, tmp2, out->y, tmp1, GWMUL_FFT_S1 | GWMUL_FFT_S2 | mul_options);		// Y3 = G * H
+		gwmul3 (&ecmdata->gwdata, tmp2, out->y, tmp1, GWMUL_FFT_S12 | mul_options);				// Y3 = G * H
 		gwmul3 (&ecmdata->gwdata, out->x, out->y, out->y, GWMUL_FFT_S1 | mul_options);				// T3 = E * H
 		gwsubmul4 (&ecmdata->gwdata, out->z, tmp2, out->x, out->x, GWMUL_FFT_S1 | mul_options);			// X3 = (F=C-G) * E
 		gwsubmul4 (&ecmdata->gwdata, out->z, tmp2, tmp2, out->z, mul_options);					// Z3 = (F=C-G) * G
@@ -2217,11 +2255,11 @@ void ell_dbl_xz_scr (
 		t4 = out->z;
 
 		gwsetmulbyconst (&ecmdata->gwdata, 4);
-		gwmul3 (&ecmdata->gwdata, in->x, in->z, t3, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); /* t3 = 4*x*z */
+		gwmul3 (&ecmdata->gwdata, in->x, in->z, t3, GWMUL_FFT_S12 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); /* t3 = 4*x*z */
 		gwsub3o (&ecmdata->gwdata, in->x, in->z, t2, GWADD_DELAY_NORMALIZE);			/* Compute x - z */
 		gwsquare2 (&ecmdata->gwdata, t2, t2, GWMUL_STARTNEXTFFT);				/* t2 = (x - z)^2 */
 		gwmul3 (&ecmdata->gwdata, t2, ecmdata->Ad4, t4, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);	/* t4 = t2 * Ad4 */
-		gwaddmul4 (&ecmdata->gwdata, t2, t3, t4, out->x, GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_STARTNEXTFFT); /* outx = (t1 = t2 + t3) * t4 */
+		gwaddmul4 (&ecmdata->gwdata, t2, t3, t4, out->x, GWMUL_FFT_S23 | GWMUL_STARTNEXTFFT);	/* outx = (t1 = t2 + t3) * t4 */
 		gwaddmul4 (&ecmdata->gwdata, t4, t3, t3, out->z, GWMUL_STARTNEXTFFT);			/* outz = (t4 + t3) * t3 */
 	}
 
@@ -2245,7 +2283,7 @@ void ell_dbl_xz_scr (
 		gwadd3o (&ecmdata->gwdata, t3, t3, t3, GWADD_FORCE_NORMALIZE);					/* t3 = 4*x*z */
 
 		gwmul3 (&ecmdata->gwdata, t2, ecmdata->Ad4, t4, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);		/* t4 = t2 * Ad4 */
-		gwaddmul4 (&ecmdata->gwdata, t2, t3, t4, out->x, GWMUL_FFT_S2 | GWMUL_FFT_S3 | GWMUL_STARTNEXTFFT); /* outx = (t1 = t2 + t3) * t4 */
+		gwaddmul4 (&ecmdata->gwdata, t2, t3, t4, out->x, GWMUL_FFT_S23 | GWMUL_STARTNEXTFFT);		/* outx = (t1 = t2 + t3) * t4 */
 		gwaddmul4 (&ecmdata->gwdata, t4, t3, t3, out->z, GWMUL_STARTNEXTFFT);				/* outz = (t4 + t3) * t3 */
 	}
 }
@@ -2269,11 +2307,11 @@ void ell_dbl_xz_scr_last (
 		t4 = out->z;
 
 		gwsetmulbyconst (&ecmdata->gwdata, 4);
-		gwmul3 (&ecmdata->gwdata, in->x, in->z, t3, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); /* t3 = 4*x*z */
+		gwmul3 (&ecmdata->gwdata, in->x, in->z, t3, GWMUL_FFT_S12 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); /* t3 = 4*x*z */
 		gwsub3o (&ecmdata->gwdata, in->x, in->z, t2, GWADD_DELAY_NORMALIZE);			/* Compute x - z */
 		gwsquare2 (&ecmdata->gwdata, t2, t2, GWMUL_STARTNEXTFFT);				/* t2 = (x - z)^2 */
 		gwmul3 (&ecmdata->gwdata, t2, ecmdata->Ad4, t4, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);	/* t4 = t2 * Ad4 */
-		gwaddmul4 (&ecmdata->gwdata, t2, t3, t4, out->x, GWMUL_FFT_S2 | GWMUL_FFT_S3);		/* outx = (t1 = t2 + t3) * t4 */
+		gwaddmul4 (&ecmdata->gwdata, t2, t3, t4, out->x, GWMUL_FFT_S23);			/* outx = (t1 = t2 + t3) * t4 */
 		gwaddmul4 (&ecmdata->gwdata, t4, t3, t3, out->z, 0);					/* outz = (t4 + t3) * t3 */
 	}
 
@@ -2297,7 +2335,7 @@ void ell_dbl_xz_scr_last (
 		gwadd3o (&ecmdata->gwdata, t3, t3, t3, GWADD_FORCE_NORMALIZE);					/* t3 = 4*x*z */
 
 		gwmul3 (&ecmdata->gwdata, t2, ecmdata->Ad4, t4, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);		/* t4 = t2 * Ad4 */
-		gwaddmul4 (&ecmdata->gwdata, t2, t3, t4, out->x, GWMUL_FFT_S2 | GWMUL_FFT_S3);			/* outx = (t1 = t2 + t3) * t4 */
+		gwaddmul4 (&ecmdata->gwdata, t2, t3, t4, out->x, GWMUL_FFT_S23);				/* outx = (t1 = t2 + t3) * t4 */
 		gwaddmul4 (&ecmdata->gwdata, t4, t3, t3, out->z, 0);						/* outz = (t4 + t3) * t3 */
 	}
 }
@@ -2320,8 +2358,8 @@ void ell_add_xz_scr (
 	ASSERTG (scr != in1 && scr != in2 && scr != diff);
 	t1 = scr->z;
 	t2 = scr->x;
-	gwmulmulsub5 (&ecmdata->gwdata, in1->x, in2->z, in1->z, in2->x, t1, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);	/* t1 = x1z2 - z1x2 */
-	gwmulmulsub5 (&ecmdata->gwdata, in1->x, in2->x, in1->z, in2->z, t2, GWMUL_STARTNEXTFFT);				/* t2 = x1x2 - z1z2 */
+	gwmulmulsub5 (&ecmdata->gwdata, in1->x, in2->z, in1->z, in2->x, t1, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);	/* t1 = x1z2 - z1x2 */
+	gwmulmulsub5 (&ecmdata->gwdata, in1->x, in2->x, in1->z, in2->z, t2, GWMUL_STARTNEXTFFT);			/* t2 = x1x2 - z1z2 */
 	gwsquare2 (&ecmdata->gwdata, t1, t1, GWMUL_STARTNEXTFFT);				/* t1 = t1^2 */
 	gwsquare2 (&ecmdata->gwdata, t2, t2, GWMUL_STARTNEXTFFT);				/* t2 = t2^2 */
 	options = (diff == out) ? GWMUL_STARTNEXTFFT : GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT;
@@ -2366,8 +2404,8 @@ void ell_add_xz_last (
 	ASSERTG (scr != in1 && scr != in2 && scr != diff);
 	t1 = scr->z;
 	t2 = scr->x;
-	gwmulmulsub5 (&ecmdata->gwdata, in1->x, in2->z, in1->z, in2->x, t1, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);	/* t1 = x1z2 - z1x2 */
-	gwmulmulsub5 (&ecmdata->gwdata, in1->x, in2->x, in1->z, in2->z, t2, GWMUL_STARTNEXTFFT);				/* t2 = x1x2 - z1z2 */
+	gwmulmulsub5 (&ecmdata->gwdata, in1->x, in2->z, in1->z, in2->x, t1, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);	/* t1 = x1z2 - z1x2 */
+	gwmulmulsub5 (&ecmdata->gwdata, in1->x, in2->x, in1->z, in2->z, t2, GWMUL_STARTNEXTFFT);			/* t2 = x1x2 - z1z2 */
 	gwsquare2 (&ecmdata->gwdata, t1, t1, GWMUL_STARTNEXTFFT);				/* t1 = t1^2 */
 	gwsquare2 (&ecmdata->gwdata, t2, t2, GWMUL_STARTNEXTFFT);				/* t2 = t2^2 */
 	gwmul3 (&ecmdata->gwdata, t2, diff->z, t2, 0);						/* t2 = t2 * zdiff (will become outx) */
@@ -2389,7 +2427,7 @@ void ell_add_xz_1norm (
 	ASSERTG (out != in1 && out->x != in2 && out->z != in2 && out != diff);
 
 	t1 = out->z;
-	gwmulsub4 (&ecmdata->gwdata, in1->z, in2, in1->x, t1, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);	/* t1 = z1x2 - x1 */
+	gwmulsub4 (&ecmdata->gwdata, in1->z, in2, in1->x, t1, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);	/* t1 = z1x2 - x1 */
 	gwsquare2 (&ecmdata->gwdata, t1, t1, GWMUL_STARTNEXTFFT);				/* t1 = t1^2 */
 	gwmul3 (&ecmdata->gwdata, t1, diff->x, t1, GWMUL_STARTNEXTFFT);				/* t1 = t1 * xdiff (will become outz) */
 
@@ -2413,7 +2451,7 @@ void ell_add_xz_2norm (
 	ASSERTG (out != in1 && out->x != in2 && out->z != in2 && out->z != diff);
 
 	t1 = out->z;
-	gwmulsub4 (&ecmdata->gwdata, in1->z, in2, in1->x, t1, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);	/* t1 = z1x2 - x1 */
+	gwmulsub4 (&ecmdata->gwdata, in1->z, in2, in1->x, t1, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);	/* t1 = z1x2 - x1 */
 	gwsquare2 (&ecmdata->gwdata, t1, t1, GWMUL_STARTNEXTFFT);				/* t1 = t1^2 */
 	gwmul3 (&ecmdata->gwdata, t1, diff, t1, GWMUL_STARTNEXTFFT);				/* t1 = t1 * xdiff (will become outz) */
 
@@ -3242,9 +3280,9 @@ int add_to_normalize_pool_ro (
 			gwmul3 (&ecmdata->gwdata, a, b7, a, GWMUL_STARTNEXTFFT);
 			// b56 * b78
 			b5678 = b7;
-			gwmul3 (&ecmdata->gwdata, b56, b78, b5678, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (&ecmdata->gwdata, b56, b78, b5678, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			// b34 * b5678
-			gwmul3 (&ecmdata->gwdata, b34, b5678, b6vals, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (&ecmdata->gwdata, b34, b5678, b6vals, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			// (a1*b2)*b345678
 			gwmul3 (&ecmdata->gwdata, ecmdata->pool_values[0], b6vals, ecmdata->pool_values[0], GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
 			// (a2*b1)*b345678
@@ -3346,9 +3384,9 @@ int add_to_normalize_pool_ro (
 			gwmul3 (&ecmdata->gwdata, a, b14, a, GWMUL_STARTNEXTFFT);
 			// b1213 * b1415
 			b12131415 = b14;
-			gwmul3 (&ecmdata->gwdata, b1213, b1415, b12131415, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (&ecmdata->gwdata, b1213, b1415, b12131415, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			// b1011 * b12131415
-			gwmul3 (&ecmdata->gwdata, b1011, b12131415, b6vals, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (&ecmdata->gwdata, b1011, b12131415, b6vals, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			// b9*b101112131415
 			gwmul3 (&ecmdata->gwdata, ecmdata->poolz_values[ecmdata->poolz_count-1], b6vals, ecmdata->poolz_values[ecmdata->poolz_count-1], GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
 			// (a9*b0)*b101112131415
@@ -3571,7 +3609,7 @@ int normalize_pool (
 			b34 = ecmdata->poolz_values[0];
 			ecmdata->poolz_count = 0;
 			// b34 * b5
-			gwmul3 (&ecmdata->gwdata, b34, b5, b6vals, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (&ecmdata->gwdata, b34, b5, b6vals, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			// (a1*b2)*b345
 			gwmul3 (&ecmdata->gwdata, ecmdata->pool_values[0], b6vals, ecmdata->pool_values[0], GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
 			// (a2*b1)*b345
@@ -3604,7 +3642,7 @@ int normalize_pool (
 			b34 = ecmdata->poolz_values[0];
 			ecmdata->poolz_count = 0;
 			// b34 * b56
-			gwmul3 (&ecmdata->gwdata, b34, b56, b6vals, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (&ecmdata->gwdata, b34, b56, b6vals, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			// (a1*b2)*b3456
 			gwmul3 (&ecmdata->gwdata, ecmdata->pool_values[0], b6vals, ecmdata->pool_values[0], GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
 			// (a2*b1)*b3456
@@ -3642,9 +3680,9 @@ int normalize_pool (
 			b34 = ecmdata->poolz_values[0];
 			ecmdata->poolz_count = 0;
 			// b56 * b7
-			gwmul3 (&ecmdata->gwdata, b56, b7, b567, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (&ecmdata->gwdata, b56, b7, b567, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			// b34 * b567
-			gwmul3 (&ecmdata->gwdata, b34, b567, b6vals, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (&ecmdata->gwdata, b34, b567, b6vals, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			// (a1*b2)*b34567
 			gwmul3 (&ecmdata->gwdata, ecmdata->pool_values[0], b6vals, ecmdata->pool_values[0], GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
 			// (a2*b1)*b34567
@@ -3731,7 +3769,7 @@ int normalize_pool (
 			b1011 = ecmdata->poolz_values[ecmdata->poolz_count-2];
 			ecmdata->poolz_count -= 2;
 			// b1011 * b12
-			gwmul3 (&ecmdata->gwdata, b1011, b12, b6vals, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (&ecmdata->gwdata, b1011, b12, b6vals, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			// b9*b101112
 			gwmul3 (&ecmdata->gwdata, ecmdata->poolz_values[ecmdata->poolz_count-1], b6vals, ecmdata->poolz_values[ecmdata->poolz_count-1], GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
 			// (a9*b0)*b101112
@@ -3764,7 +3802,7 @@ int normalize_pool (
 			b1011 = ecmdata->poolz_values[ecmdata->poolz_count-2];
 			ecmdata->poolz_count -= 2;
 			// b1011 * b1213
-			gwmul3 (&ecmdata->gwdata, b1011, b1213, b6vals, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (&ecmdata->gwdata, b1011, b1213, b6vals, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			// b9*b10111213
 			gwmul3 (&ecmdata->gwdata, ecmdata->poolz_values[ecmdata->poolz_count-1], b6vals, ecmdata->poolz_values[ecmdata->poolz_count-1], GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
 			// (a9*b0)*b10111213
@@ -3802,9 +3840,9 @@ int normalize_pool (
 			b1011 = ecmdata->poolz_values[ecmdata->poolz_count-3];
 			ecmdata->poolz_count -= 3;
 			// b1213 * b14
-			gwmul3 (&ecmdata->gwdata, b1213, b14, b121314, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (&ecmdata->gwdata, b1213, b14, b121314, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			// b1011 * b121314
-			gwmul3 (&ecmdata->gwdata, b1011, b121314, b6vals, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (&ecmdata->gwdata, b1011, b121314, b6vals, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			// b9*b1011121314
 			gwmul3 (&ecmdata->gwdata, ecmdata->poolz_values[ecmdata->poolz_count-1], b6vals, ecmdata->poolz_values[ecmdata->poolz_count-1], GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
 			// (a9*b0)*b1011121314
@@ -3942,13 +3980,12 @@ where Montgomery curve is defined as By^2 = x^3 + Ax^2 + x
 */
 int choose12 (
 	ecmhandle *ecmdata,
-	bool	gen_edwards,	/* TRUE if twisted Edward curve should also be generated */
 	struct xz *xz,		/* Return the curve's Montgomery starting point here */
 	struct ed *e)		/* Return the curve's Edward starting point here */
 {
 	int	stop_reason;
-
-	ASSERTG (gen_edwards || e == NULL);	// Don't generate Edwards start point if not generating Edwards curve
+	bool	gen_edwards = !ecmdata->montg_stage1;	// TRUE if twisted Edwards curve should also be generated
+	ASSERTG (gen_edwards || e == NULL);		// Can't generate Edwards start point without generating Edwards curve
 
 	/* Compute u,v (sometimes called alpha,beta in the literature) */
 	gwnum u, v, vPu, vMu, u2, vP3u, vM3u, u3, v3, An, Ad;
@@ -4041,12 +4078,13 @@ int choose12 (
 		gwmul3 (&ecmdata->gwdata, e->y, twoV1, e->y, GWMUL_STARTNEXTFFT);	/* y *= 2V1 */
 		gwmul3 (&ecmdata->gwdata, twoV1, yz, e->z, GWMUL_STARTNEXTFFT);		/* z = 2V1 * (u^3+v^3) */
 
-		ed_check (ecmdata, e);
+		ASSERTG (ed_check (ecmdata, e));
 	}
 
 /* Return Montgomery starting point */
 
 	if (xz != NULL) {
+		ASSERTG (xz->x == NULL && xz->z == NULL);
 		gwswap (xz->x, u3);	/* x = u^3 */
 		gwswap (xz->z, v3);	/* z = v^3 */
 	}
@@ -4160,7 +4198,7 @@ int choose_atkin_morain (
 		gwmul3 (&ecmdata->gwdata, e->z, z2, e->z, 0);
 		ed_extend (ecmdata, e, 0);
 
-		ed_check (ecmdata, e);
+		ASSERTG (ed_check (ecmdata, e));
 	}
 
 	// Cleanup
@@ -4228,7 +4266,7 @@ int choose_atkin_morain (
 
 	// Compute modular inverse of sD and dD.  This will be used to normalize either s, t, and d.  Leave b2m1 unnormalized.
 	gwnum	inv_sD, inv_dD, inv_sDdD, s, t;
-	gwmul3 (&ecmdata->gwdata, sD, dD, tmp, GWMUL_FFT_S1 | GWMUL_FFT_S2);				// sD * dD
+	gwmul3 (&ecmdata->gwdata, sD, dD, tmp, GWMUL_FFT_S12);						// sD * dD
 	ecm_modinv (ecmdata, inv_sDdD = tmp);								// 1 / (sD * dD)
 	gwmul3 (&ecmdata->gwdata, inv_sDdD, dD, inv_sD = dD, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);	// 1/sD = dD * 1 / (sD * dD)
 	gwmul3 (&ecmdata->gwdata, inv_sDdD, sD, inv_dD = sD, GWMUL_STARTNEXTFFT);			// 1/dD = sD * 1 / (sD * dD)
@@ -4284,7 +4322,7 @@ int choose_atkin_morain (
 		gwmul3 (&ecmdata->gwdata, b2m1N, e->y, e->y, 0);
 		gwmul3 (&ecmdata->gwdata, b2m1D, e->z, e->z, 0);
 		// Sanity check
-		ed_check (ecmdata, e);
+		ASSERTG (ed_check (ecmdata, e));
 	}
 
 	// Cleanup
@@ -4298,12 +4336,10 @@ int choose_atkin_morain (
 	return (0);
 }
 
-/* Convert from Edwards to Montgomery */
+/* Convert from Edwards to Montgomery.  Edwards memory is freed. */
 
 void ed_to_Montgomery (
-	ecmhandle *ecmdata,
-	struct ed *e,
-	struct xz *xz)
+	ecmhandle *ecmdata)
 {
 
 /* If the Montgomery A value has not been computed, do so now.  See section 3 of https://eprint.iacr.org/2008/013.pdf and */
@@ -4336,8 +4372,46 @@ void ed_to_Montgomery (
 /* Convert the Edwards point.  From wikipedia: Montgomery x coordinate, u, equals (1+y)/(1-y).  But Edwards coordinates are in projective format, thus */
 /* u = (1+y/z)/(1-y/z) = ((z+y)/z)/((z-y)/z) = (z+y)/(z-y).  Or in our Montgomery xz format, x = z+y, z = z-y. */
 
-	if (xz->x == NULL) alloc_xz (ecmdata, xz);
-	gwaddsub4 (&ecmdata->gwdata, e->z, e->y, xz->x, xz->z);
+	if (ecmdata->e.x != NULL) {			// Resuming from a save file in stage 2 does not have a point to convert, fall through to freeing memory
+		ASSERTG (ecmdata->xz.x == NULL);	// Something is wrong if overwriting xz
+		alloc_xz (ecmdata, &ecmdata->xz);
+		gwaddsub4 (&ecmdata->gwdata, ecmdata->e.z, ecmdata->e.y, ecmdata->xz.x, ecmdata->xz.z);
+	}
+
+/* Free edwards memory */
+
+	ed_free (ecmdata, &ecmdata->dict_start);
+	ed_free (ecmdata, &ecmdata->e);
+	gwfree (&ecmdata->gwdata, ecmdata->ed_a), ecmdata->ed_a = NULL;
+	gwfree (&ecmdata->gwdata, ecmdata->ed_d), ecmdata->ed_d = NULL;
+}
+
+// Compute curve parameters for a Montgomery or Edwards curve
+
+int init_curve (
+	ecmhandle *ecmdata)
+{
+	int	stop_reason;
+
+	// Montgomery curve
+	if (ecmdata->montg_sigma) {
+		if (ecmdata->state != ECM_STATE_STAGE1_INIT)		// Resuming from a save file
+			stop_reason = choose12 (ecmdata, NULL, NULL);
+		else if (ecmdata->montg_stage1)				// New Montgomery curve with Montgomery stage 1
+			stop_reason = choose12 (ecmdata, &ecmdata->xz, NULL);
+		else							// New Montgomery curve, twisted Edwards stage 1
+			stop_reason = choose12 (ecmdata, NULL, &ecmdata->dict_start);
+	}
+	// Edwards curve
+	else {
+		if (ecmdata->state == ECM_STATE_STAGE1_INIT)		// Starting a new curve
+			stop_reason = choose_atkin_morain (ecmdata, &ecmdata->dict_start);
+		else							// Resuming curve from a save file
+			stop_reason = choose_atkin_morain (ecmdata, NULL);
+		if (ecmdata->montg_stage1)
+			ed_to_Montgomery (ecmdata);			// Montgomery stage 1 or 2, convert start point (if any) and free Edwards memory
+	}
+	return (stop_reason);
 }
 
 /* Recursively compute big exponent used in Edwards stage 1.  Include an extra 12 or 16 for Suyama or Atkin-Morain constructed curves. */
@@ -4415,7 +4489,9 @@ bool dict_normalize (
 	uint32_t first_index,		// Index of first dictionary entry to normalize
 	uint32_t last_index)		// Index of last dictionary entry to normalize
 {
-if (!IniGetInt(INI_FILE, "DictNorm", 1)) return(1);
+	// Resuming from a save file will give us a first dictionary entry that is already normalized.  Adjust for that.
+	if (first_index == 0 && ecmdata->NAF_dictionary[0].z == NULL) first_index = 1;
+
 	// Allocate a temporary for each number to be normalized
 	gwarray temps = gwalloc_array (&ecmdata->gwdata, last_index - first_index + 1);
 	if (temps == NULL) return (FALSE);
@@ -4423,7 +4499,7 @@ if (!IniGetInt(INI_FILE, "DictNorm", 1)) return(1);
 	// Loop multiplying all the numbers together into temps
 	gwswap (ecmdata->NAF_dictionary[first_index].z, temps[0]);
 	for (uint32_t i = 1; i <= last_index - first_index; i++) {
-		gwmul3 (&ecmdata->gwdata, temps[i-1], ecmdata->NAF_dictionary[first_index+i].z, temps[i], GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+		gwmul3 (&ecmdata->gwdata, temps[i-1], ecmdata->NAF_dictionary[first_index+i].z, temps[i], GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 	}
 
 	// Invert the multiplied numbers
@@ -4469,7 +4545,7 @@ bool NAF_dictionary_init (
 // Build the dictionary
 
 	// Move start point to first dictionary entry
-	ed_swap (ecmdata->e, ecmdata->NAF_dictionary[0]);
+	ed_swap (ecmdata->dict_start, ecmdata->NAF_dictionary[0]);
 
 	// Double first entry (use last dictionary entry as a temporary)
 	if (!ed_alloc (ecmdata, &ecmdata->NAF_dictionary[ecmdata->NAF_dictionary_size-1])) return (FALSE);
@@ -4639,14 +4715,10 @@ void curve_start_msg (
 	sprintf (buf, "%s ECM curve #%" PRIu32, gwmodulo_as_string (&ecmdata->gwdata), ecmdata->curve);
 	title (ecmdata->thread_num, buf);
 
-	if (!ecmdata->optimal_B2 || ecmdata->state >= ECM_STATE_STAGE2)
-		sprintf (buf,
-			 "ECM on %s: curve #%" PRIu32 " with s=%" PRIu64 ", B1=%" PRIu64 ", B2=%" PRIu64 "\n",
-			 gwmodulo_as_string (&ecmdata->gwdata), ecmdata->curve, ecmdata->sigma, ecmdata->B, ecmdata->C);
-	else
-		sprintf (buf,
-			 "ECM on %s: curve #%" PRIu32 " with s=%" PRIu64 ", B1=%" PRIu64 ", B2=TBD\n",
-			 gwmodulo_as_string (&ecmdata->gwdata), ecmdata->curve, ecmdata->sigma, ecmdata->B);
+	sprintf (buf, "ECM on %s: %s curve #%" PRIu32 " with s=%" PRIu64 ", B1=%" PRIu64 ", ",
+		 gwmodulo_as_string (&ecmdata->gwdata), ecmdata->montg_sigma ? "Montgomery" : "Edwards", ecmdata->curve, ecmdata->sigma, ecmdata->B);
+	if (!ecmdata->optimal_B2 || ecmdata->state >= ECM_STATE_STAGE2) sprintf (buf + strlen (buf), "B2=%" PRIu64 "\n", ecmdata->C);
+	else sprintf (buf + strlen (buf), "B2=TBD\n");
 	OutputStr (ecmdata->thread_num, buf);
 }
 
@@ -5130,7 +5202,8 @@ void ecm_stage1_memory_usage (
 	int	thread_num,
 	ecmhandle *ecmdata)
 {
-	set_memory_usage (thread_num, 0, cvt_gwnums_to_mem (&ecmdata->gwdata, 9));
+	if (ecmdata->montg_stage1) set_memory_usage (thread_num, 0, cvt_gwnums_to_mem (&ecmdata->gwdata, 9));
+	else set_memory_usage (thread_num, 0, cvt_gwnums_to_mem (&ecmdata->gwdata, ecmdata->NAF_dictionary_size * 3 + 8));
 }
 
 /* Figure out the maximum safe poly2 size, where "safe" means "safe from gwnum roundoff errors" */
@@ -5599,9 +5672,10 @@ double ecm_stage2_impl_given_numvals (
 	double	efficiency, best_efficiency;	/* Best efficiency for each of the 16 possible stage 2 implementations */
 	struct ecm_stage2_cost_data cost_data;	/* Extra data passed to and returned from ECM costing function */
 
-// The cost of stage 1 (in FFTs) is about 25.48 * B1 (measured at 25.42 for B1=50000, 25.53 for B1=250000).
+// The cost of stage 1 (in FFTs) is about 25.55 * B1 (measured at 25.55 for B1=250000 for Montgomery and 21.95 for Edwards with dictionary size 512).
 
-	cost_data.c.stage1_cost = 25.48 * (double) ecmdata->B;
+	if (ecmdata->montg_sigma) cost_data.c.stage1_cost = 25.55 * (double) ecmdata->B;
+	else cost_data.c.stage1_cost = 21.95 * (double) ecmdata->B;
 
 /* Compute the expected compression of poly1 using polymult_preprocess.  Default compression is usually 1.6%.  Some FFT sizes may have more padding */
 /* and thus more compression.  If poly compression option is set we'll get another 12.5%. */
@@ -5652,7 +5726,8 @@ double ecm_stage2_impl_given_numvals (
 		cost_data.stage2_type = (stage2_type == 0 ? ECM_STAGE2_PAIRING : ECM_STAGE2_POLYMULT);
 		cost_data.impl = impl;
 		cost_data.c.use_poly_D_data = (stage2_type == 1);
-		efficiency = best_stage2_impl (ecmdata->first_relocatable, ecmdata->last_relocatable, ecmdata->C_done, ecmdata->C, numvals - 9, &ecm_stage2_cost, &cost_data);
+		efficiency = best_stage2_impl (ecmdata->B, ecmdata->first_relocatable, ecmdata->last_relocatable, ecmdata->C_done, ecmdata->C,
+					       numvals - 9, &ecm_stage2_cost, &cost_data);
 		if (efficiency > best_efficiency) {
 			best_efficiency = efficiency;
 			*return_cost_data = cost_data;
@@ -5901,7 +5976,8 @@ double ecm_stage2_impl (
 //#define ECM_VERSION	2			// Version 30.4.  Better pairing using relative primes above D/2. */
 //#define ECM_VERSION	3			// Version 30.7.  Better pairing with relp_sets, compressed pairing map. */
 //#define ECM_VERSION	4			// Version 30.10.  Polymult. */
-#define ECM_VERSION	5			// Version 30.13.  Sigma uint64_t. */
+//#define ECM_VERSION	5			// Version 30.13.  Sigma uint64_t. */
+#define ECM_VERSION	6			// Version 30.19.  Edwards curves. */
 
 void ecm_save (
 	ecmhandle *ecmdata)
@@ -5927,13 +6003,27 @@ void ecm_save (
 	if (! write_uint64 (fd, ecmdata->sigma, NULL)) goto writeerr;
 	if (! write_uint64 (fd, ecmdata->B, &sum)) goto writeerr;
 	if (! write_uint64 (fd, ecmdata->C, &sum)) goto writeerr;
+	if (! write_uint32 (fd, ecmdata->montg_sigma, &sum)) goto writeerr;
+	if (! write_uint32 (fd, ecmdata->montg_stage1, &sum)) goto writeerr;
 
 /* Write the stage-specific data */
 
 	if (ecmdata->state == ECM_STATE_STAGE1) {
-		if (! write_uint64 (fd, ecmdata->stage1_prime, &sum)) goto writeerr;
-		if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.x, &sum)) goto writeerr;
-		if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.z, &sum)) goto writeerr;
+		if (ecmdata->montg_stage1) {
+			if (! write_uint64 (fd, ecmdata->stage1_prime, &sum)) goto writeerr;
+			if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.x, &sum)) goto writeerr;
+			if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.z, &sum)) goto writeerr;
+		} else {
+			if (! write_uint64 (fd, ecmdata->stage1_start_prime, &sum)) goto writeerr;
+			if (! write_uint32 (fd, ecmdata->stage1_exp_buffer_size, &sum)) goto writeerr;
+			if (! write_uint32 (fd, ecmdata->stage1_bitnum, &sum)) goto writeerr;
+			if (! write_uint32 (fd, ecmdata->NAF_dictionary_size, &sum)) goto writeerr;
+			if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->NAF_dictionary[0].x, &sum)) goto writeerr;
+			if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->NAF_dictionary[0].y, &sum)) goto writeerr;
+			if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->e.x, &sum)) goto writeerr;
+			if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->e.y, &sum)) goto writeerr;
+			if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->e.z, &sum)) goto writeerr;
+		}
 	}
 
 	else if (ecmdata->state == ECM_STATE_MIDSTAGE) {
@@ -6106,7 +6196,17 @@ int ecm_restore (			/* For version 30.4 and later save files */
 	}
 	if (! read_uint64 (fd, &savefile_B, &sum)) goto readerr;
 	if (! read_uint64 (fd, &ecmdata->C, &sum)) goto readerr;
-
+	if (version < 6) {
+		ecmdata->montg_sigma = TRUE;
+		ecmdata->montg_stage1 = TRUE;
+	} else {
+		uint32_t tmp;
+		if (! read_uint32 (fd, &tmp, &sum)) goto readerr;
+		ecmdata->montg_sigma = tmp;
+		if (! read_uint32 (fd, &tmp, &sum)) goto readerr;
+		ecmdata->montg_stage1 = tmp;
+	}
+		
 /* Handle the case where we have a save file with a smaller bound #1 than the bound #1 we are presently working on. */
 /* Restart the curve (and curve counts) from scratch. */
 
@@ -6125,10 +6225,25 @@ int ecm_restore (			/* For version 30.4 and later save files */
 /* Read state dependent data */
 
 	if (ecmdata->state == ECM_STATE_STAGE1) {
-		if (! read_uint64 (fd, &ecmdata->stage1_prime, &sum)) goto readerr;
-		if (! alloc_xz (ecmdata, &ecmdata->xz)) goto readerr;
-		if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.x, &sum)) goto readerr;
-		if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.z, &sum)) goto readerr;
+		if (ecmdata->montg_stage1) {
+			if (! read_uint64 (fd, &ecmdata->stage1_prime, &sum)) goto readerr;
+			if (! alloc_xz (ecmdata, &ecmdata->xz)) goto readerr;
+			if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.x, &sum)) goto readerr;
+			if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.z, &sum)) goto readerr;
+		} else {
+			if (! read_uint64 (fd, &ecmdata->stage1_start_prime, &sum)) goto readerr;
+			if (! read_uint32 (fd, &ecmdata->stage1_exp_buffer_size, &sum)) goto readerr;
+			if (! read_uint32 (fd, &ecmdata->stage1_bitnum, &sum)) goto readerr;
+			if (! read_uint32 (fd, &ecmdata->NAF_dictionary_size, &sum)) goto readerr;
+			if (! ed_alloc (ecmdata, &ecmdata->dict_start)) goto readerr;
+			if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->dict_start.x, &sum)) goto readerr;
+			if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->dict_start.y, &sum)) goto readerr;
+			gwfree (&ecmdata->gwdata, ecmdata->dict_start.z), ecmdata->dict_start.z = NULL;
+			if (! ed_alloc (ecmdata, &ecmdata->e)) goto readerr;
+			if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->e.x, &sum)) goto readerr;
+			if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->e.y, &sum)) goto readerr;
+			if (! read_gwnum (fd, &ecmdata->gwdata, ecmdata->e.z, &sum)) goto readerr;
+		}
 	}
 
 	else if (ecmdata->state == ECM_STATE_MIDSTAGE) {
@@ -6425,7 +6540,7 @@ int ecm (
 	struct work_unit *w)
 {
 	ecmhandle ecmdata;
-	uint64_t sieve_start, next_prime, last_output, last_output_t;
+	uint64_t next_prime, last_output, last_output_t, dictionary_memory;
 	double	one_over_B, output_frequency, output_title_frequency;
 	double	base_pct_complete, one_relp_pct;
 	int	i;
@@ -6435,7 +6550,7 @@ int ecm (
 	int	msglen, continueECM, prpAfterEcmFactor;
 	char	*str, *msg;
 	double	timers[10];
-	bool	near_fft_limit, saving;
+	bool	near_fft_limit, saving, montg_default;
 	double	allowable_maxerr;
 	int	maxerr_restart_count = 0;
 	unsigned long maxerr_fftlen = 0;
@@ -6806,6 +6921,7 @@ if (w->n == 604) {
 	gw_clear_fft_count (&ecmdata.gwdata);
 	first_iter_msg = TRUE;
 	calc_output_frequencies (&ecmdata.gwdata, &output_frequency, &output_title_frequency);
+	dictionary_memory = IniGetInt (INI_FILE, "DictionaryMemory", 256) << 20;	// Default to 256MB dictionary memory
 
 /* Optionally do a probable prime test */
 
@@ -6820,7 +6936,7 @@ if (w->n == 604) {
 	sprintf (buf, "\nUsing %s\n", fft_desc);
 	OutputStr (thread_num, buf);
 	sprintf (buf, "%5.3f bits-per-word below FFT limit (more than %5.3f allows extra optimizations)\n",
-		 ecmdata.gwdata.fft_max_bits_per_word - virtual_bits_per_word (&ecmdata.gwdata), EB_FIRST_ADD);
+		 (ecmdata.gwdata.EXTRA_BITS - EB_GWMUL_SAVINGS) / 2.0, (EB_FIRST_ADD + EB_SECOND_ADD - EB_GWMUL_SAVINGS) / 2.0);
 	OutputStr (thread_num, buf);
 
 /* If we are near the maximum exponent this fft length can test, then we will roundoff check all multiplies */
@@ -6865,9 +6981,13 @@ if (w->n == 604) {
 /* Continue in the middle of stage 1 */
 
 		if (ecmdata.state == ECM_STATE_STAGE1) {
-			sieve_start = ecmdata.stage1_prime + 1;
-			stop_reason = choose12 (&ecmdata, FALSE, NULL, NULL);	/* Compute Ad4 from sigma while ignoring the x,z starting point */
+			stop_reason = init_curve (&ecmdata);
 			if (stop_reason) goto exit;
+			if (ecmdata.factor != NULL) goto bingo;				// Can't happen
+			if (!ecmdata.montg_stage1 && !ed_check (&ecmdata, &ecmdata.e)) {
+				saveFileBad (&ecmdata.read_save_file_state);		/* Close and rename the bad save file */
+				goto ed_err;
+			}
 			goto restart1;
 		}
 
@@ -6903,11 +7023,9 @@ restart0:
 	ecm_stage1_memory_usage (thread_num, &ecmdata);
 	last_output = last_output_t = ecmdata.modinv_count = 0;
 	gw_clear_fft_count (&ecmdata.gwdata);
-
-/* Allocate memory */
-
-	if (!alloc_xz (&ecmdata, &ecmdata.xz)) goto oom;
-	ecmdata.gg = NULL;
+	ASSERTG (ecmdata.xz.x == NULL && ecmdata.xz.z == NULL);
+	ASSERTG (ecmdata.e.x == NULL && ecmdata.e.y == NULL && ecmdata.e.z == NULL);
+	ASSERTG (ecmdata.gg == NULL);
 
 /* Choose curve with order divisible by 16 and choose a point (x/z) on said curve. */
 
@@ -6922,34 +7040,33 @@ restart0:
 		ecmdata.sigma = w->curve;
 		w->curves_to_do = 1;
 	}
+	montg_default = (IniGetInt (INI_FILE, "DictionarySize", (int) (dictionary_memory / (3 * gwnum_size (&ecmdata.gwdata)))) < 4);
+	ecmdata.montg_sigma = IniGetInt (INI_FILE, "MontgSigma", montg_default);
+	ecmdata.montg_stage1 = IniGetInt(INI_FILE, "MontgStage1", ecmdata.montg_sigma);
 	curve_start_msg (&ecmdata);
-ecmdata.sigma_montg=IniGetInt(INI_FILE, "MontgSigma", 1);
-ecmdata.stage1_montg=IniGetInt(INI_FILE, "MontgStage1", 1);
-	if (!ecmdata.sigma_montg) stop_reason = choose_atkin_morain (&ecmdata, &ecmdata.e);		// Edwards curve, Edwards stage 1
-	else if (ecmdata.stage1_montg) stop_reason = choose12 (&ecmdata, FALSE, &ecmdata.xz, NULL);	// Montgomery curve, Montgomery stage 1
-	else stop_reason = choose12 (&ecmdata, TRUE, NULL, &ecmdata.e);					// Montgomery curve, twisted Edwards stage 1
+	stop_reason = init_curve (&ecmdata);
 	if (stop_reason) goto exit;
 	if (ecmdata.factor != NULL) goto bingo;
-	sieve_start = 2;
+	ecmdata.stage1_prime = 0;				// Last prime processed = none
+	ecmdata.state = ECM_STATE_STAGE1;
+	w->pct_complete = 0.0;
+	sprintf (w->stage, "C%" PRIu32 "S1", ecmdata.curve);
 
 /* The stage 1 restart point */
 
 restart1:
-	ecmdata.state = ECM_STATE_STAGE1;
 	one_over_B = 1.0 / (double) ecmdata.B;
-	w->pct_complete = sieve_start * one_over_B;
-	sprintf (w->stage, "C%" PRIu32 "S1", ecmdata.curve);
 	start_timer_from_zero (timers, 0);
 	start_timer_from_zero (timers, 1);
 
 /* The old-style Montgomery stage 1 */
 
-	if (ecmdata.stage1_montg) {
+	if (ecmdata.montg_stage1) {
 		ecm_stage1_memory_usage (thread_num, &ecmdata);
 		unsigned long SQRT_B = (unsigned long) sqrt ((double) ecmdata.B);
 		// We guess the max sieve prime for stage 2.  If optimal B2 is less 256 * B, then max sieve prime will be less than 16 * sqrt(B).
 		// If our guess is wrong, that's no big deal -- sieve code is smart enough to handle it.
-		stop_reason = start_sieve_with_limit (thread_num, sieve_start, 16 * SQRT_B, &ecmdata.sieve_info);
+		stop_reason = start_sieve_with_limit (thread_num, ecmdata.stage1_prime + 1, 16 * SQRT_B, &ecmdata.sieve_info);
 		if (stop_reason) goto exit;
 		for (ecmdata.stage1_prime = sieve (ecmdata.sieve_info); ecmdata.stage1_prime <= ecmdata.B; ecmdata.stage1_prime = next_prime) {
 			int	count;
@@ -7040,55 +7157,60 @@ restart1:
 
 	else {
 
-/* Stage 1 pre-calculates an exponent that is the product of small primes.  The default maximum exponent size is 40MB (B1 of roughly 266 million). */
-/* Reports of GMP having trouble with products larger than 2^32 bits leads us to cap maximum exponent size at 128MB. */
+/* Stage 1 pre-calculates an exponent that is the product of small primes.  The default maximum exponent size is 40MB (B1 of roughly 222 million). */
+/* Reports of GMP having difficulty with products larger than 2^32 bits leads us to cap maximum exponent size at 128MB. */
 
-		ecmdata.stage1_start_prime = 2;		// Remember this for save files
-		ecmdata.stage1_bitnum = 0;		// Can't overwrite if read from save file
-		ecmdata.stage1_exp_buffer_size = IniGetInt (INI_FILE, "ECMStage1ExpBufferSize", 40);
-		if (ecmdata.stage1_exp_buffer_size < 1) ecmdata.stage1_exp_buffer_size = 1;
-		if (ecmdata.stage1_exp_buffer_size > 128) ecmdata.stage1_exp_buffer_size = 128;
-		ecmdata.stage1_exp_buffer_size <<= 20;
+		// Perform required initialization if not resuming from a save file
+		if (ecmdata.e.x == NULL) {
+			ecmdata.stage1_start_prime = 2;
+			ecmdata.stage1_bitnum = 0;
+			ecmdata.stage1_exp_buffer_size = IniGetInt (INI_FILE, "ECMStage1ExpBufferSize", 40);
+			if (ecmdata.stage1_exp_buffer_size < 1) ecmdata.stage1_exp_buffer_size = 1;
+			if (ecmdata.stage1_exp_buffer_size > 128) ecmdata.stage1_exp_buffer_size = 128;
+			ecmdata.stage1_exp_buffer_size <<= 20;
+		}
 
-//GW Save file will need sieve_start, exp_bufsize, bit_number in exp  to rebuild big exponent and resume
-//GW Save file will need dictionary value 1 and dictionary size to rebuild dictionary
-//GW Restart must use same dictionary size to get same NAF numbers
-
-// jump here for restart from save file?
-		ecm_stage1_memory_usage (thread_num, &ecmdata);		//GW this routine will need to change!
 		stop_reason = start_sieve_with_limit (thread_num, ecmdata.stage1_start_prime, (uint32_t) sqrt ((double) ecmdata.B), &ecmdata.sieve_info);
 		if (stop_reason) goto exit;
 		ecmdata.stage1_prime = sieve (ecmdata.sieve_info);	// Get first prime from sieve
 
 		mpz_init (ecmdata.stage1_exp), ecmdata.stage1_exp_initialized = TRUE;
 
-/* Process primes into big calculated exponents.  We may not be able to process all of them in one blast, so loop in case multiple big exponents are needed. */
+/* Process primes into one big exponent.  We may not be able to process all primes in one blast, so loop in case multiple exponent chunks are needed. */
 
-		for ( ; ecmdata.stage1_prime < ecmdata.B; ecmdata.stage1_bitnum = 0) {
+		for ( ; ; ) {
 			int	NAF_index;
+			uint32_t best_size;
 			uint64_t num_doublings;
+			double	chunk_size, chunk_size_over_num_doublings;
 
 /* Create the big exponent and init the dictionary */
 
 			ecmdata.stage1_start_prime = ecmdata.stage1_prime;	// Remember stage1_exp's starting prime for saving to a file
 			ecm_calc_exp (ecmdata.sieve_info, ecmdata.stage1_exp, ecmdata.B, &ecmdata.stage1_prime, ecmdata.stage1_exp_buffer_size);
-ecmdata.NAF_dictionary_size=IniGetInt(INI_FILE, "DictSize", 256);
-			sprintf (buf, "Exponent length is %" PRIu64 ", best dictionary size is %" PRIu32 ", actual dictionary size is %" PRIu32 "\n",
-				 (uint64_t) mpz_sizeinbase (ecmdata.stage1_exp, 2),
-				 NAF_best_size (&ecmdata),
-				 ecmdata.NAF_dictionary_size);
+			best_size = NAF_best_size (&ecmdata);
+			if (ecmdata.stage1_bitnum == 0) {			// Dictionary size cannot be changed when resuming from a save file
+				ecmdata.NAF_dictionary_size = (uint32_t) (dictionary_memory / (3 * gwnum_size (&ecmdata.gwdata)));
+				if (ecmdata.NAF_dictionary_size > best_size) ecmdata.NAF_dictionary_size = best_size;
+				ecmdata.NAF_dictionary_size = IniGetInt (INI_FILE, "DictionarySize", ecmdata.NAF_dictionary_size);  // User override
+			}
+			sprintf (buf, "%sxponent length is %" PRIu64 ", best dictionary size is %" PRIu32 ", actual dictionary size is %" PRIu32 "\n",
+				 ecmdata.stage1_prime <= ecmdata.B ? "Partial e" : "E",
+				 (uint64_t) mpz_sizeinbase (ecmdata.stage1_exp, 2), best_size, ecmdata.NAF_dictionary_size);
 			OutputStr (thread_num, buf);
+			ecm_stage1_memory_usage (thread_num, &ecmdata);
 			NAF_dictionary_init (&ecmdata, &NAF_index, &num_doublings);
+			if (ecmdata.factor != NULL) goto bingo;			// Highly unlikely that the modinv in dictionary init found a factor
 
 /* Init variables used in calculating percent complete. */
 
-			double one_over_doublings = 1.0 / (double) num_doublings;
-			if (ecmdata.stage1_prime < ecmdata.B) one_over_doublings *= (double) ecmdata.stage1_prime / (double) ecmdata.B;
+			chunk_size = (double) ((ecmdata.stage1_prime < ecmdata.B ? ecmdata.stage1_prime : ecmdata.B) - ecmdata.stage1_start_prime);
+			chunk_size_over_num_doublings = chunk_size / (double) num_doublings;
 
-/* Use first NAF_index to initialize the starting Edwards point (extended coordinate is not needed).  Do the first ed_dbl. */
+/* Unless resuming from a save file, use first NAF_index to initialize the starting Edwards point.  Do the first ed_dbl to avoid gwcopys. */
 
-			if (!ed_alloc (&ecmdata, &ecmdata.e)) goto oom;
 			if (ecmdata.stage1_bitnum == 0) {
+				if (!ed_alloc (&ecmdata, &ecmdata.e)) goto oom;
 				ed_dbl (&ecmdata, &ecmdata.NAF_dictionary[NAF_index], &ecmdata.e, ED_FFT_S1 | ED_RESULT_FOR_DBL | ED_STARTNEXTFFT);
 				ecmdata.stage1_bitnum = 1;
 			}
@@ -7120,8 +7242,7 @@ ecmdata.NAF_dictionary_size=IniGetInt(INI_FILE, "DictSize", 256);
 /* Calculate our stage 1 percentage complete */
 
 				ecmdata.stage1_bitnum++;
-//GW pct must account for completed chunks as well as future chunks
-				w->pct_complete = (double) ecmdata.stage1_bitnum * one_over_doublings;
+				w->pct_complete = (ecmdata.stage1_start_prime + ecmdata.stage1_bitnum * chunk_size_over_num_doublings) * one_over_B;
 
 /* Output the title every so often */
 
@@ -7137,7 +7258,7 @@ ecmdata.NAF_dictionary_size=IniGetInt(INI_FILE, "DictSize", 256);
 
 				if (first_iter_msg ||
 				    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
-					sprintf (buf, "%s curve %" PRIu32 " stage 1 at exponent bit %" PRIu64 " [%.*f%%].",
+					sprintf (buf, "%s curve %" PRIu32 " stage 1 at exponent bit %" PRIu32 " [%.*f%%].",
 						 gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve, ecmdata.stage1_bitnum,
 						 (int) PRECISION, trunc_percent (w->pct_complete));
 					end_timer (timers, 0);
@@ -7160,6 +7281,7 @@ ecmdata.NAF_dictionary_size=IniGetInt(INI_FILE, "DictSize", 256);
 /* Write a save file when the user interrupts the calculation and every DISK_WRITE_TIME minutes. */
 
 				if (stop_reason || saving) {
+					if (!ed_check (&ecmdata, &ecmdata.e)) goto ed_err;
 					ecm_save (&ecmdata);
 					if (stop_reason) goto exit;
 				}
@@ -7168,16 +7290,24 @@ ecmdata.NAF_dictionary_size=IniGetInt(INI_FILE, "DictSize", 256);
 /* Free the NAF dictionary */
 
 			NAF_dictionary_free (&ecmdata);
+
+/* Are we done?  If not, prepare for the next looping. */
+
+			if (ecmdata.stage1_prime > ecmdata.B) break;
+			ecmdata.stage1_bitnum = 0;
+			ed_swap (ecmdata.e, ecmdata.dict_start);
 		}
 		mpz_clear (ecmdata.stage1_exp), ecmdata.stage1_exp_initialized = FALSE;
 
+/* Validate the final point */
+
+		if (!ed_check (&ecmdata, &ecmdata.e)) goto ed_err;
+
 /* Convert stage 1 end point to Montgomery for stage 2 */
 
-		ed_to_Montgomery (&ecmdata, &ecmdata.e, &ecmdata.xz);
-
-//GW Free edwards memory
+		ed_to_Montgomery (&ecmdata);
+		ecmdata.montg_stage1 = TRUE;		// Tell ecm_save to save the Montgomery point
 	}
-
 
 /* Stage 1 complete */
 
@@ -7499,7 +7629,7 @@ OutputStr (thread_num, buf); }
 			free (ecmdata.Ad4_binary), ecmdata.Ad4_binary = NULL;
 			gwfft (&ecmdata.gwdata, ecmdata.Ad4, ecmdata.Ad4);
 		} else {
-			stop_reason = choose12 (&ecmdata, FALSE, NULL, NULL);
+			stop_reason = init_curve (&ecmdata);
 			if (stop_reason) goto possible_lowmem;
 		}
 	}
@@ -8215,7 +8345,7 @@ OutputStr (thread_num, buf); }
 /* 4 FFT per prime continuation - deals with only nQx values normalized */
 
 		else {
-			gwmul3 (&ecmdata.gwdata, ecmdata.nQx[ecmdata.relp], mQz, t1, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (&ecmdata.gwdata, ecmdata.nQx[ecmdata.relp], mQz, t1, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			gwsubmul4 (&ecmdata.gwdata, mQx, t1, ecmdata.gg, ecmdata.gg, (!stop_reason && !saving) ? GWMUL_STARTNEXTFFT : 0);
 		}
 
@@ -9408,8 +9538,8 @@ more_curves:
 
 /* Output line to results file indicating the number of curves run */
 
-	sprintf (buf, "%s completed %u ECM %s, B1=%" PRIu64 ",%s B2=%" PRIu64 ", Wi%d: %08lX\n",
-		 gwmodulo_as_string (&ecmdata.gwdata), w->curves_to_do, w->curves_to_do == 1 ? "curve" : "curves",
+	sprintf (buf, "%s completed %u ECM %s curve%s, B1=%" PRIu64 ",%s B2=%" PRIu64 ", Wi%d: %08lX\n",
+		 gwmodulo_as_string (&ecmdata.gwdata), w->curves_to_do, ecmdata.montg_sigma ? "Montgomery" : "Edwards", w->curves_to_do == 1 ? "" : "s",
 		 ecmdata.B, ecmdata.optimal_B2 ? " average" : "", ecmdata.average_B2, PORT, SEC5 (w->n, ecmdata.B, ecmdata.average_B2));
 	OutputStr (thread_num, buf);
 	formatMsgForResultsFile (buf, w);
@@ -9426,9 +9556,11 @@ more_curves:
 	strcat (JSONbuf, ", \"worktype\":\"ECM\"");
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%" PRIu64 ", \"b2\":%" PRIu64, ecmdata.B, ecmdata.average_B2);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"curves\":%u", w->curves_to_do);
+	if (!ecmdata.montg_sigma) sprintf (JSONbuf+strlen(JSONbuf), ", \"Edwards\": {}");
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", ecmdata.stage1_fftlen);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, ecmdata.B, ecmdata.average_B2));
 	JSONaddProgramTimestamp (JSONbuf);
+	JSONaddExponentKnownFactors (JSONbuf, w);
 	JSONaddUserComputerAID (JSONbuf, w);
 	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
@@ -9536,13 +9668,15 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 	strcat (JSONbuf, ", \"worktype\":\"ECM\"");
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"factors\":[\"%s\"]", str);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%" PRIu64 ", \"b2\":%" PRIu64, ecmdata.B, ecmdata.C);
-	sprintf (JSONbuf+strlen(JSONbuf), ", \"sigma\":%" PRIu64, ecmdata.sigma);
+	if (!ecmdata.montg_sigma) sprintf (JSONbuf+strlen(JSONbuf), ", \"Edwards\": { \"sigma\":%" PRIu64 " }", ecmdata.sigma);
+	else sprintf (JSONbuf+strlen(JSONbuf), ", \"sigma\":%" PRIu64, ecmdata.sigma);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"stage\":%d", stage);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"curves\":%" PRIu32, ecmdata.curve);
 	if (ecmdata.optimal_B2 && ecmdata.average_B2 != ecmdata.C) sprintf (JSONbuf+strlen(JSONbuf), ", \"average-b2\":%" PRIu64, ecmdata.average_B2);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", ecmdata.stage1_fftlen);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, ecmdata.B, ecmdata.C));
 	JSONaddProgramTimestamp (JSONbuf);
+	JSONaddExponentKnownFactors (JSONbuf, w);
 	JSONaddUserComputerAID (JSONbuf, w);
 	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
@@ -9635,9 +9769,13 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 
 	goto more_curves;
 
-/* Output an error message saying we are restarting. */
-/* Sleep five minutes before restarting from last save file. */
+/* Output an error message saying we are restarting.  Sleep five minutes before restarting from last save file. */
 
+	// Edwards error (failed ed_check).
+ed_err:	OutputBoth (thread_num, "Hardware error?  Point no longer on the Edwards curve.  Restarting from last save file.\n");
+	goto error_restart;
+
+	// GWNUM error
 err:	if (gw_get_maxerr (&ecmdata.gwdata) > allowable_maxerr) {
 		sprintf (buf, "Possible roundoff error (%.8g), backtracking to last save file and using larger FFT.\n", gw_get_maxerr (&ecmdata.gwdata));
 		OutputStr (thread_num, buf);
@@ -9648,6 +9786,8 @@ err:	if (gw_get_maxerr (&ecmdata.gwdata) > allowable_maxerr) {
 		stop_reason = SleepFive (thread_num);
 		if (stop_reason) goto exit;
 	}
+
+	// Restart
 error_restart:
 	Dmultiple_map.clear ();
 	relp_set_map.clear ();
@@ -9751,8 +9891,8 @@ print out each test case (all relevant data)*/
 /* Handy macros for Lucas doubling and adding */
 
 #define luc_dbl(h,s,d)			gwsquare2 (h, s, d, GWMUL_FFT_S1 | GWMUL_ADDINCONST | GWMUL_STARTNEXTFFT)
-#define luc_add(h,s1,s2,diff,d)		gwmulsub4 (h, s1, s2, diff, d, GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT)
-#define luc_add_last(h,s1,s2,diff,d)	gwmulsub4 (h, s1, s2, diff, d, GWMUL_FFT_S1 | GWMUL_FFT_S2)
+#define luc_add(h,s1,s2,diff,d)		gwmulsub4 (h, s1, s2, diff, d, GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT)
+#define luc_add_last(h,s1,s2,diff,d)	gwmulsub4 (h, s1, s2, diff, d, GWMUL_FFT_S12)
 
 /**************************************************************
  *	P-1 Functions
@@ -10660,7 +10800,7 @@ double pm1_stage2_impl_given_numvals (
 		cost_data.stage2_type = (stage2_type == 0 ? PM1_STAGE2_PAIRING : PM1_STAGE2_POLYMULT);
 		cost_data.c.use_poly_D_data = (stage2_type == 1);
 		cost_data.c.centers_on_Dmultiple = (stage2_type != 1);
-		efficiency = best_stage2_impl (pm1data->first_relocatable, pm1data->last_relocatable, pm1data->C_done, pm1data->C,
+		efficiency = best_stage2_impl (pm1data->B, pm1data->first_relocatable, pm1data->last_relocatable, pm1data->C_done, pm1data->C,
 					       numvals - (stage2_type == 0 ? 4 : 3), &pm1_stage2_cost, &cost_data);
 		if (efficiency > best_efficiency) {
 			best_efficiency = efficiency;
@@ -11044,7 +11184,7 @@ void pm1_helper (
 //GW: handle no work to do case (more helpers than work to do)?
 		for (uint64_t j = pm1data->remaining_poly2_size - 1 - helper_num; ; j -= pm1data->helper_count) {
 			// Compute next poly2 coefficient
-			gwmul3 (gwdata, pm1data->poly2[j+pm1data->helper_count], diff1, pm1data->poly2[j], GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (gwdata, pm1data->poly2[j+pm1data->helper_count], diff1, pm1data->poly2[j], GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			if (j < pm1data->helper_count) break;
 			// Compute next diff1, save the very last diff1 for next polymult
 			if (j == pm1data->helper_count) gwmul3 (gwdata, diff1, diff2, pm1data->diff1, GWMUL_STARTNEXTFFT), diff1 = pm1data->diff1;
@@ -11750,8 +11890,7 @@ restart3a:
 
 	pm1data.required_missing = 0;
 
-/* Restart here when in the middle of stage 2. */
-/* Initialize gg to x-1 in case the user opted to skip the GCD after stage 1. */
+/* Restart here when in the middle of stage 2.  Initialize gg to x-1 in case the user opted to skip the GCD after stage 1. */
 
 restart3b:
 	ASSERTG (pm1data.gg == NULL);
@@ -11967,7 +12106,7 @@ OutputStr (thread_num, buf); }
 	pm1data.V = gwalloc (&pm1data.gwdata);
 	if (pm1data.V == NULL) goto oom;
 	gwadd3o (&pm1data.gwdata, pm1data.x, pm1data.invx, pm1data.V, GWADD_SQUARE_INPUT);
-			
+
 /* Set addin for future lucas_dbl and lucas_add calls */ 
 
 	gwsetaddin (&pm1data.gwdata, -2);
@@ -12345,6 +12484,7 @@ OutputStr (thread_num, buf); }
 
 /* Re-initialize gg */
 
+	ASSERTG (pm1data.gg == NULL);
 	pm1data.gg = gwalloc (&pm1data.gwdata);
 	if (pm1data.gg == NULL) goto lowmem;
 	gianttogw (&pm1data.gwdata, pm1data.gg_binary, pm1data.gg);
@@ -12813,6 +12953,7 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&pm1data.gwdata);
 // Re-initialize gg.  If helper_count > 1 we reduce peak mem usage by delaying this re-init until r_squared is freed */
 
 	if (pm1data.helper_count == 1) {
+		ASSERTG (pm1data.gg == NULL);
 		pm1data.gg = gwalloc (&pm1data.gwdata);
 		if (pm1data.gg == NULL) goto lowmem;
 		gianttogw (&pm1data.gwdata, pm1data.gg_binary, pm1data.gg);
@@ -12872,7 +13013,7 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&pm1data.gwdata);
 			// Compute next small diff1
 			gwmul3 (&pm1data.gwdata, small_diff1, pm1data.r_squared, small_diff1, GWMUL_STARTNEXTFFT);
 			// Compute next poly #2 coefficient
-			gwmul3 (&pm1data.gwdata, poly2[pm1data.poly2_size-1-j], small_diff1, poly2[pm1data.poly2_size-2-j], GWMUL_FFT_S1 | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
+			gwmul3 (&pm1data.gwdata, poly2[pm1data.poly2_size-1-j], small_diff1, poly2[pm1data.poly2_size-2-j], GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
 			// Accumulate big diff1
 			gwmul3 (&pm1data.gwdata, big_diff1, small_diff1, big_diff1, GWMUL_STARTNEXTFFT);
 		}
@@ -13132,6 +13273,7 @@ msg_and_exit:
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", pm1data.stage1_fftlen);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, pm1data.B, pm1data.C > pm1data.B ? pm1data.C : pm1data.B));
 	JSONaddProgramTimestamp (JSONbuf);
+	JSONaddExponentKnownFactors (JSONbuf, w);
 	JSONaddUserComputerAID (JSONbuf, w);
 	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
@@ -13278,6 +13420,7 @@ bingo:	if (pm1data.state < PM1_STATE_MIDSTAGE)
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", pm1data.stage1_fftlen);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, pm1data.B, pm1data.state > PM1_STATE_MIDSTAGE ? pm1data.C : pm1data.B));
 	JSONaddProgramTimestamp (JSONbuf);
+	JSONaddExponentKnownFactors (JSONbuf, w);
 	JSONaddUserComputerAID (JSONbuf, w);
 	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
@@ -13501,7 +13644,7 @@ void pm1_savings (
 			g->cost_data.c.use_poly_D_data = FALSE;
 			g->cost_data.c.centers_on_Dmultiple = TRUE;
 			g->cost_data.c.stage2_fftlen = g->cost_data.c.stage1_fftlen;
-			efficiency = best_stage2_impl (B1, 0, 0, B2, g->vals - 3, &pm1_stage2_cost, &g->cost_data);
+			efficiency = best_stage2_impl (B1, B1, 0, 0, B2, g->vals - 3, &pm1_stage2_cost, &g->cost_data);
 			if (efficiency > 0.0) {
 				c->prob = g->cost_data.factor_probability;
 				c->total_cost = g->cost_data.c.total_cost;
@@ -13515,7 +13658,7 @@ void pm1_savings (
 			g->cost_data.c.centers_on_Dmultiple = FALSE;
 			// Polymult is likely require a larger FFT length and fewer vals
 			g->cost_data.c.stage2_fftlen = (unsigned long) ((double) g->cost_data.c.stage1_fftlen * 1.10);
-			double poly_efficiency = best_stage2_impl (B1, 0, 0, B2, (int) (g->vals / 1.10) - 4, &pm1_stage2_cost, &g->cost_data);
+			double poly_efficiency = best_stage2_impl (B1, B1, 0, 0, B2, (int) (g->vals / 1.10) - 4, &pm1_stage2_cost, &g->cost_data);
 			if (poly_efficiency > efficiency) {
 				efficiency = poly_efficiency;
 				c->prob = g->cost_data.factor_probability;
@@ -14280,7 +14423,7 @@ void pp1_choose_B2 (
 	cost_data.c.threads = gwget_num_threads (&pp1data->gwdata);
 #define p1eval(x,B2mult)	x.i = B2mult; \
 				if (x.i > max_B2mult) x.i = max_B2mult; \
-				x.B2_cost = best_stage2_impl (pp1data->B, 0, 0, x.i * pp1data->B, numvals - 4, &pp1_stage2_cost, &cost_data); \
+				x.B2_cost = best_stage2_impl (pp1data->B, pp1data->B, 0, 0, x.i * pp1data->B, numvals - 4, &pp1_stage2_cost, &cost_data); \
 				x.fac_pct = pp1prob (pp1data->B, x.i * pp1data->B);
 
 // Return TRUE if x is better than y.  Determined by seeing if taking the increased cost of y's higher B2 and investing it in increasing x's bounds
@@ -14438,7 +14581,7 @@ int pp1_stage2_impl (
 	cost_data.c.stage1_fftlen = pp1data->stage1_fftlen;
 	cost_data.c.stage2_fftlen = gwfftlen (&pp1data->gwdata);
 	cost_data.c.threads = gwget_num_threads (&pp1data->gwdata);
-	best_stage2_impl (pp1data->first_relocatable, pp1data->last_relocatable, pp1data->C_done, pp1data->C, numvals - 4, &pp1_stage2_cost, &cost_data);
+	best_stage2_impl (pp1data->B, pp1data->first_relocatable, pp1data->last_relocatable, pp1data->C_done, pp1data->C, numvals - 4, &pp1_stage2_cost, &cost_data);
 
 /* If are continuing from a save file that was in stage 2 and the new plan doesn't look significant better than the old plan, then */
 /* we use the old plan and its partially completed pairmap. */
@@ -15891,6 +16034,7 @@ msg_and_exit:
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", pp1data.stage1_fftlen);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, pp1data.B, pp1data.C > pp1data.B ? pp1data.C : pp1data.B));
 	JSONaddProgramTimestamp (JSONbuf);
+	JSONaddExponentKnownFactors (JSONbuf, w);
 	JSONaddUserComputerAID (JSONbuf, w);
 	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
@@ -16025,6 +16169,7 @@ bingo:	if (pp1data.state < PP1_STATE_MIDSTAGE)
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", pp1data.stage1_fftlen);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, pp1data.B, pp1data.state > PP1_STATE_MIDSTAGE ? pp1data.C : pp1data.B));
 	JSONaddProgramTimestamp (JSONbuf);
+	JSONaddExponentKnownFactors (JSONbuf, w);
 	JSONaddUserComputerAID (JSONbuf, w);
 	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);

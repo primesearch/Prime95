@@ -508,6 +508,7 @@ int cert (
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"error-code\":\"%08lX\"", cs.error_count);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC1(w->n));
 	JSONaddProgramTimestamp (JSONbuf);
+	JSONaddExponentKnownFactors (JSONbuf, w);
 	JSONaddUserComputerAID (JSONbuf, w);
 	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSONCerts", 1)) writeResultsJSON (JSONbuf);

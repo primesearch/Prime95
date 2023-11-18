@@ -5651,6 +5651,7 @@ begin:	factor_found = 0;
 			sprintf (JSONbuf+strlen(JSONbuf), ", \"bitlo\":%d", (int) ((bits < report_bits) ? w->sieve_depth : bits));
 			sprintf (JSONbuf+strlen(JSONbuf), ", \"bithi\":%d, \"rangecomplete\":false", end_bits);
 			JSONaddProgramTimestamp (JSONbuf);
+			JSONaddExponentKnownFactors (JSONbuf, w);
 			JSONaddUserComputerAID (JSONbuf, w);
 			strcat (JSONbuf, "}");
 			if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
@@ -5734,6 +5735,7 @@ nextpass:	;
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"bithi\":%d, \"rangecomplete\":true", end_bits);
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC3 (p));
 		JSONaddProgramTimestamp (JSONbuf);
+		JSONaddExponentKnownFactors (JSONbuf, w);
 		JSONaddUserComputerAID (JSONbuf, w);
 		strcat (JSONbuf, "}");
 		if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
@@ -7074,6 +7076,7 @@ begin:	gwinit (&lldata.gwdata);
 		JSONbuf[strlen(JSONbuf)-2] = 0;
 		strcat (JSONbuf, "}");
 	}
+	JSONaddExponentKnownFactors (JSONbuf, w);
 	JSONaddUserComputerAID (JSONbuf, w);
 	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
@@ -12958,6 +12961,7 @@ pushg(&gwdata.gdata, 2);}
 		if (ps.proof_power_mult > 1) sprintf (JSONbuf+strlen(JSONbuf), ", \"power-multiplier\":%d", ps.proof_power_mult);
 		sprintf (JSONbuf+strlen(JSONbuf), ", \"hashsize\":%d, \"md5\":\"%s\"}", ps.hashlen, proof_hash);
 	}
+	JSONaddExponentKnownFactors (JSONbuf, w);
 	JSONaddUserComputerAID (JSONbuf, w);
 	strcat (JSONbuf, "}");
 	if (IniGetInt (INI_FILE, "OutputJSON", 1)) writeResultsJSON (JSONbuf);
