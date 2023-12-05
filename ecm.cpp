@@ -1475,7 +1475,7 @@ typedef struct {
 	uint64_t C;		/* Bound #2 (a.k.a. B2) */
 	giant	N;		/* Number being factored */
 	giant	factor;		/* Factor found, if any */
-	bool	montg_sigma;	/* TRUE for old-style Suyama sigma (choose12 for Montgomery curves), FALSE for new-style Atkin-Morain Edwards curves */
+	uint32_t sigma_type;	/* 1 for old-style Suyama sigma (Montgomery curves choose12), 0 for new-style Atkin-Morain Edwards curves, 3 = GMP-ECM-param3 */
 	bool	montg_stage1;	/* TRUE for old-style Montgomery stage 1, FALSE for new-style Edward curves */
 	bool	optimal_B2;	/* TRUE if we calculate optimal bound #2 given currently available memory.  FALSE for a fixed bound #2. */
 	uint64_t average_B2;	/* Average Kruppa-adjusted bound #2 work done on ECM curves thusfar */
@@ -4336,6 +4336,39 @@ int choose_atkin_morain (
 	return (0);
 }
 
+/* From GMP-ECM's README file for -param=3.  A = 4*s/2^32-2, x0 = 2. */
+int choose_gmp_ecm_param3 (
+	ecmhandle *ecmdata)
+{
+	gwnum	An, Ad;
+	int	stop_reason;
+
+	/* Montgomery A + 2 = An/Ad */
+	An = gwalloc (&ecmdata->gwdata);	if (An == NULL) goto oom;
+	Ad = gwalloc (&ecmdata->gwdata);	if (Ad == NULL) goto oom;
+	u64togw (&ecmdata->gwdata, ecmdata->sigma, An);
+	gwsmallmul (&ecmdata->gwdata, 4.0, An);					/* An = 4*s */
+	u64togw (&ecmdata->gwdata, 1ULL << 32, Ad);				/* Ad = 2^32 */
+
+	/* Normalize so that An is one, thus Ad is 1/(A + 2) */
+	stop_reason = normalize (ecmdata, Ad, An);				// This destroys An
+	if (stop_reason) return (stop_reason);
+	gwfree (&ecmdata->gwdata, An);
+
+	/* For extra speed, precompute Ad * 4, a.k.a 4/(A + 2) */
+	gwsmallmul (&ecmdata->gwdata, 4.0, Ad);
+
+	/* Even more speed, save FFT of Ad4 */
+	gwfft (&ecmdata->gwdata, Ad, Ad);
+	ecmdata->Ad4 = Ad;
+
+	return (0);
+
+/* Out of memory exit path */
+
+oom:	return (OutOfMemory (ecmdata->thread_num));
+}
+
 /* Convert from Edwards to Montgomery.  Edwards memory is freed. */
 
 void ed_to_Montgomery (
@@ -4393,8 +4426,12 @@ int init_curve (
 {
 	int	stop_reason;
 
+	// GMP-ECM parameterization 3 (prime95 does stage 2 only)
+	if (ecmdata->sigma_type == 3) {
+		stop_reason = choose_gmp_ecm_param3 (ecmdata);
+	}
 	// Montgomery curve
-	if (ecmdata->montg_sigma) {
+	else if (ecmdata->sigma_type == 1) {
 		if (ecmdata->state != ECM_STATE_STAGE1_INIT)		// Resuming from a save file
 			stop_reason = choose12 (ecmdata, NULL, NULL);
 		else if (ecmdata->montg_stage1)				// New Montgomery curve with Montgomery stage 1
@@ -4716,7 +4753,8 @@ void curve_start_msg (
 	title (ecmdata->thread_num, buf);
 
 	sprintf (buf, "ECM on %s: %s curve #%" PRIu32 " with s=%" PRIu64 ", B1=%" PRIu64 ", ",
-		 gwmodulo_as_string (&ecmdata->gwdata), ecmdata->montg_sigma ? "Montgomery" : "Edwards", ecmdata->curve, ecmdata->sigma, ecmdata->B);
+		 gwmodulo_as_string (&ecmdata->gwdata), ecmdata->sigma_type == 3 ? "GMP-ECM-param3" : ecmdata->sigma_type == 1 ? "Montgomery" : "Edwards",
+		 ecmdata->curve, ecmdata->sigma, ecmdata->B);
 	if (!ecmdata->optimal_B2 || ecmdata->state >= ECM_STATE_STAGE2) sprintf (buf + strlen (buf), "B2=%" PRIu64 "\n", ecmdata->C);
 	else sprintf (buf + strlen (buf), "B2=TBD\n");
 	OutputStr (ecmdata->thread_num, buf);
@@ -5674,7 +5712,7 @@ double ecm_stage2_impl_given_numvals (
 
 // The cost of stage 1 (in FFTs) is about 25.55 * B1 (measured at 25.55 for B1=250000 for Montgomery and 21.95 for Edwards with dictionary size 512).
 
-	if (ecmdata->montg_sigma) cost_data.c.stage1_cost = 25.55 * (double) ecmdata->B;
+	if (ecmdata->sigma_type) cost_data.c.stage1_cost = 25.55 * (double) ecmdata->B;
 	else cost_data.c.stage1_cost = 21.95 * (double) ecmdata->B;
 
 /* Compute the expected compression of poly1 using polymult_preprocess.  Default compression is usually 1.6%.  Some FFT sizes may have more padding */
@@ -5766,7 +5804,8 @@ void ecm_choose_B2 (
 				if (x.i > max_B2mult) x.i = max_B2mult; \
 				ecmdata->C = x.i * ecmdata->B; \
 				x.efficiency = ecm_stage2_impl_given_numvals (ecmdata, numvals, forced_stage2_type, &cost_data); \
-				x.actual_i = (int) ((cost_data.c.B2_start + cost_data.c.numDsections * cost_data.c.D) / ecmdata->B);
+				if (x.efficiency < 0.0) x.actual_i = x.i; \
+				else x.actual_i = (int) ((cost_data.c.B2_start + cost_data.c.numDsections * cost_data.c.D) / ecmdata->B);
 
 /* Look for the best B2 which is likely between 50 * B1 and 150 * B1 when prime pairing.  With polymult best B2 is apt to be much larger. */
 /* If optimal is not between these bounds, don't worry we'll locate the optimal spot anyway. */
@@ -6003,7 +6042,7 @@ void ecm_save (
 	if (! write_uint64 (fd, ecmdata->sigma, NULL)) goto writeerr;
 	if (! write_uint64 (fd, ecmdata->B, &sum)) goto writeerr;
 	if (! write_uint64 (fd, ecmdata->C, &sum)) goto writeerr;
-	if (! write_uint32 (fd, ecmdata->montg_sigma, &sum)) goto writeerr;
+	if (! write_uint32 (fd, ecmdata->sigma_type, &sum)) goto writeerr;
 	if (! write_uint32 (fd, ecmdata->montg_stage1, &sum)) goto writeerr;
 
 /* Write the stage-specific data */
@@ -6197,12 +6236,11 @@ int ecm_restore (			/* For version 30.4 and later save files */
 	if (! read_uint64 (fd, &savefile_B, &sum)) goto readerr;
 	if (! read_uint64 (fd, &ecmdata->C, &sum)) goto readerr;
 	if (version < 6) {
-		ecmdata->montg_sigma = TRUE;
+		ecmdata->sigma_type = 1;
 		ecmdata->montg_stage1 = TRUE;
 	} else {
+		if (! read_uint32 (fd, &ecmdata->sigma_type, &sum)) goto readerr;
 		uint32_t tmp;
-		if (! read_uint32 (fd, &tmp, &sum)) goto readerr;
-		ecmdata->montg_sigma = tmp;
 		if (! read_uint32 (fd, &tmp, &sum)) goto readerr;
 		ecmdata->montg_stage1 = tmp;
 	}
@@ -6550,7 +6588,7 @@ int ecm (
 	int	msglen, continueECM, prpAfterEcmFactor;
 	char	*str, *msg;
 	double	timers[10];
-	bool	near_fft_limit, saving, montg_default;
+	bool	near_fft_limit, saving, default_sigma_type;
 	double	allowable_maxerr;
 	int	maxerr_restart_count = 0;
 	unsigned long maxerr_fftlen = 0;
@@ -6921,7 +6959,7 @@ if (w->n == 604) {
 	gw_clear_fft_count (&ecmdata.gwdata);
 	first_iter_msg = TRUE;
 	calc_output_frequencies (&ecmdata.gwdata, &output_frequency, &output_title_frequency);
-	dictionary_memory = IniGetInt (INI_FILE, "DictionaryMemory", 256) << 20;	// Default to 256MB dictionary memory
+	dictionary_memory = (uint64_t) IniGetInt (INI_FILE, "DictionaryMemory", 256) << 20;	// Default to 256MB dictionary memory
 
 /* Optionally do a probable prime test */
 
@@ -7040,9 +7078,9 @@ restart0:
 		ecmdata.sigma = w->curve;
 		w->curves_to_do = 1;
 	}
-	montg_default = (IniGetInt (INI_FILE, "DictionarySize", (int) (dictionary_memory / (3 * gwnum_size (&ecmdata.gwdata)))) < 4);
-	ecmdata.montg_sigma = IniGetInt (INI_FILE, "MontgSigma", montg_default);
-	ecmdata.montg_stage1 = IniGetInt(INI_FILE, "MontgStage1", ecmdata.montg_sigma);
+	default_sigma_type = (IniGetInt (INI_FILE, "DictionarySize", (int) (dictionary_memory / (3 * gwnum_size (&ecmdata.gwdata)))) < 4) ? 1 : 0;
+	ecmdata.sigma_type = IniGetInt (INI_FILE, "MontgSigma", default_sigma_type);
+	ecmdata.montg_stage1 = IniGetInt(INI_FILE, "MontgStage1", ecmdata.sigma_type == 1);
 	curve_start_msg (&ecmdata);
 	stop_reason = init_curve (&ecmdata);
 	if (stop_reason) goto exit;
@@ -9539,8 +9577,10 @@ more_curves:
 /* Output line to results file indicating the number of curves run */
 
 	sprintf (buf, "%s completed %u ECM %s curve%s, B1=%" PRIu64 ",%s B2=%" PRIu64 ", Wi%d: %08lX\n",
-		 gwmodulo_as_string (&ecmdata.gwdata), w->curves_to_do, ecmdata.montg_sigma ? "Montgomery" : "Edwards", w->curves_to_do == 1 ? "" : "s",
-		 ecmdata.B, ecmdata.optimal_B2 ? " average" : "", ecmdata.average_B2, PORT, SEC5 (w->n, ecmdata.B, ecmdata.average_B2));
+		 gwmodulo_as_string (&ecmdata.gwdata), w->curves_to_do,
+		 ecmdata.sigma_type == 3 ? "GMP-ECM param3" : ecmdata.sigma_type == 1 ? "Montgomery" : "Edwards",
+		 w->curves_to_do == 1 ? "" : "s", ecmdata.B, ecmdata.optimal_B2 ? " average" : "", ecmdata.average_B2,
+		 PORT, SEC5 (w->n, ecmdata.B, ecmdata.average_B2));
 	OutputStr (thread_num, buf);
 	formatMsgForResultsFile (buf, w);
 	writeResults (buf);
@@ -9556,7 +9596,8 @@ more_curves:
 	strcat (JSONbuf, ", \"worktype\":\"ECM\"");
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%" PRIu64 ", \"b2\":%" PRIu64, ecmdata.B, ecmdata.average_B2);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"curves\":%u", w->curves_to_do);
-	if (!ecmdata.montg_sigma) sprintf (JSONbuf+strlen(JSONbuf), ", \"Edwards\": {}");
+	if (ecmdata.sigma_type == 3) sprintf (JSONbuf+strlen(JSONbuf), ", \"GMP-ECM-param3\":{}");
+	if (ecmdata.sigma_type == 0) sprintf (JSONbuf+strlen(JSONbuf), ", \"Edwards\":{}");
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", ecmdata.stage1_fftlen);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, ecmdata.B, ecmdata.average_B2));
 	JSONaddProgramTimestamp (JSONbuf);
@@ -9668,7 +9709,8 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 	strcat (JSONbuf, ", \"worktype\":\"ECM\"");
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"factors\":[\"%s\"]", str);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%" PRIu64 ", \"b2\":%" PRIu64, ecmdata.B, ecmdata.C);
-	if (!ecmdata.montg_sigma) sprintf (JSONbuf+strlen(JSONbuf), ", \"Edwards\": { \"sigma\":%" PRIu64 " }", ecmdata.sigma);
+	if (ecmdata.sigma_type == 3) sprintf (JSONbuf+strlen(JSONbuf), ", \"GMP-ECM-param3\":{\"sigma\":%" PRIu64 "}", ecmdata.sigma);
+	else if (ecmdata.sigma_type == 0) sprintf (JSONbuf+strlen(JSONbuf), ", \"Edwards\":{\"sigma\":%" PRIu64 "}", ecmdata.sigma);
 	else sprintf (JSONbuf+strlen(JSONbuf), ", \"sigma\":%" PRIu64, ecmdata.sigma);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"stage\":%d", stage);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"curves\":%" PRIu32, ecmdata.curve);
@@ -9799,7 +9841,7 @@ error_restart:
 
 /* Read a file of ECM tests to run as part of a QA process */
 /* The format of this file is: */
-/*	k, n, c, sigma, B1, B2_start, B2_end, factor */
+/*	k, n, c, sigma, B1, B2_end, factor */
 /* Use Advanced/Time 9991 to run the QA suite */
 
 int ecm_QA (
@@ -9826,7 +9868,7 @@ int ecm_QA (
 	for ( ; ; ) {
 		struct work_unit w;
 		double	k;
-		unsigned long b, n, B1, B2_start, B2_end;
+		unsigned long b, n, B1, B2;
 		signed long c;
 		char	fac_str[80];
 		uint64_t sigma;
@@ -9835,7 +9877,7 @@ int ecm_QA (
 /* Read a line from the file */
 
 		n = 0;
-		(void) fscanf (fd, "%lf,%lu,%lu,%ld,%" PRIu64 ",%lu,%lu,%lu,%s\n", &k, &b, &n, &c, &sigma, &B1, &B2_start, &B2_end, fac_str);
+		(void) fscanf (fd, "%lf,%lu,%lu,%ld,%" PRIu64 ",%lu,%lu,%s\n", &k, &b, &n, &c, &sigma, &B1, &B2, fac_str);
 		if (n == 0) break;
 
 /* If b is 1, set QA_TYPE */
@@ -9850,13 +9892,8 @@ int ecm_QA (
 		QA_FACTOR = allocgiant ((int) strlen (fac_str));
 		ctog (fac_str, QA_FACTOR);
 
-/*test various num_tmps
-test 4 (or more?) stage 2 code paths
-print out each test case (all relevant data)*/
-
 /* Do the ECM */
 
-		if (B2_start < B1) B2_start = B1;
 		memset (&w, 0, sizeof (w));
 		w.work_type = WORK_ECM;
 		w.k = k;
@@ -9864,8 +9901,7 @@ print out each test case (all relevant data)*/
 		w.n = n;
 		w.c = c;
 		w.B1 = B1;
-		w.B2_start = B2_start;
-		w.B2 = B2_end;
+		w.B2 = B2;
 		w.curves_to_do = 1;
 		w.curve = sigma;
 		QA_IN_PROGRESS = TRUE;
@@ -13538,7 +13574,7 @@ int pminus1_QA (
 	for ( ; ; ) {
 		struct work_unit w;
 		double	k;
-		unsigned long b, n, B1, B2_start, B2_end;
+		unsigned long b, n, B1, B2;
 		signed long c;
 		char	fac_str[80];
 		int	stop_reason;
@@ -13546,7 +13582,7 @@ int pminus1_QA (
 /* Read a line from the file */
 
 		n = 0;
-		(void) fscanf (fd, "%lf,%lu,%lu,%ld,%lu,%lu,%lu,%s\n", &k, &b, &n, &c, &B1, &B2_start, &B2_end, fac_str);
+		(void) fscanf (fd, "%lf,%lu,%lu,%ld,%lu,%lu,%s\n", &k, &b, &n, &c, &B1, &B2, fac_str);
 		if (n == 0) break;
 
 /* If p is 1, set QA_TYPE */
@@ -13561,13 +13597,8 @@ int pminus1_QA (
 		QA_FACTOR = allocgiant ((int) strlen (fac_str));
 		ctog (fac_str, QA_FACTOR);
 
-/*test various num_tmps
-test 4 (or more?) stage 2 code paths
-print out each test case (all relevant data)*/
-
 /* Do the P-1 */
 
-		if (B2_start < B1) B2_start = B1;
 		memset (&w, 0, sizeof (w));
 		w.work_type = WORK_PMINUS1;
 		w.k = k;
@@ -13575,8 +13606,7 @@ print out each test case (all relevant data)*/
 		w.n = n;
 		w.c = c;
 		w.B1 = B1;
-		w.B2_start = B2_start;
-		w.B2 = B2_end;
+		w.B2 = B2;
 		QA_IN_PROGRESS = TRUE;
 		stop_reason = pminus1 (0, sp_info, &w);
 		QA_IN_PROGRESS = FALSE;
@@ -15442,9 +15472,14 @@ restart3a:
 
 /* Stage 1 is now complete */
 
-	pp1data.state = PM1_STATE_MIDSTAGE;
+	pp1data.state = PP1_STATE_MIDSTAGE;
 	strcpy (w->stage, "S2");
 	w->pct_complete = 0.0;
+
+/* Some users have requested that a save file be written here.  Sometimes the vast amount of stage 2 memory allocated makes their machine thrash which */
+/* may require a reboot.  Upon resumption, the tail end of stage 1 calculations then need to be repeated.  For now, we'll make this the default behavior. */
+
+	if (IniGetInt (INI_FILE, "SaveBeforeStage2", 1)) pp1_save (&pp1data);
 
 /* Restart here when in the middle of stage 2 */
 

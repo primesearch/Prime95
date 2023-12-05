@@ -2685,7 +2685,15 @@ int hgcd (	/* hgcd(n,x,y,A) chops n words off x and y and computes the
 	giant 	x, y;
 	int	half_size, stop_reason;
 
-	ASSERTG (n >= 0);
+	ASSERTG (n >= 0 && n < (*xx)->sign && n < (*yy)->sign);
+
+#ifdef DEBUG_CODE
+giant t1 = allocgiant (10000);
+giant t2 = allocgiant (10000);
+int A1 = (A->ur->sign == 0);
+gtog (*xx, t1);
+gtog (*yy, t2);
+#endif
 
 /* Don't do anything if y isn't more than n words long */
 
@@ -2751,7 +2759,8 @@ int hgcd (	/* hgcd(n,x,y,A) chops n words off x and y and computes the
 		a_size = half_size >> 1;
 		stop_reason = hgcd (gdata, y->sign - (a_size + a_size + 1), &x, &y, A, interruptable);
 		if (stop_reason) return (stop_reason);
-		a_size = abs (A->lr->sign);
+		a_size = intmax (abs (A->lr->sign), abs (A->ur->sign));
+		ASSERTG (a_size >= abs (A->ll->sign) && a_size >= abs (A->ul->sign));
 
 /* Do the second recursion.  Note how we use the upper half of the gmatrix A */
 /* in order to save a lot of memory.  Be wary of the matrix multiply of B */
@@ -2836,6 +2845,25 @@ int hgcd (	/* hgcd(n,x,y,A) chops n words off x and y and computes the
 	else {
 		if (*xx != x) gswap (xx, yy);
 	}
+
+#ifdef DEBUG_CODE
+if (A1) {
+giant t3 = allocgiant (10000);
+giant t4 = allocgiant (10000);
+gtog (t1, t3);  mulg (A->ul, t3);
+gtog (t2, t4);  mulg (A->ur, t4);
+addg (t3, t4);
+ASSERTG (gcompg (*xx, t4) == 0);
+gtog (t1, t3);  mulg (A->ll, t3);
+gtog (t2, t4);  mulg (A->lr, t4);
+addg (t3, t4);
+ASSERTG (gcompg (*yy, t4) == 0);
+free (t3);
+free (t4);
+}
+free (t1);
+free (t2);
+#endif
 
 /* All done */
 

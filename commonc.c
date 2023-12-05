@@ -2006,7 +2006,6 @@ static	int	worktodo_add_disabled = FALSE;
 
 		w = (struct work_unit *) malloc (sizeof (struct work_unit));
 		if (w == NULL) goto nomem;
-		memset (w, 0, sizeof (struct work_unit));
 
 /* Parse the new line */
 
@@ -2679,32 +2678,33 @@ int parseWorkToDoLine (
 
 /* All lines other than keyword=value are saved as comment lines. */
 
+	memset (w, 0, sizeof (struct work_unit));
 	if (((line[0] < 'A' || line[0] > 'Z') && (line[0] < 'a' || line[0] > 'z'))) goto comment;
 
 /* Otherwise, parse keyword=value lines */
 
-	value = strchr (line, '=');
-	if (value == NULL || (int) (value - (char *) line) >= sizeof (keyword) - 1) goto illegal_line;
-	*value = 0;
-	strcpy (keyword, line);
-	*value++ = '=';
+	for (i = 0; ; i++) {
+		if (line[i] == '=') break;
+		if (line[i] == 0 || i == sizeof (keyword) - 1) goto illegal_line;
+		keyword[i] = toupper (line[i]);
+	}
+	keyword[i] = 0;
+	value = line + i + 1;
 
-/* Set some default values.  Historically, this program worked on Mersenne numbers only.  Default to an FFT length chosen by gwnum library. */
+/* Set some default values.  Historically, this program worked on Mersenne numbers only. */
 
 	w->k = 1.0;
 	w->b = 2;
 	w->c = -1;
-	w->minimum_fftlen = 0;
-	w->extension[0] = 0;
 
 /* Parse the optional assignment_uid */
 
-	if ((value[0] == 'N' || value[0] == 'n') && (value[1] == '/') && (value[2] == 'A' || value[2] == 'a') && (value[3] == ',')) {
+	if (toupper (value[0]) == 'N' && value[1] == '/' && toupper (value[2]) == 'A' && value[3] == ',') {
 		w->ra_failed = TRUE;
 		safe_strcpy (value, value+4);
 	}
 	for (i = 0; ; i++) {
-		if (!(value[i] >= '0' && value[i] <= '9') && !(value[i] >= 'A' && value[i] <= 'F') && !(value[i] >= 'a' && value[i] <= 'f')) break;
+		if (!(value[i] >= '0' && value[i] <= '9') && !(toupper (value[i]) >= 'A' && toupper (value[i]) <= 'F')) break;
 		if (i == 31) {
 			if (value[32] != ',') break;
 			value[32] = 0;
@@ -2717,7 +2717,7 @@ int parseWorkToDoLine (
 /* Parse the FFT length to use.  The syntax is FFT_length for x87 cpus and FFT2_length for SSE2 machines.  We support two syntaxes so that an */
 /* assignment moved from an x87 to-or-from an SSE2 machine will recalculate the soft FFT crossover. */
 
-	if ((value[0] == 'F' || value[0] == 'f') && (value[1] == 'F' || value[1] == 'f') && (value[2] == 'T' || value[2] == 't')) {
+	if (toupper (value[0]) == 'F' && toupper (value[1]) == 'F' && toupper (value[2]) == 'T') {
 		int	sse2;
 		unsigned long fftlen;
 		char	*p;
@@ -2731,8 +2731,8 @@ int parseWorkToDoLine (
 		}
 		fftlen = atoi (p);
 		while (isdigit (*p)) p++;
-		if (*p == 'K' || *p == 'k') fftlen <<= 10, p++;
-		if (*p == 'M' || *p == 'm') fftlen <<= 20, p++;
+		if (toupper (*p) == 'K') fftlen <<= 10, p++;
+		if (toupper (*p) == 'M') fftlen <<= 20, p++;
 		if (*p == ',') p++;
 		safe_strcpy (value, p);
 		if ((sse2 && (CPU_FLAGS & CPU_SSE2)) || (!sse2 && ! (CPU_FLAGS & CPU_SSE2)))
@@ -2759,7 +2759,7 @@ int parseWorkToDoLine (
 /*	DoubleCheck=exponent,how_far_factored,has_been_pminus1ed	*/
 /* New in 30.4, for consistency with PRP worktodo lines assume no TF or P-1 needed if those fields are left out */
 
-	if (_stricmp (keyword, "Test") == 0) {
+	if (strcmp (keyword, "TEST") == 0) {
 		float	sieve_depth;
 		w->work_type = WORK_TEST;
 		sieve_depth = 99.0;
@@ -2768,7 +2768,7 @@ int parseWorkToDoLine (
 		w->sieve_depth = sieve_depth;
 		w->tests_saved = 1.3;
 	}
-	else if (_stricmp (keyword, "DoubleCheck") == 0) {
+	else if (strcmp (keyword, "DOUBLECHECK") == 0) {
 		float	sieve_depth;
 		w->work_type = WORK_DBLCHK;
 		sieve_depth = 99.0;
@@ -2781,7 +2781,7 @@ int parseWorkToDoLine (
 /* Handle AdvancedTest= lines. */
 /*	AdvancedTest=exponent */
 
-	else if (_stricmp (keyword, "AdvancedTest") == 0) {
+	else if (strcmp (keyword, "ADVANCEDTEST") == 0) {
 		w->work_type = WORK_ADVANCEDTEST;
 		sscanf (value, "%lu", &w->n);
 	}
@@ -2791,7 +2791,7 @@ int parseWorkToDoLine (
 /* New style is:							*/
 /*	Factor=exponent,how_far_factored,how_far_to_factor_to		*/
 
-	else if (_stricmp (keyword, "Factor") == 0) {
+	else if (strcmp (keyword, "FACTOR") == 0) {
 		float	sieve_depth, factor_to;
 		w->work_type = WORK_FACTOR;
 		sieve_depth = 0.0;
@@ -2808,7 +2808,7 @@ int parseWorkToDoLine (
 /* Starting in 30.9:									*/
 /*	Pfactor=k,b,n,c,how_far_factored,ll_tests_saved_if_factor_found[,known_factors]	*/
 
-	else if (_stricmp (keyword, "PFactor") == 0) {
+	else if (strcmp (keyword, "PFACTOR") == 0) {
 		float	sieve_depth;
 		w->work_type = WORK_PFACTOR;
 		sieve_depth = 0.0;
@@ -2837,34 +2837,66 @@ int parseWorkToDoLine (
 	}
 
 /* Handle ECM= and ECM2= lines.  Note we've deprecated the old (2002ish) ECM= syntax and now treat ECM= and ECM2= the same. */
-/*	ECM2=k,b,n,c,B1,B2,curves_to_do[,specific_sigma][,B2_start][,"factors"] */
+/*	ECM=k,b,n,c,B1[,B2-or-zero][,curves_to_do][,specific_sigma][,"factors"] */
+/* Handle ECMSTAGE2= and ECMSTAGE2N= lines.  Used to continue stage 2 from a GMP-ECM stage 1 run.  Double quote file name if it contains special characters. */
+/*	ECMSTAGE2=k,b,n,c,filename[,B2-or-zero][,first_curve][,num_curves][,"known-factors"] */
+/*	ECMSTAGE2N=filename[,B2-or-zero][,first_curve][,num_curves][,"known-factors"] */
 
-	else if (_stricmp (keyword, "ECM") == 0 || _stricmp (keyword, "ECM2") == 0) {
-		int	i;
+	else if (keyword[0] == 'E' && keyword[1] == 'C' && keyword[2] == 'M') {
+		int	ecm_type;
 		char	*q;
 		w->work_type = WORK_ECM;
-		w->k = atof (value);
-		if ((q = strchr (value, ',')) == NULL) goto illegal_line;
-		sscanf (q+1, "%lu,%lu,%ld", &w->b, &w->n, &w->c);
-		for (i = 1; i <= 3; i++) if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-		w->B1 = (uint64_t) atof (q+1);
-		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-		w->B2 = (uint64_t) atof (q+1);
-		if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
-		w->curves_to_do = atoi (q+1);
-		q = strchr (q+1, ',');
-		w->curve = 0;
-		if (q != NULL && q[1] != '"') {
+		if (strcmp (keyword, "ECM") == 0 || strcmp (keyword, "ECM2") == 0) ecm_type = 0;
+		else if (strcmp (keyword, "ECMSTAGE2") == 0) ecm_type = 1;
+		else if (strcmp (keyword, "ECMSTAGE2N") == 0) ecm_type = 2;
+		else goto illegal_line;
+		if (ecm_type != 2) {					// Get required k,b,n,c for ECM= and ECMSTAGE2=
+			w->k = atof (value);
+			if ((q = strchr (value, ',')) == NULL) goto illegal_line;
+			sscanf (q+1, "%lu,%lu,%ld", &w->b, &w->n, &w->c);
+			for (i = 1; i <= 3; i++) if ((q = strchr (q+1, ',')) == NULL) goto illegal_line;
+		}
+		if (ecm_type != 0) {					// Get required filename for ECMSTAGE2= and ECMSTAGE2N=
+			int len;
+			char *end;
+			if (ecm_type == 2) q = value; else q++;
+			if (q[0] == '"') {
+				q++;
+				end = strchr (q, '"');
+				if (end == NULL) goto illegal_line;
+			} else {
+				end = strchr (q, ',');
+				if (end == NULL) end = q + strlen (q);
+			}
+			len = (int) (end - q);
+			w->gmp_ecm_file = (char *) malloc (len + 1);
+			if (w->gmp_ecm_file == NULL) goto nomem;
+			memcpy (w->gmp_ecm_file, q, len);
+			w->gmp_ecm_file[len] = 0;
+			q = strchr (q + len, ',');
+		}
+		if (ecm_type == 0) {					// Get required B1 for ECM=
+			w->B1 = (uint64_t) atof (q+1);
+			q = strchr (q+1, ',');
+		}
+		if (q != NULL && q[1] != '"') {				// Get optional B2 for all ECM types
+			w->B2 = (uint64_t) atof (q+1);
+			q = strchr (q+1, ',');
+		}
+		if (q != NULL && q[1] != '"' && ecm_type != 0) {	// Get optional first curve (line number) for ECMSTAGE2= and ECMSTAGE2N=
+			w->first_curve = (uint64_t) atoi (q+1);
+			q = strchr (q+1, ',');
+		}
+		if (ecm_type == 0) w->curves_to_do = 100;		// Default to 100 curves for ECM=
+		if (q != NULL && q[1] != '"') {				// Get optional num_curves (num lines) for all ECM types
+			q = strchr (q+1, ',');
+			w->curves_to_do = atoi (q+1);
+		}
+		if (q != NULL && q[1] != '"' && ecm_type == 0) {	// Get optional sigma for ECM=
 			w->curve = atoll (q+1);
 			q = strchr (q+1, ',');
 		}
-		w->B2_start = w->B1;
-		if (q != NULL && q[1] != '"') {
-			uint64_t j = (uint64_t) atof (q+1);
-			if (j > w->B1) w->B2_start = j;
-			q = strchr (q+1, ',');
-		}
-		if (q != NULL && q[1] == '"') {
+		if (q != NULL && q[1] == '"') {				// Get optional known factors for all ECM types
 			w->known_factors = (char *) malloc (strlen (q));
 			if (w->known_factors == NULL) goto nomem;
 			strcpy (w->known_factors, q+2);
@@ -2874,7 +2906,7 @@ int parseWorkToDoLine (
 /* Handle Pminus1 lines:						*/
 /*	Pminus1=k,b,n,c,B1,B2[,how_far_factored][,B2_start][,"factors"] */
 
-	else if (_stricmp (keyword, "Pminus1") == 0) {
+	else if (strcmp (keyword, "PMINUS1") == 0) {
 		char	*q;
 		w->work_type = WORK_PMINUS1;
 		w->k = atof (value);
@@ -2909,7 +2941,7 @@ int parseWorkToDoLine (
 /*	Pplus1=k,b,n,c,B1,B2,nth_run[,how_far_factored][,"factors"]	*/
 /* where nth_run is 1 for start 2/7, 2 for start 6/5, 3+ for random start */
 
-	else if (_stricmp (keyword, "Pplus1") == 0) {
+	else if (strcmp (keyword, "PPLUS1") == 0) {
 		char	*q;
 		w->work_type = WORK_PPLUS1;
 		w->k = atof (value);
@@ -2945,7 +2977,7 @@ int parseWorkToDoLine (
 /* A tests_saved value of 0.0 will bypass any P-1 factoring				*/
 /* The PRP residue type is defined in primenet.h					*/
 
-	else if (_stricmp (keyword, "PRP") == 0 || _stricmp (keyword, "PRPDC") == 0) {
+	else if (strcmp (keyword, "PRP") == 0 || strcmp (keyword, "PRPDC") == 0) {
 		char	*q;
 
 		w->work_type = WORK_PRP;
@@ -2982,7 +3014,7 @@ int parseWorkToDoLine (
 /* Handle Cert= lines.  Certifying a PRP proof.		*/
 /*	Cert=k,b,n,c,num_squarings			*/
 
-	else if (_stricmp (keyword, "Cert") == 0) {
+	else if (strcmp (keyword, "CERT") == 0) {
 		char	*q;
 
 		w->work_type = WORK_CERT;
@@ -2994,7 +3026,7 @@ int parseWorkToDoLine (
 
 /* Uh oh.  We have a worktodo.txt line we cannot process. */
 
-	else if (_stricmp (keyword, "AdvancedFactor") == 0) {
+	else if (strcmp (keyword, "ADVANCEDFACTOR") == 0) {
 		OutputSomewhere (MAIN_THREAD_NUM, "Worktodo error: AdvancedFactor no longer supported\n");
 		goto comment;
 	} else {
@@ -3139,6 +3171,7 @@ int readWorkToDoFile (void)
 		struct work_unit *w, *next_w;
 		for (w = WORK_UNITS[tnum].first; w != NULL; w = next_w) {
 			next_w = w->next;
+			free (w->gmp_ecm_file);
 			free (w->known_factors);
 			free (w->comment);
 			free (w);
@@ -3167,7 +3200,6 @@ int readWorkToDoFile (void)
 
 	    w = (struct work_unit *) malloc (sizeof (struct work_unit));
 	    if (w == NULL) goto nomem;
-	    memset (w, 0, sizeof (struct work_unit));
 
 /* A section header preceeds each worker's work units.  The first section need not be preceeded by a section header. */
 
@@ -3340,8 +3372,7 @@ int writeWorkToDoFile (
 
 /* If we've processed all the workers and there is nothing left to output, then we are done. */
 
-	    if (tnum >= NUM_WORKERS &&
-		WORK_UNITS[tnum].first == NULL) break;
+	    if (tnum >= NUM_WORKERS && WORK_UNITS[tnum].first == NULL) break;
 
 /* Output a standardized section header */
 
@@ -3436,9 +3467,18 @@ int writeWorkToDoFile (
 			break;
 
 		case WORK_ECM:
-			sprintf (buf, "ECM2=%s%.0f,%lu,%lu,%ld,%" PRIu64 ",%" PRIu64 ",%u", idbuf, w->k, w->b, w->n, w->c, w->B1, w->B2, w->curves_to_do);
-			if (w->B2_start > w->B1) sprintf (buf + strlen (buf), ",%" PRIu64 ",%" PRIu64, w->curve, w->B2_start);
-			else if (w->curve) sprintf (buf + strlen (buf), ",%" PRIu64, w->curve);
+			if (w->gmp_ecm_file != NULL) {
+				if (w->k == 0.0) sprintf (buf, "ECMSTAGE2N=%s\"%s\"", idbuf, w->gmp_ecm_file);
+				else sprintf (buf, "ECMSTAGE2=%s%.0f,%lu,%lu,%ld,\"%s\"", idbuf, w->k, w->b, w->n, w->c, w->gmp_ecm_file);
+				if (w->B2 || w->first_curve || w->curves_to_do) sprintf (buf + strlen (buf), ",%" PRIu64, w->B2);
+				if (w->first_curve || w->curves_to_do) sprintf (buf + strlen (buf), ",%u", w->first_curve);
+				if (w->curves_to_do) sprintf (buf + strlen (buf), ",%u", w->curves_to_do);
+			} else {
+				sprintf (buf, "ECM=%s%.0f,%lu,%lu,%ld,%" PRIu64, idbuf, w->k, w->b, w->n, w->c, w->B1);
+				if (w->B2 || w->curves_to_do != 100 || w->curve) sprintf (buf + strlen (buf), ",%" PRIu64, w->B2);
+				if (w->curves_to_do != 100 || w->curve) sprintf (buf + strlen (buf), ",%u", w->curves_to_do);
+				if (w->curve) sprintf (buf + strlen (buf), ",%" PRIu64, w->curve);
+			}
 			if (w->known_factors != NULL) sprintf (buf + strlen (buf), ",\"%s\"", w->known_factors);
 			break;
 

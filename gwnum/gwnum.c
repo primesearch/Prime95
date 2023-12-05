@@ -2514,8 +2514,9 @@ int gwsetup_general_mod_giant (
 	gwhandle *gwdata,	/* Placeholder for gwnum global data */
 	giant	N)		/* The modulus */
 {
-	unsigned long bits;	/* Bit length of modulus */
-	int	convertible;	/* Value can be converted to (k*2^n+c)/d */
+	giant	safe_N;			/* Small prime times modulus to avoid pathological bit patterns */
+	unsigned long bits, safe_bits;	/* Bit length of modulus */
+	int	convertible;		/* Value can be converted to (k*2^n+c)/d */
 	double	k;
 	unsigned long n;
 	signed long c;
@@ -2571,11 +2572,25 @@ int gwsetup_general_mod_giant (
 		return (0);
 	}
 
+/* Multiply the modulus by a 29-bit prime number to reduce impact of pathological bit patterns in the original modulus */
+
+	if (1) {			// I may provide a gwnum option to turn this feature off
+		safe_N = allocgiant ((bits >> 5) + 2);
+		gtog (N, safe_N);
+		imulg (400000009, safe_N);
+		safe_bits = bitlen (safe_N);
+	} else {
+		safe_N = N;
+		safe_bits = bits;
+	}
+
 /* Force Barrett reduction if so requested or N is even (can't later do divide by 2) or N is small (308 bits) as Barrett */
 /* using a length 32 FFT should be faster than Montgomery using 2 length 32 FFTs. */
 
-	if (gwdata->force_general_mod == 2 || (N->n[0] & 1) == 0 || bitlen (N) <= 308)
+	if (gwdata->force_general_mod == 2 || (N->n[0] & 1) == 0 || safe_bits <= 308) {
+		if (safe_N != N) free (safe_N);
 		return (gwsetup_general_Barrett_mod_giant (gwdata, N, d));
+	}
 
 /* Setup the FFT code in much the same way that gwsetup_without_mod does.  Unless the user insists, we try for an integral number of bits per word. */
 /* There are pathological bit patterns that generate huge roundoff errors.  For example, if we test (10^828809-1)/9 and put exactly 18 bits into each */
@@ -2590,8 +2605,8 @@ int gwsetup_general_mod_giant (
 	int larger_fftlen_count = saved_larger_fftlen_count;		// Counter to handle larger fft length within the loop below
 	gwdata->larger_fftlen_count = 0;
 	for ( ; ; gwdata->minimum_fftlen = fftlen + 1) {
-		// We need FFTs that can handle the number of input bits plus some padding
-		n = bits + 128;
+		// We need FFTs that can handle the number of input bits plus some padding, especially if polymult may be used.  The value of 128 needs study.
+		n = safe_bits + 128;
 
 		// Find next potential FFT length.  Decrease the safety margin as we will likely use a rational FFT which has lower round off errors.
 		gwdata->safety_margin -= 0.15f;
@@ -2634,7 +2649,7 @@ int gwsetup_general_mod_giant (
 	giant Np = allocgiant ((n >> 5) + 2);
 	if (R == NULL || Np == NULL) { gwdone (gwdata); return (GWERROR_MALLOC); }
 	itog (1, R); gshiftleft (n, R); sladdg (-1, R);			// 2^n-1
-	gtog (N, Np);
+	gtog (safe_N, Np);
 	invg (R, Np);							// Np = 1/N mod R
 
 	// R and N may not be relatively prime which is a requirement of MMGW algorithm!  Fall back to the older Barrett reduction.
@@ -2644,6 +2659,7 @@ int gwsetup_general_mod_giant (
 		gwdata->larger_fftlen_count = saved_larger_fftlen_count;	// Restore this option to its original setting
 		gwdata->minimum_fftlen = saved_minimum_fftlen;			// Restore this option to its original setting
 		gwdata->required_pass2_size = 0;				// Allow any pass 2 size
+		if (safe_N != N) free (safe_N);
 		return (gwsetup_general_Barrett_mod_giant (gwdata, N, d));
 	}
 
@@ -2733,7 +2749,7 @@ int gwsetup_general_mod_giant (
 		gwfft (cyclic_gwdata, gwdata->Np_R, gwdata->Np_R);
 
 		// Need the modulus FFTed for future negacyclic multiplications.  Yves calls this value N_Q.
-		gianttogw (negacyclic_gwdata, N, gwdata->N_Q);
+		gianttogw (negacyclic_gwdata, safe_N, gwdata->N_Q);
 		if (1) {						// Sanity check 1/N.  Giants invg has been known to fail.
 			gwnum tmp = gwdata->R2_4;
 			gwmul3_carefully (cyclic_gwdata, gwdata->N_Q, gwdata->Np_R, tmp, GWMUL_PRESERVE_S1);
@@ -2744,17 +2760,18 @@ int gwsetup_general_mod_giant (
 		gwfft (negacyclic_gwdata, gwdata->N_Q, gwdata->N_Q);
 
 		// Need R^2/4 mod N.  This will be used for a fast implementation of gianttogw.
-		if (R->n[0] & 1) addg (N, R);					// Make R even
+		if (R->n[0] & 1) addg (safe_N, R);				// Make R even
 		gshiftright (1, R);						// R/2
-		modg (N, R);							// R/2 mod N
+		modg (safe_N, R);						// R/2 mod N
 		squareg (R);							// R^2/4
-		modg (N, R);							// R^2/4 mod N
+		modg (safe_N, R);						// R^2/4 mod N
 		gianttogw (gwdata, R, gwdata->R2_4);
 		gwfft (gwdata, gwdata->R2_4, gwdata->R2_4);
 	}
 
 	free (Np);
 	free (R);
+	if (safe_N != N) free (safe_N);
 
 /* Create dummy string representation. Calling gtoc to get the first several digits would be better, but it is too slow. */
 

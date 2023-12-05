@@ -553,7 +553,8 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 			 (family == 6 && model == 167) ||		// Core i3/i5/i7, Rocket Lake
 			 (family == 6 && model == 154) ||		// Core i3/i5/i7, Alder Lake
 			 (family == 6 && model == 151) ||		// Core i3/i5/i7, Alder Lake
-			 (family == 6 && model == 183))			// Core i3/i5/i7/i9, Raptor Lake
+			 (family == 6 && model == 183) ||		// Core i3/i5/i7/i9, Raptor Lake
+			 (family == 6 && model == 186))			// Core i3/i5/i7/i9, Raptor Lake
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_CORE_I7;
 		else if ((family == 6 && model == 28) ||
 			 (family == 6 && model == 38) ||

@@ -146,9 +146,11 @@ void rangeStatusMessage (
 		strcpy (buf, ", ");
 		buf += strlen (buf);
 
-		if (w->work_type == WORK_ECM)
-			sprintf (buf, "ECM %d curve%s B1=%" PRIu64, w->curves_to_do, w->curves_to_do == 1 ? "" : "s",
-				 w->B1 * IniGetInt (INI_FILE, "ECMBoundsMultiplier", 1));
+		if (w->work_type == WORK_ECM) {
+			if (w->gmp_ecm_file) sprintf (buf, "ECM stage 2 on file %s", w->gmp_ecm_file);
+			else sprintf (buf, "ECM %d curve%s B1=%" PRIu64, w->curves_to_do, w->curves_to_do == 1 ? "" : "s",
+				      w->B1 * IniGetInt (INI_FILE, "ECMBoundsMultiplier", 1));
+		}
 		else if (w->work_type == WORK_PMINUS1)
 			sprintf (buf, "P-1 B1=%" PRIu64, w->B1);
 		else if (w->work_type == WORK_PPLUS1)
