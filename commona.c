@@ -137,14 +137,16 @@ void rangeStatusMessage (
 
 /* Add the exponent to the output message */
 
-		gw_as_string (buf, w->k, w->b, w->n, w->c);
-		buf += strlen (buf);
-		if (w->work_type == WORK_PRP && w->known_factors) {
-			strcpy (buf, "/known_factors");
+		if (w->n) {
+			gw_as_string (buf, w->k, w->b, w->n, w->c);
+			buf += strlen (buf);
+			if (w->work_type == WORK_PRP && w->known_factors) {
+				strcpy (buf, "/known_factors");
+				buf += strlen (buf);
+			}
+			strcpy (buf, ", ");
 			buf += strlen (buf);
 		}
-		strcpy (buf, ", ");
-		buf += strlen (buf);
 
 		if (w->work_type == WORK_ECM) {
 			if (w->gmp_ecm_file) sprintf (buf, "ECM stage 2 on file %s", w->gmp_ecm_file);

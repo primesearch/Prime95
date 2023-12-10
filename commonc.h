@@ -12,7 +12,7 @@ extern "C" {
 /* Constants */
 
 #define VERSION		"30.19"
-#define BUILD_NUM	"3"
+#define BUILD_NUM	"4"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -428,7 +428,7 @@ struct work_unit {		/* One line from the worktodo file */
 	uint64_t B2;		/* ECM, P-1, P+1 - Stage 2 bound */
 	uint64_t B2_start;	/* P-1 - Stage 2 start */
 	int	nth_run;	/* P+1 - 1 for start 2/7, 2 for start 6/5, 3+ for random start */
-	unsigned int first_curve; /* ECM - first curve from gmp_ecm_file to try */
+	unsigned int skip_curves; /* ECM - number of curves from gmp_ecm_file to skip over */
 	unsigned int curves_to_do; /* ECM - curves to try */
 	uint64_t curve;		/* ECM - Specific curve to test (debug tool) */
 	double	tests_saved;	/* Pfactor - primality tests saved if a factor is found */

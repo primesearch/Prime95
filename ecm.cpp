@@ -29,6 +29,10 @@
 #include <iterator>
 #include <map>
 
+/* Include much of resume.c from GMP_ECM sources */
+
+#include "resume_gmp.c"
+
 /* Global variables */
 
 int	QA_IN_PROGRESS = FALSE;
@@ -1468,12 +1472,15 @@ typedef struct {
 	gwhandle gwdata;	/* GWNUM handle */
 	int	thread_num;	/* Worker number */
 	struct work_unit *w;	/* Worktodo.txt entry */
+	FILE	*gmp_ecm_file;	/* File handle when running stage 2 on GMP-ECM's stage 1 */
 	uint32_t curve;		/* Curve # starting with 1 */
 	uint32_t state;		/* Curve state defined above */
 	uint64_t sigma;		/* Sigma for the current curve */
 	uint64_t B;		/* Bound #1 (a.k.a. B1) */
 	uint64_t C;		/* Bound #2 (a.k.a. B2) */
 	giant	N;		/* Number being factored */
+	char	*N_short_string_rep; /* Short string representation of number being factored */
+	char	*N_full_string_rep; /* Full string representation of number being factored */
 	giant	factor;		/* Factor found, if any */
 	uint32_t sigma_type;	/* 1 for old-style Suyama sigma (Montgomery curves choose12), 0 for new-style Atkin-Morain Edwards curves, 3 = GMP-ECM-param3 */
 	bool	montg_stage1;	/* TRUE for old-style Montgomery stage 1, FALSE for new-style Edward curves */
@@ -1613,7 +1620,10 @@ void ecm_cleanup (
 {
 	ecm_mini_cleanup (ecmdata);
 	free (ecmdata->N), ecmdata->N = NULL;
+	if (ecmdata->N_short_string_rep != gwmodulo_as_string (&ecmdata->gwdata)) free (ecmdata->N_short_string_rep), ecmdata->N_short_string_rep = NULL;
+	if (ecmdata->N_full_string_rep != gwmodulo_as_string (&ecmdata->gwdata)) free (ecmdata->N_full_string_rep), ecmdata->N_full_string_rep = NULL;
 	gwdone (&ecmdata->gwdata);
+	if (ecmdata->gmp_ecm_file != NULL) fclose (ecmdata->gmp_ecm_file), ecmdata->gmp_ecm_file = NULL;
 }
 
 /**************************************************************
@@ -4748,12 +4758,30 @@ void curve_start_msg (
 {
 	char	buf[120];
 
+	// Replace gwnum's "A n-bit number" text with something a bit more meaningful
+	if (ecmdata->N_short_string_rep == NULL) {
+		ecmdata->N_short_string_rep = ecmdata->N_full_string_rep = gwmodulo_as_string (&ecmdata->gwdata);
+		if (ecmdata->N_short_string_rep[0] == 'A') {
+			mpz_t	N;
+			int	len;
+			mpz_init (N);
+			gtompz (ecmdata->N, N);
+			ecmdata->N_full_string_rep = (char *) malloc (mpz_sizeinbase (N, 10) + 2);
+			mpz_get_str (ecmdata->N_full_string_rep, 10, N);
+			len = (int) strlen (ecmdata->N_full_string_rep);
+			ecmdata->N_short_string_rep = (char *) malloc (50);
+			if (len <= 20) strcpy (ecmdata->N_short_string_rep, ecmdata->N_full_string_rep);
+			else sprintf (ecmdata->N_short_string_rep, "%.10s...%s (%d digits)", ecmdata->N_full_string_rep, ecmdata->N_full_string_rep + len - 10, len);
+			mpz_clear (N);
+		}
+	}
+
 	if (ecmdata->curve != 1) OutputStr (ecmdata->thread_num, "\n");
-	sprintf (buf, "%s ECM curve #%" PRIu32, gwmodulo_as_string (&ecmdata->gwdata), ecmdata->curve);
+	sprintf (buf, "%s ECM curve #%" PRIu32, ecmdata->N_short_string_rep, ecmdata->curve);
 	title (ecmdata->thread_num, buf);
 
 	sprintf (buf, "ECM on %s: %s curve #%" PRIu32 " with s=%" PRIu64 ", B1=%" PRIu64 ", ",
-		 gwmodulo_as_string (&ecmdata->gwdata), ecmdata->sigma_type == 3 ? "GMP-ECM-param3" : ecmdata->sigma_type == 1 ? "Montgomery" : "Edwards",
+		 ecmdata->N_short_string_rep, ecmdata->sigma_type == 3 ? "GMP-ECM-param3" : ecmdata->sigma_type == 1 ? "Montgomery" : "Edwards",
 		 ecmdata->curve, ecmdata->sigma, ecmdata->B);
 	if (!ecmdata->optimal_B2 || ecmdata->state >= ECM_STATE_STAGE2) sprintf (buf + strlen (buf), "B2=%" PRIu64 "\n", ecmdata->C);
 	else sprintf (buf + strlen (buf), "B2=TBD\n");
@@ -5556,9 +5584,10 @@ double ecm_stage2_cost (
 		if (max_safe_poly2_size (cost_data->c.gwdata, poly_size, poly_size) < poly_size) return (-1.0);
 
 		// A small optimization to reduce time spent evaluating cost of different poly sizes.  If poly_size < 8, assume old pairing code will be faster.
-		// If doubling the poly size is safe and 16 polys will fit in memory, then assume some bigger poly will be better.  Return negative cost.
 		if (poly_size < 8) return (-1.0);
-		if (16 * 2*poly_size < cost_data->c.numvals && max_safe_poly2_size (cost_data->c.gwdata, 2*poly_size, 2*poly_size) >= 2*poly_size) return (-1.0);
+		// If doubling a poly size is safe and 16 polys will fit in memory, then assume some bigger poly will be better.  Return negative cost.
+		// This optimization did not work when testing generic mod ECM on F7 and F11 with 8GB memory and a small B1 of 8000.
+		// if (16 * 2*poly_size < cost_data->c.numvals && max_safe_poly2_size (cost_data->c.gwdata, 2*poly_size, 2*poly_size) >= 2*poly_size) return (-1.0);
 
 //GW: this minimum may or may not be right, we do require at least 4 polyFtree levels
 if (cost_data->c.numvals < 6*32) return (-1.0);
@@ -5893,7 +5922,7 @@ double ecm_stage2_impl (
 
 	if (ecmdata->state == ECM_STATE_MIDSTAGE) {
 		// Note: differs from P-1 and P+1 code in that "more C" is not supported
-		ecmdata->first_relocatable = ecmdata->B;
+		ecmdata->first_relocatable = ecmdata->C_done = ecmdata->B;
 		ecmdata->last_relocatable = 0;
 		if (ecmdata->optimal_B2) ecm_choose_B2 (ecmdata, numvals, forced_stage2_type, msgbuf + strlen (msgbuf));
 	}
@@ -6253,6 +6282,10 @@ int ecm_restore (			/* For version 30.4 and later save files */
 		goto readerr;
 	}
 
+/* Handle the case where we are doing stage 2 only, use the B1 value from the save file */
+
+	if (ecmdata->B == 0) ecmdata->B = savefile_B;
+
 /* Pre-version 30.10 save files cannot continue stage 2 */
 
 	if (version == 2 && ecmdata->state == ECM_STATE_STAGE2) {
@@ -6609,7 +6642,7 @@ int ecm (
 	ecmdata.w = w;
 	ecmdata.B = (uint64_t) w->B1;
 	ecmdata.C = (uint64_t) w->B2;
-	if (ecmdata.B < 120) {
+	if (ecmdata.B < 120 && w->gmp_ecm_file == NULL) {
 		OutputStr (thread_num, "Using minimum bound #1 of 120\n");
 		ecmdata.B = 120;
 	}
@@ -6632,11 +6665,40 @@ int ecm (
 		ecmdata.C *= mult;
 	}
 
-/* Compute the number we are factoring */
+/* Open the GMP-ECM stage 1 resume file.  Position to the proper curve. */
 
 restart:
-	stop_reason = setN (thread_num, w, &ecmdata.N);
-	if (stop_reason) goto exit;
+	if (w->gmp_ecm_file != NULL) {
+		ecmdata.gmp_ecm_file = fopen (w->gmp_ecm_file, "r");
+		if (ecmdata.gmp_ecm_file == NULL) {
+			sprintf (buf, "File named '%s' could not be opened.\n", w->gmp_ecm_file);
+			OutputStr (thread_num, buf);
+			stop_reason = STOP_FILE_IO_ERROR;
+			goto exit;
+		}
+		// If requested, skip N lines from the GMP-ECM resume file
+		for (i = 0; i < (int) w->skip_curves; i++) skip_resumefile_line (ecmdata.gmp_ecm_file);
+	}
+
+/* Compute the number we are factoring (ECMSTAGE2N= gets N from the GMP-ECM file) */
+
+	if (w->n) {
+		stop_reason = setN (thread_num, w, &ecmdata.N);
+		if (stop_reason) goto exit;
+	} else {
+		mpz_t n;
+		mpz_init (n);
+		if (!peek_resumefile_line (ecmdata.gmp_ecm_file, n)) {
+			sprintf (buf, "Could not find line containing N= in file '%s'.\n", w->gmp_ecm_file);
+			OutputStr (thread_num, buf);
+			stop_reason = STOP_FILE_IO_ERROR;
+			goto exit;
+		}
+		ecmdata.N = allocgiant ((int) divide_rounding_up (mpz_sizeinbase (n, 2), 32));
+		if (ecmdata.N == NULL) goto oom;
+		mpztog (n, ecmdata.N);
+		mpz_clear (n);
+	}
 
 /* Other initialization */
 
@@ -6944,7 +7006,8 @@ if (w->n == 604) {
 	gwset_larger_fftlen_count (&ecmdata.gwdata, maxerr_restart_count < 3 ? maxerr_restart_count : 3);
 	gwset_minimum_fftlen (&ecmdata.gwdata, w->minimum_fftlen);
 	gwset_use_spin_wait (&ecmdata.gwdata, IniGetInt (INI_FILE, "SpinWait", 0));
-	res = gwsetup (&ecmdata.gwdata, w->k, w->b, w->n, w->c);
+	if (w->n) res = gwsetup (&ecmdata.gwdata, w->k, w->b, w->n, w->c);
+	else res = gwsetup_general_mod_giant (&ecmdata.gwdata, ecmdata.N);
 	if (res) {
 		sprintf (buf, "Cannot initialize FFT code, errcode=%d\n", res);
 		OutputBoth (thread_num, buf);
@@ -6964,7 +7027,7 @@ if (w->n == 604) {
 /* Optionally do a probable prime test */
 
 	if (IniGetInt (INI_FILE, "ProbablePrimeTest", 0) && isProbablePrime (&ecmdata.gwdata, ecmdata.N)) {
-		sprintf (buf, "%s is a probable prime\n", gwmodulo_as_string (&ecmdata.gwdata));
+		sprintf (buf, "%s is a probable prime\n", ecmdata.N_short_string_rep);
 		OutputStr (thread_num, buf);
 	}
 
@@ -7012,6 +7075,21 @@ if (w->n == 604) {
 			continue;
 		}
 
+/* If resuming from a GMP-ECM stage 2 run, make sure we are on the right line in the GMP-ECM file */
+
+		if (w->gmp_ecm_file != NULL) {
+			fclose (ecmdata.gmp_ecm_file);
+			ecmdata.gmp_ecm_file = fopen (w->gmp_ecm_file, "r");
+			if (ecmdata.gmp_ecm_file == NULL) {
+				sprintf (buf, "File named '%s' could not be opened.\n", w->gmp_ecm_file);
+				OutputStr (thread_num, buf);
+				stop_reason = STOP_FILE_IO_ERROR;
+				goto exit;
+			}
+			/* Skip past the curve we are processing, the save file has all the information we need */
+			for (i = 0; i < (int) (w->skip_curves + ecmdata.curve); i++) skip_resumefile_line (ecmdata.gmp_ecm_file);
+		}
+
 /* Output a startup message */
 
 		curve_start_msg (&ecmdata);
@@ -7055,6 +7133,42 @@ if (w->n == 604) {
 /* Loop processing the requested number of ECM curves */
 
 restart0:
+
+/* If running stage 2 using data from a GMP-ECM stage 1 resume file, read in the stage 1 results, go to stage 2. */
+
+	if (w->gmp_ecm_file != NULL) {
+		mpz_t	x, n, sigma;
+		int	param;
+		double	b1;
+		mpz_inits (x, n, sigma, 0);
+		if (!read_resumefile_line (ecmdata.thread_num, ecmdata.gmp_ecm_file, x, n, sigma, &param, &b1)) {
+			w->curves_to_do = ecmdata.curve - 1;
+			goto no_more_curves;
+		}
+		if (param == 0) ecmdata.sigma_type = 1;
+		else if (param == 3) ecmdata.sigma_type = 3;
+		else {
+			sprintf (buf, "Unsupported GMP-ECM param=%d\n", param);
+			OutputStr (ecmdata.thread_num, buf);
+			stop_reason = STOP_FILE_IO_ERROR;
+			goto exit;
+		}
+		mpz_get_str (buf, 10, sigma);
+		ecmdata.sigma = atoll (buf);
+		ecmdata.B = (uint64_t) b1;
+		ecmdata.state = ECM_STATE_MIDSTAGE;
+		ecmdata.Qx_binary = allocgiant (((int) ecmdata.gwdata.bit_length >> 5) + 10);
+		if (ecmdata.Qx_binary == NULL) goto oom;
+		mpztog (x, ecmdata.Qx_binary);
+		mpz_clears (x, n, sigma, 0);
+		curve_start_msg (&ecmdata);
+		stop_reason = init_curve (&ecmdata);
+		if (stop_reason) goto exit;
+		goto restart3;
+	}
+
+/* Init for stage 1 */
+
 	ecmdata.state = ECM_STATE_STAGE1_INIT;
 	ecmdata.C_done = 0;
 	ecmdata.pct_mem_to_use = 1.0;				// Use as much memory as we can unless we get allocation errors
@@ -7153,7 +7267,7 @@ restart1:
 			if (first_iter_msg ||
 			    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
 				sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 1",
-					 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve);
+					 (int) PRECISION, trunc_percent (w->pct_complete), ecmdata.N_short_string_rep, ecmdata.curve);
 				title (thread_num, buf);
 				last_output_t = gw_get_fft_count (&ecmdata.gwdata);
 			}
@@ -7163,7 +7277,7 @@ restart1:
 			if (first_iter_msg ||
 			    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
 				sprintf (buf, "%s curve %" PRIu32 " stage 1 at prime %" PRIu64 " [%.*f%%].",
-					 gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve, ecmdata.stage1_prime, (int) PRECISION, trunc_percent (w->pct_complete));
+					 ecmdata.N_short_string_rep, ecmdata.curve, ecmdata.stage1_prime, (int) PRECISION, trunc_percent (w->pct_complete));
 				end_timer (timers, 0);
 				if (first_iter_msg) {
 					strcat (buf, "\n");
@@ -7287,7 +7401,7 @@ restart1:
 				if (first_iter_msg ||
 				    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
 					sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 1",
-						 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve);
+						 (int) PRECISION, trunc_percent (w->pct_complete), ecmdata.N_short_string_rep, ecmdata.curve);
 					title (thread_num, buf);
 					last_output_t = gw_get_fft_count (&ecmdata.gwdata);
 				}
@@ -7297,7 +7411,7 @@ restart1:
 				if (first_iter_msg ||
 				    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
 					sprintf (buf, "%s curve %" PRIu32 " stage 1 at exponent bit %" PRIu32 " [%.*f%%].",
-						 gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve, ecmdata.stage1_bitnum,
+						 ecmdata.N_short_string_rep, ecmdata.curve, ecmdata.stage1_bitnum,
 						 (int) PRECISION, trunc_percent (w->pct_complete));
 					end_timer (timers, 0);
 					if (first_iter_msg) {
@@ -7483,7 +7597,7 @@ restart3:
 /* Output message, change window title */
 
 	start_timer_from_zero (timers, 0);
-	sprintf (buf, "%s ECM curve %" PRIu32 " stage 2 init", gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve);
+	sprintf (buf, "%s ECM curve %" PRIu32 " stage 2 init", ecmdata.N_short_string_rep, ecmdata.curve);
 	title (thread_num, buf);
 
 /* Cost several FFT sizes!  Polymult may require several EXTRA_BITS to safely accumulate products in FFT space. */
@@ -7628,7 +7742,8 @@ OutputStr (thread_num, buf); }
 			gwset_minimum_fftlen (&ecmdata.gwdata, next_fftlen);
 			gwset_using_polymult (&ecmdata.gwdata);
 			gwset_use_spin_wait (&ecmdata.gwdata, IniGetInt (INI_FILE, "SpinWait", 0));
-			res = gwsetup (&ecmdata.gwdata, w->k, w->b, w->n, w->c);
+			if (w->n) res = gwsetup (&ecmdata.gwdata, w->k, w->b, w->n, w->c);
+			else res = gwsetup_general_mod_giant (&ecmdata.gwdata, ecmdata.N);
 			if (res == GWERROR_TOO_LARGE && best_fftlen) {
 				found_best = TRUE;
 				continue;
@@ -8277,7 +8392,7 @@ OutputStr (thread_num, buf); }
 /* Initialization of stage 2 complete */
 
 	sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 2 (using %uMB)",
-		 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve, memused);
+		 (int) PRECISION, trunc_percent (w->pct_complete), ecmdata.N_short_string_rep, ecmdata.curve, memused);
 	title (thread_num, buf);
 
 	end_timer (timers, 0);
@@ -8400,7 +8515,7 @@ OutputStr (thread_num, buf); }
 		if (first_iter_msg ||
 		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
 			sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 2 (using %uMB)",
-				 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve, memused);
+				 (int) PRECISION, trunc_percent (w->pct_complete), ecmdata.N_short_string_rep, ecmdata.curve, memused);
 			title (thread_num, buf);
 			last_output_t = gw_get_fft_count (&ecmdata.gwdata);
 		}
@@ -8410,8 +8525,7 @@ OutputStr (thread_num, buf); }
 		if (first_iter_msg ||
 		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
 			sprintf (buf, "%s curve %" PRIu32 " stage 2 at B2=%" PRIu64 " [%.*f%%].",
-				 gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve,
-				 ecmdata.B2_start + ecmdata.Dsection * ecmdata.D + ecmdata.D / 2,
+				 ecmdata.N_short_string_rep, ecmdata.curve, ecmdata.B2_start + ecmdata.Dsection * ecmdata.D + ecmdata.D / 2,
 				 (int) PRECISION, trunc_percent (w->pct_complete));
 			end_timer (timers, 0);
 			if (first_iter_msg) {
@@ -8997,7 +9111,7 @@ start_timer_from_zero (timers, 0);
 /* Initialization of stage 2 complete */
 
 	sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 2 (using %uMB)",
-		 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&ecmdata.gwdata), ecmdata.curve, memused);
+		 (int) PRECISION, trunc_percent (w->pct_complete), ecmdata.N_short_string_rep, ecmdata.curve, memused);
 	title (thread_num, buf);
 
 	end_timer (timers, 1);
@@ -9169,7 +9283,7 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&ecmdata.gwdata);}
 		if (first_iter_msg ||
 		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) * ITER_FUDGE >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
 			sprintf (buf, "%.*f%% of %s ECM stage 2 (using %uMB)",
-				 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&ecmdata.gwdata), memused);
+				 (int) PRECISION, trunc_percent (w->pct_complete), ecmdata.N_short_string_rep, memused);
 			title (thread_num, buf);
 			last_output_t = gw_get_fft_count (&ecmdata.gwdata) * ITER_FUDGE;
 		}
@@ -9179,8 +9293,7 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&ecmdata.gwdata);}
 		if (first_iter_msg ||
 		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) * ITER_FUDGE >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
 			sprintf (buf, "%s stage 2 at B2=%" PRIu64 " [%.*f%%]",
-				 gwmodulo_as_string (&ecmdata.gwdata), ecmdata.B2_start + ecmdata.Dsection * ecmdata.D,
-				 (int) PRECISION, trunc_percent (w->pct_complete));
+				 ecmdata.N_short_string_rep, ecmdata.B2_start + ecmdata.Dsection * ecmdata.D, (int) PRECISION, trunc_percent (w->pct_complete));
 			end_timer (timers, 0);
 			if (first_iter_msg) {
 				strcat (buf, "\n");
@@ -9540,7 +9653,8 @@ restart4:
 more_curves:
 	ecm_mini_cleanup (&ecmdata);		// Free all memory except N and gwdata
 	mallocFreeForOS ();
-	if (++ecmdata.curve <= w->curves_to_do) {
+	ecmdata.curve++;
+	if (w->curves_to_do == 0 || ecmdata.curve <= w->curves_to_do) {
 		// If necessary, switch back to the stage 1 FFT length
 		if (gwfftlen (&ecmdata.gwdata) != ecmdata.stage1_fftlen) {
 			char	fft_desc[200];
@@ -9558,7 +9672,8 @@ more_curves:
 			gwset_minimum_fftlen (&ecmdata.gwdata, ecmdata.stage1_fftlen);
 			gwset_using_polymult (&ecmdata.gwdata);
 			gwset_use_spin_wait (&ecmdata.gwdata, IniGetInt (INI_FILE, "SpinWait", 0));
-			res = gwsetup (&ecmdata.gwdata, w->k, w->b, w->n, w->c);
+			if (w->n) res = gwsetup (&ecmdata.gwdata, w->k, w->b, w->n, w->c);
+			else res = gwsetup_general_mod_giant (&ecmdata.gwdata, ecmdata.N);
 			if (res) {
 				sprintf (buf, "Cannot initialize FFT code, errcode=%d\n", res);
 				OutputBoth (thread_num, buf);
@@ -9574,11 +9689,15 @@ more_curves:
 		goto restart0;
 	}
 
+/* If we've finished processing an unlimited number of curves from a GMP-ECM resume file, set the number of curves we actually processed */
+
+no_more_curves:
+	if (w->curves_to_do == 0) w->curves_to_do = ecmdata.curve - 1;
+
 /* Output line to results file indicating the number of curves run */
 
 	sprintf (buf, "%s completed %u ECM %s curve%s, B1=%" PRIu64 ",%s B2=%" PRIu64 ", Wi%d: %08lX\n",
-		 gwmodulo_as_string (&ecmdata.gwdata), w->curves_to_do,
-		 ecmdata.sigma_type == 3 ? "GMP-ECM param3" : ecmdata.sigma_type == 1 ? "Montgomery" : "Edwards",
+		 ecmdata.N_short_string_rep, w->curves_to_do, ecmdata.sigma_type == 3 ? "GMP-ECM param3" : ecmdata.sigma_type == 1 ? "Montgomery" : "Edwards",
 		 w->curves_to_do == 1 ? "" : "s", ecmdata.B, ecmdata.optimal_B2 ? " average" : "", ecmdata.average_B2,
 		 PORT, SEC5 (w->n, ecmdata.B, ecmdata.average_B2));
 	OutputStr (thread_num, buf);
@@ -9592,7 +9711,9 @@ more_curves:
 /* "user":"gw_2", "cpu":"work_computer", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
 
 	strcpy (JSONbuf, "{\"status\":\"NF\"");
-	JSONaddExponent (JSONbuf, w);
+	if (w->n) JSONaddExponent (JSONbuf, w);
+	else if (strlen (ecmdata.N_full_string_rep) < 2000) sprintf (JSONbuf+strlen(JSONbuf), ", \"N\":%s", ecmdata.N_full_string_rep);
+	else sprintf (JSONbuf+strlen(JSONbuf), ", \"N\":\"%s\"", ecmdata.N_short_string_rep);
 	strcat (JSONbuf, ", \"worktype\":\"ECM\"");
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%" PRIu64 ", \"b2\":%" PRIu64, ecmdata.B, ecmdata.average_B2);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"curves\":%u", w->curves_to_do);
@@ -9671,7 +9792,7 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 /* Allocate memory for the string representation of the factor and for */
 /* a message.  Convert the factor to a string. */ 
 
-	msglen = ecmdata.factor->sign * 10 + 400;
+	msglen = ecmdata.factor->sign * 10 + (int) strlen (ecmdata.N_full_string_rep) + 400;
 	str = (char *) malloc (msglen);
 	if (str == NULL) goto oom;
 	msg = (char *) malloc (msglen);
@@ -9681,7 +9802,7 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 /* Validate the factor we just found */
 
 	if (!testFactor (&ecmdata.gwdata, w, ecmdata.factor)) {
-		sprintf (msg, "ERROR: Bad factor for %s found: %s\n", gwmodulo_as_string (&ecmdata.gwdata), str);
+		sprintf (msg, "ERROR: Bad factor for %s found: %s\n", ecmdata.N_short_string_rep, str);
 		OutputBoth (thread_num, msg);
 		OutputStr (thread_num, "Restarting ECM curve from scratch.\n");
 		continueECM = TRUE;
@@ -9692,10 +9813,8 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 /* Output the validated factor */
 
 	sprintf (msg, "%s has a factor: %s (ECM curve %" PRIu32 ", B1=%" PRIu64 ", B2=%" PRIu64 ")\n",
-		 gwmodulo_as_string (&ecmdata.gwdata), str, ecmdata.curve, ecmdata.B, ecmdata.C);
-	OutputStr (thread_num, msg);
-	formatMsgForResultsFile (msg, w);
-	writeResults (msg);
+		 ecmdata.N_full_string_rep, str, ecmdata.curve, ecmdata.B, ecmdata.C);
+	OutputBoth (thread_num, msg);
 
 /* Format a JSON version of the result.  An example follows: */
 /* {"status":"F", "exponent":45581713, "worktype":"ECM", "factors":["430639100587696027847"], */
@@ -9705,7 +9824,9 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 /* "user":"gw_2", "cpu":"work_computer", "aid":"FF00AA00FF00AA00FF00AA00FF00AA00"} */
 
 	strcpy (JSONbuf, "{\"status\":\"F\"");
-	JSONaddExponent (JSONbuf, w);
+	if (w->n) JSONaddExponent (JSONbuf, w);
+	else if (strlen (ecmdata.N_full_string_rep) < 2000) sprintf (JSONbuf+strlen(JSONbuf), ", \"N\":%s", ecmdata.N_full_string_rep);
+	else sprintf (JSONbuf+strlen(JSONbuf), ", \"N\":\"%s\"", ecmdata.N_short_string_rep);
 	strcat (JSONbuf, ", \"worktype\":\"ECM\"");
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"factors\":[\"%s\"]", str);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%" PRIu64 ", \"b2\":%" PRIu64, ecmdata.B, ecmdata.C);
@@ -9727,7 +9848,7 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 
 	continueECM = IniGetInt (INI_FILE, "ContinueECM", 0);
 	if (ecmdata.curve == w->curves_to_do) continueECM = FALSE;
-	prpAfterEcmFactor = IniGetInt (INI_FILE, "PRPAfterECMFactor", bitlen (ecmdata.N) < 100000 && (w->k != 1.0 || w->b != 2 || w->c != -1));
+	prpAfterEcmFactor = IniGetInt (INI_FILE, "PRPAfterECMFactor", bitlen (ecmdata.N) < 100000 && w->n && (w->k != 1.0 || w->b != 2 || w->c != -1));
 	if (prpAfterEcmFactor || continueECM) divg (ecmdata.factor, ecmdata.N);
 	if (prpAfterEcmFactor && isProbablePrime (&ecmdata.gwdata, ecmdata.N)) {
 		OutputBoth (thread_num, "Cofactor is a probable prime!\n");

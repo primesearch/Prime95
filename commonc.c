@@ -2839,8 +2839,8 @@ int parseWorkToDoLine (
 /* Handle ECM= and ECM2= lines.  Note we've deprecated the old (2002ish) ECM= syntax and now treat ECM= and ECM2= the same. */
 /*	ECM=k,b,n,c,B1[,B2-or-zero][,curves_to_do][,specific_sigma][,"factors"] */
 /* Handle ECMSTAGE2= and ECMSTAGE2N= lines.  Used to continue stage 2 from a GMP-ECM stage 1 run.  Double quote file name if it contains special characters. */
-/*	ECMSTAGE2=k,b,n,c,filename[,B2-or-zero][,first_curve][,num_curves][,"known-factors"] */
-/*	ECMSTAGE2N=filename[,B2-or-zero][,first_curve][,num_curves][,"known-factors"] */
+/*	ECMSTAGE2=k,b,n,c,filename[,B2-or-zero][,skip_curves][,num_curves][,"known-factors"] */
+/*	ECMSTAGE2N=filename[,B2-or-zero][,skip_curves][,num_curves][,"known-factors"] */
 
 	else if (keyword[0] == 'E' && keyword[1] == 'C' && keyword[2] == 'M') {
 		int	ecm_type;
@@ -2884,13 +2884,13 @@ int parseWorkToDoLine (
 			q = strchr (q+1, ',');
 		}
 		if (q != NULL && q[1] != '"' && ecm_type != 0) {	// Get optional first curve (line number) for ECMSTAGE2= and ECMSTAGE2N=
-			w->first_curve = (uint64_t) atoi (q+1);
+			w->skip_curves = (uint64_t) atoi (q+1);
 			q = strchr (q+1, ',');
 		}
 		if (ecm_type == 0) w->curves_to_do = 100;		// Default to 100 curves for ECM=
 		if (q != NULL && q[1] != '"') {				// Get optional num_curves (num lines) for all ECM types
-			q = strchr (q+1, ',');
 			w->curves_to_do = atoi (q+1);
+			q = strchr (q+1, ',');
 		}
 		if (q != NULL && q[1] != '"' && ecm_type == 0) {	// Get optional sigma for ECM=
 			w->curve = atoll (q+1);
@@ -3468,10 +3468,10 @@ int writeWorkToDoFile (
 
 		case WORK_ECM:
 			if (w->gmp_ecm_file != NULL) {
-				if (w->k == 0.0) sprintf (buf, "ECMSTAGE2N=%s\"%s\"", idbuf, w->gmp_ecm_file);
+				if (w->n == 0) sprintf (buf, "ECMSTAGE2N=%s\"%s\"", idbuf, w->gmp_ecm_file);
 				else sprintf (buf, "ECMSTAGE2=%s%.0f,%lu,%lu,%ld,\"%s\"", idbuf, w->k, w->b, w->n, w->c, w->gmp_ecm_file);
-				if (w->B2 || w->first_curve || w->curves_to_do) sprintf (buf + strlen (buf), ",%" PRIu64, w->B2);
-				if (w->first_curve || w->curves_to_do) sprintf (buf + strlen (buf), ",%u", w->first_curve);
+				if (w->B2 || w->skip_curves || w->curves_to_do) sprintf (buf + strlen (buf), ",%" PRIu64, w->B2);
+				if (w->skip_curves || w->curves_to_do) sprintf (buf + strlen (buf), ",%u", w->skip_curves);
 				if (w->curves_to_do) sprintf (buf + strlen (buf), ",%u", w->curves_to_do);
 			} else {
 				sprintf (buf, "ECM=%s%.0f,%lu,%lu,%ld,%" PRIu64, idbuf, w->k, w->b, w->n, w->c, w->B1);
@@ -3821,6 +3821,8 @@ double work_estimate (
 			est += stage2_time * (1.0 - pct_complete);
 
 		est *= IniGetInt (INI_FILE, "ECMBoundsMultiplier", 1);
+
+		if (w->gmp_ecm_file != NULL) est = 86400.0;
 	}
 
 /* For P-1, estimate about 1.4545 * B1 squarings in stage 1.  Estimate stage 2 will take half as long as stage 1.  The stage 2 estimate */

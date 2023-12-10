@@ -2884,8 +2884,6 @@ int gwclone (
 	gwhandle *cloned_gwdata,	/* Empty handle to be populated */
 	gwhandle *gwdata)		/* Handle to clone */
 {
-	void	*cloned_asm_data_alloc;
-	struct gwasm_data *asm_data, *cloned_asm_data;
 	int	retcode;
 
 /* Clones of clones are allowed.  Work back to first gwdata. */
@@ -2930,34 +2928,39 @@ int gwclone (
 
 /* Each cloned handle must have their own asm_data structure */
 
-	cloned_asm_data_alloc = aligned_malloc (sizeof (struct gwasm_data) + NEW_STACK_SIZE, 4096);
-	if (cloned_asm_data_alloc == NULL) {
-		gwdone (cloned_gwdata);
-		return (GWERROR_MALLOC);
-	}
-	cloned_gwdata->asm_data = (char *) cloned_asm_data_alloc + NEW_STACK_SIZE;
+	if (gwdata->asm_data != NULL) {			// GENERAL_MMGW_MOD gwdata's do not have an asm_data
+		void	*cloned_asm_data_alloc;
+		struct gwasm_data *asm_data, *cloned_asm_data;
+		cloned_asm_data_alloc = aligned_malloc (sizeof (struct gwasm_data) + NEW_STACK_SIZE, 4096);
+		if (cloned_asm_data_alloc == NULL) {
+			gwdone (cloned_gwdata);
+			return (GWERROR_MALLOC);
+		}
+		cloned_gwdata->asm_data = (char *) cloned_asm_data_alloc + NEW_STACK_SIZE;
 
-	asm_data = (struct gwasm_data *) gwdata->asm_data;
-	cloned_asm_data = (struct gwasm_data *) cloned_gwdata->asm_data;
-	memcpy (cloned_asm_data, asm_data, sizeof (struct gwasm_data));
-	cloned_asm_data->gwdata = cloned_gwdata;
-	cloned_asm_data->thread_num = 0;
-	cloned_asm_data->scratch_area = NULL;
-	cloned_asm_data->carries = NULL;
-	if (gwdata->SCRATCH_SIZE) {
-		cloned_asm_data->scratch_area = aligned_malloc (gwdata->SCRATCH_SIZE, 64);
-		if (cloned_asm_data->scratch_area == NULL) {
-			gwdone (cloned_gwdata);
-			return (GWERROR_MALLOC);
+		asm_data = (struct gwasm_data *) gwdata->asm_data;
+		cloned_asm_data = (struct gwasm_data *) cloned_gwdata->asm_data;
+		memcpy (cloned_asm_data, asm_data, sizeof (struct gwasm_data));
+		cloned_asm_data->gwdata = cloned_gwdata;
+		cloned_asm_data->thread_num = 0;
+		cloned_asm_data->scratch_area = NULL;
+		cloned_asm_data->carries = NULL;
+		if (gwdata->SCRATCH_SIZE) {
+			cloned_asm_data->scratch_area = aligned_malloc (gwdata->SCRATCH_SIZE, 64);
+			if (cloned_asm_data->scratch_area == NULL) {
+				gwdone (cloned_gwdata);
+				return (GWERROR_MALLOC);
+			}
 		}
-	}
-	if (gwdata->PASS2_SIZE) {
-		cloned_asm_data->carries = (double *) aligned_malloc (asm_data_carries_size (gwdata) * sizeof (double), 64);
-		if (cloned_asm_data->carries == NULL) {
-			gwdone (cloned_gwdata);
-			return (GWERROR_MALLOC);
+		if (gwdata->PASS2_SIZE) {
+			cloned_asm_data->carries = (double *) aligned_malloc (asm_data_carries_size (gwdata) * sizeof (double), 64);
+			if (cloned_asm_data->carries == NULL) {
+				gwdone (cloned_gwdata);
+				return (GWERROR_MALLOC);
+			}
+			init_asm_data_carries (gwdata, cloned_asm_data);
 		}
-		init_asm_data_carries (gwdata, cloned_asm_data);
+		cloned_asm_data->MAXERR = 0.0;
 	}
 
 /* Clear counters and caches.  Each handle will keep there own counts to later be merged back into the parent gwdata. */
@@ -2966,7 +2969,6 @@ int gwclone (
 	cloned_gwdata->fft_count = 0;
 	cloned_gwdata->read_count = 0;
 	cloned_gwdata->write_count = 0;
-	cloned_asm_data->MAXERR = 0.0;
 	cloned_gwdata->saved_copyz_n = 0;
 
 /* For now turn off multi-threading and thread callback.  We could re-visit this at a later date.  Our first use of cloned handles is in P-1 stage 2 */
@@ -3001,6 +3003,8 @@ int gwclone (
 			gwdone (cloned_gwdata);
 			return (retcode);
 		}
+		cloned_gwdata->cyclic_gwdata->parent_gwdata = cloned_gwdata;
+		cloned_gwdata->negacyclic_gwdata->parent_gwdata = cloned_gwdata;
 	}
 
 /* Return success */
@@ -3021,7 +3025,7 @@ void gwclone_merge_stats (
 	dest_gwdata->fft_count += cloned_gwdata->fft_count, cloned_gwdata->fft_count = 0;
 	dest_gwdata->read_count += cloned_gwdata->read_count, cloned_gwdata->read_count = 0;
 	dest_gwdata->write_count += cloned_gwdata->write_count, cloned_gwdata->write_count = 0;
-	dest_asm_data->MAXERR = fltmax (dest_asm_data->MAXERR, cloned_asm_data->MAXERR), cloned_asm_data->MAXERR = 0.0;
+	if (dest_asm_data != NULL) dest_asm_data->MAXERR = fltmax (dest_asm_data->MAXERR, cloned_asm_data->MAXERR), cloned_asm_data->MAXERR = 0.0;
 }
 
 /* Examine a giant to see if it a (k*2^n+c)/d value. */
@@ -6796,6 +6800,7 @@ gwnum real_gwalloc (
 			* (uint32_t *) ((char *) r - 28) = 0;		/* Has-been-pre-ffted flag */
 			* (double *) ((char *) r - 16) = 0.0;		/* SUM(INPUTS) */
 			* (double *) ((char *) r - 24) = 0.0;		/* SUM(OUTPUTS) */
+			* (int32_t *) ((char *) r - 32) |= additional_freeable_flags;
 			unnorms (r) = 0.0f;				/* Unnormalized adds count */
 			return (r);
 		}
@@ -10498,6 +10503,7 @@ void gwunfft2 (
 			if (s != d) gwcopy (gwdata, s, d);				// Should never happen (we could modify and restore FFT_state(s) instead)
 			FFT_state (cyclic_gwnum (gwdata, d)) = FULLY_FFTed;		// Change FFT state for the recursive calls to gwunfft2
 			FFT_state (negacyclic_gwnum (gwdata, d)) = FULLY_FFTed;
+			unnorms (negacyclic_gwnum (gwdata, d)) = unnorms (cyclic_gwnum (gwdata, d));
 			ASSERTG (! (options & (GWMUL_MULBYCONST | GWMUL_ADDINCONST)));
 			gwunfft2 (gwdata->cyclic_gwdata, cyclic_gwnum (gwdata, s), cyclic_gwnum (gwdata, d), GWMUL_STARTNEXTFFT);
 			MMGW_redc4 (gwdata, cyclic_gwnum (gwdata, d), negacyclic_gwnum (gwdata, d));
