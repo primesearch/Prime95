@@ -10,7 +10,7 @@
  *	Other important ideas courtesy of Peter Montgomery, Alex Kruppa, Mihai Preda, Pavel Atnashev.
  *
  *	c. 1997 Perfectly Scientific, Inc.
- *	c. 1998-2023 Mersenne Research, Inc.
+ *	c. 1998-2024 Mersenne Research, Inc.
  *	All Rights Reserved.
  *
  *************************************************************/
@@ -61,8 +61,9 @@ struct ws {
 struct ed {
 	gwnum	x;		/* x or FFT(x) */
 	gwnum	y;		/* y or FFT(y) */
-	gwnum	z;		/* z or FFT(z) */
+	gwnum	z;		/* z or FFT(z), if NULL implies z = 1 */
 	gwnum	t;		/* Extended coordinates, see "Twisted Edwards Curves Revisited" by Huseyin Hisil, et.al. */
+	bool	alternate_format; /* Coordinates are in an alternate format (see ed_funky_dbl) */
 };
 
 struct xz {
@@ -1491,6 +1492,7 @@ typedef struct {
 	gwnum	Ad4;		/* Pre-computed value used for Montgomery doubling */
 	gwnum	ed_a;		/* "a" value in a twisted Edwards curve: ax^2 + y^2 = 1 + dx^2y^2 */
 	gwnum	ed_d;		/* "d" value in a non-twisted or twisted Edwards curve (only used by ed_check) */
+	gwnum	ed_half;	/* value 1/2 in a non-twisted or twisted Edwards curve (only used for some EXTRA_BITS values) */
 
 	readSaveFileState read_save_file_state;	/* Manage savefile names during reading */
 	writeSaveFileState write_save_file_state; /* Manage savefile names during writing */
@@ -1613,6 +1615,7 @@ void ecm_mini_cleanup (
 	ecmdata->Ad4 = NULL;
 	ecmdata->ed_a = NULL;
 	ecmdata->ed_d = NULL;
+	ecmdata->ed_half = NULL;
 }
 
 void ecm_cleanup (
@@ -1889,6 +1892,7 @@ bool ed_alloc (			/* Returns TRUE if successful */
 	arg->z = gwalloc (&ecmdata->gwdata);
 	if (arg->z == NULL) return (FALSE);
 	arg->t = NULL;
+	arg->alternate_format = FALSE;
 	return (TRUE);
 }
 
@@ -1912,6 +1916,8 @@ bool ed_check (				/* Returns TRUE if point is on the Edwards curve */
 {
 	gwnum	t0, t1, t2, t3;
 	bool	result;
+
+	ASSERTG (!in->alternate_format);
 
 	t0 = gwalloc (&ecmdata->gwdata);
 	t1 = gwalloc (&ecmdata->gwdata);
@@ -1946,15 +1952,30 @@ bool ed_check (				/* Returns TRUE if point is on the Edwards curve */
 	return (result);
 }
 
+/* This routine allocates and calculates FFT(1/2) */
+
+void create_ed_half (
+	ecmhandle *ecmdata)
+{
+	ecmdata->ed_half = gwalloc (&ecmdata->gwdata);
+	gshiftright (1, ecmdata->N);
+	gianttogw (&ecmdata->gwdata, ecmdata->N, ecmdata->ed_half);
+	gwsmalladd (&ecmdata->gwdata, 1, ecmdata->ed_half);
+	gwfft (&ecmdata->gwdata, ecmdata->ed_half, ecmdata->ed_half);
+	gshiftleft (1, ecmdata->N);		// Restore N
+	iaddg (1, ecmdata->N);
+}
+
 /* Options for ed_add, ed_dbl, and even ed_extend */
 
-#define ED_RESULT_FOR_ADD	0x1	// Result will be used in ed_add next.  Implies extended coordinates.
-#define ED_RESULT_FOR_DBL	0x2	// Result will be used in ed_dbl next.  Implies not extended coordinates.
-#define ED_STARTNEXTFFT		0x4	// Results may be partially FFTed.  Typically a final result or result used to create a save file should not be FFTed.
-#define ED_FFT_S1		0x8	// For ed_dbl, FFT Z in first source arg.
-#define ED_FFT_S1Z		0x10	// For ed_add, FFT Z in first source arg.  Second source arg is always FFTed.
-#define ED_FFT_S1T		0x20	// For ed_add, FFT T in first source arg.  Second source arg is always FFTed.
-#define ED_SUBTRACT		0x40	// For ed_add, subtract instead of add.
+#define	ED_XYZ			0x1	// Result must be in X:Y:Z coordinates (no funky alternative coordinates).  Results will be used for save files or modinv.
+#define ED_RESULT_FOR_ADD	0x2	// Result will be used in ed_add next.  Implies extended coordinates.
+#define ED_RESULT_FOR_DBL	0x4	// Result will be used in ed_dbl next.  Implies not extended coordinates.
+#define ED_STARTNEXTFFT		0x8	// Results can be partially FFTed.  Typically, a final result or result used to create a save file should not be FFTed.
+#define ED_FFT_S1		0x10	// For ed_dbl, FFT Z in first source arg.
+#define ED_FFT_S1Z		0x20	// For ed_add, FFT Z in first source arg.  Second source arg is always FFTed.
+#define ED_FFT_S1T		0x40	// For ed_add, FFT T in first source arg.  Second source arg is always FFTed.
+#define ED_SUBTRACT		0x80	// For ed_add, subtract instead of add.
 
 /* Turn an (X:Y:Z) Edwards point into an extended (X:Y:T:Z) extended Edwards point */
 
@@ -1964,6 +1985,8 @@ void ed_extend (
 	int	options)
 {
 	int mul_options = (options & ED_STARTNEXTFFT) ? GWMUL_STARTNEXTFFT : 0;
+
+	ASSERTG (!e->alternate_format);
 
 	// Check if already using extended coordinates
 	if (e->t != NULL) return;
@@ -1995,6 +2018,7 @@ void ed_add (
 	int	mul_S1T_options = (options & ED_FFT_S1T) ? GWMUL_FFT_S1 : 0;
 	int	mul_options = (options & ED_STARTNEXTFFT) ? GWMUL_STARTNEXTFFT : 0;
 
+	ASSERTG (!in1->alternate_format && !in2->alternate_format);
 	//ASSERTG (safe11 || !extended || FFT_state (in1->t) == NOT_FFTed || in2->z != NULL);	// FFTed in1->t and Z2=NULL is OK but triggers a gwunfft
 	//ASSERTG (safe11 || !extended || FFT_state (in2->t) == NOT_FFTed || in1->z != NULL);	// FFTed in2->t and Z1=NULL is OK but triggers a gwunfft
 	ASSERTG (ecmdata->ed_a == NULL || FFT_state (ecmdata->ed_a) == FULLY_FFTed);
@@ -2071,31 +2095,38 @@ void ed_dbl (
 	int	options)
 {
 	gwnum	tmp1, tmp2;
-	int	subtract = options & ED_SUBTRACT;
 	int	extended = options & ED_RESULT_FOR_ADD;
 	int	mul_S1_options = (options & ED_FFT_S1) ? GWMUL_FFT_S1 : 0;
 	int	mul_options = (options & ED_STARTNEXTFFT) ? GWMUL_STARTNEXTFFT : 0;
+	int	can_alternate_format = !(options & ED_XYZ) && !extended;
 
 	ASSERTG (ecmdata->ed_a == NULL || FFT_state (ecmdata->ed_a) == FULLY_FFTed);
 
 	// Get algorithm preference
-	static int pref_algo5 = 2;		// FALSE = prefer algorithm 4, TRUE = prefer algorithm 5, 2 = not yet initialized
-	if (pref_algo5 == 2) pref_algo5 = IniGetInt (INI_FILE, "EdDblAlgo5", 0); // Default is prefer algorithm 6, even though algorithm 5 does fewer read/writes
-	static int pref_algo6 = 2;		// FALSE = prefer algorithm 6, TRUE = prefer algorithm 6, 2 = not yet initialized
-	if (pref_algo6 == 2) pref_algo6 = IniGetInt (INI_FILE, "EdDblAlgo6", 1); // Default is prefer algorithm 6, even though algorithm 5 does fewer read/writes
+static	int algo5 = 2;		// FALSE = don't use algorithm 5, TRUE = use algorithm 5, 2 = not yet initialized
+static	int algo5a = 2;		// FALSE = don't use algorithm 5a, TRUE = use algorithm 5a, 2 = not yet initialized
+static	int algo7 = 2;		// FALSE = don't use algorithm 7, TRUE = use algorithm 7, 2 = not yet initialized
+	if (algo5 == 2) {
+		algo5 = IniGetInt (INI_FILE, "EdDblAlgo5", 1);		// Default is allow algorithm 5
+		algo5a = IniGetInt (INI_FILE, "EdDblAlgo5a", 1);	// Default is allow algorithm 5a (algorithm 5 with a mul by 1/2 added)
+		algo7 = IniGetInt (INI_FILE, "EdDblAlgo7", 1);		// Default is allow algorithm 7 (new funky algorithm not in the literature)
+	}
 
-	// Allocate temporaries and out->z (also used as a temporary)
+	// Allocate temporaries and out->z (also used as a temporary).  Set mul by const.
 	gwnum inz = in->z;						// Remember in case allocating out->z clobbers this value
 	if (out->z == NULL) out->z = gwalloc (&ecmdata->gwdata);	// Do not use out->z until in->z is no longer needed
 	if (out->t != NULL) tmp1 = out->t, out->t = NULL;
 	else tmp1 = gwalloc (&ecmdata->gwdata);
 	tmp2 = gwalloc (&ecmdata->gwdata);
-
-	// Double algorithms from https://eprint.iacr.org/2021/1061, "Edwards curves and FFT-based multiplication" by Pavel Atnashev et.al.
 	gwsetmulbyconst (&ecmdata->gwdata, 2);
-	if (inz == NULL) dbltogw (&ecmdata->gwdata, 2.0, out->z);
-	else gwsquare2 (&ecmdata->gwdata, inz, out->z, mul_S1_options | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);		// C = 2Z^2, two-dest squaring
-	if (pref_algo5 && squaresquareadd_safe (&ecmdata->gwdata, 0, 0, 0, 0)) {					// Algorithm 5
+
+	// Select from double algorithms in https://eprint.iacr.org/2021/1061, "Edwards curves and FFT-based multiplication" by Pavel Atnashev et.al.
+	// Also included is a new double algorithm, called algorithm 7 (there briefly was an algorithm 6 that was abandoned).
+
+	// Algorithm 5 from the paper, requires EXTRA_BITS > 1.3421
+	if (algo5 && squaresquareadd_safe (&ecmdata->gwdata, 0, 0, 0, 0)) {
+	    if (inz == NULL) dbltogw (&ecmdata->gwdata, 2.0, out->z);
+	    else gwsquare2 (&ecmdata->gwdata, inz, out->z, mul_S1_options | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// C = 2Z^2, two-dest squaring
 	    if (ecmdata->ed_a == NULL) {			// Not a twisted Edwards curve
 		gwsquare2 (&ecmdata->gwdata, in->x, tmp2, GWMUL_FFT_S1 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// G-H = 2X^2, two-dest squaring
 		gwmul3 (&ecmdata->gwdata, in->x, in->y, tmp1, GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// E = 2XY
@@ -2124,32 +2155,137 @@ void ed_dbl (
 		gwswap (tmp1, out->x);
 	    }
 	}
-	else if (pref_algo6 && mul_safe (&ecmdata->gwdata, 2, 0)) {							// Algorithm 6 (new)
+
+	// Algorithm 5a, requires EXTRA_BITS > 0.8150.  Nearly the same as algorithm 5.  Uses a precomputed FFT(1/2).
+	else if (algo5a && squaremuladd_safe (&ecmdata->gwdata, 0, 0, 0, 0)) {
+	    if (ecmdata->ed_half == NULL) create_ed_half (ecmdata);
+	    if (inz == NULL) dbltogw (&ecmdata->gwdata, 2.0, out->z);
+	    else gwsquare2 (&ecmdata->gwdata, inz, out->z, mul_S1_options | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// C = 2Z^2, two-dest squaring
 	    if (ecmdata->ed_a == NULL) {			// Not a twisted Edwards curve
-		gwsquare2 (&ecmdata->gwdata, in->x, tmp2, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);				// A = X^2, two-dest squaring
+		gwsquare2 (&ecmdata->gwdata, in->x, tmp2, GWMUL_FFT_S1 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// G-H = 2X^2, two-dest squaring
+		gwmul3 (&ecmdata->gwdata, in->x, in->y, tmp1, GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// E = 2XY
+		gwmulmuladd5 (&ecmdata->gwdata, ecmdata->ed_half, tmp2, in->y, in->y, out->y, GWMUL_STARTNEXTFFT);	// G = Y^2 + 1/2 * 2X^2
 	    } else {						// Twisted Edwards curve
-		gwsquare2 (&ecmdata->gwdata, in->x, tmp2, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);				// A = X^2, two-dest squaring
-		gwmul3 (&ecmdata->gwdata, ecmdata->ed_a, tmp2, tmp2, GWMUL_STARTNEXTFFT);				// A = aX^2
+		gwsquare2 (&ecmdata->gwdata, in->x, tmp2, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);				// X^2, two-dest squaring
+		gwmul3 (&ecmdata->gwdata, in->x, in->y, out->x, GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// E = 2XY
+		gwmul3 (&ecmdata->gwdata, ecmdata->ed_a, tmp2, tmp2, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);		// G-H = 2aX^2
+		gwmulmuladd5 (&ecmdata->gwdata, ecmdata->ed_half, tmp2, in->y, in->y, out->y, GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT); // G = Y^2 + 1/2 * 2aX^2
+		gwswap (tmp1, out->x);
 	    }
-	    gwmul3 (&ecmdata->gwdata, in->x, in->y, out->x, GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// E = 2XY
-	    gwmuladd4 (&ecmdata->gwdata, in->y, in->y, tmp2, out->y, GWMUL_FFT_S3 | GWMUL_STARTNEXTFFT);		// G = Y^2 + A (improved asm code could save a read here)
-	    gwadd3o (&ecmdata->gwdata, tmp2, tmp2, tmp2, GWADD_DELAY_NORMALIZE);					// 2A = A + A
 	    if (!extended) {
-		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, out->y, tmp2, GWMUL_FFT_S13 | mul_options);			// Y3 = (H=G-2A) * G
-		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, out->y, tmp1, GWMUL_FFT_S1 | mul_options);			// Z3 = (F=C-G) * G
-		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, out->x, out->x, mul_options);				// X3 = (F=C-G) * E  (better to write result to argument that needs FFTing)
+		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, out->y, tmp2, GWMUL_FFT_S13 | mul_options);			// Y3 = (H=G-(G-H)) * G
+		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, out->y, out->x, GWMUL_FFT_S1 | mul_options);		// Z3 = (F=C-G) * G
+		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, tmp1, tmp1, mul_options);					// X3 = (F=C-G) * E  (better to write result to argument that needs FFTing)
 		gwswap (tmp2, out->y);
-		gwswap (tmp1, out->z);
+		gwswap (out->x, out->z);
+		gwswap (tmp1, out->x);
 	    } else {
-		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, out->y, tmp1, GWMUL_FFT_S13 | mul_options);			// Y3 = (H=G-2A) * G
-		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, out->x, tmp2, GWMUL_FFT_S3 | mul_options);			// T3 = (H=G-2A) * E
-		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, out->x, out->x, GWMUL_FFT_S1 | mul_options);		// X3 = (F=C-G) * E
+		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, out->y, out->x, GWMUL_FFT_S123 | mul_options);		// Y3 = (H=G-(G-H)) * G
+		gwsubmul4 (&ecmdata->gwdata, out->y, tmp2, tmp1, tmp2, GWMUL_FFT_S3 | mul_options);			// T3 = (H=G-(G-H)) * E
+		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, tmp1, tmp1, GWMUL_FFT_S1 | mul_options);			// X3 = (F=C-G) * E
 		gwsubmul4 (&ecmdata->gwdata, out->z, out->y, out->y, out->z, mul_options);				// Z3 = (F=C-G) * G
-		gwswap (tmp1, out->y);
+		gwswap (out->x, out->y);
 		gwswap (tmp2, out->t);
+		gwswap (tmp1, out->x);
 	    }
-	} else {													// Algorithm 4
+	}
+
+	// Algorithm 7.  Funky double of an Edwards point (twisted not supported).  Works for all EXTRA_BITS values if FFT(1) is simple.  The algorithm uses
+	// 18 reads and 12 writes compared to algorithm 4 which uses 15 reads and 13 writes.  The main benefit is that GW_STARTNEXTFFT can be used for all
+	// operations.  Here is a brief description of the algorithm. */
+	// Using standard notation:
+	//	H = Y^2 - X^2
+	//	G = Y^2 + X^2
+	//	E = 2XY
+	//	F = 2Z^2 - G,
+	// Output is:
+	//	X3 = F * E
+	//	Y3 = H * G
+	//	Z3 = F * G
+	//	T3 = H * E
+	//
+	// Rather than a standard input of X:Y:Z, input is FFT(2X):Y+X:2Z.  Pre-compute FFT(1/2).
+	//	2H = 2(Y^2-X^2) = 2(Y+X)(Y-X) = 2(Y+X)(Y+X-2X)		mul_safe(0,1)		always safe
+	//	2G = 2(Y^2+X^2) = 2(H+2X^2) = 2H+(2X)^2			squareadd_safe(0,0)	always safe except when FFT(1) is not simple
+	//	4F = 4(2Z^2-G) = 2((2Z)^2-2G)				squareadd_safe(0,0)	always safe except when FFT(1) is not simple
+	//	Let M = (Y+X)^2 = Y^2+2XY+X^2, E = M-G
+	//	2M = 2(Y+X)^2						square_safe(0)		always safe
+	// Output is:
+	//	8X3 = 4F * (2E=2M-2G)					mul_safe(0,1)		always safe
+	//	4(Y3 + X3) = 2H * 2G + 1/2 * 8X3			mulmuladd_safe(0,0,0,0)	always_safe
+	//	8Z3 = 4F * 2G						mul_safe(0,0)		always safe
+	//
+	// To enter funky mode, input is X:Y:Z, output is FFT(2X):Y+X:2Z using algo 4 (alternatively (and better), ed_add could be modified to enter funky mode)
+	//	A = X^2							square_safe(0,0)	always safe but cannot startnextfft
+	//	E = 2XY							mul_safe(0,0)		always safe
+	//	B = Y^2							square_safe(0,0)	always safe but cannot startnextfft
+	//	G = B + A, H = B - A					must normalize
+	//	C = 2Z^2						square_safe(0,0)	always safe
+	// Output is:
+	//	2X3 = 2 * (F=C-G) * E					addmul_safe(0,0,0)	always safe
+	//	Y3 = H * G + 1/3 * X3					mulmuladd_safe(0,0)	always_safe
+	//	2Z3 = 2 * (F=C-G) * G					addmul_safe(0,0,0)	always safe
+	//
+	// To exit funky mode, input is FFT(2X):Y+X:2Z, output is to X:Y:Z:T
+	//	2H = 2(Y^2-X^2) = 2(Y+X)(Y-X) = 2(Y+X)(Y+X-2X)		mul_safe(0,1)		always safe
+	//	2G = 2(Y^2+X^2) = 2(H+2X^2) = 2H+(2X)^2			squareadd_safe(0,0)	always safe except when FFT(1) is not simple
+	//	2F = 2(2Z^2-G) = (2Z)^2-2G				squareadd_safe(0,0)	always safe except when FFT(1) is not simple
+	//	Let M= (Y+X)^2 = Y^2+2XY+X^2, E = M-G
+	//	2M = 2(Y+X)^2						square_safe(0)		always safe
+	// Output is:
+	//	4X3 = 2F * (2E=2M-2G)					mul_safe(0,1)		always safe
+	//	4Y3 = 2H * 2G						mul_safe(0,0)		always_safe
+	//	4Z3 = 2F * 2G						mul_safe(0,0)		always safe
+	//	4T3 = 2H * (2E=2M-2G)					mul_safe(0,1)		always safe
+	else if (algo7 && squareadd_safe (&ecmdata->gwdata, 0, 0, 0) && ecmdata->ed_a == NULL && inz != NULL && (in->alternate_format || can_alternate_format)) {
+	    if (ecmdata->ed_half == NULL) create_ed_half (ecmdata);
+
+	    // Enter funky mode by using algorithm 4 with an alternate ending to create FFT(2X):Y+X:2Z 
+	    // Long-term it would be better if ed_add was modified to enter funky mode
+	   if (!in->alternate_format) {
+		gwsquare2 (&ecmdata->gwdata, inz, out->z, mul_S1_options | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);		// C = 2Z^2, two-dest squaring
+		gwsquare2 (&ecmdata->gwdata, in->x, tmp2, GWMUL_FFT_S1);							// A = X^2, two-dest squaring
+		gwmul3 (&ecmdata->gwdata, in->x, in->y, out->x, GWMUL_FFT_S2 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);		// E = 2XY
+		gwsquare2 (&ecmdata->gwdata, in->y, out->y, 0);									// B = Y^2
+		gwaddsub4o (&ecmdata->gwdata, out->y, tmp2, tmp2, out->y, GWADD_FORCE_NORMALIZE);				// G = B + A, H = B - A
+		gwsubmul4 (&ecmdata->gwdata, out->z, tmp2, tmp2, tmp1, GWMUL_FFT_S12 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// 2Z3 = 2 * (F=C-G) * G
+		gwsubmul4 (&ecmdata->gwdata, out->z, tmp2, out->x, out->x, GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);		// 2X3 = 2 * (F=C-G) * E
+		gwmulmuladd5 (&ecmdata->gwdata, tmp2, out->y, ecmdata->ed_half, out->x, out->y, GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT); // Y3+X3 = G * H + 1/2 * 2X3
+		gwswap (tmp1, out->z);
+		out->alternate_format = TRUE;
+	    }
+
+	   // Handle funky mode inputs
+	   else {
+		gwsquare2 (&ecmdata->gwdata, in->y, tmp2, GWMUL_FFT_S1 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);		// 2M = 2(Y+X)^2, two-dest squaring
+		gwsubmul4 (&ecmdata->gwdata, in->y, in->x, in->y, out->y, GWMUL_FFT_S1 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // 2H = 2(Y+X)(Y+X-2X)
+		gwmuladd4 (&ecmdata->gwdata, in->x, in->x, out->y, out->x, GWMUL_FFT_S3 | GWMUL_STARTNEXTFFT);			// 2G = (2X)^2+2H, (could save a read with asm change)
+		if (can_alternate_format) {			// Stay in funky mode
+		    gwmulsub4 (&ecmdata->gwdata, inz, inz, out->x, out->z, GWMUL_FFT_S3 | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT); // 4F = 2((2Z)^2-2G)
+		    gwmul3 (&ecmdata->gwdata, out->z, out->x, tmp1, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);				// 8Z3 = 4F * 2G
+		    gwsubmul4 (&ecmdata->gwdata, tmp2, out->x, out->z, tmp2, GWMUL_STARTNEXTFFT);				// 8X3 = 4F * (2E=2M-2G)
+		    gwmulmuladd5 (&ecmdata->gwdata, out->y, out->x, ecmdata->ed_half, tmp2, out->y, GWMUL_FFT_S4 | GWMUL_STARTNEXTFFT);	// 4(Y3+X3) = 2H*2G + 1/2*8X3
+		    gwswap (tmp1, out->z);
+		    gwswap (tmp2, out->x);
+		} else {					// Exit funky mode
+		    gwmulsub4 (&ecmdata->gwdata, inz, inz, out->x, out->z, GWMUL_FFT_S3 | GWMUL_STARTNEXTFFT);			// 2F = (2Z)^2-2G
+		    gwmul3 (&ecmdata->gwdata, out->z, out->x, tmp1, GWMUL_FFT_S1 | mul_options);				// 4Z3 = 2F * 2G
+		    gwsubmul4 (&ecmdata->gwdata, tmp2, out->x, out->z, out->z, GWMUL_FFT_S1 | mul_options);			// 4X3 = 2F * (2E=2M-2G)
+		    if (extended) gwsubmul4 (&ecmdata->gwdata, tmp2, out->x, out->y, tmp2, GWMUL_FFT_S3 | mul_options);		// 4T3 = 2H * (2E=2M-2G)
+		    gwmul3 (&ecmdata->gwdata, out->y, out->x, out->y, mul_options);						// 4Y3 = 2H * 2G
+		    gwswap (out->z, out->x);
+		    gwswap (tmp1, out->z);
+		    if (extended) gwswap (tmp2, out->t);
+		    out->alternate_format = FALSE;
+		}
+	    }
+	}
+
+	// Algorithm 4 from the paper, works with any EXTRA_BITS value.
+	else {													// Algorithm 4
 	    bool safe21 = mul_safe (&ecmdata->gwdata, 2, 1);								// Z3 will be safe if G & H are unnormalized
+	    if (inz == NULL) dbltogw (&ecmdata->gwdata, 2.0, out->z);
+	    else gwsquare2 (&ecmdata->gwdata, inz, out->z, mul_S1_options | GWMUL_MULBYCONST | GWMUL_STARTNEXTFFT);	// C = 2Z^2, two-dest squaring
 	    if (ecmdata->ed_a == NULL) {			// Not a twisted Edwards curve
 		gwsquare2 (&ecmdata->gwdata, in->x, tmp2, GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT_IF(safe21));		// A = X^2, two-dest squaring
 	    } else {					// Twisted Edwards curve
@@ -2179,39 +2315,6 @@ void ed_dbl (
 	gwfree (&ecmdata->gwdata, tmp2);
 }
 
-/* Multiply an Edwards point by n */
-
-#ifdef NOT_USED
-void ed_mul (
-	ecmhandle *ecmdata,
-	struct ed *arg,
-	uint64_t n)
-{
-	struct ed orig;
-
-	// Copy the input arg for later additions
-	ed_extend (ecmdata, arg, 0);
-	ed_alloc (ecmdata, &orig);
-	gwcopy (&ecmdata->gwdata, arg->x, orig.x);
-	gwcopy (&ecmdata->gwdata, arg->y, orig.y);
-	gwcopy (&ecmdata->gwdata, arg->z, orig.z);
-	orig.t = gwalloc (&ecmdata->gwdata);
-	gwcopy (&ecmdata->gwdata, arg->t, orig.t);
-
-	// Find the topmost bit in power
-	uint64_t current_bit;
-	for (current_bit = 0x8000000000000000ULL; n < current_bit; current_bit >>= 1);
-
-	// Exponentiate
-	for (current_bit >>= 1; current_bit; current_bit >>= 1) {
-		ed_dbl (ecmdata, arg, arg, ED_RESULT_FOR_ADD);
-		if (n & current_bit) ed_add (ecmdata, arg, &orig, arg, ED_RESULT_FOR_DBL);
-	}
-
-	// Free allocated memory
-	ed_free (ecmdata, &orig);
-}
-#endif
 
 /**************************************************************
  *	Montgomery ECM Functions
@@ -4427,6 +4530,7 @@ void ed_to_Montgomery (
 	ed_free (ecmdata, &ecmdata->e);
 	gwfree (&ecmdata->gwdata, ecmdata->ed_a), ecmdata->ed_a = NULL;
 	gwfree (&ecmdata->gwdata, ecmdata->ed_d), ecmdata->ed_d = NULL;
+	gwfree (&ecmdata->gwdata, ecmdata->ed_half), ecmdata->ed_half = NULL;
 }
 
 // Compute curve parameters for a Montgomery or Edwards curve
@@ -4447,12 +4551,12 @@ int init_curve (
 		else if (ecmdata->montg_stage1)				// New Montgomery curve with Montgomery stage 1
 			stop_reason = choose12 (ecmdata, &ecmdata->xz, NULL);
 		else							// New Montgomery curve, twisted Edwards stage 1
-			stop_reason = choose12 (ecmdata, NULL, &ecmdata->dict_start);
+			stop_reason = choose12 (ecmdata, NULL, &ecmdata->e);
 	}
 	// Edwards curve
 	else {
 		if (ecmdata->state == ECM_STATE_STAGE1_INIT)		// Starting a new curve
-			stop_reason = choose_atkin_morain (ecmdata, &ecmdata->dict_start);
+			stop_reason = choose_atkin_morain (ecmdata, &ecmdata->e);
 		else							// Resuming curve from a save file
 			stop_reason = choose_atkin_morain (ecmdata, NULL);
 		if (ecmdata->montg_stage1)
@@ -4605,7 +4709,7 @@ bool NAF_dictionary_init (
 		// Allocate gwnums for next dictionary entry
 		if (i != ecmdata->NAF_dictionary_size-1 && !ed_alloc (ecmdata, &ecmdata->NAF_dictionary[i])) return (FALSE);
 		// Next dictionary entry equals two more than previous entry
-		ed_add (ecmdata, &ecmdata->NAF_dictionary[i-1], two, &ecmdata->NAF_dictionary[i], ED_FFT_S1Z | ED_RESULT_FOR_ADD | ED_STARTNEXTFFT);
+		ed_add (ecmdata, &ecmdata->NAF_dictionary[i-1], two, &ecmdata->NAF_dictionary[i], ED_FFT_S1Z | ED_XYZ | ED_RESULT_FOR_ADD | ED_STARTNEXTFFT);
 		// Switch back from extended coordinates.  Extended coordinates will be generated again after normalization.
 		gwfree (&ecmdata->gwdata, ecmdata->NAF_dictionary[i-1].t), ecmdata->NAF_dictionary[i-1].t = NULL;
 		// 50% of the way through the build, normalize the dictionary.  This will free up enough gwnums to safely do the rest of the dictionary.
@@ -4636,11 +4740,12 @@ bool NAF_dictionary_init (
 	for (int tmp = 0; tmp * 2 + 1 <= max_dictionary_value; bitnum--) {
 		tmp *= 2;
 		if (mpz_tstbit64 (ecmdata->stage1_exp, bitnum)) {
+			mpz_clrbit64 (ecmdata->stage1_exp, bitnum);	// Clear bit in case there is a carry later on that alters first_NAF_value
 			tmp++;
 			first_NAF_value = tmp;
 			*num_doublings = bitnum;
 		}
-		ASSERTG (bitnum > 0);
+		if (bitnum == 0) break;
 	}
 
 // Generate the NAF codes working up from the least significant bit
@@ -4679,7 +4784,6 @@ bool NAF_dictionary_init (
 	// If there is a carry, the first NAF value needs to be changed
 	if (carry) for (first_NAF_value = first_NAF_value + 1; (first_NAF_value & 1) == 0; first_NAF_value /= 2) *num_doublings = *num_doublings + 1;
 	*first_NAF_index = (first_NAF_value - 1) / 2;
-
 	// Success
 	return (TRUE);
 }
@@ -4696,6 +4800,7 @@ void NAF_code (			// Return the NAF code for the doubling at bit i
 	}
 	if (NAF_code < (int) ecmdata->NAF_dictionary_size) *NAF_index = NAF_code, *subtract = FALSE;
 	else *NAF_index = NAF_code - ecmdata->NAF_dictionary_size, *subtract = TRUE;
+	ASSERTG (*NAF_index < (int) ecmdata->NAF_dictionary_size);
 }
 
 void NAF_dictionary_free (
@@ -6082,6 +6187,7 @@ void ecm_save (
 			if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.x, &sum)) goto writeerr;
 			if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.z, &sum)) goto writeerr;
 		} else {
+			ASSERTG (!ecmdata->e.alternate_format);
 			if (! write_uint64 (fd, ecmdata->stage1_start_prime, &sum)) goto writeerr;
 			if (! write_uint32 (fd, ecmdata->stage1_exp_buffer_size, &sum)) goto writeerr;
 			if (! write_uint32 (fd, ecmdata->stage1_bitnum, &sum)) goto writeerr;
@@ -7036,8 +7142,7 @@ if (w->n == 604) {
 	gwfft_description (&ecmdata.gwdata, fft_desc);
 	sprintf (buf, "\nUsing %s\n", fft_desc);
 	OutputStr (thread_num, buf);
-	sprintf (buf, "%5.3f bits-per-word below FFT limit (more than %5.3f allows extra optimizations)\n",
-		 (ecmdata.gwdata.EXTRA_BITS - EB_GWMUL_SAVINGS) / 2.0, (EB_FIRST_ADD + EB_SECOND_ADD - EB_GWMUL_SAVINGS) / 2.0);
+	sprintf (buf, "%5.3f bits-per-word below FFT limit\n", (ecmdata.gwdata.EXTRA_BITS - EB_GWMUL_SAVINGS) / 2.0);
 	OutputStr (thread_num, buf);
 
 /* If we are near the maximum exponent this fft length can test, then we will roundoff check all multiplies */
@@ -7313,9 +7418,8 @@ restart1:
 /* Reports of GMP having difficulty with products larger than 2^32 bits leads us to cap maximum exponent size at 128MB. */
 
 		// Perform required initialization if not resuming from a save file
-		if (ecmdata.e.x == NULL) {
+		if (ecmdata.stage1_bitnum == 0) {
 			ecmdata.stage1_start_prime = 2;
-			ecmdata.stage1_bitnum = 0;
 			ecmdata.stage1_exp_buffer_size = IniGetInt (INI_FILE, "ECMStage1ExpBufferSize", 40);
 			if (ecmdata.stage1_exp_buffer_size < 1) ecmdata.stage1_exp_buffer_size = 1;
 			if (ecmdata.stage1_exp_buffer_size > 128) ecmdata.stage1_exp_buffer_size = 128;
@@ -7340,17 +7444,20 @@ restart1:
 
 			ecmdata.stage1_start_prime = ecmdata.stage1_prime;	// Remember stage1_exp's starting prime for saving to a file
 			ecm_calc_exp (ecmdata.sieve_info, ecmdata.stage1_exp, ecmdata.B, &ecmdata.stage1_prime, ecmdata.stage1_exp_buffer_size);
+			if (mpz_eq_ui (ecmdata.stage1_exp, 1)) break;
 			best_size = NAF_best_size (&ecmdata);
 			if (ecmdata.stage1_bitnum == 0) {			// Dictionary size cannot be changed when resuming from a save file
 				ecmdata.NAF_dictionary_size = (uint32_t) (dictionary_memory / (3 * gwnum_size (&ecmdata.gwdata)));
 				if (ecmdata.NAF_dictionary_size > best_size) ecmdata.NAF_dictionary_size = best_size;
 				ecmdata.NAF_dictionary_size = IniGetInt (INI_FILE, "DictionarySize", ecmdata.NAF_dictionary_size);  // User override
+				if (ecmdata.NAF_dictionary_size < 4) ecmdata.NAF_dictionary_size = 4;		// Not sure what the minimum is, 2 crashes
 			}
 			sprintf (buf, "%sxponent length is %" PRIu64 ", best dictionary size is %" PRIu32 ", actual dictionary size is %" PRIu32 "\n",
 				 ecmdata.stage1_prime <= ecmdata.B ? "Partial e" : "E",
 				 (uint64_t) mpz_sizeinbase (ecmdata.stage1_exp, 2), best_size, ecmdata.NAF_dictionary_size);
 			OutputStr (thread_num, buf);
 			ecm_stage1_memory_usage (thread_num, &ecmdata);
+			if (ecmdata.stage1_bitnum == 0) ed_swap (ecmdata.e, ecmdata.dict_start);
 			NAF_dictionary_init (&ecmdata, &NAF_index, &num_doublings);
 			if (ecmdata.factor != NULL) goto bingo;			// Highly unlikely that the modinv in dictionary init found a factor
 
@@ -7359,34 +7466,35 @@ restart1:
 			chunk_size = (double) ((ecmdata.stage1_prime < ecmdata.B ? ecmdata.stage1_prime : ecmdata.B) - ecmdata.stage1_start_prime);
 			chunk_size_over_num_doublings = chunk_size / (double) num_doublings;
 
-/* Unless resuming from a save file, use first NAF_index to initialize the starting Edwards point.  Do the first ed_dbl to avoid gwcopys. */
-
-			if (ecmdata.stage1_bitnum == 0) {
-				if (!ed_alloc (&ecmdata, &ecmdata.e)) goto oom;
-				ed_dbl (&ecmdata, &ecmdata.NAF_dictionary[NAF_index], &ecmdata.e, ED_FFT_S1 | ED_RESULT_FOR_DBL | ED_STARTNEXTFFT);
-				ecmdata.stage1_bitnum = 1;
-			}
-
 /* Process each bit in the big exponent */
 
 			while (ecmdata.stage1_bitnum < num_doublings) {
 
-/* Set various flags.  They control whether error-checking or the next FFT can be started. */
+/* Unless resuming from a save file, use first NAF_index to initialize the starting Edwards point.  This avoids gwcopys. */
 
-				stop_reason = stopCheck (thread_num);
-				saving = testSaveFilesFlag (thread_num);
-				bool echk = stop_reason || saving || ERRCHK || near_fft_limit || ((ecmdata.stage1_bitnum & 127) == 64);
-				gwerror_checking (&ecmdata.gwdata, echk);
+				struct ed *ed_dbl_src = &ecmdata.e;		// Address of the Edwards point to double (usually ecmdata.e)
+				if (ecmdata.stage1_bitnum == 0) {
+					if (!ed_alloc (&ecmdata, &ecmdata.e)) goto oom;
+					ed_dbl_src = &ecmdata.NAF_dictionary[NAF_index];
+				}
 
 /* Either double point or double point and add from dictionary */
 
-				int options = (stop_reason || saving || ecmdata.stage1_bitnum+1 == num_doublings) ? 0 : ED_STARTNEXTFFT;
 				if (! mpz_tstbit64 (ecmdata.stage1_exp, num_doublings - ecmdata.stage1_bitnum - 1)) {
-					ed_dbl (&ecmdata, &ecmdata.e, &ecmdata.e, ED_RESULT_FOR_DBL | options);
+					stop_reason = 0;
+					saving = 0;
+					gwerror_checking (&ecmdata.gwdata, ERRCHK || near_fft_limit || ((ecmdata.stage1_bitnum & 127) == 64));
+					int options = (ecmdata.stage1_bitnum+1 == num_doublings) ? ED_XYZ : ED_STARTNEXTFFT;
+					ed_dbl (&ecmdata, ed_dbl_src, &ecmdata.e, ED_RESULT_FOR_DBL | options);
 				} else {
 					bool	subtract;
+					gwerror_checking (&ecmdata.gwdata, ERRCHK || near_fft_limit || ((ecmdata.stage1_bitnum & 127) == 64));
+					ed_dbl (&ecmdata, ed_dbl_src, &ecmdata.e, ED_RESULT_FOR_ADD | ED_STARTNEXTFFT);
+					stop_reason = stopCheck (thread_num);
+					saving = testSaveFilesFlag (thread_num);
+					gwerror_checking (&ecmdata.gwdata, stop_reason || saving || ERRCHK || near_fft_limit);
 					NAF_code (&ecmdata, num_doublings - ecmdata.stage1_bitnum - 1, &NAF_index, &subtract);
-					ed_dbl (&ecmdata, &ecmdata.e, &ecmdata.e, ED_RESULT_FOR_ADD | ED_STARTNEXTFFT);
+					int options = (stop_reason || saving || ecmdata.stage1_bitnum+1 == num_doublings) ? ED_XYZ : ED_STARTNEXTFFT;
 					if (subtract) options |= ED_SUBTRACT;
 					ed_add (&ecmdata, &ecmdata.e, &ecmdata.NAF_dictionary[NAF_index], &ecmdata.e, ED_RESULT_FOR_DBL | options);
 				}
@@ -7447,9 +7555,9 @@ restart1:
 
 			if (ecmdata.stage1_prime > ecmdata.B) break;
 			ecmdata.stage1_bitnum = 0;
-			ed_swap (ecmdata.e, ecmdata.dict_start);
 		}
 		mpz_clear (ecmdata.stage1_exp), ecmdata.stage1_exp_initialized = FALSE;
+		ecmdata.stage1_bitnum = 0;
 
 /* Validate the final point */
 

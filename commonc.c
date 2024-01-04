@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -11,7 +11,7 @@
 | Commonc contains information used during setup and execution
 +---------------------------------------------------------------------*/
 
-static const char JUNK[]="Copyright 1996-2023 Mersenne Research, Inc. All rights reserved";
+static const char JUNK[]="Copyright 1996-2024 Mersenne Research, Inc. All rights reserved";
 
 char	INI_FILE[260] = {0};
 char	WORKTODO_FILE[260] = {0};
@@ -3083,7 +3083,8 @@ int parseWorkToDoLine (
 		OutputBoth (MAIN_THREAD_NUM, buf);
 		goto illegal_line;
 	}
-	if ((w->work_type == WORK_PMINUS1 || w->work_type == WORK_PPLUS1 || w->work_type == WORK_ECM) && w->B1 < 50000 && !IniGetInt (INI_FILE, "AllowLowB1", 0)) {
+	if ((w->work_type == WORK_PMINUS1 || w->work_type == WORK_PPLUS1 || w->work_type == WORK_ECM) && w->B1 < 50000 &&
+	    w->gmp_ecm_file == NULL && !IniGetInt (INI_FILE, "AllowLowB1", 0)) {
 		sprintf (buf, "Error: Worktodo.txt file has P-1/P+1/ECM with B1 < 50000 (exponent: %ld)\n", w->n);
 		OutputBoth (MAIN_THREAD_NUM, buf);
 		goto illegal_line;

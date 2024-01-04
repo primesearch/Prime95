@@ -10251,7 +10251,7 @@ void raw_gwmul3 (
 		else {
 			gwnum	preferred_FFT_arg;	// Which source should be src1 in asm_mul possibly getting FFTed by asm_mul
 
-/* If a source arg equals d then the other source args can be the type-3 forward FFT arg only if they are partially FFTed or use two destinations. */
+/* If a source arg equals d then the other source args can be the type-3 forward FFT arg only if they use two destinations. */
 /* Otherwise, the forward FFT of type-3 will write to d which corrupt the source arg that equals d. */
 
 			bool s1_can_be_preferred_without_two_dest = (s2 != d);
@@ -10668,7 +10668,7 @@ void cmn_gwopmul4 (		/* Calculate (s1 op s2) * s3 */
 
 		asm_data->DEST2ARG = 0;
 
-/* If a source arg equals d then the other source args can be the type-3 forward FFT arg only if they are partially FFTed or use two destinations. */
+/* If a source arg equals d then the other source args can be the type-3 forward FFT arg only if they use two destinations. */
 /* Otherwise, the forward FFT of type-3 will write to d which corrupt the source arg that equals d. */
 
 		bool s1_can_be_preferred_without_two_dest = (s2 != d && s3 != d);
@@ -10952,7 +10952,7 @@ void cmn_gwmulmulop5 (		/* Calculate (s1 * s2) op (s3 * s4) */
 		else {
 			gwnum	preferred_FFT_arg;	// Which source should be src1 in asm_mul and can be FFTed by asm_mul
 
-/* If a source arg equals d then the other source args can be the type-3 forward FFT arg only if they are partially FFTed or use two destinations. */
+/* If a source arg equals d then the other source args can be the type-3 forward FFT arg only if they use two destinations. */
 /* Otherwise, the forward FFT of type-3 will write to d which corrupt the source arg that equals d. */
 
 			bool s1_can_be_preferred_without_two_dest = (s2 != d && s3 != d && s4 != d);
@@ -11225,7 +11225,7 @@ void cmn_gwmulop4 (		/* Calculate (s1 * s2) op s3 */
 		else {
 			gwnum	preferred_FFT_arg;	// Which source should be src1 in asm_mul which can be FFTed by asm_mul
 
-/* If a source arg equals d then the other source args can be the type-3 forward FFT arg only if they are partially FFTed or use two destinations. */
+/* If a source arg equals d then the other source args can be the type-3 forward FFT arg only if they use two destinations. */
 /* Otherwise, the forward FFT of type-3 will write to d which corrupt the source arg that equals d. */
 
 			bool s1_can_be_preferred_without_two_dest = (s2 != d && s3 != d);
