@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -9659,10 +9659,9 @@ void autoBench (void)
 	int	num_cores, num_workers, autobench_num_benchmarks, tnum, i, num_ffts_to_bench;
 	double	autobench_days_of_work;
 	struct {
-		unsigned long min_fftlen;
-		unsigned long max_fftlen;
+		unsigned long fftlen;
 		int	negacyclic;
-	} ffts_to_bench[200];
+	} ffts_to_bench[500];
 	struct primenetBenchmarkData pkt;
 
 /* If workers are not active or we're not doing normal work, do not benchmark now */
@@ -9717,7 +9716,9 @@ void autoBench (void)
 	    for (int pass = 0; pass <= 1; pass++)
 	    for (w = NULL; ; ) {
 		int	negacyclic, num_benchmarks;
-		unsigned long min_fftlen, max_fftlen;    
+		unsigned long minimum_fftlen, first_fftlen, fftlen;
+		bool	have_first_fftlen;
+		double	plausible_fftlen_multiplier;
 
 /* Read the next line of the work file.  Handle CERT lines first in computing estimated completion dates. */
 
@@ -9735,42 +9736,48 @@ void autoBench (void)
 		if (est > autobench_days_of_work * 86400.0) continue;
 		est += work_estimate (tnum, w);
 
-/* Trial factoring is the only work type that does not use FFTs.  CERTs are short work assignments unlikely to benefit from an auto-bench. */
+/* Trial factoring is the only work type that does not use FFTs.  CERTs are short work assignments unlikely to benefit much from an auto-bench. */
 
 		if (w->work_type == WORK_FACTOR) continue;
 		if (w->work_type == WORK_CERT) continue;
 
-/* Ask gwnum how many relevant benchmarks are in its database */
-/* If we have enough benchmarks, skip this worktodo entry */
+/* Loop over the FFT lengths that could plausibly be needed by this work unit.  We might find a faster FFT length than the minimum possible -- arbitrarily */
+/* search 3% above minimum FFT length.  For ECM, P-1 (and eventually P+1) polynomial stage 2 FFT length can easily be 15% larger than the stage 1 FFT length. */
 
-		gwbench_get_num_benchmarks (w->k, w->b, w->n, w->c, w->minimum_fftlen, num_cores, num_workers, HYPERTHREAD_LL, ERRCHK,
-					    &min_fftlen, &max_fftlen, &negacyclic, &num_benchmarks);
-		if (num_benchmarks >= autobench_num_benchmarks) continue;
+		have_first_fftlen = FALSE;
+		plausible_fftlen_multiplier = (w->work_type == WORK_ECM || w->work_type == WORK_PMINUS1 || w->work_type == WORK_PFACTOR) ? 1.15 : 1.03;
+		for (minimum_fftlen = w->minimum_fftlen; ; minimum_fftlen = fftlen + 10) {
+
+/* Find the next possible FFT length and ask gwnum how many relevant benchmarks are in its database.  If no FFT length found, break out of loop. */
+
+		    gwbench_get_num_benchmarks (w->k, w->b, w->n, w->c, minimum_fftlen, num_cores, num_workers, HYPERTHREAD_LL, ERRCHK,
+						&fftlen, &negacyclic, &num_benchmarks);
+		    if (fftlen == 0) break;
+
+/* Remember the minimum possible FFT length and break when we reach FFT lengths at are so far above the minimum that hey do not need auto-benching */
+
+		    if (!have_first_fftlen) { first_fftlen = fftlen; have_first_fftlen = TRUE; }
+		    else if (fftlen > first_fftlen * plausible_fftlen_multiplier) break;
+
+/* If we have enough benchmarks, skip benchmarking this length */
+
+		    if (num_benchmarks >= autobench_num_benchmarks) continue;
 
 /* For this release, we do not run automatic benchmarks for FFT lengths below 8K */
 
-		if (max_fftlen < 8192) continue;
-		if (min_fftlen < 8192) min_fftlen = 8192;
+		    if (fftlen < 8192) continue;
 
-/* Add the returned FFT lengths to our list of FFTs to benchmark */
+/* Add the FFT length to our list of FFTs to benchmark */
 
-		for (i = 0; ; i++) {
+		    for (i = 0; ; i++) {
 			if (i == num_ffts_to_bench) {
-				ffts_to_bench[num_ffts_to_bench].min_fftlen = min_fftlen;
-				ffts_to_bench[num_ffts_to_bench].max_fftlen = max_fftlen;
+				ffts_to_bench[num_ffts_to_bench].fftlen = fftlen;
 				ffts_to_bench[num_ffts_to_bench].negacyclic = negacyclic;
 				num_ffts_to_bench++;
 				break;
 			}
-			if (ffts_to_bench[i].negacyclic != negacyclic) continue;
-			if (min_fftlen >= ffts_to_bench[i].min_fftlen && min_fftlen <= ffts_to_bench[i].max_fftlen) {
-				if (max_fftlen > ffts_to_bench[i].max_fftlen) ffts_to_bench[i].max_fftlen = max_fftlen;
-				break;
-			}
-			if (max_fftlen >= ffts_to_bench[i].min_fftlen && max_fftlen <= ffts_to_bench[i].max_fftlen) {
-				if (min_fftlen < ffts_to_bench[i].min_fftlen) ffts_to_bench[i].min_fftlen = min_fftlen;
-				break;
-			}
+			if (ffts_to_bench[i].fftlen == fftlen && ffts_to_bench[i].negacyclic == negacyclic) break;
+		    }
 		}
 	    }
 	}
@@ -9817,8 +9824,8 @@ void autoBench (void)
 		stop_reason = primeBenchMultipleWorkersInternal (
 			MAIN_THREAD_NUM,				/* Output messages to main window */
 			&pkt,
-			ffts_to_bench[i].min_fftlen / 1024,		/* Minimum FFT length (in K) to bench */
-			ffts_to_bench[i].max_fftlen / 1024,		/* Maximum FFT length (in K) to bench */
+			ffts_to_bench[i].fftlen / 1024,			/* Minimum FFT length (in K) to bench */
+			ffts_to_bench[i].fftlen / 1024,			/* Maximum FFT length (in K) to bench */
 			FALSE,						/* Do not limit FFT sizes benchmarked */
 			ffts_to_bench[i].negacyclic,
 			TRUE,						/* Benchmark all FFT implementations */

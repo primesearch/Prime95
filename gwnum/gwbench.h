@@ -10,7 +10,7 @@
 | on the end user machine looking for an FFT implementation that is faster than the
 | default selection.
 |
-| Copyright 2017-2023 Mersenne Research, Inc.  All rights reserved.
+| Copyright 2017-2024 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWBENCH_H
@@ -59,8 +59,7 @@ struct gwbench_add_struct {
 };
 void gwbench_add_data (gwhandle *, struct gwbench_add_struct *);
 void gwbench_write_data (void);
-void gwbench_get_num_benchmarks (double, unsigned long, unsigned long, signed long, unsigned long, int, int, int, int,
-				 unsigned long *, unsigned long *, int *, int *);
+void gwbench_get_num_benchmarks (double, unsigned long, unsigned long, signed long, unsigned long, int, int, int, int, unsigned long *, int *, int *);
 
 /******************************************************************************
 *                             Internal Routines                               *

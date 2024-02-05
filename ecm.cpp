@@ -1533,6 +1533,7 @@ typedef struct {
 	uint64_t Dsection;	/* Current D section being processed in stage 2 */
 	uint64_t first_relocatable; /* First relocatable prime (same as B1 unless pairmaps must be split or mem change caused a replan) */
 	uint64_t last_relocatable; /* Last relocatable prime for filling pairmaps (unless mem change causes a replan) */
+	double	est_stage2_stage1_ratio; /* Estimated stage 2 runtime / stage 1 runtime ratio */
 	double	pct_mem_to_use;	/* If we get memory allocation errors, we progressively try using less and less. */
 
 	struct xz Qm, Qprevm, QD; /* Values used to calculate successive D values in stage 2 */
@@ -5820,8 +5821,9 @@ if (Ftree_polys_in_mem + more_Ftree_polys_in_mem > num_Ftree_polys - 1) more_Ftr
 		cost += cost_modinv;
 	}
 
-/* Save the final costs */
+/* Save the final costs fudged by an auto-adjusting value */
 
+	cost *= IniGetFloat (INI_FILE, "EcmStage2RatioAdjust", 1.0);
 	cost_data->c.stage2_cost = cost;						// Raw cost of stage 2
 	cost_data->c.est_stage2_stage1_ratio = cost / cost_data->c.stage1_cost;		// Cost of stage 2 relative to stage 1
 	cost_data->c.total_cost = cost_data->c.stage1_cost + cost_data->c.stage2_cost + cost_data->c.gcd_cost;
@@ -5917,7 +5919,7 @@ double ecm_stage2_impl_given_numvals (
 
 /* Choose most effective B2 for an ECM curve given number of gwnums we are allowed to allocate */
 
-void ecm_choose_B2 (
+int ecm_choose_B2 (
 	ecmhandle *ecmdata,
 	uint64_t numvals,
 	int	forced_stage2_type,		/* 0 = cost pairing, 1 = cost poly, 99 = cost both */
@@ -5947,6 +5949,7 @@ void ecm_choose_B2 (
 	kruppa (best[0], 50);
 	kruppa (best[1], best[0].actual_i * 5);
 	kruppa (best[2], best[1].actual_i * 5);
+	if (best[0].efficiency < 0.0 && best[1].efficiency < 0.0 && best[2].efficiency < 0.0) return (FALSE);
 
 /* Handle case where midpoint has worse efficiency than the start point.  The search code requires best[1] is better than best[0] and best[2]. */
 /* There is an edge case where max_safe_poly_size returns a very small value and there is no case where best[1] is better than best[0]. */
@@ -6002,6 +6005,10 @@ void ecm_choose_B2 (
 
 	ecmdata->C = best[1].actual_i * ecmdata->B;
 	sprintf (optimal_B2_msg, "Optimal B2 is %d*B1 = %" PRIu64 ".  ", best[1].actual_i, ecmdata->C);
+
+/* Return success */
+
+	return (TRUE);
 }
 
 /* Choose the best implementation of ECM stage 2 given the current memory settings.  We choose the best values for D, 2 or 4 FFT stage 2, and best */
@@ -6029,7 +6036,7 @@ double ecm_stage2_impl (
 		// Note: differs from P-1 and P+1 code in that "more C" is not supported
 		ecmdata->first_relocatable = ecmdata->C_done = ecmdata->B;
 		ecmdata->last_relocatable = 0;
-		if (ecmdata->optimal_B2) ecm_choose_B2 (ecmdata, numvals, forced_stage2_type, msgbuf + strlen (msgbuf));
+		if (ecmdata->optimal_B2 && !ecm_choose_B2 (ecmdata, numvals, forced_stage2_type, msgbuf + strlen (msgbuf))) return (0.0);
 	}
 	if (ecmdata->state >= ECM_STATE_STAGE2 && ecmdata->stage2_type == ECM_STAGE2_POLYMULT) {
 		ecmdata->first_relocatable = ecmdata->C_done > ecmdata->B ? ecmdata->C_done : ecmdata->B;
@@ -6127,20 +6134,10 @@ double ecm_stage2_impl (
 	// Output estimated runtime of stage 2 vs. stage 1.  The better the accuracy, the better our deduced optimal B2 value and the
 	// better we can judge pairing vs. polymult crossover.  User can create ratio adjustments if necessary.
 	sprintf (msgbuf + strlen (msgbuf), "Estimated stage 2 vs. stage 1 runtime ratio: %.3f\n", cost_data.c.est_stage2_stage1_ratio);
+	ecmdata->est_stage2_stage1_ratio = cost_data.c.est_stage2_stage1_ratio;
 
 	// Return stage 2 plan's efficiency
 	return (cost_data.c.efficiency);
-
-/* Output some debugging data so we can compare estimateds to actuals */
-
-	if (IniGetInt (INI_FILE, "Stage2Estimates", 0)) {
-		char	buf[120];
-		sprintf (buf, "Est pair%%: %5.2f, init transforms: %.0f, main loop transforms: %.0f\n",
-			 cost_data.c.est_pair_pct * 100.0, cost_data.c.est_init_transforms, cost_data.c.est_stage2_transforms);
-		OutputStr (ecmdata->thread_num, buf);
-	}
-
-	return (0);
 }
 
 /* Routines to create and read save files for an ECM factoring job */
@@ -6726,7 +6723,7 @@ int ecm (
 	int	res, stop_reason, delayed_stop_reason, stage, first_iter_msg;
 	int	msglen, continueECM, prpAfterEcmFactor;
 	char	*str, *msg;
-	double	timers[10];
+	double	stage1_timer, stage2_timer, timers[10];
 	bool	near_fft_limit, saving, default_sigma_type;
 	double	allowable_maxerr;
 	int	maxerr_restart_count = 0;
@@ -7124,6 +7121,7 @@ if (w->n == 604) {
 
 /* More random initializations */
 
+	stage1_timer = stage2_timer = 0.0;
 	last_output = last_output_t = ecmdata.modinv_count = 0;
 	gw_clear_fft_count (&ecmdata.gwdata);
 	first_iter_msg = TRUE;
@@ -7305,9 +7303,11 @@ restart0:
 	if (stop_reason) goto exit;
 	if (ecmdata.factor != NULL) goto bingo;
 	ecmdata.stage1_prime = 0;				// Last prime processed = none
+	ecmdata.stage1_bitnum = 0;				// Last Edwards bit processed = none
 	ecmdata.state = ECM_STATE_STAGE1;
-	w->pct_complete = 0.0;
 	sprintf (w->stage, "C%" PRIu32 "S1", ecmdata.curve);
+	w->pct_complete = 0.0;
+	start_timer_from_zero (&stage1_timer, 0);
 
 /* The stage 1 restart point */
 
@@ -7573,6 +7573,7 @@ restart1:
 
 	end_timer (timers, 0);
 	end_timer (timers, 1);
+	if (stage1_timer != 0.0) end_timer (&stage1_timer, 0);
 	sprintf (buf, "Stage 1 complete. %" PRIu64 " transforms, %lu modular inverses. Total time: ", gw_get_fft_count (&ecmdata.gwdata), ecmdata.modinv_count);
 	print_timer (timers, 1, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
@@ -7674,6 +7675,7 @@ skip_stage_2:	start_timer_from_zero (timers, 0);
 	ecmdata.state = ECM_STATE_MIDSTAGE;
 	sprintf (w->stage, "C%" PRIu32 "S2", ecmdata.curve);
 	w->pct_complete = 0.0;
+	start_timer_from_zero (&stage2_timer, 0);
 
 /* Some users have requested that a save file be written here.  Sometimes the vast amount of stage 2 memory allocated makes their machine thrash which */
 /* may require a reboot.  Upon resumption, the tail end of stage 1 calculations then need to be repeated.  For now, we'll make this the default behavior. */
@@ -9718,17 +9720,31 @@ stage2_done:
 		ecmdata.average_B2 = kruppa_unadjust (total_B2 / ecmdata.curve, ecmdata.B);
 	}
 
-/* Stage 2 is complete.  Free memory so that other high memory workers can begin. */
+/* Stage 2 is complete.  Free memory so that other high memory workers can begin -- assume we will start stage 1 on another curve. */
 
 	gwfree_internal_memory (&ecmdata.gwdata);
 	mallocFreeForOS ();
-	set_memory_usage (thread_num, 0, cvt_gwnums_to_mem (&ecmdata.gwdata, 1));	// Let other high memory workers resume
+	ecm_stage1_memory_usage (thread_num, &ecmdata);					// Let other high memory workers resume
 	end_timer (timers, 1);
+	end_timer (&stage2_timer, 0);
 	sprintf (buf, "Stage 2 complete. %" PRIu64 " transforms, %lu modular inverses. Total time: ", gw_get_fft_count (&ecmdata.gwdata), ecmdata.modinv_count);
 	print_timer (timers, 1, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
 	last_output = last_output_t = ecmdata.modinv_count = 0;
 	gw_clear_fft_count (&ecmdata.gwdata);
+
+/* Adjust fudge factor for stage2 vs. stage1 runtime ratio.  We use a rolling average. */
+
+	if (stage1_timer != 0.0 && stage2_timer != 0.0 && IniGetInt (INI_FILE, "EcmStage2AutoAdjust", 1)) {
+		double correct_ratio = stage2_timer / stage1_timer;
+		double current_adjustment = IniGetFloat (INI_FILE, "EcmStage2RatioAdjust", 1.0);
+		double correct_adjustment = correct_ratio / ecmdata.est_stage2_stage1_ratio * current_adjustment;
+		// Sanity check.  Estimation code should not be off by a factor of 2.
+		if (correct_adjustment > 2.0) correct_adjustment = 2.0;
+		if (correct_adjustment < 0.5) correct_adjustment = 0.5;
+		// Set new adjustment for next time
+		IniWriteFloat (INI_FILE, "EcmStage2RatioAdjust", (float) (0.9 * current_adjustment + 0.1 * correct_adjustment));
+	}
 
 /* Print out round off error */
 
@@ -9777,7 +9793,7 @@ more_curves:
 			gwset_thread_callback (&ecmdata.gwdata, SetAuxThreadPriority);
 			gwset_thread_callback_data (&ecmdata.gwdata, sp_info);
 			gwset_safety_margin (&ecmdata.gwdata, IniGetFloat (INI_FILE, "ExtraSafetyMargin", 0.0));
-			gwset_minimum_fftlen (&ecmdata.gwdata, ecmdata.stage1_fftlen);
+			gwset_minimum_fftlen (&ecmdata.gwdata, w->minimum_fftlen);
 			gwset_using_polymult (&ecmdata.gwdata);
 			gwset_use_spin_wait (&ecmdata.gwdata, IniGetInt (INI_FILE, "SpinWait", 0));
 			if (w->n) res = gwsetup (&ecmdata.gwdata, w->k, w->b, w->n, w->c);
@@ -10209,6 +10225,7 @@ typedef struct {
 	int	D;		/* Stage 2 loop size */
 	int	numrels;	/* Number of relative primes less than D/2 (the number of relative primes in one full relp_set) */
 	gwnum	*nQx;		/* Array of relprime data or polymult coefficients used in stage 2 */
+	double	est_stage2_stage1_ratio; /* Estimated stage 2 runtime / stage 1 runtime ratio */
 	double	pct_mem_to_use;	/* If we get memory allocation errors in stage 2 init, we progressively try using less and less memory. */
 	uint64_t B2_start;	/* Starting point of first D section to be processed in stage 2 (an odd multiple of D/2) */
 	uint64_t numDsections;	/* Number of D sections to process in stage 2 */
@@ -10988,8 +11005,9 @@ double pm1_stage2_cost (
 
 	cost += cost_data->c.modinv_cost;
 
-/* Save the final costs */
+/* Save the final costs fudged by an auto-adjusting value */
 
+	cost *= IniGetFloat (INI_FILE, "Pm1Stage2RatioAdjust", 1.0);
 	cost_data->c.stage2_cost = cost;						// Raw cost of stage 2
 	cost_data->c.est_stage2_stage1_ratio = cost / cost_data->c.stage1_cost;		// Cost of stage 2 relative to stage 1
 	cost_data->c.total_cost = cost_data->c.stage1_cost + cost_data->c.stage2_cost + cost_data->c.gcd_cost;
@@ -11081,7 +11099,7 @@ double pm1_stage2_impl_given_numvals (
 /* Choose the most effective B2 for a P-1 run with a fixed B1 given the number of gwnums we are allowed to allocate. */
 /* That is, find the B2 such that investing a fixed cost in either a larger B1 or B2 results in the same increase in chance of finding a factor. */
 
-void pm1_choose_B2 (
+int pm1_choose_B2 (
 	pm1handle *pm1data,
 	uint64_t numvals,
 	int	forced_stage2_type,		/* 0 = cost pairing, 1 = cost poly, 99 = cost both */
@@ -11095,6 +11113,8 @@ void pm1_choose_B2 (
 		uint64_t B2;			/* Actual B2 -- polymult often chooses much larger B2 value */
 		double	B2_cost;		/* Cost of stage 2 in transforms */
 		double	fac_pct;		/* Percentage chance of finding a factor */
+		double	efficiency;
+		double	compared_to_next_i;	/* Best i occurs when comparison to next i approaches zero (no difference between investing time in B1 or B2) */
 	} best[3];
 	double	saved_sieve_depth;
 	double	takeAwayBits;			/* Bits we get for free in smoothness of P-1 factor */
@@ -11104,21 +11124,28 @@ void pm1_choose_B2 (
 	saved_sieve_depth = pm1data->w->sieve_depth;
 	if (saved_sieve_depth == 0.0) pm1data->w->sieve_depth = 67.0;
 
-// Cost out a B2 value
+// Cost out a B2 value.  Then compare it to the next larger B2 to determine if investing more time in larger B1 or larger B2 would be better.
 	max_B2mult = IniGetInt (INI_FILE, "MaxOptimalB2Multiplier", (int) (numvals < 100000 ? numvals * 100 : 10000000));
-#define p1eval(x,B2mult)	x.i = B2mult; \
-				if (x.i > max_B2mult) x.i = max_B2mult; \
+#define p1eval(x,B2mult)	x.i = B2mult; if (x.i > max_B2mult) x.i = max_B2mult; \
 				pm1data->C = x.i * pm1data->B; \
-				pm1_stage2_impl_given_numvals (pm1data, numvals, forced_stage2_type, &cost_data); \
-				x.B2 = cost_data.c.B2_start + cost_data.c.numDsections * cost_data.c.D; \
-				x.actual_i = (int) (x.B2 / pm1data->B); \
-				x.B2_cost = cost_data.c.stage2_cost; \
-				x.fac_pct = cost_data.factor_probability;
+				x.efficiency = pm1_stage2_impl_given_numvals (pm1data, numvals, forced_stage2_type, &cost_data); \
+				if (x.efficiency > 0.0) { \
+				  x.B2 = cost_data.c.B2_start + cost_data.c.numDsections * cost_data.c.D; \
+				  x.actual_i = (int) (x.B2 / pm1data->B); \
+				  x.B2_cost = cost_data.c.stage2_cost; \
+				  x.fac_pct = cost_data.factor_probability; \
+				  /* Get cost of next i */ \
+				  pm1data->C = (x.i + 1) * pm1data->B; \
+				  if (pm1_stage2_impl_given_numvals (pm1data, numvals, forced_stage2_type, &cost_data) > 0.0) { \
+				    /* Compare tbe fac pct of a larger B2 to using the extra cost to up B1 instead */ \
+				    int B1inc = (int) ((cost_data.c.stage2_cost - x.B2_cost) / (1.44 * 2.0)); \
+				    x.compared_to_next_i = pm1prob (takeAwayBits, pm1data->w->sieve_depth, pm1data->B+B1inc, x.B2+B1inc) - cost_data.factor_probability; \
+				    x.compared_to_next_i = - abs (x.compared_to_next_i); \
+				  } else x.compared_to_next_i = -100.0; \
+				} else x.actual_i = x.i;
 
-// Return TRUE if x is better than y.  Determined by seeing if taking the increased cost of y's higher B2 and investing it in increasing x's bounds
-// results in a higher chance of finding a factor.
-#define B1increase(x,y)	(uint64_t) ((y.B2_cost - x.B2_cost) / (1.44 * 2.0))			// Each B1 increase costs 1.44 squarings
-#define p1compare(x,y)	(pm1prob (takeAwayBits, pm1data->w->sieve_depth, pm1data->B + B1increase(x,y), x.B2 + B1increase(x,y)) > y.fac_pct)
+// Return TRUE if x is better than y.
+#define p1compare(x,y)	(x.compared_to_next_i > y.compared_to_next_i)
 
 /* Look for the best B2 which is likely between 5*B1 and 1000*B1.  If optimal is not between these bounds, don't worry we'll locate the optimal spot anyway. */
 
@@ -11127,6 +11154,7 @@ void pm1_choose_B2 (
 	p1eval (best[0], 5);
 	p1eval (best[1], best[0].actual_i * 5);
 	p1eval (best[2], best[1].actual_i * 5);
+	if (best[0].efficiency < 0.0 && best[1].efficiency < 0.0 && best[2].efficiency < 0.0) return (FALSE);
 
 /* Handle case where midpoint is worse than the start point.  The search code requires best[1] is better than best[0] and best[2]. */
 /* To be safe, like ECM catch cases where no suitable best[1] exists. */
@@ -11186,6 +11214,10 @@ void pm1_choose_B2 (
 /* Restore the sieve depth */
 
 	pm1data->w->sieve_depth = saved_sieve_depth;
+
+/* Return success */
+
+	return (TRUE);
 }
 #undef p1eval
 #undef B1increase
@@ -11217,7 +11249,7 @@ double pm1_stage2_impl (
 		if (pm1data->C_done == pm1data->B) {
 			pm1data->first_relocatable = pm1data->first_C_start;
 			pm1data->last_relocatable = 0;
-			if (pm1data->optimal_B2) pm1_choose_B2 (pm1data, numvals, forced_stage2_type, msgbuf + strlen (msgbuf));
+			if (pm1data->optimal_B2 && !pm1_choose_B2 (pm1data, numvals, forced_stage2_type, msgbuf + strlen (msgbuf))) return (0.0);
 		} else {
 			pm1data->first_relocatable = pm1data->C_done;
 			pm1data->last_relocatable = 0;
@@ -11314,6 +11346,7 @@ double pm1_stage2_impl (
 	// Output estimated runtime of stage 2 vs. stage 1.  The better the accuracy, the better our deduced optimal B2 value and the
 	// better we can judge pairing vs. polymult crossover.  User can create ratio adjustments if necessary.
 	sprintf (msgbuf + strlen (msgbuf), "Estimated stage 2 vs. stage 1 runtime ratio: %.3f\n", cost_data.c.est_stage2_stage1_ratio);
+	pm1data->est_stage2_stage1_ratio = cost_data.c.est_stage2_stage1_ratio;
 
 	// Return stage 2 plan's efficiency
 	return (cost_data.c.efficiency);
@@ -11521,7 +11554,7 @@ int pminus1 (
 	int	first_iter_msg;
 	int	msglen;
 	char	*str, *msg;
-	double	timers[2];
+	double	stage1_timer, stage2_timer, timers[2];
 	relp_set_data_map relp_set_map;
 	Dmultiple_data_map Dmultiple_map;
 
@@ -11627,6 +11660,7 @@ restart:
 
 /* More miscellaneous initializations */
 
+	stage1_timer = stage2_timer = 0.0;
 	last_output = last_output_t = last_output_r = 0;
 	gw_clear_fft_count (&pm1data.gwdata);
 	first_iter_msg = TRUE;
@@ -11787,6 +11821,7 @@ restart:
 
 	strcpy (w->stage, "S1");
 	w->pct_complete = 0.0;
+	start_timer_from_zero (&stage1_timer, 0);
 	pm1data.state = PM1_STATE_STAGE0;
 	pm1data.interim_B = pm1data.B;
 	pm1data.stage0_bitnum = 0;
@@ -12042,6 +12077,7 @@ more_B:		if (pm1data.x_binary != NULL) {			// pm1_restore can return x as binary
 /* Stage 1 complete, print a message */
 
 	end_timer (timers, 1);
+	if (stage1_timer != 0.0) end_timer (&stage1_timer, 0);
 	sprintf (buf, "%s stage 1 complete. %" PRIu64 " transforms. Total time: ", gwmodulo_as_string (&pm1data.gwdata), gw_get_fft_count (&pm1data.gwdata));
 	print_timer (timers, 1, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
@@ -12145,6 +12181,7 @@ restart3a:
 	pm1data.state = PM1_STATE_MIDSTAGE;
 	strcpy (w->stage, "S2");
 	w->pct_complete = 0.0;
+	start_timer_from_zero (&stage2_timer, 0);
 
 /* Some users have requested that a save file be written here.  Sometimes the vast amount of stage 2 memory allocated makes their machine thrash which */
 /* may require a reboot.  Upon resumption, the tail end of stage 1 calculations then need to be repeated.  For now, we'll make this the default behavior. */
@@ -13468,9 +13505,23 @@ stage2_done:
 	mallocFreeForOS ();
 	set_memory_usage (thread_num, 0, cvt_gwnums_to_mem (&pm1data.gwdata, 1));	// Let other high memory workers resume
 	end_timer (timers, 1);
+	end_timer (&stage2_timer, 0);
 	sprintf (buf, "%s stage 2 complete. %" PRIu64 " transforms. Total time: ", gwmodulo_as_string (&pm1data.gwdata), gw_get_fft_count (&pm1data.gwdata));
 	print_timer (timers, 1, buf, TIMER_NL | TIMER_CLR);
 	OutputStr (thread_num, buf);
+
+/* Adjust fudge factor for stage2 vs. stage1 runtime ratio.  We use a rolling average. */
+
+	if (stage1_timer != 0.0 && stage2_timer != 0.0 && IniGetInt (INI_FILE, "Pm1Stage2AutoAdjust", 1)) {
+		double correct_ratio = stage2_timer / stage1_timer;
+		double current_adjustment = IniGetFloat (INI_FILE, "Pm1Stage2RatioAdjust", 1.0);
+		double correct_adjustment = correct_ratio / pm1data.est_stage2_stage1_ratio * current_adjustment;
+		// Sanity check.  Estimation code should not be off by a factor of 2.
+		if (correct_adjustment > 2.0) correct_adjustment = 2.0;
+		if (correct_adjustment < 0.5) correct_adjustment = 0.5;
+		// Set new adjustment for next time
+		IniWriteFloat (INI_FILE, "Pm1Stage2RatioAdjust", (float) (0.9 * current_adjustment + 0.1 * correct_adjustment));
+	}
 
 /* Print out round off error */
 

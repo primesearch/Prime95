@@ -20,6 +20,7 @@ char	RESFILEBENCH[260] = {0};
 char	RESFILEJSON[260] = {0};
 char	SPOOL_FILE[260] = {0};
 char	LOGFILE[260] = {0};
+char	SCREENLOGFILE[260] = {0};
 char	*RESFILES[3] = {RESFILE, RESFILEBENCH, RESFILEJSON};
 int	NO_GUI = 1;
 
@@ -40,6 +41,7 @@ unsigned int CORES_PER_TEST[MAX_NUM_WORKERS] = {1}; /* Number of cores gwnum can
 int	HYPERTHREAD_TF = 1;		/* TRUE if trial factoring should use hyperthreads */
 int	HYPERTHREAD_LL = 0;		/* TRUE if FFTs (LL, P-1, ECM, PRP) should use hyperthreads */
 int	MANUAL_COMM = 0;
+int	this_is_a_manual_comm = FALSE;	/* Ugly hack to let comm thread know it was triggered by a user's manual comm */
 float volatile CPU_WORKER_DISK_SPACE = 6.0;
 unsigned int volatile CPU_HOURS = 0;
 int	CLASSIC_OUTPUT = 0;
@@ -66,6 +68,8 @@ unsigned int ROLLING_AVERAGE = 0;
 unsigned int PRECISION = 2;
 int	RDTSC_TIMING = 1;
 int	TIMESTAMPING = 1;
+int	TIMESTAMPING_UTC = 0;
+int	SCREENLOG = 0;
 int	CUMULATIVE_TIMING = 0;
 int	CUMULATIVE_ROUNDOFF = 1;
 int	SEQUENTIAL_WORK = -1;
@@ -1338,6 +1342,7 @@ void nameAndReadIniFiles (
 		strcpy (RESFILEJSON, "results.json.txt");
 		strcpy (SPOOL_FILE, "prime.spl");
 		strcpy (LOGFILE, "prime.log");
+		strcpy (SCREENLOGFILE, "screen.log");
 	} else {
 		sprintf (INI_FILE, "prim%04d.txt", named_ini_files);
 		sprintf (localini_file, "loca%04d.txt", named_ini_files);
@@ -1347,6 +1352,7 @@ void nameAndReadIniFiles (
 		sprintf (RESFILEJSON, "resu%04d.json.txt", named_ini_files);
 		sprintf (SPOOL_FILE, "prim%04d.spl", named_ini_files);
 		sprintf (LOGFILE, "prim%04d.log", named_ini_files);
+		sprintf (SCREENLOGFILE, "screen%04d.log", named_ini_files);
 	}
 
 /* Let the user rename these files and pick a different working directory */
@@ -1359,6 +1365,7 @@ void nameAndReadIniFiles (
 	IniGetString (INI_FILE, "results.json.txt", RESFILEJSON, 260, RESFILEJSON);
 	IniGetString (INI_FILE, "prime.spl", SPOOL_FILE, 260, SPOOL_FILE);
 	IniGetString (INI_FILE, "prime.log", LOGFILE, 260, LOGFILE);
+	IniGetString (INI_FILE, "screen.log", SCREENLOGFILE, 260, SCREENLOGFILE);
 	IniGetString (INI_FILE, "prime.ini", INI_FILE, 260, INI_FILE);
 	if (buf[0]) {
 		(void) _chdir (buf);
@@ -1857,6 +1864,8 @@ int readIniFiles (void)
 /* Other oddball options */
 
 	TIMESTAMPING = IniGetInt (INI_FILE, "TimeStamp", 1);
+	TIMESTAMPING_UTC = IniGetInt (INI_FILE, "TimeStampUTC", 0);
+	SCREENLOG = IniGetInt (INI_FILE, "ScreenLog", 0);
 	CUMULATIVE_TIMING = IniGetInt (INI_FILE, "CumulativeTiming", 0);
 	CUMULATIVE_ROUNDOFF = IniGetInt (INI_FILE, "CumulativeRoundoff", 1);
 	SEQUENTIAL_WORK = IniGetInt (INI_FILE, "SequentialWorkToDo", -1);
@@ -2181,6 +2190,64 @@ int PTOHasOptionChanged (
 /*                Utility routines to output messages                       */
 /****************************************************************************/
 
+/* Format the current time according to user preferencess */
+
+void timestamp (
+	char	*buf)
+{
+	char	user_defined_fmt[100];
+	const char *fmtstr;
+	time_t	this_time;
+
+	if (TIMESTAMPING == 0) { *buf = 0; return; }		/* No timestamping */
+	fmtstr = "%b %e %H:%M";					/* Default format */
+	if (TIMESTAMPING == 2) fmtstr = "%b %e %H:%M:%S";
+	else if (TIMESTAMPING == 3) fmtstr = "%H:%M";
+	else if (TIMESTAMPING == 4) fmtstr = "%H:%M:%S";
+	else if (TIMESTAMPING == 5) fmtstr = "%Y-%m-%d %H:%M";	/* New in version 30.19b6 */
+	else if (TIMESTAMPING == 6) fmtstr = "%Y-%m-%d %H:%M:%S";
+	else if (TIMESTAMPING == 7) {
+		IniGetString (INI_FILE, "TimestampFormat", user_defined_fmt, sizeof (user_defined_fmt), fmtstr);
+		fmtstr = user_defined_fmt;
+	}
+
+	/* Format local time or UTC time */
+	time (&this_time);
+	if (TIMESTAMPING_UTC) strftime (buf, 80, fmtstr, gmtime (&this_time));
+	else strftime (buf, 80, fmtstr, localtime (&this_time));
+}
+
+/* Intercept output to the screen for optional logging to a file */
+
+void OutputStrInternal (
+	int	thread_num,
+	const char *buf)
+{
+static	int	last_char_out_was_newline = TRUE;
+	
+	RealOutputStr (thread_num, buf);
+	if ((SCREENLOG & 0xF) == 1 ||					// Log everything
+	    ((SCREENLOG & 0x2) && thread_num >= 0) ||			// Log workers
+	    ((SCREENLOG & 0x4) && thread_num == COMM_THREAD_NUM) ||	// Log communications window
+	    ((SCREENLOG & 0x8) && thread_num == MAIN_THREAD_NUM)) {	// Log main window
+		int fd = _open (SCREENLOGFILE, _O_TEXT | _O_RDWR | _O_CREAT | _O_APPEND, CREATE_FILE_ACCESS);
+		if (fd >= 0) {
+			if (last_char_out_was_newline && !(SCREENLOG & 0x10)) {
+				char	prefix[40];
+				if (thread_num == MAIN_THREAD_NUM) strcpy (prefix, "[Main window");
+				else if (thread_num == COMM_THREAD_NUM) strcpy (prefix, "[Comm window");
+				else if (NUM_WORKERS == 1 && WORKERS_ACTIVE == 1) strcpy (prefix, "[Worker");
+				else sprintf (prefix, "[Worker #%d", thread_num+1);
+				strcat (prefix, "] ");
+				_write (fd, prefix, (unsigned int) strlen (prefix));
+			}
+			_write (fd, buf, (unsigned int) strlen (buf));
+			_close (fd);
+		}
+		last_char_out_was_newline = (buf[strlen(buf)-1] == '\n');
+	}
+}
+
 /* Output string to screen or results file */
 
 void OutputSomewhere (
@@ -2260,26 +2327,12 @@ void OutputStr (
 
 	gwmutex_lock (&OUTPUT_MUTEX);
 
-/* Format a timestamp.  Prefix every line in the input buffer with */
-/* the timestamp. */
+/* Format a timestamp.  Prefix every line in the input buffer with the timestamp. */
 
 	if (TIMESTAMPING) {
-		time_t	this_time;
-		char	tmpbuf[200], fmtbuf[40];
+		char	tmpbuf[200], fmtbuf[202];
 
-		time (&this_time);
-		strcpy (tmpbuf, ctime (&this_time)+4);
-
-		/* Eliminate seconds and year or just year */
-		if (TIMESTAMPING & 1) tmpbuf[12] = 0;
-		else tmpbuf[15] = 0;
-
-		/* Eliminate date or zero-suppress day */
-		if (TIMESTAMPING >= 3)
-			safe_strcpy (tmpbuf, tmpbuf+7);
-		else if (tmpbuf[4] == '0' || tmpbuf[4] == ' ')
-			safe_strcpy (tmpbuf+4, tmpbuf+5);
-
+		timestamp (tmpbuf);
 		sprintf (fmtbuf, "[%s] ", tmpbuf);
 
 /* Output the prefix for every line in the buffer */ 
@@ -2290,15 +2343,14 @@ void OutputStr (
 			eol = strchr (buf, '\n');
 			if (eol != NULL) eol++;
 			else eol = buf + strlen (buf);
-			RealOutputStr (thread_num, fmtbuf);
+			OutputStrInternal (thread_num, fmtbuf);
 			while (buf != eol) {
 				int	len;
 				len = (int) (eol - buf);
-				if (len >= sizeof (tmpbuf))
-					len = sizeof (tmpbuf) - 1;
+				if (len >= sizeof (tmpbuf)) len = sizeof (tmpbuf) - 1;
 				memcpy (tmpbuf, buf, len);
 				tmpbuf[len] = 0;
-				RealOutputStr (thread_num, tmpbuf);
+				OutputStrInternal (thread_num, tmpbuf);
 				buf += len;
 			}
 		} while (*buf);
@@ -2307,22 +2359,21 @@ void OutputStr (
 /* No timestamp - just output the possibly multi-line buffer. */
 
 	else
-		RealOutputStr (thread_num, buf);
+		OutputStrInternal (thread_num, buf);
 
 /* Free the lock and return */
 
 	gwmutex_unlock (&OUTPUT_MUTEX);
 }
 
-/* Output string to screen without prefixing a timestamp.  Only used when */
-/* outputting a line in chunks (we do this when benchmarking). */
+/* Output string to screen without prefixing a timestamp.  Only used when outputting a line in chunks (we do this when benchmarking). */
 
 void OutputStrNoTimeStamp (
 	int	thread_num,
 	const char *buf)
 {
 	gwmutex_lock (&OUTPUT_MUTEX);
-	RealOutputStr (thread_num, buf);
+	OutputStrInternal (thread_num, buf);
 	gwmutex_unlock (&OUTPUT_MUTEX);
 }
 
@@ -4866,13 +4917,11 @@ static	time_t	last_time[3] = {0};
 
 	time (&this_time);
 	if (write_interval && this_time - last_time[which_results_file] > (time_t) write_interval) {
-		char	buf[32];
+		char	tmpbuf[200], buf[202];
 		last_time[which_results_file] = this_time;
-		buf[0] = '[';
-		strcpy (buf+1, ctime (&this_time));
-		buf[25] = ']';
-		buf[26] = '\n';
-		(void) _write (fd, buf, 27);
+		timestamp (tmpbuf);
+		sprintf (buf, "[%s]", tmpbuf);
+		(void) _write (fd, buf, (int) strlen (buf));
 	}
 
 /* Output the message */
@@ -5010,12 +5059,12 @@ void set_comm_timers (void)
 	add_timed_event (TE_WORK_QUEUE_CHECK, 5);  /* Start in 5 seconds */
 }
 
-/* Routine to fire up the communication thread in response to a user */
-/* request to communicate with the server now. */
+/* Routine to fire up the communication thread in response to a user request to communicate with the server now. */
 
 void do_manual_comm_now (void)
 {
 	gwmutex_lock (&SPOOL_FILE_MUTEX);
+	this_is_a_manual_comm = TRUE;
 	if (!COMMUNICATION_THREAD) gwthread_create (&COMMUNICATION_THREAD, &communicateWithServer, NULL);
 	gwmutex_unlock (&SPOOL_FILE_MUTEX);
 }
@@ -5039,8 +5088,7 @@ void clear_comm_rate_limits (void)
 	    !COMMUNICATION_THREAD &&
 	    is_timed_event_active (TE_COMM_SERVER)) {
 		delete_timed_event (TE_COMM_SERVER);
-		gwthread_create (&COMMUNICATION_THREAD,
-				 &communicateWithServer, NULL);
+		gwthread_create (&COMMUNICATION_THREAD, &communicateWithServer, NULL);
 	}
 	gwmutex_unlock (&SPOOL_FILE_MUTEX);
 }
@@ -5056,9 +5104,7 @@ void pingServer (void)
 
 	gwmutex_lock (&SPOOL_FILE_MUTEX);
 	GET_PING_INFO = 1;
-	if (!COMMUNICATION_THREAD)
-		gwthread_create (&COMMUNICATION_THREAD,
-				 &communicateWithServer, NULL);
+	if (!COMMUNICATION_THREAD) gwthread_create (&COMMUNICATION_THREAD, &communicateWithServer, NULL);
 	gwmutex_unlock (&SPOOL_FILE_MUTEX);
 }
 
@@ -6220,9 +6266,11 @@ retry:
 		msg_offset = new_offset;
 	}
 
-/* If we just sent a PRP result, trigger thread that uploads proofs */
+/* If we just sent a PRP result or this is a manual comm, trigger thread that uploads proofs.  For good measure, also do this if quitting GIMPS. */
 
-	if (sent_prp_result) gwevent_signal (&PROOF_UPLOAD_EVENT);
+	if (sent_prp_result || this_is_a_manual_comm || (header_words[1] & HEADER_FLAG_QUIT_GIMPS) || IniGetInt (INI_FILE, KEY_QuitGIMPS, 0))
+		gwevent_signal (&PROOF_UPLOAD_EVENT);
+	this_is_a_manual_comm = FALSE;		// Clear ugly flag that signals manual comm
 
 /* See if we can request certification work.  Certification work must be done ASAP to reduce disk space used by PrimeNet server. */
 /* Thus, it is priority work.  Some options turn off priority work which precludes getting certification work.  Part-time computers */
@@ -6730,8 +6778,7 @@ retry:
 
 /* Tell user we're done communicating, then exit this communication thread */
 
-	if (talked_to_server)
-		OutputStr (COMM_THREAD_NUM, "Done communicating with server.\n");
+	if (talked_to_server) OutputStr (COMM_THREAD_NUM, "Done communicating with server.\n");
 	goto locked_leave;
 
 /* We got an error communicating with the server.  Check for error codes */
@@ -6838,19 +6885,15 @@ error_exit:
 
 	OutputStr (COMM_THREAD_NUM, "Visit http://mersenneforum.org for help.\n");
 
-/* We could not contact the server.  Set up a timer to relaunch the */
-/* communication thread. */
+/* We could not contact the server.  Set up a timer to relaunch the communication thread. */
 
 	if (!MANUAL_COMM) {
 		unsigned int retry_time;
-		retry_time = (rc == PRIMENET_ERROR_MODEM_OFF) ?
-			MODEM_RETRY_TIME : NETWORK_RETRY_TIME;
-		sprintf (buf, "Will try contacting server again in %d %s.\n",
-			 retry_time, retry_time == 1 ? "minute" : "minutes");
+		retry_time = (rc == PRIMENET_ERROR_MODEM_OFF) ? MODEM_RETRY_TIME : NETWORK_RETRY_TIME;
+		sprintf (buf, "Will try contacting server again in %d %s.\n", retry_time, retry_time == 1 ? "minute" : "minutes");
 		OutputStr (COMM_THREAD_NUM, buf);
 		ChangeIcon (COMM_THREAD_NUM, IDLE_ICON);
-		sprintf (buf, "Waiting %d %s",
-			 retry_time, retry_time == 1 ? "minute" : "minutes");
+		sprintf (buf, "Waiting %d %s", retry_time, retry_time == 1 ? "minute" : "minutes");
 		title (COMM_THREAD_NUM, buf);
 		add_timed_event (TE_COMM_SERVER, retry_time * 60);
 	}

@@ -1,6 +1,6 @@
 // Prime95Doc.cpp : implementation of the CPrime95Doc class
 //
-// Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved
 //
 
 #include "stdafx.h"
@@ -261,6 +261,7 @@ void CPrime95Doc::OnPrimenet()
 		}
 		if (!USE_PRIMENET && dlg.m_primenet) {
 			USE_PRIMENET = 1;
+			OnWorkers ();		// Allow changing worker preferences before starting comm thread
 			create_window (COMM_THREAD_NUM);
 			base_title (COMM_THREAD_NUM, "Communication thread");
 			if (!STARTUP_IN_PROGRESS) set_comm_timers ();
@@ -496,11 +497,17 @@ void CPrime95Doc::OnTest()
 	if (dlg.DoModal () == IDOK) {
 		struct work_unit w;
 		memset (&w, 0, sizeof (w));
-		w.work_type = WORK_ADVANCEDTEST;
 		w.k = 1.0;
 		w.b = 2;
 		w.n = dlg.m_p;
 		w.c = -1;
+		if (w.n < 60000000 || isKnownMersennePrime (w.n)) {
+			w.work_type = WORK_ADVANCEDTEST;
+		} else {		// Do PRP with proof for large exponents.  Hopefully user has done enough TF and P-1.
+			w.work_type = WORK_PRP;
+			w.sieve_depth = 99.0;
+			w.tests_saved = 0;
+		}
 		addWorkToDoLine (dlg.m_worker - 1, &w, ADD_TO_FRONT);
 		if (WORKERS_ACTIVE)
 			stop_worker_for_advanced_test (dlg.m_worker - 1);

@@ -227,6 +227,29 @@ void gen_data (gwhandle *gwdata, gwnum x, giant g)
 		g->sign = divide_rounding_up (len, 4);
 	}
 
+#ifdef XXX
+	ultog (gwdata->b, g);
+	power (g, gwdata->n);
+	dblmulg (gwdata->k, g);
+	iaddg (gwdata->c, g);
+	mpz_t	__N, __f;
+	mpz_init (__N);
+	gtompz (g, __N);
+	mpz_init_set_ui (__f, 3);
+//	mpz_invert (__f, __f, __N);
+	mpztog (__f, g);
+	mpz_clear (__N);
+	mpz_clear (__f);
+#endif
+#ifdef YYYY
+	mpz_t	__N;
+	mpz_init_set_str (__N, 
+			  "940298595550113209437044880150400782041500126558160757273039748840761654374277758643017009845641260178773718460021731045549833766269150463259915966750844168464904734881875009550500964490196501797797924415086495515182931",
+			  10);
+	mpztog (__N, g);
+	mpz_clear (__N);
+#endif
+
 // Convert to gwnum
 
 	specialmodg (gwdata, g);

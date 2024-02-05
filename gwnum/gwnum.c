@@ -10227,7 +10227,11 @@ void raw_gwmul3 (
 /* New in 30.4, the AVX, FMA, and AVX-512 FFT routines can handle two destinations!  One for the FFT of s1 and one for the multiplication result. */
 
 #ifdef X86_64
-	if (gwdata->cpu_flags & (CPU_AVX512F | CPU_FMA3 | CPU_AVX)) {
+//	if (gwdata->cpu_flags & (CPU_AVX512F | CPU_FMA3 | CPU_AVX)) {
+// Zeropad workaround below fails if s1 partially FFTed and s2 = d.  This is a quick fix -- awaiting better solution.
+if ((gwdata->cpu_flags & (CPU_AVX512F | CPU_FMA3 | CPU_AVX)) &&
+    ! (gwdata->ZERO_PADDED_FFT && FFT_state (s1) == PARTIALLY_FFTed && s2 == d) &&
+    ! (gwdata->ZERO_PADDED_FFT && FFT_state (s2) == PARTIALLY_FFTed && s1 == d)) {
 #else
 	if (0) {
 #endif
