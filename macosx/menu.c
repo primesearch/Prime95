@@ -328,6 +328,7 @@ void outputLongLine (
 /* Test/Primenet dialog */
 
 void getProxyInfo (char *, unsigned short *, char *, char *);
+void test_workers (void);
 
 void test_primenet (void)
 {

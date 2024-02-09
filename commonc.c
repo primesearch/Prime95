@@ -69,6 +69,8 @@ unsigned int PRECISION = 2;
 int	RDTSC_TIMING = 1;
 int	TIMESTAMPING = 1;
 int	TIMESTAMPING_UTC = 0;
+int	LOGTIMESTAMPING = 1;
+int	LOGTIMESTAMPING_UTC = 0;
 int	SCREENLOG = 0;
 int	CUMULATIVE_TIMING = 0;
 int	CUMULATIVE_ROUNDOFF = 1;
@@ -1492,7 +1494,7 @@ void nameAndReadIniFiles (
 
 /* Output a startup message */
 
-	sprintf (buf, "Mersenne number primality test program version %s\n", VERSION);
+	sprintf (buf, "Mersenne number primality test program version %s build %s\n", VERSION, BUILD_NUM);
 	OutputStr (MAIN_THREAD_NUM, buf);
 
 /* Now that we have the proper file name, read the ini file into global variables. */
@@ -1865,6 +1867,8 @@ int readIniFiles (void)
 
 	TIMESTAMPING = IniGetInt (INI_FILE, "TimeStamp", 1);
 	TIMESTAMPING_UTC = IniGetInt (INI_FILE, "TimeStampUTC", 0);
+	LOGTIMESTAMPING = IniGetInt (INI_FILE, "LogTimeStamp", 1);
+	LOGTIMESTAMPING_UTC = IniGetInt (INI_FILE, "LogTimeStampUTC", 0);
 	SCREENLOG = IniGetInt (INI_FILE, "ScreenLog", 0);
 	CUMULATIVE_TIMING = IniGetInt (INI_FILE, "CumulativeTiming", 0);
 	CUMULATIVE_ROUNDOFF = IniGetInt (INI_FILE, "CumulativeRoundoff", 1);
@@ -2190,30 +2194,42 @@ int PTOHasOptionChanged (
 /*                Utility routines to output messages                       */
 /****************************************************************************/
 
-/* Format the current time according to user preferencess */
+/* Format the current time according to user preferences */
 
 void timestamp (
-	char	*buf)
+	char	*buf,
+	int	type)		// 0=screen, 1=logfile
 {
 	char	user_defined_fmt[100];
 	const char *fmtstr;
 	time_t	this_time;
+	int	code, utc;
 
-	if (TIMESTAMPING == 0) { *buf = 0; return; }		/* No timestamping */
-	fmtstr = "%b %e %H:%M";					/* Default format */
-	if (TIMESTAMPING == 2) fmtstr = "%b %e %H:%M:%S";
-	else if (TIMESTAMPING == 3) fmtstr = "%H:%M";
-	else if (TIMESTAMPING == 4) fmtstr = "%H:%M:%S";
-	else if (TIMESTAMPING == 5) fmtstr = "%Y-%m-%d %H:%M";	/* New in version 30.19b6 */
-	else if (TIMESTAMPING == 6) fmtstr = "%Y-%m-%d %H:%M:%S";
-	else if (TIMESTAMPING == 7) {
-		IniGetString (INI_FILE, "TimestampFormat", user_defined_fmt, sizeof (user_defined_fmt), fmtstr);
+// User can specify different screen and logfile formats.  Also, the two have different defaults.
+	
+	if (type == 0) {	// Format for screen
+		fmtstr = "%b %e %H:%M";				/* Default format compatible with pre-30.19b6 */
+		code = TIMESTAMPING;
+		utc = TIMESTAMPING_UTC;
+	} else {		// Format for logfiles
+		fmtstr = "%a %b %e %H:%M:%S %Y";		/* Default format compatible with pre-30.19b6 */
+		code = LOGTIMESTAMPING;
+		utc = LOGTIMESTAMPING_UTC;
+	}
+	if (code == 0) { *buf = 0; return; }			/* No timestamping */
+	if (code == 2) fmtstr = "%b %e %H:%M:%S";		/* Screen formatting option supported pre-30.19b6 */
+	else if (code == 3) fmtstr = "%H:%M";			/* Screen formatting option supported pre-30.19b6 */
+	else if (code == 4) fmtstr = "%H:%M:%S";		/* Screen formatting option supported pre-30.19b6 */
+	else if (code == 5) fmtstr = "%Y-%m-%d %H:%M";		/* New in version 30.19b6, primarily for logfiles */
+	else if (code == 6) fmtstr = "%Y-%m-%d %H:%M:%S";	/* New in version 30.19b6, primarily for logfiles */
+	else if (code == 7) {					/* New in version 30.19b6 */
+		IniGetString (INI_FILE, type == 0 ? "TimestampFormat" : "LogTimestampFormat", user_defined_fmt, sizeof (user_defined_fmt), fmtstr);
 		fmtstr = user_defined_fmt;
 	}
 
 	/* Format local time or UTC time */
 	time (&this_time);
-	if (TIMESTAMPING_UTC) strftime (buf, 80, fmtstr, gmtime (&this_time));
+	if (utc) strftime (buf, 80, fmtstr, gmtime (&this_time));
 	else strftime (buf, 80, fmtstr, localtime (&this_time));
 }
 
@@ -2332,7 +2348,7 @@ void OutputStr (
 	if (TIMESTAMPING) {
 		char	tmpbuf[200], fmtbuf[202];
 
-		timestamp (tmpbuf);
+		timestamp (tmpbuf, 0);
 		sprintf (fmtbuf, "[%s] ", tmpbuf);
 
 /* Output the prefix for every line in the buffer */ 
@@ -2427,8 +2443,7 @@ void JSONaddProgramTimestamp (
 {
 	time_t rawtime;
 
-	sprintf (JSONbuf+strlen(JSONbuf), ", \"program\":{\"name\":\"Prime95\", \"version\":\"%s\", \"build\":%s, \"port\":%d}",
-		 VERSION, BUILD_NUM, PORT);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"program\":{\"name\":\"Prime95\", \"version\":\"%s\", \"build\":%s, \"port\":%d}", VERSION, BUILD_NUM, PORT);
 	time (&rawtime);
 	strftime (JSONbuf+strlen(JSONbuf), 80, ", \"timestamp\":\"%Y-%m-%d %H:%M:%S\"", gmtime (&rawtime));
 }
@@ -4889,18 +4904,11 @@ int writeResultsInternal (
 	int	output_nl)
 {
 static	time_t	last_time[3] = {0};
-	time_t	this_time;
 	int	fd;
-	int	write_interval;
 
 /* Sanity check the input argument */
 
 	if (which_results_file < 0 || which_results_file > 2) which_results_file = 0;
-
-/* Get the interval user-settable parameter for seconds that must have elapsed since the last time the date was output */
-
-	write_interval = IniGetInt (INI_FILE, "ResultsFileTimestampInterval", 300);
-	if (which_results_file == 2) write_interval = 2000000000;			// JSON output contains a timestamp
 
 /* Open file, position to end */
 
@@ -4913,15 +4921,26 @@ static	time_t	last_time[3] = {0};
 		return (FALSE);
 	}
 
-/* If it has been at least 5 minutes (a user-adjustable value) since the last time stamp was output, then output a new timestamp */
+/* If it has been at least 5 minutes (a user-adjustable value) since the last time stamp was output, then output a new timestamp. */
+/* The exception is JSON output which already contains a timestamp. */
 
-	time (&this_time);
-	if (write_interval && this_time - last_time[which_results_file] > (time_t) write_interval) {
-		char	tmpbuf[200], buf[202];
-		last_time[which_results_file] = this_time;
-		timestamp (tmpbuf);
-		sprintf (buf, "[%s]", tmpbuf);
-		(void) _write (fd, buf, (int) strlen (buf));
+	if (LOGTIMESTAMPING && which_results_file != 2) {
+		time_t	this_time;
+
+/* Get the interval user-settable parameter for seconds that must have elapsed since the last time the date was output */
+
+		int write_interval = IniGetInt (INI_FILE, "ResultsFileTimestampInterval", 300);
+
+/* If interval exceeded, output a timestamp */
+
+		time (&this_time);
+		if (write_interval && this_time - last_time[which_results_file] > (time_t) write_interval) {
+			char	tmpbuf[200], buf[203];
+			last_time[which_results_file] = this_time;
+			timestamp (tmpbuf, 1);
+			sprintf (buf, "[%s]\n", tmpbuf);
+			(void) _write (fd, buf, (int) strlen (buf));
+		}
 	}
 
 /* Output the message */
