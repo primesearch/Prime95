@@ -380,7 +380,7 @@ uint32_t map_aux_to_core (
 {
 	ASSERTG (base_core_num < (int) HW_NUM_CORES);
 	// Without hyperthreading.  Aux-thread-num is same as core # since we are running one thread per core.  Map to hwloc core numbering.
-	// With P-1 having an extra threads option to perhaps usefully take advantage of hyperthreads, we do a modulo so the extra threads return valid core numbers.
+	// Do a modulo in case user has oversubscribed cores.
 	if (!hyperthreading) return (get_ranked_core ((base_core_num + aux_thread_num) % HW_NUM_CORES));
 	// With hyperthreading.  Use every thread on each core.  Map to hwloc core numbering.
 	uint32_t total_threads = 0;
@@ -490,6 +490,13 @@ void SetPriority (
 			break;
 		}
 
+/* Set P-1 and ECM Stage2ExtraThreads to run on any performance core */
+
+		if (info->aux_polymult && info->aux_thread_num >= CORES_PER_TEST[info->worker_num] * (info->normal_work_hyperthreading ? 2 : 1)) {
+			bind_type = 3;
+			break;
+		}
+
 /* Calculate the total num worker cores to be used.  We will base our affinity decisions on this value. */
 
 		uint32_t worker_core_count, cores_used_by_lower_workers;
@@ -584,6 +591,7 @@ void SetPriority (
 #ifdef BIND_TYPE_1_USED
 		else if (bind_type == 1) sprintf (buf+strlen(buf), "logical CPU #%d (zero-based)\n", logical_CPU);
 #endif
+		else if (bind_type == 3) sprintf (buf+strlen(buf), "any performance core\n");
 		else sprintf (buf+strlen(buf), "logical CPUs %s (zero-based)\n", logical_CPU_substring);
 		OutputStr (info->worker_num, buf);
 	}
@@ -654,6 +662,33 @@ void SetPriority (
 		}
 	}
 #endif
+
+/* Set affinity for this thread to any performance thread */
+
+	else if (bind_type == 3) {
+		hwloc_bitmap_t cpuset = hwloc_bitmap_alloc ();
+		for (int core = 0; core < HW_NUM_CORES; core++) {
+			if (HW_CORES[core].ranking != 1) continue;		// Only look at performance cores
+			hwloc_obj_t obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_CORE, core);		/* Get core obj */
+			if (obj == NULL) obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_PU, core);	/* The above failed for someone use plan B */
+			if (obj == NULL) continue;				// Can't happen?
+			hwloc_bitmap_or (cpuset, cpuset, obj->cpuset);
+		}
+		if (hwloc_set_cpubind (hwloc_topology, cpuset, HWLOC_CPUBIND_THREAD)) {
+			char	str[80];
+			int	error = errno;
+			hwloc_bitmap_snprintf (str, sizeof (str), cpuset);
+			sprintf (buf, "Error setting affinity to cpuset %s: %s\n", str, strerror (error));
+			OutputStr (info->worker_num, buf);
+		}
+		else if (info->verbosity >= 2) {
+			char	str[80];
+			hwloc_bitmap_snprintf (str, sizeof (str), cpuset);
+			sprintf (buf, "Affinity set to cpuset %s\n", str);
+			OutputStr (info->worker_num, buf);
+		}
+		hwloc_bitmap_free (cpuset);
+	}
 
 /* Set affinity for this thread to one or more logical CPUs as specified in the INI file. */
 

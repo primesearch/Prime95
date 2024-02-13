@@ -1,6 +1,6 @@
 /* ECM stage 1 using GWNUM -- for use by GMP-ECM
 
-  Copyright 1996-2019 Mersenne Research, Inc.
+  Copyright 1996-2024 Mersenne Research, Inc.
 
   This program is free software; you can redistribute it and/or modify it
   under the terms of the GNU General Public License as published by the
@@ -874,7 +874,7 @@ int gwnum_ecmStage1_u32 (
 	if (b) 
 		bits = (unsigned long) (n * log ((double) b) / log ((double) 2.0)) + 60;
 	else
-		bits = num_being_factored_array_len * sizeof (unsigned long);
+		bits = num_being_factored_array_len * 8 * sizeof (uint32_t);
 
 /* Setup the assembly code */
 
@@ -1111,7 +1111,7 @@ int gwnum_ecmStage1_u64 (
 	if (b) 
 		bits = (unsigned long) (n * log ((double) b) / log ((double) 2.0)) + 60;
 	else
-		bits = num_being_factored_array_len * sizeof (unsigned long);
+		bits = num_being_factored_array_len * 8 * sizeof (uint64_t);
 
 /* Setup the assembly code */
 
