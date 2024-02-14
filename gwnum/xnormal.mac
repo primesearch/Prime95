@@ -1,4 +1,4 @@
-; Copyright 2000-2023 - Mersenne Research, Inc.  All rights reserved.
+; Copyright 2000-2024 - Mersenne Research, Inc.  All rights reserved.
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -1367,7 +1367,7 @@ const	mulsd	xmm3, Q XMM_MULCONST
 	;; Work on zero-pad addin value.
 	movsd	xmm4, Q ADDIN_VALUE		;; Load the add in value
 const	mulsd	xmm4, Q XMM_MULCONST		;; Multiply the add in value by the small mul const
-	vaddsd	xmm4, xmm4, POSTADDIN_VALUE	;; Add the post-mul-by-const addin value
+	addsd	xmm4, POSTADDIN_VALUE		;; Add the post-mul-by-const addin value
 	;; when c = -1, 1 = b^n
 	;; when c = 1, -1 = b^n, 1 = -b^n
 	;; when c = -3, 3 = b^n, 1 = b^n - 2
@@ -3129,7 +3129,7 @@ const	mulsd	xmm3, Q XMM_MULCONST
 	;; Work on zero-pad addin value.
 	movsd	xmm4, Q ADDIN_VALUE		;; Load the add in value
 const	mulsd	xmm4, Q XMM_MULCONST		;; Multiply the add in value by the small mul const
-	vaddsd	xmm4, xmm4, POSTADDIN_VALUE	;; Add the post-mul-by-const addin value
+	addsd	xmm4, POSTADDIN_VALUE		;; Add the post-mul-by-const addin value
 	;; when c = -1, 1 = b^n
 	;; when c = 1, -1 = b^n, 1 = -b^n
 	;; when c = -3, 3 = b^n, 1 = b^n - 2
@@ -4817,7 +4817,7 @@ const	mulsd	xmm3, Q XMM_MULCONST
 	;; Work on zero-pad addin value.
 	movsd	xmm4, Q ADDIN_VALUE		;; Load the add in value
 const	mulsd	xmm4, Q XMM_MULCONST		;; Multiply the add in value by the small mul const
-	vaddsd	xmm4, xmm4, POSTADDIN_VALUE	;; Add the post-mul-by-const addin value
+	addsd	xmm4, POSTADDIN_VALUE		;; Add the post-mul-by-const addin value
 	;; when c = -1, 1 = b^n
 	;; when c = 1, -1 = b^n, 1 = -b^n
 	;; when c = -3, 3 = b^n, 1 = b^n - 2
