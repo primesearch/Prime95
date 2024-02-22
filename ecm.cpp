@@ -11159,11 +11159,11 @@ int pm1_choose_B2 (
 				  x.actual_i = (int) (x.B2 / pm1data->B); \
 				  x.B2_cost = cost_data.c.stage2_cost; \
 				  x.fac_pct = cost_data.factor_probability; \
-				  /* To see if we're near the point where we're ambivalent to increasing B1 vs. B2, compare this fac pct to using */ \
+				  /* To see if we're near the point where we're ambivalent to increasing B1 vs. B2, compare this fac pct */ \
 				  /* to a run where B2 is reduced 1% and the CPU savings is used to increase B1. */ \
-				  int B1inc = (int) (0.01 * cost_data.c.stage2_cost / (1.44 * 2.0)); \
-				  int B2dec = (int) (0.01 * (x.B2 - pm1data->B)); \
-				  x.compared_to_next_i = pm1prob (takeAwayBits, pm1data->w->sieve_depth, pm1data->B+B1inc, x.B2-B2dec) - cost_data.factor_probability; \
+				  uint64_t altB1 = pm1data->B + (uint64_t) (0.01 * cost_data.c.stage2_cost / (1.44 * 2.0)); \
+				  uint64_t altB2 = altB1 + (uint64_t) (0.99 * (x.B2 - pm1data->B)); \
+				  x.compared_to_next_i = pm1prob (takeAwayBits, pm1data->w->sieve_depth, altB1,altB2) - cost_data.factor_probability; \
 				  x.compared_to_next_i = - abs (x.compared_to_next_i); \
 				} else x.actual_i = x.i, x.compared_to_next_i = -100.0;
 

@@ -667,7 +667,7 @@ void SetPriority (
 
 	else if (bind_type == 3) {
 		hwloc_bitmap_t cpuset = hwloc_bitmap_alloc ();
-		for (int core = 0; core < HW_NUM_CORES; core++) {
+		for (int core = 0; core < (int) HW_NUM_CORES; core++) {
 			if (HW_CORES[core].ranking != 1) continue;		// Only look at performance cores
 			hwloc_obj_t obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_CORE, core);		/* Get core obj */
 			if (obj == NULL) obj = hwloc_get_obj_by_type (hwloc_topology, HWLOC_OBJ_PU, core);	/* The above failed for someone use plan B */
