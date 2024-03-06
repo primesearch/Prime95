@@ -432,9 +432,9 @@ void *x87_prctab[] = { x87_explode(array_entry) NULL };
 inline int is_valid_double (double x) {
 	union uint64_double { uint64_t x64; double xdbl; } xcast;
 	xcast.xdbl = x;
-	return ((xcast.x64 & 0x7ff0000000000000ULL) != 0x7ff000000000000);
+	return ((xcast.x64 & 0x7ff0000000000000ULL) != 0x7ff0000000000000ULL);
 }
-#define is_valid_double_addr(x)	(((* (uint64_t *) x) & 0x7ff0000000000000ULL) != 0x7ff000000000000)
+#define is_valid_double_addr(x)	(((* (uint64_t *) x) & 0x7ff0000000000000ULL) != 0x7ff0000000000000ULL)
 
 
 /* More #defines */

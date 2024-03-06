@@ -1238,17 +1238,17 @@ int gwnum_ecmStage1_u64 (
 				StopCheckRoutine = NULL;
 				normalize (x, z);
 				if (FAC != NULL) goto bingo;
-				reslong = gwtobinary64 (&gwdata, x, x_array, (bits >> 5) + 1);
+				reslong = gwtobinary64 (&gwdata, x, x_array, (bits >> 6) + 1);
 				if (reslong < 0) goto error;
 				*x_array_len = reslong;
 			}
 
 			else {
-				reslong = gwtobinary64 (&gwdata, x, x_array, (bits >> 5) + 1);
+				reslong = gwtobinary64 (&gwdata, x, x_array, (bits >> 6) + 1);
 				if (reslong < 0) goto error;
 				*x_array_len = reslong;
 
-				reslong = gwtobinary64 (&gwdata, z, z_array, (bits >> 5) + 1);
+				reslong = gwtobinary64 (&gwdata, z, z_array, (bits >> 6) + 1);
 				if (reslong < 0) goto error;
 				*z_array_len = reslong;
 			}
@@ -1265,15 +1265,15 @@ int gwnum_ecmStage1_u64 (
 		StopCheckRoutine = NULL;
 		normalize (x, z);
 		if (FAC != NULL) goto bingo;
-		reslong = gwtobinary64 (&gwdata, x, x_array, (bits >> 5) + 1);
+		reslong = gwtobinary64 (&gwdata, x, x_array, (bits >> 6) + 1);
 		if (reslong < 0) goto error;
 		*x_array_len = reslong;
 	} else {
-		reslong = gwtobinary64 (&gwdata, x, x_array, (bits >> 5) + 1);
+		reslong = gwtobinary64 (&gwdata, x, x_array, (bits >> 6) + 1);
 		if (reslong < 0) goto error;
 		*x_array_len = reslong;
 
-		reslong = gwtobinary64 (&gwdata, z, z_array, (bits >> 5) + 1);
+		reslong = gwtobinary64 (&gwdata, z, z_array, (bits >> 6) + 1);
 		if (reslong < 0) goto error;
 		*z_array_len = reslong;
 	}
@@ -1288,7 +1288,7 @@ int gwnum_ecmStage1_u64 (
 bingo:	//printf ("ECM found a factor\n");
 	if (!testFactor (FAC)) goto error;
 	gianttogw (&gwdata, FAC, x);
-	reslong = gwtobinary64 (&gwdata, x, x_array, (bits >> 5) + 1);
+	reslong = gwtobinary64 (&gwdata, x, x_array, (bits >> 6) + 1);
 	if (reslong < 0) goto error;
 	*x_array_len = reslong;
 	if (z_array != NULL) {
