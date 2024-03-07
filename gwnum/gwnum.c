@@ -5092,7 +5092,7 @@ int internal_gwsetup (
 	gwdata->FFT1_state = 0;
 	gwdata->FFT1_user_allocated = 0;
 #ifdef X86_64
-	if (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX)) { if (gwdata->k == 1.0) gwdata->FFT1_state = 2; }
+	if (gwdata->cpu_flags & (CPU_AVX512F | CPU_AVX)) { if (gwdata->k == 1.0 || gwdata->GENERAL_MMGW_MOD) gwdata->FFT1_state = 2; }
 #else
 	gwdata->FFT1_state = 2;
 #endif
@@ -10447,6 +10447,13 @@ void gwunfft2 (
 		return;
 	}
 
+/* MMGW general mod is easy.  Undo what gwfft did, simply unfft the cyclic FFT data. */
+
+	if (gwdata->GENERAL_MMGW_MOD) {
+		gwunfft2 (gwdata->cyclic_gwdata, cyclic_gwnum (gwdata, s), cyclic_gwnum (gwdata, d), options);
+		return;
+	}
+
 /* Since cmn_mulop4 calls this routine when emulating, clear the careful count to prevent infinite recursion. */
 
 	save_count = gwdata->careful_count;
@@ -11346,6 +11353,7 @@ void gwfft (			/* Forward FFT */
 /* For MMGW general mod, FFT mod R and FFT mod Q */
 
 	if (gwdata->GENERAL_MMGW_MOD) {
+		gwunfft (gwdata, s, s);			// Make sure s is not partially FFTed as the FFT data is processed by cyclic and negacyclic gwdatas.
 		gwfft (gwdata->negacyclic_gwdata, cyclic_gwnum (gwdata, s), negacyclic_gwnum (gwdata, d));
 		gwfft (gwdata->cyclic_gwdata, cyclic_gwnum (gwdata, s), cyclic_gwnum (gwdata, d));
 		return;
@@ -11408,6 +11416,15 @@ void gwfft_for_fma (		/* Forward FFT with post-processing for use in FMA */
 
 	if (FFT_state (s) == FFTed_FOR_FMA) {
 		if (s != d) gwcopy (gwdata, s, d);
+		return;
+	}
+
+/* For MMGW general mod, FFT mod R and FFT mod Q */
+
+	if (gwdata->GENERAL_MMGW_MOD) {
+		gwunfft (gwdata, s, s);			// Make sure s is not partially or fully FFTed as the FFT data is processed by cyclic and negacyclic gwdatas.
+		gwfft_for_fma (gwdata->negacyclic_gwdata, cyclic_gwnum (gwdata, s), negacyclic_gwnum (gwdata, d));
+		gwfft_for_fma (gwdata->cyclic_gwdata, cyclic_gwnum (gwdata, s), cyclic_gwnum (gwdata, d));
 		return;
 	}
 

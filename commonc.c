@@ -5422,16 +5422,14 @@ static	time_t	last_time = 0;
 		}
 	}
 
-/* If it has been at least 5 minutes since the last time stamp */
-/* was output, then output a new timestamp */
+/* If it has been at least 5 minutes since the last time stamp was output, then output a new timestamp */
 
 	time (&this_time);
 	if (this_time - last_time > 300) {
-		char	buf[48];
+		char	tmpbuf[50], buf[100];
 		last_time = this_time;
-		buf[0] = '[';
-		strcpy (buf+1, ctime (&this_time));
-		sprintf (buf+25, " - ver %s]\n", VERSION);
+		timestamp (tmpbuf, 1);
+		sprintf (buf, "[%s - ver %s]\n", tmpbuf, VERSION);
 		(void) _write (fd, buf, (unsigned int) strlen (buf));
 	}
 

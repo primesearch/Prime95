@@ -11135,7 +11135,8 @@ int pm1_choose_B2 (
 	struct pm1_stage2_efficiency {
 		int	i;
 		int	actual_i;
-		uint64_t B2;			/* Actual B2 -- polymult often chooses much larger B2 value */
+		int	D;			/* D used for this B2 */
+		uint64_t B2;			/* Actual B2 -- polymult often chooses a larger B2 value */
 		double	B2_cost;		/* Cost of stage 2 in transforms */
 		double	fac_pct;		/* Percentage chance of finding a factor */
 		double	efficiency;
@@ -11159,16 +11160,18 @@ int pm1_choose_B2 (
 				  x.actual_i = (int) (x.B2 / pm1data->B); \
 				  x.B2_cost = cost_data.c.stage2_cost; \
 				  x.fac_pct = cost_data.factor_probability; \
+				  x.D = cost_data.c.D; \
 				  /* To see if we're near the point where we're ambivalent to increasing B1 vs. B2, compare this fac pct */ \
 				  /* to a run where B2 is reduced 1% and the CPU savings is used to increase B1. */ \
 				  uint64_t altB1 = pm1data->B + (uint64_t) (0.01 * cost_data.c.stage2_cost / (1.44 * 2.0)); \
 				  uint64_t altB2 = altB1 + (uint64_t) (0.99 * (x.B2 - pm1data->B)); \
 				  x.compared_to_next_i = pm1prob (takeAwayBits, pm1data->w->sieve_depth, altB1,altB2) - cost_data.factor_probability; \
-				  x.compared_to_next_i = - abs (x.compared_to_next_i); \
+				  x.compared_to_next_i = - fabs (x.compared_to_next_i); \
 				} else x.actual_i = x.i, x.compared_to_next_i = -100.0;
 
 // Return TRUE if x is better than y.
-#define p1compare(x,y)	(x.compared_to_next_i > y.compared_to_next_i)
+// Each D value has its own breakeven point.  Higher D values are always more efficient than lower D values.
+#define p1compare(x,y)	(x.D > y.D || (x.D == y.D && x.compared_to_next_i > y.compared_to_next_i))
 
 /* Look for the best B2 which is likely between 5*B1 and 10000*B1.  If optimal is not between these bounds, don't worry we'll locate the optimal spot anyway. */
 
