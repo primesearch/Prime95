@@ -11263,6 +11263,7 @@ double pm1_stage2_impl (
 {
 	uint64_t numvals;		/* Number of gwnums we can allocate */
 	struct pm1_stage2_cost_data cost_data;
+	bool	B2_was_chosen = FALSE;
 
 /* Compute the number of gwnum temporaries we can allocate.  Assume the binary values of x and 1/x needed for save file creation consume about a half a gwnum. */
 
@@ -11277,7 +11278,10 @@ double pm1_stage2_impl (
 		if (pm1data->C_done == pm1data->B) {
 			pm1data->first_relocatable = pm1data->first_C_start;
 			pm1data->last_relocatable = 0;
-			if (pm1data->optimal_B2 && !pm1_choose_B2 (pm1data, numvals, forced_stage2_type, msgbuf + strlen (msgbuf))) return (0.0);
+			if (pm1data->optimal_B2) {
+				if (!pm1_choose_B2 (pm1data, numvals, forced_stage2_type, msgbuf + strlen (msgbuf))) return (0.0);
+				B2_was_chosen = TRUE;
+			}
 		} else {
 			pm1data->first_relocatable = pm1data->C_done;
 			pm1data->last_relocatable = 0;
@@ -11376,8 +11380,14 @@ double pm1_stage2_impl (
 	sprintf (msgbuf + strlen (msgbuf), "Estimated stage 2 vs. stage 1 runtime ratio: %.3f\n", cost_data.c.est_stage2_stage1_ratio);
 	pm1data->est_stage2_stage1_ratio = cost_data.c.est_stage2_stage1_ratio;
 
-	// Return stage 2 plan's efficiency
-	return (cost_data.c.efficiency);
+	// Return stage 2 plan's efficiency -- this is fine for PFactor and Pminus1 where the target B2 is given.  When choosing optimal B2 a different
+	// metric is needed.  KingKurly noticed that Pminus1=1,2,1894787,-1,25000000,0,69 using 10GB of memory was choosing a poor B2 value.
+	// FFT: 102400, B2: 125000000/125016810, numvals: 459/13411, poly: 64x400, efficiency: 10631
+	// FFT: 114688, B2: 90525000000/90538918470, numvals: 11791/11791, poly: 2880x9307, efficiency: 9342
+	// With trial factoring done to 2^69, optimal B2 is 5*B1 = 125000000.
+	// The problem is the caller is comparing how efficiently factors are found rather than maximizing the chance of finding a factor.  Unlike ECM where
+	// one can run another maximally efficient curve, in P-1 we want to make the most of our one chance at running P-1.
+	return (B2_was_chosen ? cost_data.factor_probability : cost_data.c.efficiency);
 }
 
 

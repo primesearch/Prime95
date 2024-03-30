@@ -1143,11 +1143,11 @@ void read_mem_info (void)
 		p = p + 6;
 	}
 
-/* Get the maximum number of workers that can use lots of memory.  Default is one. */
+/* Get the maximum number of workers that can use lots of memory.  Default is one.  If not using timers, do not allow zero max high mem workers. */
 
 	MAX_HIGH_MEM_WORKERS = IniGetTimedInt (INI_FILE, "MaxHighMemWorkers", 1, &seconds);
+	if (seconds == 0 && MAX_HIGH_MEM_WORKERS < 1) MAX_HIGH_MEM_WORKERS = 1;
 	if (seconds && (seconds_until_reread == 0 || seconds < seconds_until_reread)) seconds_until_reread = seconds;
-	if (MAX_HIGH_MEM_WORKERS < 1) MAX_HIGH_MEM_WORKERS = 1;
 
 /* Add the event that fires when the memory settings expire. */
 
@@ -1260,10 +1260,11 @@ int are_threads_using_lots_of_memory (
 	unsigned int high_mem_threshold;
 
 /* Get the user configurable count of workers that are allowed to use lots of memory. */
-/* If this equals the number of workers then there is no need to scan the workers. */
+/* If this equals the number of workers or is zero then there is no need to scan the workers. */
 
 	max_high_mem = MAX_HIGH_MEM_WORKERS;
 	if (max_high_mem >= (int) NUM_WORKERS) return (FALSE);
+	if (max_high_mem <= 0) return (TRUE);
 
 /* If there are enough threads with variable memory usage, then return TRUE. */
 
