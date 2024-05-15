@@ -9648,7 +9648,7 @@ int primeBenchMultipleWorkers (
 		IniGetInt (INI_FILE, "MinBenchFFT", 1024),
 		IniGetInt (INI_FILE, "MaxBenchFFT", 8192),
 		IniGetInt (INI_FILE, "OnlyBench5678", 0),			/* Limit FFTs benched to mimic previous prime95s */
-		IniGetInt (INI_FILE, "BenchAllComplex", 0),
+		IniGetInt (INI_FILE, "BenchNegacyclic", 0),
 		all_bench,
 		bench_cores,
 		IniGetInt (INI_FILE, "BenchHyperthreads", 1),			/* Benchmark hyperthreading */

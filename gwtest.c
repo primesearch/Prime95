@@ -630,7 +630,12 @@ void test_it (
 		if (i == 45 || i == 46) gwsetaddin (gwdata, -31);
 
 		/* Test several different ways to square a number */
-		if (i % 50 >= 4 && i % 50 <= 7) {
+		if (i % 50 == 25 || i % 50 == 26) {			// Deprecated safemul on Montgomery mod numbers had problems -- reported by Atnashev
+			gwfft (gwdata, x, x3);
+			gwsafemul (gwdata, x, x3);
+			if (i % 50 == 25) gwcopy (gwdata, x3, x);
+			else gwsquare (gwdata, x);
+		} else if (i % 50 >= 4 && i % 50 <= 7) {
 			gwfft (gwdata, x, x);
 			gwfftfftmul (gwdata, x, x, x);
 		} else if (i % 50 >= 12 && i % 50 <= 15) {
