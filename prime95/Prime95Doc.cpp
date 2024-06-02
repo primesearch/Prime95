@@ -851,31 +851,29 @@ void CPrime95Doc::OnTorture()
 	dlg.m_cores = HW_NUM_CORES;
 	dlg.m_hyperthreading = (HW_NUM_CORES != HW_NUM_THREADS);
 	mem = physical_memory ();
-	// New in 29.5, raise the default memory used to all but 3GB on 64-bit machines.  Almost all machines today have
-	// more than 5GB of memory installed.  If memory serves me, there may be issues in Win32 allocating more than 2GB.
+	// New in 29.5, raise the default memory used to all but 3GiB on 64-bit machines.  Almost all machines today have
+	// more than 5GiB of memory installed.  If memory serves me, there may be issues in Win32 allocating more than 2GiB.
 #ifdef X86_64
-	if (mem >= 5000) {
-		dlg.m_blendmemory = GetSuggestedMemory (mem - 3000);
+	if (mem >= 5120) {
+		dlg.m_blendmemory = GetSuggestedMemory (mem - 3072);
 		dlg.m_in_place = FALSE;
 	} else
 #endif
-	// These are the pre 29.5 memory defaults.
-	if (mem >= 3000) {
-		dlg.m_blendmemory = GetSuggestedMemory (2000);
+	// These are the pre 29.5 (adjusted in 30.19b20 to match Linux) memory defaults.
+	if (mem >= 2048) {
+		dlg.m_blendmemory = GetSuggestedMemory (mem - 512);
 		dlg.m_in_place = FALSE;
-	} else if (mem >= 2000) {
-		dlg.m_blendmemory = GetSuggestedMemory (1500);
-		dlg.m_in_place = FALSE;
-	} else if (mem >= 500) {
+	} else if (mem >= 512) {
 		dlg.m_blendmemory = GetSuggestedMemory (mem - 256);
 		dlg.m_in_place = FALSE;
-	} else if (mem >= 200) {
+	} else if (mem >= 256) {
 		dlg.m_blendmemory = GetSuggestedMemory (mem / 2);
 		dlg.m_in_place = TRUE;
 	} else {
 		dlg.m_blendmemory = 8;
 		dlg.m_in_place = TRUE;
 	}
+	if (dlg.m_blendmemory > (int) (0.9 * mem)) dlg.m_blendmemory = (int) (0.9 * mem);
 	dlg.m_memory = (float) round_to_tenth (dlg.m_blendmemory / 1024.0);
 	dlg.m_timefft = dlg.m_hyperthreading ? 6 : 3;
 	if (dlg.DoModal () == IDOK) {

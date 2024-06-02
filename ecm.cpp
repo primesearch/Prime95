@@ -1473,6 +1473,8 @@ uint64_t calc_new_first_relocatable (
 typedef struct {
 	gwhandle gwdata;	/* GWNUM handle */
 	int	thread_num;	/* Worker number */
+	int	stage1_threads;	/* Number of threads to use in stage 1 */
+	int	stage2_threads;	/* Number of threads to use in stage 2 */
 	struct work_unit *w;	/* Worktodo.txt entry */
 	FILE	*gmp_ecm_file;	/* File handle when running stage 2 on GMP-ECM's stage 1 */
 	uint32_t curve;		/* Curve # starting with 1 */
@@ -1508,6 +1510,7 @@ typedef struct {
 	uint32_t stage1_bitnum;	/* Edwards stage 1 bit number being processed in the exponent chunk */
 	uint32_t NAF_dictionary_size; /* Edwards stage 1 number of gwnums in the NAF dictionary */
 	struct ed *NAF_dictionary; /* Edwards stage 1 array of points used in ed_add calls during NAF exponentiation */
+	gwarray	NAF_gwnums;	/* Gwnums allocated for the NAF_dictionary. */
 
 	struct xz xz;		/* The stage 1 Montgomery value being computed */
 	struct ed dict_start;	/* The stage 1 Edwards value used to build the dictionary */
@@ -1602,7 +1605,8 @@ void ecm_mini_cleanup (
 	free (ecmdata->Qx_binary), ecmdata->Qx_binary = NULL;
 	free (ecmdata->Qz_binary), ecmdata->Qz_binary = NULL;
 	free (ecmdata->gg_binary), ecmdata->gg_binary = NULL;
-	free (ecmdata->nQx), ecmdata->nQx = NULL;
+	if (ecmdata->stage2_type != ECM_STAGE2_POLYMULT) free (ecmdata->nQx);
+	ecmdata->nQx = NULL;
 	free (ecmdata->pairmap), ecmdata->pairmap = NULL;
 	free (ecmdata->factor), ecmdata->factor = NULL;
 	free (ecmdata->Ftree), ecmdata->Ftree = NULL;
@@ -1877,7 +1881,7 @@ void ws_mul (
  *	Edwards ECM Functions
  **************************************************************/
 
-/* Macro to swap to xz structs */
+/* Macro to swap to ed structs */
 
 #define ed_swap(a,b)	{ struct ed t; t = a; a = b; b = t; }
 
@@ -1930,7 +1934,8 @@ bool ed_check (				/* Returns TRUE if point is on the Edwards curve */
 
 	gwsquare2 (&ecmdata->gwdata, in->x, t0, GWMUL_PRESERVE_S1);			// t0 = X * X
 	gwsquare2 (&ecmdata->gwdata, in->y, t1, GWMUL_PRESERVE_S1);			// t1 = Y * Y
-	gwsquare2 (&ecmdata->gwdata, in->z, t2, GWMUL_PRESERVE_S1);			// t2 = Z * Z
+	if (in->z != NULL) gwsquare2 (&ecmdata->gwdata, in->z, t2, GWMUL_PRESERVE_S1);	// t2 = Z * Z
+	else dbltogw (&ecmdata->gwdata, 1.0, t2);
 	gwmul3 (&ecmdata->gwdata, t0, t1, t3, 0);					// t3 = t0 * t1	(x^2y^2)
 	gwmul3 (&ecmdata->gwdata, t3, ecmdata->ed_d, t3, 0);				// t3 *= d	(dx^2y^2)
 	if (ecmdata->ed_a != NULL) gwmul3 (&ecmdata->gwdata, t0, ecmdata->ed_a, t0, 0);	// t0 *= a	(ax^2)
@@ -1978,6 +1983,8 @@ void create_ed_half (
 #define ED_FFT_S1Z		0x20	// For ed_add, FFT Z in first source arg.  Second source arg is always FFTed.
 #define ED_FFT_S1T		0x40	// For ed_add, FFT T in first source arg.  Second source arg is always FFTed.
 #define ED_SUBTRACT		0x80	// For ed_add, subtract instead of add.
+#define ED_FORCE_EXTEND		0x100	// For ed_extend, force extend computation using (or reusing) existing T buffer.
+#define ED_NO_GWALLOC		0x200	// For ed_dbl and ed_add called from NAF_dictionary_init.  Use in->t as for a temporary gwnum.
 
 /* Turn an (X:Y:Z) Edwards point into an extended (X:Y:T:Z) extended Edwards point */
 
@@ -1991,9 +1998,9 @@ void ed_extend (
 	ASSERTG (!e->alternate_format);
 
 	// Check if already using extended coordinates
-	if (e->t != NULL) return;
+	if (!(options & ED_FORCE_EXTEND) && e->t != NULL) return;
 	// Allocate a buffer for the new coordinate
-	e->t = gwalloc (&ecmdata->gwdata);
+	if (!(options & ED_FORCE_EXTEND)) e->t = gwalloc (&ecmdata->gwdata);
 	// Extend (X,Y,Z) to (XZ, YZ, XY, Z^2)
 	gwmul3 (&ecmdata->gwdata, e->x, e->y, e->t, GWMUL_FFT_S12 | mul_options);		// t = xy
 	if (e->z != NULL) {
@@ -2024,6 +2031,7 @@ void ed_add (
 	//ASSERTG (safe11 || !extended || FFT_state (in1->t) == NOT_FFTed || in2->z != NULL);	// FFTed in1->t and Z2=NULL is OK but triggers a gwunfft
 	//ASSERTG (safe11 || !extended || FFT_state (in2->t) == NOT_FFTed || in1->z != NULL);	// FFTed in2->t and Z1=NULL is OK but triggers a gwunfft
 	ASSERTG (ecmdata->ed_a == NULL || FFT_state (ecmdata->ed_a) == FULLY_FFTed);
+	ASSERTG (!(options & ED_NO_GWALLOC) || (in1 != out && in1->t != NULL && out->t != NULL));
 
 	// Extended coordinates are required
 	if (in1->t == NULL) ed_extend (ecmdata, in1, ED_STARTNEXTFFT);
@@ -2035,7 +2043,8 @@ void ed_add (
 	if (out->z == NULL) out->z = gwalloc (&ecmdata->gwdata);	// Do not use out->z until in1->z and in2->z are longer needed
 	if (out->t != NULL) tmp1 = out->t;				// Do not use tmp1 until in1->t and in2->t are longer needed
 	else tmp1 = gwalloc (&ecmdata->gwdata);
-	tmp2 = gwalloc (&ecmdata->gwdata);
+	if (options & ED_NO_GWALLOC) tmp2 = in1->t;
+	else tmp2 = gwalloc (&ecmdata->gwdata);
 
 	// Add algorithm from https://eprint.iacr.org/2021/1061, "Edwards curves and FFT-based multiplication" by Pavel Atnashev et.al.
 
@@ -2084,8 +2093,13 @@ void ed_add (
 	}
 
 	// Cleanup
-	gwfree (&ecmdata->gwdata, tmp1);
-	gwfree (&ecmdata->gwdata, tmp2);
+	if (options & ED_NO_GWALLOC) {
+		if (!extended) out->t = tmp2;
+		in1->t = tmp1;
+	} else {
+		gwfree (&ecmdata->gwdata, tmp1);
+		gwfree (&ecmdata->gwdata, tmp2);
+	}
 }
 
 /* Double an Edwards point (optionally twisted) */
@@ -2103,6 +2117,7 @@ void ed_dbl (
 	int	can_alternate_format = !(options & ED_XYZ) && !extended;
 
 	ASSERTG (ecmdata->ed_a == NULL || FFT_state (ecmdata->ed_a) == FULLY_FFTed);
+	ASSERTG (!(options & ED_NO_GWALLOC) || (in != out && in->t != NULL && out->t != NULL && extended));
 
 	// Get algorithm preference
 static	int algo5 = 2;		// FALSE = don't use algorithm 5, TRUE = use algorithm 5, 2 = not yet initialized
@@ -2119,7 +2134,8 @@ static	int algo7 = 2;		// FALSE = don't use algorithm 7, TRUE = use algorithm 7,
 	if (out->z == NULL) out->z = gwalloc (&ecmdata->gwdata);	// Do not use out->z until in->z is no longer needed
 	if (out->t != NULL) tmp1 = out->t, out->t = NULL;
 	else tmp1 = gwalloc (&ecmdata->gwdata);
-	tmp2 = gwalloc (&ecmdata->gwdata);
+	if (options & ED_NO_GWALLOC) tmp2 = in->t;
+	else tmp2 = gwalloc (&ecmdata->gwdata);
 	gwsetmulbyconst (&ecmdata->gwdata, 2);
 
 	// Select from double algorithms in https://eprint.iacr.org/2021/1061, "Edwards curves and FFT-based multiplication" by Pavel Atnashev et.al.
@@ -2313,8 +2329,12 @@ static	int algo7 = 2;		// FALSE = don't use algorithm 7, TRUE = use algorithm 7,
 	}
 
 	// Cleanup
-	gwfree (&ecmdata->gwdata, tmp1);
-	gwfree (&ecmdata->gwdata, tmp2);
+	if (options & ED_NO_GWALLOC)
+		in->t = (tmp1 != NULL ? tmp1 : tmp2);
+	else {
+		gwfree (&ecmdata->gwdata, tmp1);
+		gwfree (&ecmdata->gwdata, tmp2);
+	}
 }
 
 
@@ -2348,6 +2368,17 @@ __inline void free_xz (
 /* Macro to swap to xz structs */
 
 #define xzswap(a,b)	{ struct xz t; t = a; a = b; b = t; }
+
+/* This routine gwcopies an xz pair */
+
+__inline void gwcopy_xz (
+	ecmhandle *ecmdata,
+	struct xz *src,
+	struct xz *dst)
+{
+	gwcopy (&ecmdata->gwdata, src->x, dst->x);
+	gwcopy (&ecmdata->gwdata, src->z, dst->z);
+}
 
 /* Computes 2P=(out.x:out.z) from P=(in.x:in.z), uses the global variable Ad4. */
 /* Input arguments may be in FFTed state.  Out argument can be same as input argument. */
@@ -4640,46 +4671,49 @@ void ecm_calc_exp (
 bool dict_normalize (
 	ecmhandle *ecmdata,
 	uint32_t first_index,		// Index of first dictionary entry to normalize
-	uint32_t last_index)		// Index of last dictionary entry to normalize
+	uint32_t last_index,		// Index of last dictionary entry to normalize
+	gwnum	**addr_of_next_available_gwnum)
 {
+	gwnum *next_available_gwnum = *addr_of_next_available_gwnum;
+
 	// Resuming from a save file will give us a first dictionary entry that is already normalized.  Adjust for that.
 	if (first_index == 0 && ecmdata->NAF_dictionary[0].z == NULL) first_index = 1;
 
-	// Allocate a temporary for each number to be normalized
-	gwarray temps = gwalloc_array (&ecmdata->gwdata, last_index - first_index + 1);
-	if (temps == NULL) return (FALSE);
+	// Use remainder of the pre-allocated NAF_gwnums for temporaries
+	gwarray temps = next_available_gwnum;
+	ASSERTG (temps + last_index - first_index + 1 <= ecmdata->NAF_gwnums + 3 * ecmdata->NAF_dictionary_size);
 
 	// Loop multiplying all the numbers together into temps
 	gwswap (ecmdata->NAF_dictionary[first_index].z, temps[0]);
 	for (uint32_t i = 1; i <= last_index - first_index; i++) {
-		gwmul3 (&ecmdata->gwdata, temps[i-1], ecmdata->NAF_dictionary[first_index+i].z, temps[i], GWMUL_FFT_S12 | GWMUL_STARTNEXTFFT);
+		int options = (i == last_index - first_index) ? 0 : GWMUL_STARTNEXTFFT;
+		gwmul3 (&ecmdata->gwdata, temps[i-1], ecmdata->NAF_dictionary[first_index+i].z, temps[i], GWMUL_FFT_S12 | options);
+		ASSERTG (ecmdata->NAF_dictionary[first_index+i].t == NULL);
 	}
 
 	// Invert the multiplied numbers
 	gwnum big_inverse = temps[last_index - first_index];
 	if (ecm_modinv (ecmdata, big_inverse)) return (FALSE);
 
-	// Work backwards creating each normalizing each dictionary entry
+	// Work backwards normalizing each dictionary entry
 	for (uint32_t i = last_index - first_index; i; i--) {
 		gwmul3 (&ecmdata->gwdata, big_inverse, temps[i-1], temps[i-1], GWMUL_FFT_S1 | GWMUL_STARTNEXTFFT);			// Compute this inverse
 		gwmul3 (&ecmdata->gwdata, big_inverse, ecmdata->NAF_dictionary[first_index+i].z, big_inverse, GWMUL_STARTNEXTFFT);	// Compute next big inverse
 		// Normalize x and y
 		gwmul3 (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index+i].x, temps[i-1], ecmdata->NAF_dictionary[first_index+i].x, GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
 		gwmul3 (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index+i].y, temps[i-1], ecmdata->NAF_dictionary[first_index+i].y, GWMUL_STARTNEXTFFT);
-		// Free z,t
-		gwfree (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index+i].z), ecmdata->NAF_dictionary[first_index+i].z = NULL;
-		gwfree (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index+i].t), ecmdata->NAF_dictionary[first_index+i].t = NULL;
+		// Free z
+		*--next_available_gwnum = ecmdata->NAF_dictionary[first_index+i].z, ecmdata->NAF_dictionary[first_index+i].z = NULL;
 	}
 	// First entry's inverse is big_inverse
 	gwmul3 (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index].x, big_inverse, ecmdata->NAF_dictionary[first_index].x, GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT);
 	gwmul3 (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index].y, big_inverse, ecmdata->NAF_dictionary[first_index].y, GWMUL_STARTNEXTFFT);
-	// Swap first z back and free z,t
+	// Swap first z back and free z
 	gwswap (ecmdata->NAF_dictionary[first_index].z, temps[0]);
-	gwfree (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index].z), ecmdata->NAF_dictionary[first_index].z = NULL;
-	gwfree (&ecmdata->gwdata, ecmdata->NAF_dictionary[first_index].t), ecmdata->NAF_dictionary[first_index].t = NULL;
+	*--next_available_gwnum = ecmdata->NAF_dictionary[first_index].z, ecmdata->NAF_dictionary[first_index].z = NULL;
 
-	// Cleanup
-	gwfree_array (&ecmdata->gwdata, temps);
+	// Return new next_available_gwnum
+	*addr_of_next_available_gwnum = next_available_gwnum;
 	return (TRUE);
 }
 
@@ -4690,42 +4724,78 @@ bool NAF_dictionary_init (
 	int	*first_NAF_index,	// First NAF index to use to get the exponentiation started
 	uint64_t *num_doublings)	// Number of doubling that NAF exponentiation will need to perform
 {
-	// Allocate the dictionary array
+	// Allocate the dictionary and gwnums
 	ecmdata->NAF_dictionary = (struct ed *) malloc (ecmdata->NAF_dictionary_size * sizeof (struct ed));
 	if (ecmdata->NAF_dictionary == NULL) return (FALSE);
+	ecmdata->NAF_gwnums = gwalloc_array (&ecmdata->gwdata, 3 * ecmdata->NAF_dictionary_size);
+	if (ecmdata->NAF_gwnums == NULL) return (FALSE);
 	memset (ecmdata->NAF_dictionary, 0, ecmdata->NAF_dictionary_size * sizeof (struct ed));
+	gwnum	*next_available_gwnum = ecmdata->NAF_gwnums;
 
 // Build the dictionary
 
-	// Move start point to first dictionary entry
-	ed_swap (ecmdata->dict_start, ecmdata->NAF_dictionary[0]);
-
+	// Copy start point to first dictionary entry.  Free starting point.
+	ecmdata->NAF_dictionary[0].x = *next_available_gwnum++;
+	ecmdata->NAF_dictionary[0].y = *next_available_gwnum++;
+	ecmdata->NAF_dictionary[0].t = *next_available_gwnum++;
+	gwcopy (&ecmdata->gwdata, ecmdata->dict_start.x, ecmdata->NAF_dictionary[0].x);
+	gwcopy (&ecmdata->gwdata, ecmdata->dict_start.y, ecmdata->NAF_dictionary[0].y);
+	if (ecmdata->dict_start.z != NULL) {
+		ecmdata->NAF_dictionary[0].z = *next_available_gwnum++;
+		gwcopy (&ecmdata->gwdata, ecmdata->dict_start.z, ecmdata->NAF_dictionary[0].z);
+	}
+	ed_free (ecmdata, &ecmdata->dict_start);
+			
 	// Double first entry (use last dictionary entry as a temporary)
-	if (!ed_alloc (ecmdata, &ecmdata->NAF_dictionary[ecmdata->NAF_dictionary_size-1])) return (FALSE);
 	struct ed *two = &ecmdata->NAF_dictionary[ecmdata->NAF_dictionary_size-1];
-	ed_dbl (ecmdata, &ecmdata->NAF_dictionary[0], two, ED_FFT_S1 | ED_RESULT_FOR_ADD | ED_STARTNEXTFFT);
+	two->x = *next_available_gwnum++;
+	two->y = *next_available_gwnum++;
+	two->z = *next_available_gwnum++;
+	two->t = *next_available_gwnum++;
+	ed_dbl (ecmdata, &ecmdata->NAF_dictionary[0], two, ED_NO_GWALLOC | ED_FFT_S1 | ED_XYZ | ED_RESULT_FOR_ADD | ED_STARTNEXTFFT);
 
 	// Loop making next dictionary entry two more than previous entry.
 	// Do this while only using 3 gwnums for every dictionary entry!
+	ed_extend (ecmdata, &ecmdata->NAF_dictionary[0], ED_FORCE_EXTEND);
 	for (uint32_t i = 1; i < ecmdata->NAF_dictionary_size; i++) {
 		// Allocate gwnums for next dictionary entry
-		if (i != ecmdata->NAF_dictionary_size-1 && !ed_alloc (ecmdata, &ecmdata->NAF_dictionary[i])) return (FALSE);
-		// Next dictionary entry equals two more than previous entry
-		ed_add (ecmdata, &ecmdata->NAF_dictionary[i-1], two, &ecmdata->NAF_dictionary[i], ED_FFT_S1Z | ED_XYZ | ED_RESULT_FOR_ADD | ED_STARTNEXTFFT);
+		if (i != ecmdata->NAF_dictionary_size-1) {
+			ecmdata->NAF_dictionary[i].x = *next_available_gwnum++;
+			ecmdata->NAF_dictionary[i].y = *next_available_gwnum++;
+			ecmdata->NAF_dictionary[i].z = *next_available_gwnum++;
+			ecmdata->NAF_dictionary[i].t = *next_available_gwnum++;
+		}
+		// Next dictionary entry is two more than previous entry
+		int options = (i == ecmdata->NAF_dictionary_size / 2 || i == ecmdata->NAF_dictionary_size - 1) ? 0 : ED_RESULT_FOR_ADD;
+		ed_add (ecmdata, &ecmdata->NAF_dictionary[i-1], two, &ecmdata->NAF_dictionary[i], options | ED_NO_GWALLOC | ED_FFT_S1Z | ED_XYZ | ED_STARTNEXTFFT);
 		// Switch back from extended coordinates.  Extended coordinates will be generated again after normalization.
-		gwfree (&ecmdata->gwdata, ecmdata->NAF_dictionary[i-1].t), ecmdata->NAF_dictionary[i-1].t = NULL;
+		*--next_available_gwnum = ecmdata->NAF_dictionary[i-1].t, ecmdata->NAF_dictionary[i-1].t = NULL;
+		if (options == 0) *--next_available_gwnum = ecmdata->NAF_dictionary[i].t, ecmdata->NAF_dictionary[i].t = NULL;
 		// 50% of the way through the build, normalize the dictionary.  This will free up enough gwnums to safely do the rest of the dictionary.
 		// Also normalize two to save a few transforms for the remaining dictionary entries.
 		if (i == ecmdata->NAF_dictionary_size / 2) {
+			*--next_available_gwnum = two->t, two->t = NULL;	// Exit extended coordinates, will re-extend after normalization
 			ed_swap (*two, ecmdata->NAF_dictionary[i+1]);		// Put two next in the array
-			if (!dict_normalize (ecmdata, 0, i+1)) return (FALSE);
+			if (!dict_normalize (ecmdata, 0, i+1, &next_available_gwnum)) return (FALSE);
 			ed_swap (*two, ecmdata->NAF_dictionary[i+1]);		// Put two back at the end of the array
+			// Re-extend by force i-th entry and two
+			ecmdata->NAF_dictionary[i].t = *next_available_gwnum++;
+			ed_extend (ecmdata, &ecmdata->NAF_dictionary[i], ED_FORCE_EXTEND);
+			two->t = *next_available_gwnum++;
+			ed_extend (ecmdata, two, ED_FORCE_EXTEND);
 		}
 	}
-	gwfree (&ecmdata->gwdata, ecmdata->NAF_dictionary[ecmdata->NAF_dictionary_size-1].t), ecmdata->NAF_dictionary[ecmdata->NAF_dictionary_size-1].t = NULL;
 
 	// Normalize the remaining 50% of the dictionary, this will make adding dictionary entries one transform quicker
-	if (!dict_normalize (ecmdata, ecmdata->NAF_dictionary_size / 2 + 1, ecmdata->NAF_dictionary_size - 1)) return (FALSE);
+	if (!dict_normalize (ecmdata, ecmdata->NAF_dictionary_size / 2 + 1, ecmdata->NAF_dictionary_size - 1, &next_available_gwnum)) return (FALSE);
+
+	// Use rest of NAF_gwnums to compute extended coordinates
+	for (uint32_t i = 0; i < ecmdata->NAF_dictionary_size; i++) {
+		ASSERTG (ecmdata->NAF_dictionary[i].t == NULL && ecmdata->NAF_dictionary[i].z == NULL);
+		ASSERTG (next_available_gwnum < ecmdata->NAF_gwnums + 3 * ecmdata->NAF_dictionary_size);
+		ecmdata->NAF_dictionary[i].t = *next_available_gwnum++;
+		ed_extend (ecmdata, &ecmdata->NAF_dictionary[i], ED_FORCE_EXTEND);
+	}
 
 // Allocate a buffer for the NAF_codes
 
@@ -4809,8 +4879,7 @@ void NAF_dictionary_free (
 	ecmhandle *ecmdata)
 {
 	free (ecmdata->NAF_codes), ecmdata->NAF_codes = NULL;
-	if (ecmdata->NAF_dictionary == NULL) return;
-	for (uint32_t i = 0; i < ecmdata->NAF_dictionary_size; i++) ed_free (ecmdata, &ecmdata->NAF_dictionary[i]);
+	gwfree_array (&ecmdata->gwdata, ecmdata->NAF_gwnums), ecmdata->NAF_gwnums = NULL;
 	free (ecmdata->NAF_dictionary), ecmdata->NAF_dictionary = NULL;
 }
 
@@ -5822,12 +5891,14 @@ if (Ftree_polys_in_mem + more_Ftree_polys_in_mem > num_Ftree_polys - 1) more_Ftr
 		cost += cost_modinv;
 	}
 
-/* Save the final costs fudged by an auto-adjusting value */
+/* Save the final costs fudged by an auto-adjusting value.  If there are more stage 2 threads than stage 1, adjust the cost down.  Yes, the cost in terms */
+/* of transforms is not reduced by extra threads, but the time spent in stage 2 is reduced.  The user of Stage2ExtraThreads expects the reduced time spent */
+/* in stage 2 to result in a larger optimal B2.  Reducing the cost will make this happen. */
 
 	cost *= IniGetFloat (INI_FILE, "EcmStage2RatioAdjust", 1.0);
+	cost *= (double) cost_data->c.stage1_threads / (double) cost_data->c.stage2_threads;
 	cost_data->c.stage2_cost = cost;						// Raw cost of stage 2
-	cost_data->c.est_stage2_stage1_ratio = cost / cost_data->c.stage1_cost;		// Cost of stage 2 relative to stage 1
-	cost_data->c.est_stage2_stage1_ratio *= (double) cost_data->c.stage1_threads / (double) cost_data->c.stage2_threads;
+	cost_data->c.est_stage2_stage1_ratio = cost / cost_data->c.stage1_cost;		// Estimated time of stage 2 relative to stage 1
 	cost_data->c.total_cost = cost_data->c.stage1_cost + cost_data->c.stage2_cost + cost_data->c.gcd_cost;
 
 /* Calculate and return the efficiency which is ECM curve "value" divided by total cost of running the curve */
@@ -5876,8 +5947,8 @@ double ecm_stage2_impl_given_numvals (
 	cost_data.c.polydata = &ecmdata->polydata;
 	cost_data.c.stage1_fftlen = ecmdata->stage1_fftlen;
 	cost_data.c.stage2_fftlen = gwfftlen (&ecmdata->gwdata);
-	cost_data.c.stage1_threads = get_worker_num_threads (ecmdata->thread_num, HYPERTHREAD_LL);
-	cost_data.c.stage2_threads = cost_data.c.stage1_threads + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0);
+	cost_data.c.stage1_threads = ecmdata->stage1_threads;
+	cost_data.c.stage2_threads = ecmdata->stage2_threads;
 	init_gcd_costs (ecmdata->gwdata.bit_length, &cost_data);
 	for (int stage2_type = 0; stage2_type <= 1; stage2_type++) {	// Prime pairing vs. polymult
 
@@ -6751,6 +6822,8 @@ int ecm (
 
 	memset (&ecmdata, 0, sizeof (ecmhandle));
 	ecmdata.thread_num = thread_num;
+	ecmdata.stage1_threads = get_worker_num_threads (thread_num, HYPERTHREAD_LL);
+	ecmdata.stage2_threads = ecmdata.stage1_threads + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0);
 	ecmdata.w = w;
 	ecmdata.B = (uint64_t) w->B1;
 	ecmdata.C = (uint64_t) w->B2;
@@ -7111,7 +7184,7 @@ if (w->n == 604) {
 	gwset_bench_cores (&ecmdata.gwdata, HW_NUM_CORES);
 	gwset_bench_workers (&ecmdata.gwdata, NUM_WORKERS);
 	if (ERRCHK) gwset_will_error_check (&ecmdata.gwdata);
-	gwset_num_threads (&ecmdata.gwdata, get_worker_num_threads (thread_num, HYPERTHREAD_LL));
+	gwset_num_threads (&ecmdata.gwdata, ecmdata.stage1_threads);
 	gwset_thread_callback (&ecmdata.gwdata, SetAuxThreadPriority);
 	gwset_thread_callback_data (&ecmdata.gwdata, sp_info);
 	gwset_safety_margin (&ecmdata.gwdata, IniGetFloat (INI_FILE, "ExtraSafetyMargin", 0.0));
@@ -7135,7 +7208,7 @@ if (w->n == 604) {
 	gw_clear_fft_count (&ecmdata.gwdata);
 	first_iter_msg = TRUE;
 	calc_output_frequencies (&ecmdata.gwdata, &output_frequency, &output_title_frequency);
-	dictionary_memory = (uint64_t) IniGetInt (INI_FILE, "DictionaryMemory", 256) << 20;	// Default to 256MB dictionary memory
+	dictionary_memory = (uint64_t) IniGetInt (INI_FILE, "DictionaryMemory", 256) << 20;	// Default to 256MiB dictionary memory
 
 /* Optionally do a probable prime test */
 
@@ -7738,7 +7811,7 @@ replan:	unsigned long best_fftlen;
 /* Initialize the polymult library (needed for calling polymult_mem_required).  Let user override polymult tuning parameters. */
 
 		polymult_init (&ecmdata.polydata, &ecmdata.gwdata);
-		polymult_set_max_num_threads (&ecmdata.polydata, get_worker_num_threads (thread_num, HYPERTHREAD_LL) + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0));
+		polymult_set_max_num_threads (&ecmdata.polydata, ecmdata.stage2_threads);
 		polymult_default_tuning (&ecmdata.polydata,
 					 IniGetInt (INI_FILE, "PolymultCacheSize", CPU_NUM_L2_CACHES > 0 ? CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES : 256),
 					 IniGetInt (INI_FILE, "PolymultCacheSize2", CPU_NUM_L3_CACHES > 0 ? CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES : 6144));
@@ -7854,7 +7927,7 @@ OutputStr (thread_num, buf); }
 			gwset_bench_cores (&ecmdata.gwdata, HW_NUM_CORES);
 			gwset_bench_workers (&ecmdata.gwdata, NUM_WORKERS);
 			if (ERRCHK) gwset_will_error_check (&ecmdata.gwdata);
-			gwset_num_threads (&ecmdata.gwdata, get_worker_num_threads (thread_num, HYPERTHREAD_LL));
+			gwset_num_threads (&ecmdata.gwdata, ecmdata.stage2_threads);
 			gwset_thread_callback (&ecmdata.gwdata, SetAuxThreadPriority);
 			gwset_thread_callback_data (&ecmdata.gwdata, sp_info);
 			gwset_safety_margin (&ecmdata.gwdata, IniGetFloat (INI_FILE, "ExtraSafetyMargin", 0.0));
@@ -8712,11 +8785,11 @@ ecm_polymult:
 // We must outer loop at least twice, otherwise H(X) will be monic -- the current descent of Ftree code can't handle that.
 //GW:  Someday allow ecmdata.numDsections to be ecmdata.poly_size -- saves alloc mem for H(X)
 
-/* Allocate nQx array of pointers to relative prime gwnums.  Allocate an array large enough to hold x & z values for all relp. */
-/* This is much more than we will need once stage 2 init completes. */
+/* Allocate the nQx array of pointers to relative prime gwnums.  We must allocate the array with one call because Windows-or-malloc has some kind */
+/* of performance issue where freeing 100,000 individually allocated nQx gwnums was taking 6 minutes on my laptop. */
+//GW: use gwalloc_array in prime pairing too?  Make this code common with prime pairing?  Multithread using polymult tools?
 
-//GW: use gwalloc_array, carefully convert freeing nQx!  Make this code common with prime pairing?  Multithread using polymult tools?
-	ecmdata.nQx = (gwnum *) malloc (ecmdata.numrels * sizeof (gwnum));
+	ecmdata.nQx = gwalloc_array (&ecmdata.gwdata, ecmdata.numrels);
 	if (ecmdata.nQx == NULL) goto lowmem;
 
 /* Allocate some of the memory for modular inverse pooling */
@@ -8727,109 +8800,82 @@ ecm_polymult:
 
 /* This is a fast 1,5 mod 6 nQx initialization */
 
-start_timer_from_zero (timers, 0);
+	start_timer_from_zero (timers, 0);
 	ASSERTG (ecmdata.D % 3 == 0);
 	{
-		struct xz t1, t2, t3, t4, t5, t6;
-		struct xz *Q1, *Q2, *Q3, *Q5, *Q6, *Q7, *Q11, *Qnext_i;
+		struct xz t1, *Q1, *Q2, *Q3, *Q5, *Q6, *Q7, *Q11;
 		struct {
-			struct xz *Qi;
-			struct xz *Qi_minus6;
+			struct xz Qi;
+			struct xz Qi_minus6;
 			int	Qi_is_relp;
 			int	Qi_minus6_is_relp;
 		} Q1mod6, Q5mod6, *curr;
 		int	i_gap, have_QD;
-		uint32_t totrels;
+		uint32_t totrels = 0;
+
+#define Qmodhi_init(Qmod,xz,is_relp)	{ xz = &(Qmod)->Qi; \
+					  if (!alloc_xz (&ecmdata, xz)) goto lowmem; \
+					  (Qmod)->Qi_is_relp = is_relp; \
+					  if ((Qmod)->Qi_is_relp) { gwfree (&ecmdata.gwdata, xz->x); xz->x = ecmdata.nQx[totrels++]; } }
+#define Qmodlo_init(Qmod,xz,is_relp)	{ xz = &(Qmod)->Qi_minus6; \
+					  if (!alloc_xz (&ecmdata, xz)) goto lowmem; \
+					  (Qmod)->Qi_minus6_is_relp = is_relp; \
+					  if ((Qmod)->Qi_minus6_is_relp) { gwfree (&ecmdata.gwdata, xz->x); xz->x = ecmdata.nQx[totrels++]; } }
+#define normalize_or_free(xz,is_relp)	{ if (is_relp) { stop_reason = add_to_normalize_pool_ro (&ecmdata, (xz)->x, (xz)->z); \
+							 if (stop_reason) goto possible_lowmem; \
+							 (xz)->x = NULL; (xz)->z = NULL; is_relp = FALSE; } \
+					  else free_xz (&ecmdata, xz); }
 
 /* Allocate memory and init values for computing nQx.  We need Q^1, Q^5, Q^6, Q^7, Q^11. */
-/* We also need Q^4 to compute Q^D in the middle of the nQx init loop. */
 
+		Qmodlo_init (&Q1mod6, Q1, 1);
+		Qmodhi_init (&Q1mod6, Q7, relatively_prime (7, ecmdata.D));
+		Qmodlo_init (&Q5mod6, Q5, relatively_prime (5, ecmdata.D));
+		Qmodhi_init (&Q5mod6, Q11, relatively_prime (11, ecmdata.D));
 		if (!alloc_xz (&ecmdata, &t1)) goto lowmem;
-		if (!alloc_xz (&ecmdata, &t2)) goto lowmem;
-		if (!alloc_xz (&ecmdata, &t3)) goto lowmem;
-		if (!alloc_xz (&ecmdata, &t4)) goto lowmem;
-		if (!alloc_xz (&ecmdata, &t5)) goto lowmem;
+		Q6 = Q3 = &t1;
 
-/* Compute Q^2 and place in ecmdata.QD.  Q^2 will be replaced by Q^D later on in this loop. */
+/* Compute Q^2 and place in ecmdata.QD.  Q^2 will be replaced by Q^D later on.  Compute Q^3, Q^5, Q^6, Q^7, Q^11. */
 
-		ell_dbl_xz_scr (&ecmdata, &ecmdata.QD, &t1, &t5);		// Q2 = 2 * Q1, scratch = t5
-		xzswap (t1, ecmdata.QD);					// Move Q^1 from QD to t1
-		Q1 = &t1;							// Q^1
-		Q2 = &ecmdata.QD;
-
-/* Compute Q^5, Q^6, Q^7, Q^11 */
-
-		Q3 = &t2;
+		gwcopy_xz (&ecmdata, &ecmdata.QD, Q1);
+		ell_dbl_xz_scr (&ecmdata, Q1, Q2 = &ecmdata.QD, Q11);		// Q2 (stored in ecmdata.QD) = 2 * Q1, scratch = Q11
 		ell_add_xz (&ecmdata, Q2, Q1, Q1, Q3);				// Q3 = Q2 + Q1 (diff Q1)
-
-		Q5 = &t3;
 		ell_add_xz (&ecmdata, Q3, Q2, Q1, Q5);				// Q5 = Q3 + Q2 (diff Q1)
-
-		Q6 = Q3;
-		ell_dbl_xz_scr (&ecmdata, Q3, Q6, &t5);				// Q6 = 2 * Q3, scratch = t5, Q3 no longer needed
-
-		Q7 = &t4;
+		ell_dbl_xz_scr (&ecmdata, Q3, Q6, Q11);				// Q6 = 2 * Q3, scratch = Q11, Q3 no longer needed
 		ell_add_xz (&ecmdata, Q6, Q1, Q5, Q7);				// Q7 = Q6 + Q1 (diff Q5)
-
-		Q11 = &t5;
 		ell_add_xz (&ecmdata, Q6, Q5, Q1, Q11);				// Q11 = Q6 + Q5 (diff Q1)
-
-/* Init structures used in the loop below */
-
-		Q1mod6.Qi_minus6 = Q1;
-		Q1mod6.Qi_minus6_is_relp = 1;
-		Q5mod6.Qi_minus6 = Q5;
-		Q5mod6.Qi_minus6_is_relp = relatively_prime (5, ecmdata.D);
-		Q1mod6.Qi = Q7;
-		Q1mod6.Qi_is_relp = relatively_prime (7, ecmdata.D);
-		Q5mod6.Qi = Q11;
-		Q5mod6.Qi_is_relp = relatively_prime (11, ecmdata.D);
-
-/* For relprimes, we remember the .x value in the nQx pool.  In the loop below, we relinquish ownership of the .z value when we call add_to_normalize_pool_ro. */
-
-		ecmdata.nQx[0] = Q1->x; totrels = 1;
-		if (Q5mod6.Qi_minus6_is_relp) { ecmdata.nQx[totrels] = Q5->x; totrels++; }
-		if (Q1mod6.Qi_is_relp) { ecmdata.nQx[totrels] = Q7->x; totrels++; }
-		if (Q5mod6.Qi_is_relp) { ecmdata.nQx[totrels] = Q11->x; totrels++; }
-
-#define normalize_or_free(xz,is_relp)	{ if (is_relp) { stop_reason = add_to_normalize_pool_ro (&ecmdata, xz->x, xz->z); \
-							 if (stop_reason) goto possible_lowmem; \
-							 xz->x = NULL; xz->z = NULL; is_relp = FALSE; } \
-					  else free_xz (&ecmdata, xz); }
 
 /* Compute the rest of the nQx values below D (Q^i for i >= 7) */
 
-		Qnext_i = &t6;
 		have_QD = FALSE;
 		for (i = 7, i_gap = 4; ; i += i_gap, i_gap = 6 - i_gap) {
+			struct xz Qnext_i;
 			int	next_i_is_relp;
 
 /* Point to the i, i-6 pair to work on */
 
 			curr = (i_gap == 4) ? &Q1mod6 : &Q5mod6;
 
-/* See if we are about to compute the next relative prime */
+/* Allocate memory to compute the next Q^i */
 
+			if (!alloc_xz (&ecmdata, &Qnext_i)) goto lowmem;
 			next_i_is_relp = (relatively_prime (i+6, ecmdata.D) && totrels < ecmdata.numrels);
+			if (next_i_is_relp) { gwfree (&ecmdata.gwdata, Qnext_i.x); Qnext_i.x = ecmdata.nQx[totrels++]; }
 
 /* Get next i value.  Don't destroy Qi_minus6 in case it is an nQx value. */
 
-			if (!alloc_xz (&ecmdata, Qnext_i)) goto lowmem;
-			ell_add_xz (&ecmdata, curr->Qi, Q6, curr->Qi_minus6, Qnext_i);		// Next_Qi = Qi + Q6 (diff Q{i-6})
+			ell_add_xz (&ecmdata, &curr->Qi, Q6, &curr->Qi_minus6, &Qnext_i);	// Next_Qi = Qi + Q6 (diff Q{i-6})
 
 /* We no longer need Qi_minus6.  Normalize it or free it */
 
-			normalize_or_free (curr->Qi_minus6, curr->Qi_minus6_is_relp);
+			normalize_or_free (&curr->Qi_minus6, curr->Qi_minus6_is_relp);
 
 /* Shuffle i values along */
 
-			struct xz *shuffle;
-			shuffle = curr->Qi_minus6;
 			curr->Qi_minus6 = curr->Qi;
 			curr->Qi_minus6_is_relp = curr->Qi_is_relp;
 			curr->Qi = Qnext_i;
 			curr->Qi_is_relp = next_i_is_relp;
-			Qnext_i = shuffle;
 
 /* Compute Q^D which we will need in mQ_init.  Do this with a single ell_add_xz call when we reach two values that are 2 or 4 apart that add to D. */
 
@@ -8839,16 +8885,9 @@ start_timer_from_zero (timers, 0);
 				ASSERTG (Qgap == &ecmdata.QD);
 				if (!alloc_xz (&ecmdata, &tmp)) goto lowmem;
 				if (6 - i_gap == 4) ell_dbl_xz_scr (&ecmdata, Q2, Qgap, &tmp);		  // Qgap = Q4 = 2 * Q2, Q2 no longer needed
-				ell_add_xz_scr (&ecmdata, Q1mod6.Qi, Q5mod6.Qi, Qgap, &ecmdata.QD, &tmp); // QD = i+6 + i+i_gap (diff Qgap), Qgap no longer needed
+				ell_add_xz_scr (&ecmdata, &Q1mod6.Qi, &Q5mod6.Qi, Qgap, &ecmdata.QD, &tmp); // QD = i+6 + i+i_gap (diff Qgap), Qgap no longer needed
 				free_xz (&ecmdata, &tmp);
 				have_QD = TRUE;
-			}
-
-/* If the newly computed i is a relative prime, then remember .x for a later add_to_nomalize */
-
-			if (next_i_is_relp) {
-				ecmdata.nQx[totrels] = curr->Qi->x;
-				totrels++;
 			}
 
 /* Break out of loop when we have all our nQx values less than D */
@@ -8864,12 +8903,14 @@ start_timer_from_zero (timers, 0);
 
 /* Free memory used in computing nQx values */
 
-		normalize_or_free (Q1mod6.Qi, Q1mod6.Qi_is_relp);
-		normalize_or_free (Q1mod6.Qi_minus6, Q1mod6.Qi_minus6_is_relp);
-		normalize_or_free (Q5mod6.Qi, Q5mod6.Qi_is_relp);
-		normalize_or_free (Q5mod6.Qi_minus6, Q5mod6.Qi_minus6_is_relp);
+		normalize_or_free (&Q1mod6.Qi, Q1mod6.Qi_is_relp);
+		normalize_or_free (&Q1mod6.Qi_minus6, Q1mod6.Qi_minus6_is_relp);
+		normalize_or_free (&Q5mod6.Qi, Q5mod6.Qi_is_relp);
+		normalize_or_free (&Q5mod6.Qi_minus6, Q5mod6.Qi_minus6_is_relp);
 		free_xz (&ecmdata, Q6);
 	}
+	#undef Qmodhi_init
+	#undef Qmodlo_init
 	#undef normalize_or_free
 
 /* Add Q^D computed above to the D-multiples map */
@@ -9130,10 +9171,8 @@ start_timer_from_zero (timers, 0);
 
 // Free nQx array (if it was not saved in polyFtree)
 
-//	ecmdata.xz.x = ecmdata.nQx[0];
 	if (ecmdata.Ftree_polys_in_mem < 2) {
-		for (uint32_t i = 0; i < ecmdata.numrels; i++) gwfree (&ecmdata.gwdata, ecmdata.nQx[i]);
-		free (ecmdata.nQx); ecmdata.nQx = NULL;
+		gwfree_array (&ecmdata.gwdata, ecmdata.nQx); ecmdata.nQx = NULL;
 	}
 
 // Use Newton's method to compute 1/F(X), starting with an initial estimate of 1 - first_non_monic_term_of_F(X).
@@ -9677,16 +9716,16 @@ start_timer_from_zero (timers, 0);
 	ecmdata.polydata.helper_callback = &ecm_helper;
 	ecmdata.polydata.helper_callback_data = &ecmdata;
 	ecmdata.helper_work = ECM_BUILD_GCDVAL;
-	memset (&ecmdata.polyGH[0], 0, ecmdata.polydata.num_threads * sizeof (gwnum));	// Needed only for ensuring a reproducible stage 2 result
+	memset (&ecmdata.polyGH[0], 0, ecmdata.stage2_threads * sizeof (gwnum));	// Needed only for ensuring a reproducible stage 2 result
 	polymult_launch_helpers (&ecmdata.polydata);	// Launch helper threads
 
 // Multiply together the output of each ecm_helper thread above.  Hopefully using gwnum's multi-threading.
 
-	for (int i = 1; i < ecmdata.polydata.num_threads; i++) {
+	for (int i = 1; i < ecmdata.stage2_threads; i++) {
 		if (ecmdata.polyGH[i] == NULL) continue;
 		if (ecmdata.polyGH[0] == NULL) ecmdata.polyGH[0] = ecmdata.polyGH[i];
 		else gwmul3 (&ecmdata.gwdata, ecmdata.polyGH[0], ecmdata.polyGH[i], ecmdata.polyGH[0],
-			     (i != ecmdata.polydata.num_threads - 1 || ecmdata.gg_binary != NULL) ? GWMUL_STARTNEXTFFT : 0);
+			     (i != ecmdata.stage2_threads - 1 || ecmdata.gg_binary != NULL) ? GWMUL_STARTNEXTFFT : 0);
 	}
 
 /* Now multiply in the accumulator read from a save file */
@@ -9766,9 +9805,9 @@ stage2_done:
 		double correct_ratio = stage2_timer / stage1_timer;
 		double current_adjustment = IniGetFloat (INI_FILE, "EcmStage2RatioAdjust", 1.0);
 		double correct_adjustment = correct_ratio / ecmdata.est_stage2_stage1_ratio * current_adjustment;
-		// Sanity check.  Estimation code should not be off by a factor of 2.
-		if (correct_adjustment > 2.0) correct_adjustment = 2.0;
-		if (correct_adjustment < 0.5) correct_adjustment = 0.5;
+		// Sanity check.  Estimation code should not be off by a factor of 3.
+		if (correct_adjustment > 3.0) correct_adjustment = 3.0;
+		if (correct_adjustment < 0.333) correct_adjustment = 0.333;
 		// Set new adjustment for next time
 		IniWriteFloat (INI_FILE, "EcmStage2RatioAdjust", (float) (0.9 * current_adjustment + 0.1 * correct_adjustment));
 	}
@@ -9807,7 +9846,7 @@ more_curves:
 	ecmdata.curve++;
 	if (w->curves_to_do == 0 || ecmdata.curve <= w->curves_to_do) {
 		// If necessary, switch back to the stage 1 FFT length
-		if (gwfftlen (&ecmdata.gwdata) != ecmdata.stage1_fftlen) {
+		if (gwfftlen (&ecmdata.gwdata) != ecmdata.stage1_fftlen || ecmdata.stage1_threads != ecmdata.stage2_threads) {
 			char	fft_desc[200];
 			gwdone (&ecmdata.gwdata);
 			gwinit (&ecmdata.gwdata);
@@ -9816,7 +9855,7 @@ more_curves:
 			gwset_bench_cores (&ecmdata.gwdata, HW_NUM_CORES);
 			gwset_bench_workers (&ecmdata.gwdata, NUM_WORKERS);
 			if (ERRCHK) gwset_will_error_check (&ecmdata.gwdata);
-			gwset_num_threads (&ecmdata.gwdata, get_worker_num_threads (thread_num, HYPERTHREAD_LL));
+			gwset_num_threads (&ecmdata.gwdata, ecmdata.stage1_threads);
 			gwset_thread_callback (&ecmdata.gwdata, SetAuxThreadPriority);
 			gwset_thread_callback_data (&ecmdata.gwdata, sp_info);
 			gwset_safety_margin (&ecmdata.gwdata, IniGetFloat (INI_FILE, "ExtraSafetyMargin", 0.0));
@@ -10221,6 +10260,8 @@ int ecm_QA (
 typedef struct {
 	gwhandle gwdata;	/* GWNUM handle */
 	int	thread_num;	/* Worker number */
+	int	stage1_threads;	/* Number of threads to use in stage 1 */
+	int	stage2_threads;	/* Number of threads to use in stage 2 */
 	struct work_unit *w;	/* Worktodo.txt entry */
 	int	state;		/* One of the states listed above */
 	uint64_t B;		/* Bound #1 (a.k.a. B1) */
@@ -11032,12 +11073,14 @@ double pm1_stage2_cost (
 
 	cost += cost_data->c.modinv_cost;
 
-/* Save the final costs fudged by an auto-adjusting value */
+/* Save the final costs fudged by an auto-adjusting value.  If there are more stage 2 threads than stage 1, adjust the cost down.  Yes, the cost in terms */
+/* of transforms is not reduced by extra threads, but the time spent in stage 2 is reduced.  The user of Stage2ExtraThreads expects the reduced time spent */
+/* in stage 2 to result in a larger optimal B2.  Reducing the cost will make this happen. */
 
 	cost *= IniGetFloat (INI_FILE, "Pm1Stage2RatioAdjust", 1.0);
+	cost *= (double) cost_data->c.stage1_threads / (double) cost_data->c.stage2_threads;
 	cost_data->c.stage2_cost = cost;						// Raw cost of stage 2
-	cost_data->c.est_stage2_stage1_ratio = cost / cost_data->c.stage1_cost;		// Cost of stage 2 relative to stage 1
-	cost_data->c.est_stage2_stage1_ratio *= (double) cost_data->c.stage1_threads / (double) cost_data->c.stage2_threads;
+	cost_data->c.est_stage2_stage1_ratio = cost / cost_data->c.stage1_cost;		// Estimated time of stage 2 relative to stage 1
 	cost_data->c.total_cost = cost_data->c.stage1_cost + cost_data->c.stage2_cost + cost_data->c.gcd_cost;
 
 /* Calculate and return the efficiency which is the P-1 "value" divided by total cost of running P-1.  If TF depth known "value" is the factor probability, */
@@ -11079,8 +11122,8 @@ double pm1_stage2_impl_given_numvals (
 	cost_data.c.polydata = &pm1data->polydata;
 	cost_data.c.stage1_fftlen = pm1data->stage1_fftlen;
 	cost_data.c.stage2_fftlen = gwfftlen (&pm1data->gwdata);
-	cost_data.c.stage1_threads = get_worker_num_threads (pm1data->thread_num, HYPERTHREAD_LL);
-	cost_data.c.stage2_threads = cost_data.c.stage1_threads + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0);
+	cost_data.c.stage1_threads = pm1data->stage1_threads;
+	cost_data.c.stage2_threads = pm1data->stage2_threads;
 	init_gcd_costs (pm1data->gwdata.bit_length, &cost_data);
 	cost_data.sieve_depth = pm1data->w->sieve_depth;
 	cost_data.takeAwayBits = isMersenne (pm1data->w->k, pm1data->w->b, pm1data->w->n, pm1data->w->c) ? log2 (pm1data->w->n) + 1.0 :
@@ -11624,6 +11667,8 @@ int pminus1 (
 	pminus1_base = (w->b != 3 ? 3 : 5);
 	memset (&pm1data, 0, sizeof (pm1handle));
 	pm1data.thread_num = thread_num;
+	pm1data.stage1_threads = get_worker_num_threads (thread_num, HYPERTHREAD_LL);
+	pm1data.stage2_threads = pm1data.stage1_threads + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0);
 	pm1data.w = w;
 	pm1data.B = (uint64_t) w->B1;
 	pm1data.C = (uint64_t) w->B2;
@@ -11689,7 +11734,7 @@ restart:
 	gwset_bench_workers (&pm1data.gwdata, NUM_WORKERS);
 	if (ERRCHK) gwset_will_error_check (&pm1data.gwdata);
 	else gwset_will_error_check_near_limit (&pm1data.gwdata);
-	gwset_num_threads (&pm1data.gwdata, get_worker_num_threads (thread_num, HYPERTHREAD_LL));
+	gwset_num_threads (&pm1data.gwdata, pm1data.stage1_threads);
 	gwset_thread_callback (&pm1data.gwdata, SetAuxThreadPriority);
 	gwset_thread_callback_data (&pm1data.gwdata, sp_info);
 	gwset_safety_margin (&pm1data.gwdata, IniGetFloat (INI_FILE, "ExtraSafetyMargin", 0.0));
@@ -12017,7 +12062,7 @@ restart1:
 /* the default (if that's too slow one might should consider different work!).  A default of 40 should give calc_exp2 room to generate a temp that is */
 /* less than 64 bits which exponentiate can handle without any temporaries. */
 
-	stage1_batch_size = (int) ((double) IniGetInt (INI_FILE, "Stage1Batch4KMults", 150000) * pm1data.gwdata.num_threads / (pm1data.gwdata.FFTLEN / 4096.0));
+	stage1_batch_size = (int) ((double) IniGetInt (INI_FILE, "Stage1Batch4KMults", 150000) * pm1data.stage1_threads / (pm1data.gwdata.FFTLEN / 4096.0));
 	if (stage1_batch_size < IniGetInt (INI_FILE, "Stage1BatchSizeMin", 40)) stage1_batch_size = IniGetInt (INI_FILE, "Stage1BatchSizeMin", 40);
 
 /* Most likely we are working on small exponents where 100MB of memory gives us all the temporaries we could possibly want. */
@@ -12294,7 +12339,7 @@ replan:	unsigned long best_fftlen;
 /* Initialize the polymult library (needed for calling polymult_mem_required).  Let user override polymult tuning parameters. */
 
 		polymult_init (&pm1data.polydata, &pm1data.gwdata);
-		polymult_set_max_num_threads (&pm1data.polydata, get_worker_num_threads (thread_num, HYPERTHREAD_LL) + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0));
+		polymult_set_max_num_threads (&pm1data.polydata, pm1data.stage2_threads);
 		polymult_default_tuning (&pm1data.polydata,
 					 IniGetInt (INI_FILE, "PolymultCacheSize", CPU_NUM_L2_CACHES > 0 ? CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES : 256),
 					 IniGetInt (INI_FILE, "PolymultCacheSize2", CPU_NUM_L3_CACHES > 0 ? CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES : 6144));
@@ -12407,7 +12452,7 @@ OutputStr (thread_num, buf); }
 			gwset_bench_workers (&pm1data.gwdata, NUM_WORKERS);
 			if (ERRCHK) gwset_will_error_check (&pm1data.gwdata);
 			else gwset_will_error_check_near_limit (&pm1data.gwdata);
-			gwset_num_threads (&pm1data.gwdata, get_worker_num_threads (thread_num, HYPERTHREAD_LL));
+			gwset_num_threads (&pm1data.gwdata, pm1data.stage2_threads);
 			gwset_thread_callback (&pm1data.gwdata, SetAuxThreadPriority);
 			gwset_thread_callback_data (&pm1data.gwdata, sp_info);
 			gwset_minimum_fftlen (&pm1data.gwdata, next_fftlen);
@@ -13144,7 +13189,7 @@ pm1_polymult:
 //	use_polymult_multithreading = pm1data.polydata.num_threads > 1 && pm1data.poly2_size > 2*pm1data.polydata.num_threads &&
 //				      (int) gwfftlen (&pm1data.gwdata) <= IniGetInt (INI_FILE, "PolyThreadingFFTlength", 256) * 1024;
 //	if (use_polymult_multithreading) {
-		pm1data.helper_count = pm1data.polydata.num_threads;
+		pm1data.helper_count = pm1data.stage2_threads;
 //	} else
 //		pm1data.helper_count = 1;
 
@@ -13564,9 +13609,9 @@ stage2_done:
 		double correct_ratio = stage2_timer / stage1_timer;
 		double current_adjustment = IniGetFloat (INI_FILE, "Pm1Stage2RatioAdjust", 1.0);
 		double correct_adjustment = correct_ratio / pm1data.est_stage2_stage1_ratio * current_adjustment;
-		// Sanity check.  Estimation code should not be off by a factor of 2.
-		if (correct_adjustment > 2.0) correct_adjustment = 2.0;
-		if (correct_adjustment < 0.5) correct_adjustment = 0.5;
+		// Sanity check.  Estimation code should not be off by a factor of 3.
+		if (correct_adjustment > 3.0) correct_adjustment = 3.0;
+		if (correct_adjustment < 0.333) correct_adjustment = 0.333;
 		// Set new adjustment for next time
 		IniWriteFloat (INI_FILE, "Pm1Stage2RatioAdjust", (float) (0.9 * current_adjustment + 0.1 * correct_adjustment));
 	}
@@ -14380,6 +14425,8 @@ int pfactor (
 typedef struct {
 	gwhandle gwdata;	/* GWNUM handle */
 	int	thread_num;	/* Worker number */
+	int	stage1_threads;	/* Number of threads to use in stage 1 */
+	int	stage2_threads;	/* Number of threads to use in stage 2 */
 	struct work_unit *w;	/* Worktodo.txt entry */
 	int	state;		/* One of the states listed above */
 	double	takeAwayBits;	/* Bits we get for free in smoothness of P+1 factor */
@@ -14779,8 +14826,8 @@ void pp1_choose_B2 (
 	cost_data.c.gwdata = &pp1data->gwdata;
 	cost_data.c.stage1_fftlen = pp1data->stage1_fftlen;
 	cost_data.c.stage2_fftlen = gwfftlen (&pp1data->gwdata);
-	cost_data.c.stage1_threads = gwget_num_threads (&pp1data->gwdata);
-	cost_data.c.stage2_threads = cost_data.c.stage1_threads + 0;
+	cost_data.c.stage1_threads = pp1data->stage1_threads;
+	cost_data.c.stage2_threads = pp1data->stage2_threads;
 #define p1eval(x,B2mult)	x.i = B2mult; \
 				if (x.i > max_B2mult) x.i = max_B2mult; \
 				x.B2_cost = best_stage2_impl (pp1data->B, pp1data->B, 0, 0, x.i * pp1data->B, numvals - 4, &pp1_stage2_cost, &cost_data); \
@@ -14940,8 +14987,8 @@ int pp1_stage2_impl (
 	cost_data.c.gwdata = &pp1data->gwdata;
 	cost_data.c.stage1_fftlen = pp1data->stage1_fftlen;
 	cost_data.c.stage2_fftlen = gwfftlen (&pp1data->gwdata);
-	cost_data.c.stage1_threads = gwget_num_threads (&pp1data->gwdata);
-	cost_data.c.stage2_threads = cost_data.c.stage1_threads + 0;
+	cost_data.c.stage1_threads = pp1data->stage1_threads;
+	cost_data.c.stage2_threads = pp1data->stage2_threads;
 	best_stage2_impl (pp1data->B, pp1data->first_relocatable, pp1data->last_relocatable, pp1data->C_done, pp1data->C, numvals - 4, &pp1_stage2_cost, &cost_data);
 
 /* If are continuing from a save file that was in stage 2 and the new plan doesn't look significant better than the old plan, then */
@@ -15359,6 +15406,8 @@ int pplus1 (
 
 	memset (&pp1data, 0, sizeof (pp1handle));
 	pp1data.thread_num = thread_num;
+	pp1data.stage1_threads = get_worker_num_threads (thread_num, HYPERTHREAD_LL);
+	pp1data.stage2_threads = pp1data.stage1_threads + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0);
 	pp1data.w = w;
 	pp1data.B = (uint64_t) w->B1;
 	pp1data.C = (uint64_t) w->B2;
@@ -15445,7 +15494,7 @@ restart:
 	gwset_bench_workers (&pp1data.gwdata, NUM_WORKERS);
 	if (ERRCHK) gwset_will_error_check (&pp1data.gwdata);
 	else gwset_will_error_check_near_limit (&pp1data.gwdata);
-	gwset_num_threads (&pp1data.gwdata, get_worker_num_threads (thread_num, HYPERTHREAD_LL));
+	gwset_num_threads (&pp1data.gwdata, pp1data.stage1_threads);
 	gwset_thread_callback (&pp1data.gwdata, SetAuxThreadPriority);
 	gwset_thread_callback_data (&pp1data.gwdata, sp_info);
 	gwset_safety_margin (&pp1data.gwdata, IniGetFloat (INI_FILE, "ExtraSafetyMargin", 0.0));

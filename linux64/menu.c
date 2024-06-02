@@ -952,12 +952,12 @@ void options_resources (void)
 	m_hyper_ll = HYPERTHREAD_LL;
 	can_upload = IniSectionGetInt (INI_FILE, SEC_PrimeNet, KEY_ProofUploads, 1);
 
-	askFloat ("Temporary disk space limit in GB/worker", &m_disk, 0.0, 1000.0);
+	askFloat ("Temporary disk space limit in GiB/worker", &m_disk, 0.0, 1000.0);
 	if (m_memory_editable) {
 		float	max_mem;
 		max_mem = (float) (0.9 * physical_memory () / 1024.0);
-		askFloat ("Daytime P-1/P+1/ECM stage 2 memory in GB", &m_day_memory, 0.0, max_mem);
-		askFloat ("Nighttime P-1/P+1/ECM stage 2 memory in GB", &m_night_memory, 0.0, max_mem);
+		askFloat ("Daytime P-1/P+1/ECM stage 2 memory in GiB", &m_day_memory, 0.0, max_mem);
+		askFloat ("Nighttime P-1/P+1/ECM stage 2 memory in GiB", &m_night_memory, 0.0, max_mem);
 		if (m_day_memory != m_night_memory) {
 			askStr ("Daytime begins at", m_start_time, 12);
 			askStr ("Daytime ends at", m_end_time, 12);
@@ -977,7 +977,7 @@ void options_resources (void)
 		if (max_emergency_mem < 1.0) max_emergency_mem = 1.0;
 		askStr ("Optional directory to hold large temporary files", m_temp_dir, 511);
 		askStr ("Optional directory to hold archived proofs", m_archive_dir, 511);
-		askFloat ("Max emergency memory in GB/worker", &m_emergency_mem, 0.0, max_emergency_mem);
+		askFloat ("Max emergency memory in GiB/worker", &m_emergency_mem, 0.0, max_emergency_mem);
 		askNum ("Priority -- 1 is highly recommended, see readme.txt", &m_priority, 1, 10);
 		if (IniGetInt (INI_FILE, "CertWork", 1))
 			askNum ("Certification work limit in % of CPU time", &m_cert_cpu, 1, 100);
@@ -1123,21 +1123,22 @@ void options_preferences (void)
 void options_torture (void)
 {
 	unsigned long m_cores, m_type, m_minfft, m_maxfft, m_timefft;
-	float	m_memory;			// In GB
-	unsigned long mem, blendmemory;		// In MB
+	float	m_memory;			// In GiB
+	unsigned long mem, blendmemory;		// In MiB
 	int	m_hyperthreading, m_custom, m_weak, m_avx512, m_fma3, m_avx, m_sse2;
 
 	m_cores = HW_NUM_CORES;
 	m_hyperthreading = (HW_NUM_CORES != HW_NUM_THREADS);
 	mem = physical_memory ();
-	// New in 29.5, default to all but 3GB of memory for the large FFT and blend test.
-	// On my Skylake-X linux machine mprime crashes if it uses all but 2.5GB (maybe due
+	// New in 29.5, default to all but 3GiB of memory for the large FFT and blend test.
+	// On my Skylake-X linux machine mprime crashes if it uses all but 2.5GiB (maybe due
 	// to large pages allocated by a running production mprime).
-	if (mem >= 5000) blendmemory = GetSuggestedMemory (mem - 3000);
-	else if (mem >= 2000) blendmemory = GetSuggestedMemory (mem - 512);
-	else if (mem >= 500) blendmemory = GetSuggestedMemory (mem - 256);
-	else if (mem >= 200) blendmemory = GetSuggestedMemory (mem / 2);
+	if (mem >= 5120) blendmemory = GetSuggestedMemory (mem - 3072);
+	else if (mem >= 2048) blendmemory = GetSuggestedMemory (mem - 512);
+	else if (mem >= 512) blendmemory = GetSuggestedMemory (mem - 256);
+	else if (mem >= 256) blendmemory = GetSuggestedMemory (mem / 2);
 	else blendmemory = 8;
+	if (blendmemory > (int) (0.9 * mem)) blendmemory = (int) (0.9 * mem);
 
 	// Get number of cores to test.  It will affect our FFT size calculations.
 	if (HW_NUM_CORES > 1)
@@ -1190,7 +1191,7 @@ void options_torture (void)
 			CPU_FLAGS & CPU_FMA3 && !m_fma3 ? MAX_FFTLEN_FMA3 / 1024 :
 			CPU_FLAGS & CPU_SSE2 && !m_sse2 ? MAX_FFTLEN_SSE2 / 1024 :
 							  MAX_FFTLEN / 1024);
-		askFloat ("Memory to use (in GB, 0 = in-place FFTs)", &m_memory, 0.0, round_to_tenth (mem / 1024.0));
+		askFloat ("Memory to use (in GiB, 0 = in-place FFTs)", &m_memory, 0.0, round_to_tenth (mem / 1024.0));
 		askNum ("Time to run each FFT size (in minutes)", &m_timefft, 1, 60);
 	}
 
@@ -1231,7 +1232,7 @@ void options_benchmark (void)
 	if (m_bench_type != 2) {
 		printf ("\nFFTs to benchmark\n");
 		m_minFFT = IniGetInt (INI_FILE, "MinBenchFFT", 2048);
-		askNum ("Minimum FFT size (in K)", &m_minFFT, 1, 65536);
+		askNum ("Minimum FFT size (in K)", &m_minFFT, 0, 65536);
 		m_maxFFT = IniGetInt (INI_FILE, "MaxBenchFFT", 8192);
 		askNum ("Maximum FFT size (in K)", &m_maxFFT, m_minFFT, 65536);
 		m_errchk = ERRCHK;			// IniGetInt (INI_FILE, "BenchErrorCheck", 0);
