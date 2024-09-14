@@ -12,7 +12,7 @@ extern "C" {
 /* Constants */
 
 #define VERSION		"30.19"
-#define BUILD_NUM	"20"
+#define BUILD_NUM	"21"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */

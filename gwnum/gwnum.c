@@ -9746,12 +9746,11 @@ int gwtogiant (
 /* Rather than a separate never-will-be-multithreaded giants call to mul-by-k, prepare to mul-by-k as we go (at least in the b=2 case). */
 
 	dbltog (gwdata->k, k);
+	uint64_t k64 = (uint64_t) gwdata->k;
 	bool k_is_small = (k->sign <= 1);
 	bool k_is_one = (k_is_small && k->n[0] == 1);
 #define klo	(k->n[0])
 #define khi	(k->n[1])
-#define k64	(*(uint64_t *)k->n)
-	if (k_is_small) khi = 0;	// Needed for k64 to work
 
 /* If this is a general-purpose mod, then only convert the needed words */
 /* which will be less than half the FFT length.  If this is a zero padded */
@@ -9791,10 +9790,9 @@ int gwtogiant (
 		gwiter	iter;
 		int32_t	val;
 		int64_t accum;
-		int	bits, accumbits;
-		uint32_t *outptr, outval;
+		int	bits, accumbits, cached_zeros;
+		uint32_t *outptr, outval, will_output;
 		uint64_t outcarry;
-		uint32_t will_output, cached_zeros;
 
 /* Collect bits until we have all of them */
 
@@ -9836,22 +9834,31 @@ int gwtogiant (
 				will_output = (uint32_t) tmp;
 				outcarry = next_outcarry + (tmp >> 32) + (uint64_t) outval * (uint64_t) khi;
 			}
-			if (will_output) {
-				while (cached_zeros) { *outptr++ = 0; cached_zeros--; }
-				*outptr++ = will_output;
-			} else {
-				cached_zeros++;
+
+			// Output the value.  Caching sequences let us avoid writing unnecessary most significant words in case
+			// the caller allocated a minimum sized giant.
+			if (will_output == 0 && cached_zeros > 0) cached_zeros++;			// Continue a sequence of 0's
+			else if (will_output == 0xFFFFFFFFU && cached_zeros < 0) cached_zeros--;	// Continue a sequence of -1's
+			else {
+				// Output any current sequence
+				while (cached_zeros > 0) *outptr++ = 0, cached_zeros--;
+				while (cached_zeros < 0) *outptr++ = 0xFFFFFFFFU, cached_zeros++;
+				// Start new sequence or output the value
+				if (will_output == 0) cached_zeros = 1;					// Start new sequence of 0's
+				else if (will_output == 0xFFFFFFFFU) cached_zeros = -1;			// Start new sequence of -1's
+				else *outptr++ = will_output;						// Output value
 			}
 
 			// Are we done?  We need to process limit FFT words plus the outcarry.
-			if (gwiter_index (&iter) >= limit && ((accum == 0 && outcarry == 0) || (accum == -1 && outcarry == k64 - 1))) break;
+			if (gwiter_index (&iter) >= limit && ((accum == 0 && outcarry == 0) || (accum == -1 && accumbits <= 0 && outcarry == k64-1))) break;
 		}
+		if (cached_zeros < 0) *outptr++ = 0xFFFFFFFFU;		// Output at least one of the leading -1s
 
 /* Set the length */
 
 		ASSERTG (v->maxsize >= (int) (outptr - v->n));
 		v->sign = (int) (outptr - v->n);
-		ASSERTG (v->sign == 0 || v->n[v->sign-1] != 0);		// Trailing zeros were eliminated above
+		ASSERTG (v->sign == 0 || v->n[v->sign-1] != 0);		// Leading zeros were eliminated above
 
 /* Divide the upper bits by k, leave the remainder in the upper bits and multiply the quotient by c and subtract that from the lower bits. */
 
@@ -9890,7 +9897,6 @@ int gwtogiant (
 
 #undef klo
 #undef khi
-#undef k64
 
 /* Make sure we were passed a large enough buffer */
 

@@ -9475,13 +9475,6 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&ecmdata.gwdata);}
 			first_iter_msg = FALSE;
 		}
 
-/* Periodicly write a save file */
-
-		if (testSaveFilesFlag (thread_num)) {
-			ecm_save (&ecmdata);
-			saving = FALSE;
-		}
-
 /* If we are delaying stopping until we've worked down the poly tree, don't do more polyG outer loops */
 
 		if (delayed_stop_reason) break;

@@ -7,7 +7,7 @@
  *  Massive rewrite by G. Woltman for 32-bit support
  *
  *  c. 1997,1998 Perfectly Scientific, Inc.
- *  c. 1998-2023 Mersenne Research, Inc.
+ *  c. 1998-2024 Mersenne Research, Inc.
  *  All Rights Reserved.
  *
  **************************************************************/
@@ -2769,17 +2769,18 @@ gtog (*yy, t2);
 /* carry overflow will occur.  Also be careful that we don't ask hgcd to */
 /* compute more than y->sign / 2 words. */
 
-		b_size = half_size - a_size;
-		if (A->lr->n[a_size-1] & 0x80000000) b_size--;
-		ul.n = A->ul->n + a_size; setmaxsize (&ul, b_size);
-		ur.n = A->ur->n + a_size; setmaxsize (&ur, b_size);
-		ll.n = A->ll->n + a_size; setmaxsize (&ll, b_size);
-		lr.n = A->lr->n + a_size; setmaxsize (&lr, b_size);
-		B.ul = &ul; setone (&ul);
-		B.ur = &ur; setzero (&ur);
-		B.ll = &ll; setzero (&ll);
-		B.lr = &lr; setone (&lr);
-		if (b_size > ((y->sign - 1) >> 1)) b_size = (y->sign - 1) >> 1;
+		if (y->sign) {
+			b_size = half_size - a_size;
+			if (A->lr->n[a_size-1] & 0x80000000) b_size--;
+			ul.n = A->ul->n + a_size; setmaxsize (&ul, b_size);
+			ur.n = A->ur->n + a_size; setmaxsize (&ur, b_size);
+			ll.n = A->ll->n + a_size; setmaxsize (&ll, b_size);
+			lr.n = A->lr->n + a_size; setmaxsize (&lr, b_size);
+			B.ul = &ul; setone (&ul);
+			B.ur = &ur; setzero (&ur);
+			B.ll = &ll; setzero (&ll);
+			B.lr = &lr; setone (&lr);
+			if (b_size > ((y->sign - 1) >> 1)) b_size = (y->sign - 1) >> 1;
 
 /* It is a problem if x and y are nearly equal such that the returned y from a second hgcd call is smaller than half */
 /* the size of the orginal input.  I'm not exactly sure why, but the code below is designed to work around this. */
@@ -2788,11 +2789,12 @@ gtog (*yy, t2);
 /* NOTE: I've changed ECM stage 1 to use GMP's modular inverse function in the same way prime95 does.  Hopefully no one */
 /* uses the giants GCD code any more. */
 
-		if (x->sign >= 2 && (x->sign != y->sign || x->n[x->sign-1] != y->n[y->sign-1] || x->n[x->sign-2] != y->n[y->sign-2])) {
-			stop_reason = hgcd (gdata, y->sign - (b_size + b_size + 1), &x, &y, &B, interruptable);
-			if (stop_reason) return (stop_reason);
-			stop_reason = mulmMsp (gdata, &B, A, half_size);
-			if (stop_reason) return (stop_reason);
+			if (x->sign >= 2 && y->sign >= 2 && (x->sign != y->sign || x->n[x->sign-1] != y->n[y->sign-1] || x->n[x->sign-2] != y->n[y->sign-2])) {
+				stop_reason = hgcd (gdata, y->sign - (b_size + b_size + 1), &x, &y, &B, interruptable);
+				if (stop_reason) return (stop_reason);
+				stop_reason = mulmMsp (gdata, &B, A, half_size);
+				if (stop_reason) return (stop_reason);
+			}
 		}
 	}
 
