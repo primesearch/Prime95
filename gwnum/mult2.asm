@@ -1,4 +1,4 @@
-; Copyright 1995-2012 Mersenne Research, Inc.  All rights reserved
+; Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -198,12 +198,6 @@ gw_finish_mult:
 	mov	esi, DESTARG		; Addr of FFT data
 	mov	al, POSTFFT		; Set FFT started flag
 	mov	BYTE PTR [esi-28], al
-
-; Normalize SUMOUT value by multiplying by 1 / (fftlen/2).
-
-	fld	SUMOUT
-	fmul	ttmp_ff_inv
-	fstp	QWORD PTR [esi-24]	; Save sum of FFT outputs
 
 ; Return
 

@@ -1,7 +1,23 @@
-; Copyright 2011-2023 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2024 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
+
+; Return from a type 1 FFT - return to caller
+
+zfft_1_ret MACRO
+	ad_epilog 0,1,rbx,rbp,rsi,rdi,r12,r13,r14,r15,zmm6,zmm7,zmm8,zmm9,zmm10,zmm11,zmm12,zmm13,zmm14,zmm15
+	ENDM
+
+; Return from a type 2,3, or 4 FFT - call the common normalization code used in one-pass FFTs only.
+
+zfft_3_ret MACRO
+	start_timer 28
+	mov	rax, NORMRTN	;; Call the normalization routine
+	call	rax
+	end_timer 28
+	ad_epilog 0,1,rbx,rbp,rsi,rdi,r12,r13,r14,r15,zmm6,zmm7,zmm8,zmm9,zmm10,zmm11,zmm12,zmm13,zmm14,zmm15
+	ENDM
 
 ;;
 ;; Common definitions in AVX-512 FFTs
@@ -23,6 +39,78 @@ ZMM_SCD13 = 1664		;; Sizeof a real radix-28 with premultipliers table entry
 ZMM_SCD16 = 2048		;; Sizeof a radix-32 sin/cos table entry
 ZMM_CD8SCD4 = (8*64+4*128)	;; Sizeof a eight_complex first/last djbfft table entry (8 cosines and 4 sin/cosines)
 ZMM_CD12SCD6 = (12*64+6*128)	;; Sizeof a twelve_complex first/last djbfft table entry (8 cosines and 4 sin/cosines)
+
+
+; **********************************************************
+; **********************************************************
+; ******************  ONE PASS MACROS  *********************
+; **********************************************************
+; **********************************************************
+
+;
+; Generate the code for a small FFT computed in just one pass.
+;
+; FFT routines are named using this scheme:
+;
+;	zfft zfft_type fft_size options zarch
+;
+; where zfft_type is (not all are implemented):
+;	r4 = radix-4 DJB
+;	r4delay = radix-4/8 DJB with first levels of pass 1 using common sin/cos values and last levels
+;		  of pass 1 fixing the discrepancy.  Less sin/cos memory, a few more complex multiplies.
+;	r4dwpn = r4delay with partial normalization.
+;	sr = split-radix
+; options are:
+;	_op for one-pass FFTs
+;	_ac for negacyclic
+;
+; zarch indicates FFT is optimized for one of these architectures:
+;	SKX		SkylakeX and later Intel Core CPUs
+
+zonepass MACRO fftname, negacyclic
+	LOCAL	zprocname, zmacroname
+
+;; Generate the procedure name
+
+	zprocname CATSTR <zfft_>,zfft_type,<_>,<&fftname>,<_op>
+	IF negacyclic EQ 1
+	zprocname CATSTR zprocname,<_ac>
+	ENDIF
+	zprocname CATSTR zprocname,<_>,zarch
+
+;; Generate the FFT macro name
+
+	zmacroname CATSTR <zfft>,<&fftname>
+	IF negacyclic EQ 1
+	zmacroname CATSTR zmacroname,<p>
+	ENDIF
+
+;; Header for the FFT routine
+
+	PROCF	zprocname
+	ad_prolog 0,1,rbx,rbp,rsi,rdi,r12,r13,r14,r15,zmm6,zmm7,zmm8,zmm9,zmm10,zmm11,zmm12,zmm13,zmm14,zmm15
+	mov	rsi, DESTARG
+	mov	rbx, DIST_TO_FFTSRCARG
+
+;; To avoid 4KB distances we optimize the larger one-pass FFTs by inserting pad bytes after every 4, 8, 16, 32, or 64 cache lines.
+;; NOTE: Adding pad bytes to 4K and 8K negacyclic FFTs resulted in slight worse throughput on SkyLakeX.  For now, we are not implementing
+;; any padding on AVX-512 small FFTs.
+;;
+;;	dist4 = 4*128+64
+;;	dist8 = 8*128+64
+;;	dist16 = 16*128+64
+;;	dist32 = 32*128+64
+;;	dist64 = 64*128+64
+
+;; Call the macro containing the guts of the FFT
+
+	clear_timers
+	zmacroname
+
+;; Footer for the routine
+
+	zprocname ENDP	
+	ENDM
 
 
 ; ********************************************************
@@ -196,7 +284,7 @@ pass1_normalize MACRO do_forward_fft
 	add	r10, pass1_size/8*64	;; Address of inverse group multipliers
 	mov	rbx, 2*clm-1		;; Generate mask used to detect every (2*clm)-th iteration for prefetching
 	mov	r8, pass2blkdst		;; Prefetching large stride distance
-	lea	r12, [-clm*128+r8]	;; Generate large stride prefetching increment
+	bump	r8, -clm*128		;; Generate large stride prefetching increment
 	mov	rax, NORMRTN		;; Addr of normalization routine
 	call	rax
 	end_timer 28
@@ -335,6 +423,7 @@ zloop_init MACRO count, first_completed, first_iters
 	zloop_prefetched_early = 0
 	zloop_unrolled_count = 0
 	zloop_adjustment = 0
+	zloop_must_emulate_first = 0
 	ENDM
 
 ; Predefined zloop prefetching rates
@@ -470,7 +559,7 @@ zloop MACRO iters, label1, incr_rsi, pm_incr_reg, pm_incr_amt, sc_incr_reg, sc_i
 		ENDIF
 
 	;; Otherwise, if unrolling then emulate the first loops call.
-	ELSEIF loops_completed EQ 0 AND zloop_unrolled_count GT 0
+	ELSEIF loops_completed EQ 0 AND zloop_must_emulate_first NE 0
 		zloop_emulate_first_loops_call
 	ENDIF
 
@@ -553,6 +642,8 @@ zloop_unrolled_one MACRO
 
 	;; Bump the count of unrolled building blocks
 	zloop_unrolled_count = zloop_unrolled_count + 1
+	;; Force emulating first incr
+	zloop_must_emulate_first = 1
 
 	;; If we're at a prefetch iteration, then prefetch
 	IF zloop_prefetch_iter GT 0

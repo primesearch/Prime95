@@ -9,7 +9,7 @@
 // THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
 // PARTICULAR PURPOSE.
 //
-// Copyright (c) 1997-2023 Mersenne Research, Inc. All Rights Reserved.
+// Copyright (c) 1997-2024 Mersenne Research, Inc. All Rights Reserved.
 //
 //  MODULE:   primenet.c
 //
@@ -531,7 +531,7 @@ int format_args (char* args, short operation, void* pkt)
 		if (z->work_type == PRIMENET_WORK_TYPE_PMINUS1) {
 			sprintf (p, "&A=%.0f&b=%d&n=%d&C=%d&B1=%" PRIu64, z->k, z->b, z->n, z->c, z->B1);
 			p = p + strlen (p);
-			if (z->B2 != 0.0) {
+			if (z->B2) {
 				sprintf (p, "&B2=%" PRIu64, z->B2);
 				p = p + strlen (p);
 			}
@@ -539,7 +539,7 @@ int format_args (char* args, short operation, void* pkt)
 		if (z->work_type == PRIMENET_WORK_TYPE_PPLUS1) {
 			sprintf (p, "&A=%.0f&b=%d&n=%d&C=%d&B1=%" PRIu64, z->k, z->b, z->n, z->c, z->B1);
 			p = p + strlen (p);
-			if (z->B2 != 0.0) {
+			if (z->B2) {
 				sprintf (p, "&B2=%" PRIu64, z->B2);
 				p = p + strlen (p);
 			}
@@ -547,7 +547,7 @@ int format_args (char* args, short operation, void* pkt)
 		if (z->work_type == PRIMENET_WORK_TYPE_ECM) {
 			sprintf (p, "&A=%.0f&b=%d&n=%d&C=%d&B1=%" PRIu64, z->k, z->b, z->n, z->c, z->B1);
 			p = p + strlen (p);
-			if (z->B2 != 0.0) {
+			if (z->B2) {
 				sprintf (p, "&B2=%" PRIu64, z->B2);
 				p = p + strlen (p);
 			}
@@ -1043,6 +1043,12 @@ int primenet_parse_page (char *response_buf, short operation, void *pkt)
 			break;
 		case PRIMENET_ERROR_INVALID_RESULT_TYPE:
 			resmsg = "Invalid result type";
+			break;
+		case PRIMENET_ERROR_WORK_NO_LONGER_NEEDED:
+			resmsg = "Work no longer needed";
+			break;
+		case PRIMENET_ERROR_ILLEGAL_RESIDUE:
+			resmsg = "Invalid residue";
 			break;
 		default:
 			resmsg = "Unknown error code";

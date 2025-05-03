@@ -1452,69 +1452,35 @@ void gtogshiftright (	/* shift src right. Equivalent to dest = src/2^bits. */
 
 void gtogshiftrightsplit (
 	int	bits,
-	giant	src,			// Must be positive
-	giant	dest,
+	giant	lower,			// Must be positive
+	giant	upper,			// Must be positive
 	int64_t	accum)			// Must be 0 or -1
 {
-	int	src_size = src->sign;
 	int 	word = bits >> 5;
 	int 	bit = bits & 31;
-	uint32_t carry, *sptr, *dptr;
 
-	ASSERTG (bits > 0);
-	ASSERTG (src != dest);
-	ASSERTG (src->sign >= 0 && (src->sign == 0 || src->n[src->sign-1] != 0));
+	ASSERTG (lower->sign >= 0 && (lower->sign == 0 || lower->n[lower->sign-1] != 0));
+	ASSERTG (upper->sign >= 0 && (upper->sign == 0 || upper->n[upper->sign-1] != 0));
 
-	if (word >= src_size) {
-		// The normal case is accum is zero and we set dest = 0.  The abnormal case is accum = -1.  This only happens for generic reduction
-		// where gwtogiant is converting roughly half of the FFT data.  In this case, make src negative and set dest = 0.
-		if (accum == -1) {
-			for (int i = 0; i < src_size; i++) src->n[i] = ~src->n[i];
-			while (src->sign && src->n[src->sign-1] == 0) src->sign--;
-			iaddg (1, src);
-			src->sign = -src->sign;
-		}
-		dest->sign = 0;
-		return;
+	// If accum is -1, make upper a negative number
+	if (accum == -1) {
+		for (int i = 0; i < upper->sign; i++) upper->n[i] = ~upper->n[i];
+		while (upper->sign && upper->n[upper->sign-1] == 0) upper->sign--;
+		iaddg (1, upper);
+		upper->sign = -upper->sign;
 	}
 
-	// Init pointers
-	sptr = src->n + word;
-	dptr = dest->n;
-
-	// Split first source word
-	if (bit) {
-		carry = *sptr >> bit;
-		*sptr -= (carry << bit);
-		word++;
-		sptr++;
-	}
-	src->sign = word;
-
-	// Split subsequent words without modifying source
-	for ( ; word < src_size; word++, sptr++, dptr++) {
-		if (bit == 0) *dptr = *sptr;
-		else *dptr = (*sptr << (32 - bit)) + carry, carry = *sptr >> bit;
-		if (accum == -1) *dptr = ~*dptr;
+	// Shift the top bits out of lower and into upper
+	if (lower->sign > word && bit != 0) {
+		uint32_t carry = lower->n[lower->sign-1] >> bit;
+		lower->n[lower->sign-1] -= carry << bit;
+		while (lower->sign && lower->n[lower->sign-1] == 0) lower->sign--;
+		gshiftleft (32 - bit, upper);
+		iaddg (carry, upper);
 	}
 
-	// Output the carry
-	if (bit) {
-		if (accum == 0) *dptr = carry;
-		else *dptr = (~(carry << bit)) >> bit;		// Bit flip only the relevant carry bits 
-		dptr++;
-	}
-
-	// Trim source
-	while (src->sign && src->n[src->sign-1] == 0) src->sign--;
-
-	// Trim dest, increment result if accum = -1
-	dest->sign = (int) (dptr - dest->n);
-	while (dest->sign && dest->n[dest->sign-1] == 0) dest->sign--;
-	if (accum == -1) iaddg (1, dest), dest->sign = -dest->sign;
-
-	ASSERTG (src->sign == 0 || src->n[src->sign-1] != 0);
-	ASSERTG (dest->sign == 0 || dest->n[abs(dest->sign)-1] != 0);
+	ASSERTG (lower->sign == 0 || lower->n[abs(lower->sign)-1] != 0);
+	ASSERTG (upper->sign == 0 || upper->n[abs(upper->sign)-1] != 0);
 }
 
 // Highly specialized routine for gwnum's gwtogiant, sets top bits of dest.  dest = (dest % 2^bits) + (src * 2^bits)

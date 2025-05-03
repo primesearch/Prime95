@@ -1,4 +1,4 @@
-; Copyright 2010-2023 Mersenne Research, Inc.  All rights reserved
+; Copyright 2010-2024 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -396,7 +396,7 @@ buildfor CORE                                   ,	r4dwpn_pass1sc3072 27M, 9216, 
 ;buildfor                                       ,	r4dwpn_pass1sc3072 48M, 14, 4
 ;buildfor                                       ,	r4dwpn_pass1sc3072 60M, 20480, 4
 ;; Only include this FFT for the server_proof_processor.  See also mult.asm
-;;buildfor CORE                                   ,	r4dwpn_pass1sc3072 75M, 25600, 4
+buildfor CORE                                   ,	r4dwpn_pass1sc3072 75M, 25600, 4
 
 buildfor                                        ,	r4dwpn_pass1sc3584 32256K, 9216, 4
 ;buildfor                                       ,	r4dwpn_pass1sc3584 42M, 12288, 4

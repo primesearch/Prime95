@@ -1,7 +1,7 @@
 /*----------------------------------------------------------------------
 | This file contains various utility routines that may be used by gwnum setup.
 |
-|  Copyright 2011-2023 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2011-2024 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWTABLES_H
@@ -49,7 +49,7 @@ struct gwasm_data {
 	void	*pass1_get_next_block;	/* Callback routine to get next block number for thread to process */
 
 	double	DBLARG;			/* Function argument */
-	uint32_t NUMARG;		/* Gwcopyzero assembly arg */
+	uint32_t CPU_FLAGS;		/* Copy of gwdata->cpu_flags */
 	uint32_t FFTLEN;		/* The FFT size we are using */
 	double	MAXERR;			/* Convolution error in a multiplication */
 	char	NEGACYCLIC_FFT;		/* True if doing a negacyclic FFT */
@@ -61,12 +61,11 @@ struct gwasm_data {
 	char	TOP_CARRY_NEEDS_ADJUSTING; /* True when carry out of top word needs adjusting */
 	char	SPREAD_CARRY_OVER_EXTRA_WORDS; /* AVX: True when carries must be spread over more than 4 words. */
 					/* X87,SSE2: True when carries must be spread over more than 2 words. */
-	char	zero_fft;		/* TRUE if zero upper half in normalize */
 	char	const_fft;		/* TRUE if mul-by-const in normalize */
 	char	add_sub_smallmul_op;	/* TRUE if we are processing carries from an add/sub/smallmul operation */
 	char	mul4_opcode;		/* 0 for normal gwmul3, 1 for gwaddmul4, 2 for gwsubmul4 */
 	char	aux_initialized;	/* Set to TRUE when an auxiliary thread's asm_data has been initialized */
-	char	UNUSED_CHARS[3];
+	char	UNUSED_CHARS[4];
 	uint32_t ADDIN_ROW;		/* For adding a constant after multiply */
 	uint32_t ADDIN_OFFSET;
 	double	ADDIN_VALUE;		/* Value to add in after a multiply and before a mul-by-const */
@@ -121,12 +120,12 @@ struct gwasm_data {
 	void	*sincos3;
 	void	*sincos4;
 	void	*sincos5;
-	gwthread UNUSED_hyperthread_id;	/* Thread ID of prefetching hyperthread */
+	void	*zpad_sub7;		/* Callback routine to subtract ZPAD words */
 	gwevent UNUSED_hyperthread_work_to_do;	/* Event to signal hyperthread to begin prefetching */
 	void	*SRC3ARG;		/* Function argument */
 	uint32_t *ASM_TIMERS;		/* Timers used for optimizing code */
 
-	uint32_t COPYZERO[8];		/* Offsets to help in gwcopyzero */
+	uint32_t UNUSED[8];		/* Formerly offsets to help in gwcopyzero */
 	double	K;			/* K */
 	double	INVERSE_K;		/* 1/K */
 	double	TWO_TO_17;		/* 2^17 */
@@ -183,24 +182,27 @@ struct gwasm_data {
 	double	ZPAD0_6[7];		/* 7 ZPAD doubles */
 	double	ZPAD_LSW_ADJUST;	/* Multiplier for ADDIN_VALUE when ZERO_PADDED k=1, abs(c)!=1 */
 
-	double	ttmp_ff_inv;		/* Inverse FFT adjust (2/FFTLEN) */
-	double	UNUSED_DOUBLES[7];
-
 	union {
 	    struct zmm_data {
-		intptr_t ZMM_SRC_INCR;		/* Increments to get up to eight consecutive source values */
-		void	*ZMM_PASS2_ROUTINE;	/* Routine to call to do pass 2 of the FFT */
-		void	*ZMM_CARRIES_ROUTINE;	/* Routine to propagate carries in 2-pass FFTs */
+		intptr_t ZMM_SRC_INCR1;		/* Increments to get up to eight consecutive source values (used in zero padding) */
+		intptr_t ZMM_SRC_INCR2;
+		intptr_t ZMM_SRC_INCR3;
+		intptr_t ZMM_SRC_INCR4;
+		intptr_t ZMM_SRC_INCR5;
+		intptr_t ZMM_SRC_INCR6;
+		intptr_t ZMM_SRC_INCR7;
 		void	*ZMM_OP_CARRIES_ROUTINE; /* Routine to propagate carries after an add/sub/addsub/smallmul op in 2-pass FFTs */
 
+		void	*ZMM_PASS2_ROUTINE;	/* Routine to call to do pass 2 of the FFT */
+		void	*ZMM_CARRIES_ROUTINE;	/* Routine to propagate carries in 2-pass FFTs */
 		double	ZMM_MINUS_C;		/* -c stored as double */
 		double	ZMM_MULCONST;
 		double	ZMM_MINUS_C_TIMES_MULCONST;
 		char	ZMM_FIRST_BIGLIT_VALUES[1];  /* Big/lit flags for first 8 values */
 		char	ZMM_UNUSED_CHARS[7];
-
 		double	ZMM_RNDVAL;		/* Used to round double to integer */
 		int32_t	ZMM_ABSVAL[2];		/* Used to compute absolute values */
+
 		double	ZMM_LARGE_BASE;		/* Used to round double to integer */
 		double	ZMM_LARGE_BASE_INVERSE;	/* Used to round double to integer */
 		double	ZMM_RNDVAL_TIMES_LARGE_BASE; /* Used to round double to integer */
@@ -216,38 +218,29 @@ struct gwasm_data {
 		double	ZMM_K_TIMES_MULCONST_LO; /* k*mulconst, low big word bits */
 		double	ZMM_K_TIMES_MULCONST_HI_OVER_SMALL_BASE; /* k*mulconst, top bits */
 		double	ZMM_K_TIMES_MULCONST_HI_OVER_LARGE_BASE; /* k*mulconst, top bits */
+		double	ZMM_B;			/* Used in first and last levels of two pass FFT */
+		double	ZMM_ONE_OVER_B;
 
-		// Next 4 values must be in this order and on a 256-bit boundary
 		double	ZMM_ONE;		/* 1.0 - used in 128-real and expanding reduced sin/cos */
 		double	ZMM_P383;		/* Used in 128-real, 16-real, 16-complex, 32-real macros */
 		double	ZMM_SQRTHALF;		/* SQRT(0.5) - used in 128-real and many other macros */
-		double	ZMM_P383_1;		/* Used in 128-real macros */
-		// End of 4 values that must be in a particular order and on a 256-bit boundary
-
+		double	ZMM_NEGSQRTHALF;	/* -SQRT(0.5) - used in 128-real and some other macros */
 		double	ZMM_TWO;		/* 2.0 - used in 64-complex macros */
 		double	ZMM_HALF;		/* 0.5, used in 12-real, 12-complex, 24-real, 128-real macros */
 		double	ZMM_P924_P383;		/* Used in 128-real, 16-real, 16-complex, 32-real macros */
+		double	ZMM_P223_P623;		/* Alternate 7-complex constant used in 14-complex unfft */
 
-		double	ZMM_P981_P195;		/* Used in 32-real macros */
-		double	ZMM_P195;		/* Used in 32-real macros */
-		double	ZMM_P831_P556;		/* Used in 32-real macros */
-		double	ZMM_P556_P195;		/* Used in 32-real macros */
-
-		double	ZMM_SQRT2;		/* Used in 8-complex, 16-real macros (special versions to reduce roundoff error) */
-
-		double	ZMM_P866;		/* Used in 6-complex, 12-real, 12-complex, 24-real macros */
 		double	ZMM_P259_P707;		/* Used in 24-real macros */
 		double	ZMM_P966_P707;		/* Used in 24-real macros */
-
+		double	ZMM_P866;		/* Used in 3-complex, 6-complex, 12-real, 12-complex, 24-real macros */
+		double	ZMM_P809_P309;		/* Used in 15-complex macros */
 		double	ZMM_P309;		/* Used in 5-complex, 10-real, 10-complex, 20-real macros */
 		double	ZMM_P809;		/* Used in 5-complex, 10-real, 10-complex, 20-real macros */
 		double	ZMM_P951;		/* Used in 5-complex, 10-real, 10-complex, 20-real macros */
 		double	ZMM_P588_P951;		/* Used in 5-complex, 10-real, 10-complex, 20-real macros */
 
-		double	UNUSED_P623;
-		double	UNUSED_P901;
-		double	UNUSED_P975;
-		double	UNUSED_P223;
+		double	ZMM_P901_P223;		/* Alternate 7-complex constant used in 14-complex unfft */
+		double	ZMM_P901_P623;		/* Alternate 7-complex constant used in 14-complex unfft */
 		double	ZMM_P434_P975;		/* Used in 7-complex, 14-real macros */
 		double	ZMM_P782_P975;		/* Used in 7-complex, 14-real macros */
 		double	ZMM_P901_P975;		/* Used in 7-complex, 14-real macros */
@@ -255,13 +248,20 @@ struct gwasm_data {
 		double	ZMM_P223_P975;		/* Used in 7-complex, 14-real macros */
 		double	ZMM_P1_P975;		/* Used in 7-complex, 14-real macros */
 
-		double	ZMM_B;			/* Used in first and last levels of two pass FFT */
-		double	ZMM_ONE_OVER_B;
-
+		double	ZMM_P981_P195;		/* Used in 32-real macros */
+		double	ZMM_P195;		/* Used in 32-real macros */
+		double	ZMM_P831_P556;		/* Used in 32-real macros */
+		double	ZMM_P556_P195;		/* Used in 32-real macros */
 		int64_t	ZMM_PERMUTE1;		/* Permute indices for swizzling.  Used in one-pass wrapper, rsc macros */
 		int64_t	ZMM_PERMUTE2;		/* Permute indices for swizzling.  Used in one-pass wrapper, rsc macros */
+		int64_t	ZMM_PERMUTE3;		/* Permute indices for carry rotations */
+		int64_t	ZMM_PERMUTE4;		/* Permute indices for carry rotations */
 
-		double	UNUSED_DOUBLES[7];	/* Pad to a cache line */
+		int64_t	ZMM_PERMUTE5;		/* Permute indices for swizzling.  Used in traditional one-pass macros */
+		int64_t	ZMM_PERMUTE6;		/* Permute indices for swizzling.  Used in traditional one-pass macros */
+		int64_t	ZMM_PERMUTE7;		/* Permute indices for swizzling.  Used in traditional one-pass macros */
+		int64_t	ZMM_PERMUTE8;		/* Permute indices for swizzling.  Used in traditional one-pass macros */
+		int64_t UNUSED_PERMUTES[4];
 
 		double	ZMM_TMPS[512];		/* Space for (clm=4)*ZMM_SCD8 temps generated by zr8_calc_sincos */
 	    } zmm;
@@ -365,7 +365,7 @@ struct gwasm_data {
 		double	XMM_TWO[2];		/* 2.0 */
 		double	XMM_HALF[2];		/* 0.5 */
 		double	XMM_SQRTHALF[2];	/* SQRT(0.5) */
-		double	XMM_SUMOUT[2];		/* Used in normalization macros */
+		double	UNUSED_XMM_SUMOUT[2];
 
 		double	XMM_MAXERR[2];		/* Used in normalization macros */
 		int32_t	XMM_ABSVAL[4];		/* Used to compute absolute values */
@@ -498,6 +498,10 @@ struct gwasm_data {
 
 unsigned long pow_two_above_or_equal (unsigned long n);
 
+double *zr4_build_onepass_sincos_table (gwhandle *gwdata, double *table);
+double *zr4_build_onepass_biglit_table (gwhandle *gwdata, double *table);
+double *zr4_build_onepass_weights_table (gwhandle *gwdata, double *table);
+double *zr4_build_onepass_inverse_weights_table (gwhandle *gwdata, double *table);
 double *zr4dwpn_build_pass1_table (gwhandle *gwdata, double *table);
 double *zr4dwpn_build_fixed_pass1_table (gwhandle *gwdata, double *table);
 double *zr4dwpn_build_biglit_table (gwhandle *gwdata, double *table);

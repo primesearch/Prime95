@@ -1,4 +1,4 @@
-; Copyright 2011-2023 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2024 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -20,6 +20,14 @@
 ;; DIST_TO_FFTSRCARG = rbx = distance from rsi to source (zero for types 1, 2)
 ;; DIST_TO_MULSRCARG = distance from rsi to multiplier (zero for types 2, 3)
 
+;; August 2024, tried loop merging optimization for FMA3 CPUs only.  Little success.
+;; 16-complex-first-fft was slower on Haswell, slightly faster on KabyLake
+;; 16-complex-last-fft was slower on Haswell, and slower on KabyLake
+IF (@INSTR(,%yarch,<FMA3>) NE 0)
+	OLDWAY = 1
+ELSE
+	OLDWAY = 1
+ENDIF
 
 ;;;
 ;;;  First some utility macros
@@ -32,105 +40,6 @@ ytwo_dest_adjust MACRO
 x64	add	rsi, DEST2ARG
 x64	mov	DESTARG, rsi
 	ENDM
-
-;; When doing zero-padded FFTs, the 7 words around the halfway point must
-;; be copied for later processing.  This macro does that.
-
-ycopy_7_words MACRO dist_half_minus_3, dist_half_minus_2, dist_half_minus_1, dist_half, dist_half_plus_1, dist_half_plus_2, dist_half_plus_3
-	LOCAL	nozpad
-	cmp	ZERO_PADDED_FFT, 0	;; Is this a zero-padded FFT?
-	je	short nozpad		;; No, skip 7 word copy
-	vmovsd	xmm0, Q [rsi+rbx+dist_half] ;; Copy half-way point word
-	vmovsd	Q [rsi-64], xmm0
-	vmovsd	xmm1, Q [rsi+rbx+dist_half_plus_1] ;; Copy 1st word above half-way
-	vmovsd	Q [rsi-56], xmm1
-	vmovsd	xmm2, Q [rsi+rbx+dist_half_plus_2] ;; Copy 2nd word above half-way
-	vmovsd	Q [rsi-48], xmm2
-	vmovsd	xmm3, Q [rsi+rbx+dist_half_plus_3] ;; Copy 3rd word above half-way
-	vmovsd	Q [rsi-40], xmm3
-	vmovsd	xmm0, Q [rsi+rbx+dist_half_minus_1] ;; Copy 1st word below half-way
-	vmovsd	Q [rsi-72], xmm0
-	vmovsd	xmm1, Q [rsi+rbx+dist_half_minus_2] ;; Copy 2nd word below half-way
-	vmovsd	Q [rsi-80], xmm1
-	vmovsd	xmm2, Q [rsi+rbx+dist_half_minus_3] ;; Copy 3rd word below half-way
-	vmovsd	Q [rsi-88], xmm2
-nozpad:
-	ENDM
-
-;; When doing zero-padded FFTs, the multiplied 7 words around the halfway point
-;; must be subtracted from the bottom of the FFT.  This must be done before
-;; normalization multiplies the FFT data by k.  This macro does that and also
-;; initializes the sumout reg.
-;; On input, rsi=DESTARG (already adjusted for two destination multiplies)
-
-ysub_7_words MACRO dist1, dist2, dist3, dist4, dist5, dist6
-	LOCAL	nozpad
-	vxorpd	ymm7, ymm7, ymm7		;; Clear sumout
-	cmp	ZERO_PADDED_FFT, 0		;; Is this a zero-padded FFT?
-	je	nozpad				;; No, skip 7 word subtract
-	IF dist1 EQ 8 AND dist2 EQ 16 AND dist3 EQ 24
-	vmovapd	ymm0, [rsi]			;; Subtract 1st through 4th words
-	vmovapd	ymm1, ZPAD0			;; Load ZPAD data
-	vmulpd	ymm1, ymm1, YMM_NORM012_FF	;; Scale by FFTLEN/2
-	vsubpd	ymm0, ymm0, ymm1
-	vaddpd	ymm7, ymm7, ymm1		;; Adjust sumout
-	vmovapd	[rsi], ymm0
-	ELSE
-	vmovsd	xmm0, Q [rsi]			;; Subtract 1st word
-	vmovsd	xmm1, ZPAD0			;; Load ZPAD data
-	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Scale by FFTLEN/2
-	vsubsd	xmm0, xmm0, xmm1
-	vaddsd	xmm7, xmm7, xmm1		;; Adjust sumout
-	vmovsd	Q [rsi], xmm0
-	vmovsd	xmm0, Q [rsi+dist1]		;; Subtract 2nd word
-	vmovsd	xmm1, ZPAD1			;; Load ZPAD data
-	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Scale by FFTLEN/2
-	vsubsd	xmm0, xmm0, xmm1
-	vaddsd	xmm7, xmm7, xmm1		;; Adjust sumout
-	vmovsd	Q [rsi+dist1], xmm0
-	vmovsd	xmm0, Q [rsi+dist2]		;; Subtract 3rd word
-	vmovsd	xmm1, ZPAD2			;; Load ZPAD data
-	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Scale by FFTLEN/2
-	vsubsd	xmm0, xmm0, xmm1
-	vaddsd	xmm7, xmm7, xmm1		;; Adjust sumout
-	vmovsd	Q [rsi+dist2], xmm0
-	vmovsd	xmm0, Q [rsi+dist3]		;; Subtract 4th word
-	vmovsd	xmm1, ZPAD3			;; Load ZPAD data
-	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Scale by FFTLEN/2
-	vsubsd	xmm0, xmm0, xmm1
-	vaddsd	xmm7, xmm7, xmm1		;; Adjust sumout
-	vmovsd	Q [rsi+dist3], xmm0
-	ENDIF
-	IF dist5-dist4 EQ 8
-	vmovapd	xmm0, [rsi+dist4]		;; Subtract 5th-6th word
-	vmovapd	xmm1, XPTR ZPAD4		;; Load ZPAD data
-	vmulpd	xmm1, xmm1, XPTR YMM_NORM012_FF	;; Scale by FFTLEN/2
-	vsubpd	xmm0, xmm0, xmm1
-	vaddpd	ymm7, ymm7, ymm1		;; Adjust sumout
-	vmovapd	[rsi+dist4], xmm0
-	ELSE
-	vmovsd	xmm0, Q [rsi+dist4]		;; Subtract 5th word
-	vmovsd	xmm1, ZPAD4			;; Load ZPAD data
-	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Scale by FFTLEN/2
-	vsubsd	xmm0, xmm0, xmm1
-	vaddpd	ymm7, ymm7, ymm1		;; Adjust sumout
-	vmovsd	Q [rsi+dist4], xmm0
-	vmovsd	xmm0, Q [rsi+dist5]		;; Subtract 6th word
-	vmovsd	xmm1, ZPAD5			;; Load ZPAD data
-	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Scale by FFTLEN/2
-	vsubsd	xmm0, xmm0, xmm1
-	vaddpd	ymm7, ymm7, ymm1		;; Adjust sumout
-	vmovsd	Q [rsi+dist5], xmm0
-	ENDIF
-	vmovsd	xmm0, Q [rsi+dist6]		;; Subtract 7th word
-	vmovsd	xmm1, ZPAD6			;; Load ZPAD data
-	vmulsd	xmm1, xmm1, Q YMM_NORM012_FF	;; Scale by FFTLEN/2
-	vsubsd	xmm0, xmm0, xmm1
-	vaddpd	ymm7, ymm7, ymm1		;; Adjust sumout
-	vmovsd	Q [rsi+dist6], xmm0
-nozpad:
-	ENDM
-
 
 ;;;
 ;;;  Now we have one macro for each FFT length
@@ -146,10 +55,6 @@ yfft32 MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 3*64+8, 3*64+16, 3*64+24, 32, 40, 48, 56
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -255,7 +160,6 @@ yfinish_unfft:
 	end_timer 6
 
 	ytwo_dest_adjust
-	ysub_7_words 8, 16, 24, 64, 72, 80
 	yfft_3_ret
 	ENDM
 
@@ -381,10 +285,6 @@ yfft64 MACRO type
 	cmp	ffttype, 4
 	je	ymid4
 
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 7*64+16, 6*64+24, 7*64+24, 32, 64+32, 40, 64+40
-
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	2	4	6	32	+2	+2	+2
@@ -497,7 +397,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 2*64, 4*64, rdi, YMM_SCD3, 2
 	end_timer 6
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 8, 72, 16, 80, 24
 	yfft_3_ret
 	ENDM
 
@@ -630,10 +529,6 @@ yfft96 MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 9*64+24, 10*64+24, 11*64+24, 32, 64+32, 2*64+32, 40
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -818,7 +713,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 3*64, 6*64, rdi, YMM_SCD3, 3
 	end_timer 8
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 8, 72, 136, 16
 	yfft_3_ret
 	ENDM
 
@@ -1020,10 +914,6 @@ yfft128 MACRO type
 	cmp	ffttype, 4
 	je	ymid4
 
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 13*64+24, 14*64+24, 15*64+24, 32, 64+32, 2*64+32, 3*64+32
-
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	4	8	12	64	+4	+4	+4
@@ -1214,7 +1104,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 4*64, 8*64, rdi, YMM_SCD3, 4
 	end_timer 8
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 8, 72, 136
 	yfft_3_ret
 	ENDM
 
@@ -1423,10 +1312,6 @@ yfft160 MACRO type
 	cmp	ffttype, 4
 	je	ymid4
 
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 17*64+24, 18*64+24, 19*64+24, 32, 64+32, 2*64+32, 3*64+32
-
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	5	10	15	80	+5	+5	+5
@@ -1617,7 +1502,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 5*64, 10*64, rdi, YMM_SCD3, 5
 	end_timer 8
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 8, 72
 	yfft_3_ret
 	ENDM
 
@@ -1826,10 +1710,6 @@ yfft192 MACRO type
 	cmp	ffttype, 4
 	je	ymid4
 
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 21*64+24, 22*64+24, 23*64+24, 32, 64+32, 2*64+32, 3*64+32
-
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	+6	+6	+6	96	+6	+6	+6
@@ -2017,7 +1897,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 6*64, 12*64, rdi, YMM_SCD3, 6
 	end_timer 8
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 8
 	yfft_3_ret
 	ENDM
 
@@ -2223,10 +2102,6 @@ yfft256 MACRO type
 	cmp	ffttype, 4
 	je	ymid4
 
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 29*64+24, 30*64+24, 31*64+24, 32, 64+32, 2*64+32, 3*64+32
-
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	+8	+8	+8	128	+8	+8	+8
@@ -2417,7 +2292,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 8*64, 16*64, rdi, YMM_SCD3, 8
 	end_timer 8
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -2626,10 +2500,6 @@ yfft320 MACRO type
 	cmp	ffttype, 4
 	je	ymid4
 
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 37*64+24, 38*64+24, 39*64+24, 32, 64+32, 2*64+32, 3*64+32
-
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	+10	+10	+10	160	+10	+10	+10
@@ -2820,7 +2690,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 10*64, 20*64, rdi, YMM_SCD3, 10
 	end_timer 8
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -3028,10 +2897,6 @@ yfft384 MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 45*64+24, 46*64+24, 47*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -3293,7 +3158,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 12*64, 24*64, rdi, YMM_SCD3, 12
 	end_timer 10
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -3560,10 +3424,6 @@ yfft512 MACRO type
 	cmp	ffttype, 4
 	je	ymid4
 
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 61*64+24, 62*64+24, 63*64+24, 32, 64+32, 2*64+32, 3*64+32
-
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	16	32	48	256	+16	+16	+16
@@ -3826,7 +3686,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 16*64, 32*64, rdi, YMM_SCD3, 16
 	end_timer 10
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -4095,10 +3954,6 @@ yfft640 MACRO type
 	cmp	ffttype, 4
 	je	ymid4
 
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 77*64+24, 78*64+24, 79*64+24, 32, 64+32, 2*64+32, 3*64+32
-
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	+20	+20	+20	320	+20	+20	+20
@@ -4363,7 +4218,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 20*64, 40*64, rdi, YMM_SCD3, 20
 	end_timer 10
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -4634,10 +4488,6 @@ yfft768 MACRO type
 	cmp	ffttype, 4
 	je	ymid4
 
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 93*64+24, 94*64+24, 95*64+24, 32, 64+32, 2*64+32, 3*64+32
-
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	+24	+24	+24	384	+24	+24	+24
@@ -4898,7 +4748,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 24*64, 48*64, rdi, YMM_SCD3, 24
 	end_timer 10
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -5164,10 +5013,6 @@ yfft1K MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 3*dist32+29*64+24, 3*dist32+30*64+24, 3*dist32+31*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -5435,7 +5280,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, dist32, 2*dist32, rdi, YMM_SCD3, 32
 	end_timer 10
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -5477,15 +5321,6 @@ yfft1Kp MACRO type
 ;;	distance between fft data elements is 128
 ;;	do 32 macros each processing 32 data values
 
-	start_timer 4
-	mov	rdi, sincos1		;; Load sin/cos pointer
-	bump	rdi, 32*YMM_SCD2/4
-	yloop_init  32			;; 32 iterations
-	yr4_fs4cl_four_complex_first_djbfft_preload
-b1b:	yr4_fs4cl_four_complex_first_djbfft rsi, 64, dist32, 2*dist32, rdi, YMM_SCD4, 32
-	yloop	32, b1b, -32*64		;; Test loop counter, restore source pointer
-	end_timer 4
-
 ;; Do FFT levels 4,5
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	+256	+256	+256	128	+256	+256	+256
@@ -5505,6 +5340,16 @@ b1b:	yr4_fs4cl_four_complex_first_djbfft rsi, 64, dist32, 2*dist32, rdi, YMM_SCD
 ;;	distance between fft data elements is 32
 ;;	do 32 macros each processing 32 data values
 
+IF OLDWAY EQ 1
+	start_timer 4
+	mov	rdi, sincos1		;; Load sin/cos pointer
+	bump	rdi, 32*YMM_SCD2/4
+	yloop_init  32			;; 32 iterations
+	yr4_fs4cl_four_complex_first_djbfft_preload
+b1b:	yr4_fs4cl_four_complex_first_djbfft rsi, 64, dist32, 2*dist32, rdi, YMM_SCD4, 32
+	yloop	32, b1b, -32*64		;; Test loop counter, restore source pointer
+	end_timer 4
+
 	start_timer 5
 	bump	rdi, -32*YMM_SCD4-32*YMM_SCD2/4 ;; Load sin/cos pointer
 	yloop_init  32			;; 32 iterations
@@ -5512,6 +5357,16 @@ b1b:	yr4_fs4cl_four_complex_first_djbfft rsi, 64, dist32, 2*dist32, rdi, YMM_SCD
 b2b:	yr4_b4cl_four_complex_djbfft rsi, 64, dist32, 2*dist32, rdi, YMM_SCD2/4, 32
 	yloop	32, b2b, -32*64, rdi, -32*YMM_SCD2/4 ;; Test loop counter, restore source pointer, restore sin/cos pointer
 	end_timer 5
+ELSE
+	start_timer 4
+	mov	rdi, sincos1		;; Load sin/cos pointers
+	lea	rdx, [rdi+32*YMM_SCD2/4]
+	yloop_init  32			;; 32 iterations
+	yr4_fs4cl_sixteen_complex_first_djbfft_preload
+b1b:	yr4_fs4cl_sixteen_complex_first_djbfft rsi, 64, dist32, 2*dist32, rdx, YMM_SCD4, rdi, YMM_SCD2/4, 32
+	yloop	32, b1b, -32*64, rdi, -32*YMM_SCD2/4 ;; Test loop counter, restore source pointer, restore sin/cos pointer
+	end_timer 4
+ENDIF
 
 ;; Do FFT levels 6,7
 ;; On input the 64-byte cache lines hold these data values:
@@ -5651,13 +5506,6 @@ c3b:	yr4_b4cl_four_complex_djbunfft rsi, 64, 8*64, 16*64, rdi, 4*YMM_SCD2/4, 8
 ;;	distance between fft data elements is 32
 ;;	do 32 macros each processing 32 data values
 
-	start_timer 9
-	yloop_init  32			;; 32 iterations
-	yr4_b4cl_four_complex_djbunfft_preload
-c2b:	yr4_b4cl_four_complex_djbunfft rsi, 64, dist32, 2*dist32, rdi, YMM_SCD2/4, 32
-	yloop	32, c2b, -32*64		;; Test loop counter, restore source pointer
-	end_timer 9
-
 ;; Do inverse FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	+256	+256	+256	128	+256	+256	+256
@@ -5685,12 +5533,29 @@ c2b:	yr4_b4cl_four_complex_djbunfft rsi, 64, dist32, 2*dist32, rdi, YMM_SCD2/4, 
 ;;	distance between fft data elements is 128
 ;;	do 32 macros each processing 32 data values
 
+IF OLDWAY EQ 1
+	start_timer 9
+	yloop_init  32			;; 32 iterations
+	yr4_b4cl_four_complex_djbunfft_preload
+c2b:	yr4_b4cl_four_complex_djbunfft rsi, 64, dist32, 2*dist32, rdi, YMM_SCD2/4, 32
+	yloop	32, c2b, -32*64		;; Test loop counter, restore source pointer
+	end_timer 9
+
 	start_timer 10
 	yloop_init  32			;; 32 iterations
 	yr4_s4cl_four_complex_last_unfft_preload
 c1b:	yr4_s4cl_four_complex_last_unfft rsi, 64, dist32, 2*dist32, rdi, YMM_SCD4, 32
 	yloop	32, c1b			;; Test loop counter
 	end_timer 10
+ELSE
+	start_timer 10
+	lea	rdx, [rdi+32*YMM_SCD2/4]
+	yloop_init  32			;; 32 iterations
+	yr4_s4cl_sixteen_complex_last_unfft_preload
+c1b:	yr4_s4cl_sixteen_complex_last_unfft rsi, 64, dist32, 2*dist32, rdi, YMM_SCD2/4, rdx, YMM_SCD4, 32
+	yloop	32, c1b			;; Test loop counter
+	end_timer 10
+ENDIF
 
 	ytwo_dest_adjust
 	yfft_3_ret
@@ -5707,10 +5572,6 @@ yfft1280 MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 157*64+24, 158*64+24, 159*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -5976,7 +5837,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 40*64, 80*64, rdi, YMM_SCD3, 40
 	end_timer 10
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -6246,10 +6106,6 @@ yfft1536 MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 11*dist16+13*64+24, 11*dist16+14*64+24, 11*dist16+15*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -6583,7 +6439,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 3*dist16, 6*dist16, rdi, YMM_SCD3, 16
 	end_timer 12
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -6909,10 +6764,6 @@ yfft2K MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 3*dist64+61*64+24, 3*dist64+62*64+24, 3*dist64+63*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -7262,7 +7113,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 4*64, dist64, 2*dist64, rdi, 4*YMM_SCD3, 16
 	end_timer 12
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -7605,10 +7455,6 @@ yfft2560 MACRO type
 	cmp	ffttype, 4
 	je	ymid4
 
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 19*dist16+13*64+24, 19*dist16+14*64+24, 19*dist16+15*64+24, 32, 64+32, 2*64+32, 3*64+32
-
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	+80	+80	+80	1280	+80	+80	+80
@@ -7945,7 +7791,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 5*dist16, 10*dist16, rdi, YMM_SCD3, 16
 	end_timer 12
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -8275,10 +8120,6 @@ yfft3K MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 11*dist32+29*64+24, 11*dist32+30*64+24, 11*dist32+31*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -8612,7 +8453,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 3*dist32, 6*dist32, rdi, YMM_SCD3, 32
 	end_timer 12
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -8938,10 +8778,6 @@ yfft4K MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 7*dist64+61*64+24, 7*dist64+62*64+24, 7*dist64+63*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -9295,7 +9131,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 2*dist64, 4*dist64, rdi, YMM_SCD3, 64
 	end_timer 12
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -9634,10 +9469,6 @@ yfft5K MACRO type
 	cmp	ffttype, 4
 	je	ymid4
 
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 19*dist32+29*64+24, 19*dist32+30*64+24, 19*dist32+31*64+24, 32, 64+32, 2*64+32, 3*64+32
-
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	+160	+160	+160	2560	+160	+160	+160
@@ -9974,7 +9805,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 5*dist32, 10*dist32, rdi, YMM_SCD3, 32
 	end_timer 12
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -10305,10 +10135,6 @@ yfft6K MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 11*dist64+61*64+24, 11*dist64+62*64+24, 11*dist64+63*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -10732,7 +10558,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 3*dist64, 6*dist64, rdi, YMM_SCD3, 64
 	end_timer 14
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -11129,10 +10954,6 @@ yfft8K MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 15*dist64+61*64+24, 15*dist64+62*64+24, 15*dist64+63*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -11558,7 +11379,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 4*dist64, 8*dist64, rdi, YMM_SCD3, 64
 	end_timer 14
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -11592,16 +11412,6 @@ yfft8Kp MACRO type
 ;;	distance between fft data elements is 1024
 ;;	do 256 macros each processing 32 data values
 
-	start_timer 4
-	mov	rdi, sincos1		;; Load sin/cos pointer
-	bump	rdi, 256*YMM_SCD2/4
-	yloop_init  256			;; 256 iterations
-	yr4_fs4cl_four_complex_first_djbfft_preload
-b1b:	yr4_fs4cl_four_complex_first_djbfft rsi, 64, 4*dist64, 8*dist64, rdi, YMM_SCD4, 64
-	yloop	64, b1b, -64*64+dist64	;; Test loop counter, next source pointer
-	yloop	4, b1b, -4*dist64	;; Test loop counter, restore source pointer
-	end_timer 4
-
 ;; Do FFT levels 4,5
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	2K	4K	6K	1K	+2K	+2K	+2K
@@ -11621,6 +11431,17 @@ b1b:	yr4_fs4cl_four_complex_first_djbfft rsi, 64, 4*dist64, 8*dist64, rdi, YMM_S
 ;;	distance between fft data elements is 256
 ;;	do 256 macros each processing 32 data values
 
+IF OLDWAY EQ 1
+	start_timer 4
+	mov	rdi, sincos1		;; Load sin/cos pointer
+	bump	rdi, 256*YMM_SCD2/4
+	yloop_init  256			;; 256 iterations
+	yr4_fs4cl_four_complex_first_djbfft_preload
+b1b:	yr4_fs4cl_four_complex_first_djbfft rsi, 64, 4*dist64, 8*dist64, rdi, YMM_SCD4, 64
+	yloop	64, b1b, -64*64+dist64	;; Test loop counter, next source pointer
+	yloop	4, b1b, -4*dist64	;; Test loop counter, restore source pointer
+	end_timer 4
+
 	start_timer 5
 	bump	rdi, -256*YMM_SCD4-256*YMM_SCD2/4 ;; Load sin/cos pointer
 	yloop_init  256			;; 256 iterations
@@ -11629,6 +11450,17 @@ b2b:	yr4_b4cl_four_complex_djbfft rsi, 64, 4*dist64, 8*dist64, rdi, YMM_SCD2/4, 
 	yloop	64, b2b, -64*64+dist64	;; Test loop counter, next source pointer
 	yloop	4, b2b, -4*dist64, rdi, -256*YMM_SCD2/4 ;; Test loop counter, restore source pointer, restore sin/cos pointer
 	end_timer 5
+ELSE
+	start_timer 4
+	mov	rdi, sincos1		;; Load sin/cos pointers
+	lea	rdx, [rdi+256*YMM_SCD2/4]
+	yloop_init  256			;; 256 iterations
+	yr4_fs4cl_sixteen_complex_first_djbfft_preload
+b1b:	yr4_fs4cl_sixteen_complex_first_djbfft rsi, 64, 4*dist64, 8*dist64, rdx, YMM_SCD4, rdi, YMM_SCD2/4, 64
+	yloop	64, b1b, -64*64+dist64	;; Test loop counter, next source pointer
+	yloop	4, b1b, -4*dist64, rdi, -256*YMM_SCD2/4 ;; Test loop counter, restore source pointer, restore sin/cos pointer
+	end_timer 4
+ENDIF
 
 ;; Do FFT levels 6,7
 ;; On input the 64-byte cache lines hold these data values:
@@ -11898,14 +11730,6 @@ c3b:	yr4_b4cl_four_complex_djbunfft rsi, 4*64, dist64, 2*dist64, rdi, 4*4*YMM_SC
 ;;	distance between fft data elements is 256
 ;;	do 256 macros each processing 32 data values
 
-	start_timer 13
-	yloop_init  256			;; 256 iterations
-	yr4_b4cl_four_complex_djbunfft_preload
-c2b:	yr4_b4cl_four_complex_djbunfft rsi, 64, 4*dist64, 8*dist64, rdi, YMM_SCD2/4, 64
-	yloop	64, c2b, -64*64+dist64	;; Test loop counter, next source pointer
-	yloop	4, c2b, -4*dist64	;; Test loop counter, restore source pointer
-	end_timer 13
-
 ;; Do inverse FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
 ;;	0	2K	4K	6K	1024	+2K	+2K	+2K
@@ -11933,6 +11757,15 @@ c2b:	yr4_b4cl_four_complex_djbunfft rsi, 64, 4*dist64, 8*dist64, rdi, YMM_SCD2/4
 ;;	distance between fft data elements is 1024
 ;;	do 256 macros each processing 32 data values
 
+IF OLDWAY EQ 1
+	start_timer 13
+	yloop_init  256			;; 256 iterations
+	yr4_b4cl_four_complex_djbunfft_preload
+c2b:	yr4_b4cl_four_complex_djbunfft rsi, 64, 4*dist64, 8*dist64, rdi, YMM_SCD2/4, 64
+	yloop	64, c2b, -64*64+dist64	;; Test loop counter, next source pointer
+	yloop	4, c2b, -4*dist64	;; Test loop counter, restore source pointer
+	end_timer 13
+
 	start_timer 14
 	yloop_init  256			;; 256 iterations
 	yr4_s4cl_four_complex_last_unfft_preload
@@ -11940,6 +11773,16 @@ c1b:	yr4_s4cl_four_complex_last_unfft rsi, 64, 4*dist64, 8*dist64, rdi, YMM_SCD4
 	yloop	64, c1b, -64*64+dist64	;; Test loop counter, next source pointer
 	yloop	4, c1b			;; Test loop counter
 	end_timer 14
+ELSE
+	start_timer 14
+	lea	rdx, [rdi+256*YMM_SCD2/4]
+	yloop_init  256			;; 256 iterations
+	yr4_s4cl_sixteen_complex_last_unfft_preload
+c1b:	yr4_s4cl_sixteen_complex_last_unfft rsi, 64, 4*dist64, 8*dist64, rdi, YMM_SCD2/4, rdx, YMM_SCD4, 64
+	yloop	64, c1b, -64*64+dist64	;; Test loop counter, next source pointer
+	yloop	4, c1b			;; Test loop counter
+	end_timer 14
+ENDIF
 
 	ytwo_dest_adjust
 	yfft_3_ret
@@ -11957,10 +11800,6 @@ yfft10K MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 19*dist64+61*64+24, 19*dist64+62*64+24, 19*dist64+63*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -12388,7 +12227,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 5*dist64, 10*dist64, rdi, YMM_SCD3, 64
 	end_timer 14
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -12789,10 +12627,6 @@ yfft12K MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 23*dist64+61*64+24, 23*dist64+62*64+24, 23*dist64+63*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -13220,7 +13054,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 6*dist64, 12*dist64, rdi, YMM_SCD3, 64
 	end_timer 14
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -13619,10 +13452,6 @@ yfft16K MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 31*dist64+61*64+24, 31*dist64+62*64+24, 31*dist64+63*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -14052,7 +13881,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 8*dist64, 16*dist64, rdi, YMM_SCD3, 64
 	end_timer 14
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -14453,10 +14281,6 @@ yfft20K MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 39*dist64+61*64+24, 39*dist64+62*64+24, 39*dist64+63*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -14888,7 +14712,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 10*dist64, 20*dist64, rdi, YMM_SCD3, 64
 	end_timer 14
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -15291,10 +15114,6 @@ yfft18K MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 35*dist64+61*64+24, 35*dist64+62*64+24, 35*dist64+63*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -15794,7 +15613,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 9*dist64, 18*dist64, rdi, YMM_SCD3, 64
 	end_timer 16
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -16253,10 +16071,6 @@ yfft24K MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 47*dist64+61*64+24, 47*dist64+62*64+24, 47*dist64+63*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -16756,7 +16570,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 12*dist64, 24*dist64, rdi, YMM_SCD3, 64
 	end_timer 16
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 
@@ -17215,10 +17028,6 @@ yfft32K MACRO type
 
 	cmp	ffttype, 4
 	je	ymid4
-
-;; Do zero-pad prep work.  Copy 7 words around the halfway point.
-
-	ycopy_7_words 63*dist64+61*64+24, 63*dist64+62*64+24, 63*dist64+63*64+24, 32, 64+32, 2*64+32, 3*64+32
 
 ;; Do FFT levels 1,2,3
 ;; On input the 64-byte cache lines hold these data values:
@@ -17720,7 +17529,6 @@ c1b:	yr4_s4cl_eight_reals_unfft rsi, 64, 16*dist64, 32*dist64, rdi, YMM_SCD3, 64
 	end_timer 16
 
 	ytwo_dest_adjust
-	ysub_7_words 64, 128, 192, 256, 320, 384
 	yfft_3_ret
 	ENDM
 

@@ -1,4 +1,4 @@
-; Copyright 2009-2023 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2009-2024 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -10578,7 +10578,6 @@ r4_h4cl_eight_reals_four_complex_fft_final MACRO srcreg,srcinc,d1,d2
 	ENDM
 
 r4_h4cl_eight_reals_four_complex_with_square MACRO srcreg,srcinc,d1,d2
-	xmult7	srcreg, srcreg
 	r4_h8r_h4c_simple_fft_mem [srcreg],[srcreg+d1],[srcreg+d2],[srcreg+d2+d1],[srcreg+16],[srcreg+d1+16],[srcreg+d2+16],[srcreg+d2+d1+16],[srcreg],[srcreg+16]
 	xp_complex_square xmm2, xmm6, xmm7	;; Square R2, I2
 	xstore	[srcreg+d1], xmm2
@@ -10635,7 +10634,6 @@ r4_h4cl_eight_reals_four_complex_with_square MACRO srcreg,srcinc,d1,d2
 	ENDM
 
 r4_h4cl_eight_reals_four_complex_with_mult MACRO srcreg,srcinc,d1,d2
-	xmult7	srcreg, srcreg+rbp
 	r4_h8r_h4c_simple_fft_mem [srcreg],[srcreg+d1],[srcreg+d2],[srcreg+d2+d1],[srcreg+16],[srcreg+d1+16],[srcreg+d2+16],[srcreg+d2+d1+16],[srcreg],[srcreg+16]
 	xload	xmm3, [srcreg]
 	xload	xmm7, [srcreg+16]
@@ -10682,7 +10680,6 @@ r4_h4cl_eight_reals_four_complex_with_mult MACRO srcreg,srcinc,d1,d2
 	ENDM
 
 r4_h4cl_eight_reals_four_complex_with_mulf MACRO srcreg,srcinc,d1,d2
-	xmult7	srcreg+rbx, srcreg+rbp
 	xload	xmm3, [srcreg][rbx]		;; R1
 	xload	xmm7, [srcreg+16][rbx]		;; R2
 	xload	xmm2, [srcreg+32][rbx]		;; R3

@@ -145,6 +145,7 @@ void compare (int thread_num, gwhandle *gwdata, gwnum x, giant g)
 		OutputBoth (thread_num, msg);
 
 		gianttogw (gwdata, g, y);
+
 		if (IniSectionGetInt (INI_FILE, "QA", "DUMP_DIFF", 0)) { // Sometimes we must debug by finding which FFT words are different
 			int	count, max_count;
 			count = 0;
@@ -228,6 +229,7 @@ void gen_data (gwhandle *gwdata, gwnum x, giant g)
 	}
 
 #ifdef XXX
+	//Giants/GMP code to craft a special initial value for g
 	ultog (gwdata->b, g);
 	power (g, gwdata->n);
 	dblmulg (gwdata->k, g);
@@ -236,7 +238,7 @@ void gen_data (gwhandle *gwdata, gwnum x, giant g)
 	mpz_init (__N);
 	gtompz (g, __N);
 	mpz_init_set_ui (__f, 3);
-//	mpz_invert (__f, __f, __N);
+	mpz_invert (__f, __f, __N);
 	mpztog (__f, g);
 	mpz_clear (__N);
 	mpz_clear (__f);
@@ -428,6 +430,8 @@ void test_it_all (
 
 /* Test gwaddsub */
 
+gwaddsub4o (&gwdata, x, x2, x3, x4, GWADD_DELAY_NORMALIZE); // compute x+x2 and x-x2
+gwaddsub4o (&gwdata, x, x2, x, x2, GWADD_FORCE_NORMALIZE);	// compute x+x2 and x-x2
 		gwaddsub (&gwdata, x, x2);	// compute x+x2 and x-x2
 		gwaddsub4 (&gwdata, x, x2, x3, x4); // compute x+x2 and x-x2
 		gwadd (&gwdata, x2, x);
@@ -549,8 +553,10 @@ void test_it (
 		gwsetnormroutine (gwdata, 0, 1, 0);	/* Enable error checking */
 		for (i = 0; i < (int) (gwdata->ZERO_PADDED_FFT ? gwdata->FFTLEN / 2 + 1 : gwdata->FFTLEN); i++) {
 			dbltogw (gwdata, 0.0, x);
-			set_fft_value (gwdata, x, i, 5000);
+			set_fft_value (gwdata, x, i, 10000);
 			gwtogiant (gwdata, x, g);
+//gwfft (gwdata, x, x3);
+//gwfftmul (gwdata, x3, x);
 			gwsquare (gwdata, x);
 			squaregi (&gwdata->gdata, g);
 			specialmodg (gwdata, g);
@@ -630,10 +636,11 @@ void test_it (
 		if (i == 45 || i == 46) gwsetaddin (gwdata, -31);
 
 		/* Test several different ways to square a number */
-		if (i % 50 == 25 || i % 50 == 26) {			// Deprecated safemul on Montgomery mod numbers had problems -- reported by Atnashev
-			gwfft (gwdata, x, x3);
+		if (i % 50 >= 24 && i % 50 <= 26) {			// Deprecated safemul on Montgomery mod numbers had problems -- reported by Atnashev
+			if (i % 50 == 24) gwcopy (gwdata, x, x3);
+			else gwfft (gwdata, x, x3);
 			gwsafemul (gwdata, x, x3);
-			if (i % 50 == 25) gwcopy (gwdata, x3, x);
+			if (i % 50 <= 25) gwcopy (gwdata, x3, x);
 			else gwsquare (gwdata, x);
 		} else if (i % 50 >= 4 && i % 50 <= 7) {
 			gwfft (gwdata, x, x);
@@ -655,6 +662,7 @@ void test_it (
 			gwunfft (gwdata, x4, x);
 		} else
 			gwsquare (gwdata, x);
+//			gwsquare_carefully (gwdata, x);
 
 		/* Square number (and do add-in) using giants code */
 		squaregi (&gwdata->gdata, g);
@@ -825,12 +833,12 @@ void test_it (
 
 /* Test gwaddsub */
 
-	gwaddsub (gwdata, x, x2);	// compute x+x2 and x-x2
+	gwaddsub4o (gwdata, x, x2, x, x2, GWADD_FORCE_NORMALIZE);	// compute x+x2 and x-x2
 	subg (g, g2);		// x2-x
 	addg (g, g);		// x+x
 	addg (g2, g);		// x+x2
 	negg (g2);		// x-x2
-	gwaddsub4 (gwdata, x, x2, x3, x4);	// compute x+x2 and x-x2
+	gwaddsub4o (gwdata, x, x2, x3, x4, GWADD_FORCE_NORMALIZE);	// compute x+x2 and x-x2
 	gtog (g, g3); addg (g2, g3);
 	gtog (g, g4); subg (g2, g4);
 	if (CHECK_OFTEN) {
@@ -1269,6 +1277,32 @@ again:		gwinit (&gwdata);
 			continue;
 		}
 
+#ifdef XXX
+	//(2^1845030-1)*3*2^1845030+1.
+	giant k = allocgiant (1000000);
+	giant g = allocgiant (2000000);
+		
+	ultog (2, k);
+	power (k, 1845030);
+	iaddg (-1, k);
+	dblmulg (3.0, k);
+
+	ultog (2, g);
+	power (g, 1845030);
+
+	mulg (k, g);
+	iaddg (1, g);
+	
+	gwdone (&gwdata);
+	gwinit (&gwdata);
+	gwset_maxmulbyconst (&gwdata, 5);
+	gwset_num_threads (&gwdata, threads);
+	gwset_thread_callback (&gwdata, SetAuxThreadPriority);
+	gwset_thread_callback_data (&gwdata, sp_info);
+	res = gwsetup_general_mod_giant (&gwdata, g);
+	free (k);
+	free (g);
+#endif
 		sprintf (buf, "Starting %s QA run on %s, kbits=%d, cbits=%d\n",
 			 gwdata.RATIONAL_FFT ? "rational" : "irrational",
 			 gwmodulo_as_string (&gwdata), kbits, cbits);

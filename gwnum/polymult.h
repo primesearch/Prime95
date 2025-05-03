@@ -4,7 +4,7 @@
 | This file contains the headers and definitions that are used in the
 | polynomial multiplication built upon the gwnum library.
 | 
-|  Copyright 2021-2023 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2021-2025 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _POLYMULT_H
@@ -59,6 +59,12 @@ void polymult_init (
 // NOTE: If gwnum library has a thread_callback routine set, the polymult library will use the same callback routine with action code 20 and 21. */
 #define polymult_set_max_num_threads(h,n)	(h)->max_num_threads = (h)->num_threads = (n)
 #define polymult_set_num_threads(h,n)		(h)->num_threads = (n)
+
+// Set alternate CPU flags.  This allows polymult to use a different instruction set than gwnum uses.  At present the only difference supported
+// is AVX-512 polymult on AVX or FMA3 gwnums.
+void polymult_set_cpu_flags (
+	pmhandle *pmdata,		// Handle for polymult library
+	int	cpu_flags);		// Alternate CPU flags to use for polymult
 
 // Set default polymult tuning using CPU cache sizes.  If this routine is not called, default tuning parameters are set using L2 cache of 256KB, and
 // L3 cache of 6144KB (6MB).  These tuning defaults are almost certainly imperfect.  Feel free to change the tuning defaults to suit your exact needs.
@@ -250,6 +256,7 @@ void poly_unfft_fft_coefficients (pmhandle *pmdata, gwnum *vec, uint64_t poly_si
 /* The pmhandle structure containing all of polymult's "global" data. */
 struct pmhandle_struct {
 	gwhandle *gwdata;		// Handle for gwnum FFT library
+	int	cpu_flags;		// Can be different than gwdata's cpu_flags.  Allows AVX-512 polymults on gwnums that use FMA3 FFTs.
 	int	max_num_threads;	// Maximum number of threads that can be used to compute polymults
 	int	num_threads;		// Number of threads to use computing polymults (must not exceed max_num_threads)
 	int	num_lines;		// During polymult each gwnum is split into "lines".  Each thread works on one line at at a time.

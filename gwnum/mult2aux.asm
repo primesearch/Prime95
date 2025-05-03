@@ -1,4 +1,4 @@
-; Copyright 1995-2011 Mersenne Research, Inc.  All rights reserved
+; Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -353,48 +353,6 @@ ias2:	norm_addsub_2d			; Add and normalize 4 values
 
 	ad_epilog 20,0,rbx,rbp,rsi,rdi
 gwaddsub2 ENDP
-
-;;
-;; Copy one number and zero some low order words.
-;;
-
-PROCFL	gwcopyzero2
-	ad_prolog 0,0,rbx,rsi,rdi
-	mov	esi, SRCARG		; Address of first number
-	mov	edi, DESTARG		; Address of destination
-	mov	ecx, NUMARG		; Count of words to zero
-	mov	ebx, addcount1		; Load blk count
-zlp0:	mov	eax, normval4		; Load count of 4KB pages in a block
-zlp:	dec	ecx			; Decrement count of words to zero
-	js	short c2		; If negative we are now copying
-	fldz
-	dec	ecx			; Decrement count of words to zero
-	js	short c1		; If negative we are now copying
-	fldz
-	jmp	short c0
-c2:	fld	QWORD PTR [esi]		; Load number
-c1:	fld	QWORD PTR [esi+16]	; Load number
-c0:	fstp	QWORD PTR [edi+16]	; Save result
-	fstp	QWORD PTR [edi]		; Save result
-	fld	QWORD PTR [esi+8]	; Copy high word
-	fstp	QWORD PTR [edi+8]
-	fld	QWORD PTR [esi+24]	; Copy high word
-	fstp	QWORD PTR [edi+24]
-	lea	esi, [esi+32]		; Bump source pointer
-	lea	edi, [edi+32]		; Bump dest pointer
-	add	eax, 80000000h/64	; 128 cache lines in a 4KB page
-	jnc	short zlp		; Loop if necessary
-	lea	esi, [esi+64]		; Skip 64 bytes every 4KB
-	lea	edi, [edi+64]		; Skip 64 bytes every 4KB
-	dec	eax			; Check middle loop counter
-	jnz	short zlp		; Loop if necessary
-	lea	esi, [esi+64]		; Skip 64 bytes every blk
-	lea	edi, [edi+64]		; Skip 64 bytes every blk
-	dec	ebx			; Check outer/restore inner count
-	jnz	short zlp0		; Loop if necessary
-	ad_epilog 0,0,rbx,rsi,rdi
-gwcopyzero2 ENDP
-
 
 ;;
 ;; Mul by a small value with carry propagation

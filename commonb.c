@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2025 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -333,7 +333,7 @@ uint32_t get_worker_num_threads (
 	bool	hyperthreading)		/* TRUE if the gwnum FFT should use hyperthreading if available on each core */
 {
 	// No hyperthreading is the easy case - one thread per cores to use.
-	if (!hyperthreading) return (CORES_PER_TEST[worker_num]);
+	if (!hyperthreading) return (CORES_PER_WORKER[worker_num]);
 
 	// Mimic the code in SetPriority for SET_PRIORITY_NORMAL_WORK.  We want to total up the hyperthreads available on the
 	// core(s) this worker will be assigned to.  
@@ -353,14 +353,14 @@ uint32_t get_worker_num_threads (
 	uint32_t worker_core_count, cores_used_by_lower_workers, base_core_num;
 	worker_core_count = cores_used_by_lower_workers = 0;
 	for (uint32_t i = 0; i < NUM_WORKERS; i++) {
-		worker_core_count += CORES_PER_TEST[i];
-		if (i < worker_num) cores_used_by_lower_workers += CORES_PER_TEST[i];
+		worker_core_count += CORES_PER_WORKER[i];
+		if (i < worker_num) cores_used_by_lower_workers += CORES_PER_WORKER[i];
 	}
 	if (worker_core_count < HW_NUM_COMPUTE_CORES && HW_NUM_COMPUTE_CORES == HW_NUM_CORES) base_core_num = cores_used_by_lower_workers + 1;
 	else if (worker_core_count <= HW_NUM_CORES) base_core_num = cores_used_by_lower_workers;
 	else base_core_num = cores_used_by_lower_workers % HW_NUM_CORES;
 	// Now return the sum of threads available in these core(s)
-	return (get_ranked_num_threads (base_core_num, CORES_PER_TEST[worker_num], hyperthreading));
+	return (get_ranked_num_threads (base_core_num, CORES_PER_WORKER[worker_num], hyperthreading));
 }
 
 /* Return the number of cores in the specified threading node */
@@ -492,7 +492,7 @@ void SetPriority (
 
 /* Set P-1 and ECM Stage2ExtraThreads to run on any performance core */
 
-		if (info->aux_polymult && info->aux_thread_num >= CORES_PER_TEST[info->worker_num] * (info->normal_work_hyperthreading ? 2 : 1)) {
+		if (info->aux_polymult && info->aux_thread_num >= CORES_PER_WORKER[info->worker_num] * (info->normal_work_hyperthreading ? 2 : 1)) {
 			bind_type = 3;
 			break;
 		}
@@ -502,8 +502,8 @@ void SetPriority (
 		uint32_t worker_core_count, cores_used_by_lower_workers;
 		worker_core_count = cores_used_by_lower_workers = 0;
 		for (uint32_t i = 0; i < NUM_WORKERS; i++) {
-			worker_core_count += CORES_PER_TEST[i];
-			if (i < info->worker_num) cores_used_by_lower_workers += CORES_PER_TEST[i];
+			worker_core_count += CORES_PER_WORKER[i];
+			if (i < info->worker_num) cores_used_by_lower_workers += CORES_PER_WORKER[i];
 		}
 
 /* If total num worker cores < num compute cores we will give each worker its own CPU.  There is some weak anecdotal */
@@ -592,7 +592,7 @@ void SetPriority (
 		else if (bind_type == 1) sprintf (buf+strlen(buf), "logical CPU #%d (zero-based)\n", logical_CPU);
 #endif
 		else if (bind_type == 3) sprintf (buf+strlen(buf), "any performance core\n");
-		else sprintf (buf+strlen(buf), "logical CPUs %s (zero-based)\n", logical_CPU_substring);
+		else sprintf (buf+strlen(buf), "logical CPU%s %s (zero-based)\n", strchr (logical_CPU_substring, ',') == NULL ? "" : "s", logical_CPU_substring);
 		OutputStr (info->worker_num, buf);
 	}
 
@@ -2604,7 +2604,7 @@ int isKnownMersennePrime (
 		p == 110503 || p == 132049 || p == 216091 || p == 756839 || p == 859433 || p == 1257787 || p == 1398269 || p == 2976221 ||
 		p == 3021377 || p == 6972593 || p == 13466917 || p == 20996011 || p == 24036583 || p == 25964951 || p == 30402457 ||
 		p == 32582657 || p == 37156667 || p == 42643801 || p == 43112609 || p == 57885161 || p == 74207281 || p == 77232917 ||
-		p == 82589933);
+		p == 82589933 || p == 136279841);
 }
 
 /* Make a string out of a 96-bit value (a found factor) */
@@ -2675,10 +2675,10 @@ int SleepFive (
 /* has used some undoc.txt settings to change how often the title is output or to */
 /* make the frequency roughly the same in all windows even if using different FFT sizes. */
 
-void calc_output_frequencies (
+void calc_interval_adjustments (
 	gwhandle *gwdata,		/* Handle to the gwnum code */
-	double	*output_frequency,	/* Calculated adjustment to ITER_OUTPUT */
-	double	*output_title_frequency)/* Calculated adjustment to ITER_OUTPUT for title */
+	double	*output_adjustment,	/* Calculated adjustment to ITER_OUTPUT */
+	double	*title_adjustment)	/* Calculated adjustment to ITER_OUTPUT for title */
 {
 	int	scaled_freq, title_freq;
 	double	exp, temp;
@@ -2688,27 +2688,27 @@ void calc_output_frequencies (
 	/* should be 1.0 if testing M50000000). */
 	scaled_freq = (int) IniGetInt (INI_FILE, "ScaleOutputFrequency", 0);
 	if (!scaled_freq) {
-		*output_frequency = 1.0;
+		*output_adjustment = 1.0;
 	} else {
-		*output_frequency = gwmap_to_timing (1.0, 2, 50000000, -1) / gwmap_to_timing (gwdata->k, gwdata->b, gwdata->n, gwdata->c);
+		*output_adjustment = gwmap_to_timing (1.0, 2, 50000000, -1) / gwmap_to_timing (gwdata->k, gwdata->b, gwdata->n, gwdata->c);
 		if (gwget_num_threads (gwdata) > 1 && NUM_WORKERS < HW_NUM_CORES)
-			*output_frequency /= 1.8 * (gwget_num_threads (gwdata) - 1);
+			*output_adjustment *= 1.8 * (gwget_num_threads (gwdata) - 1);
 		/* For prettier output (outputs likely to be a multiple of a power of 10), round the */
-		/* output frequency to the nearest (10,15,20,25,30,40,...90) times a power of ten */
-		exp = floor (_log10 (*output_frequency));
-		temp = *output_frequency * pow (10.0, -exp);
+		/* output interval to the nearest (10,15,20,25,30,40,...90) times a power of ten */
+		exp = floor (_log10 (*output_adjustment));
+		temp = *output_adjustment * pow (10.0, -exp);
 		if (temp < 1.25) temp = 1.0;
-		else if (temp <1.75) temp = 1.5;
+		else if (temp < 1.75) temp = 1.5;
 		else if (temp < 2.25) temp = 2.0;
 		else if (temp < 2.75) temp = 2.5;
 		else temp = floor (temp + 0.5);
-		*output_frequency = temp * pow (10.0, exp);
+		*output_adjustment = temp * pow (10.0, exp);
 	}
 
-	/* Calculate the title frequency as a fraction of the output frequency */
+	/* Calculate the title interval as a fraction of the output interval */
 	title_freq = (int) IniGetInt (INI_FILE, "TitleOutputFrequency", 1);
 	if (title_freq < 1) title_freq = 1;
-	*output_title_frequency = *output_frequency / (double) title_freq;
+	*title_adjustment = *output_adjustment / (double) title_freq;
 }
 
 /* Truncate a percentage to the requested number of digits. */
@@ -5850,7 +5850,7 @@ typedef struct {		/* Some of the data kept during LL test */
 int lucasSetup (
 	int	thread_num,	/* Worker number */
 	unsigned long p,	/* Exponent to test */
-	unsigned long fftlen,	/* Specific FFT length to use or zero.  Add one to test all-complex. */
+	unsigned long fftlen,	/* Specific FFT length to use or zero.  Add one to test negacyclic. */
 	llhandle *lldata)	/* Common LL data structure */
 {
 	int	res;
@@ -5861,7 +5861,7 @@ int lucasSetup (
 	lldata->lldata = NULL;
 	lldata->units_bit = 0;
 
-/* As a kludge for the benchmarking and timing code, an odd FFTlen sets up gwnum for all-complex FFTs. */
+/* As a kludge for the benchmarking and timing code, an odd FFTlen sets up gwnum for negacyclic FFTs. */
 
 	c = (fftlen & 1) ? 1 : -1;
 	fftlen &= ~1;
@@ -6478,7 +6478,7 @@ int prime (
 	unsigned long last_counter = 0xFFFFFFFF;	/* Iteration of last error */
 	int	maxerr_recovery_mode = 0;		/* Big roundoff err rerun */
 	double	last_maxerr = 0.0;
-	double	allowable_maxerr, output_frequency, output_title_frequency;
+	double	allowable_maxerr, output_adjustment, title_adjustment;
 	int	error_count_messages;
 
 /* Initialize */
@@ -6641,7 +6641,7 @@ begin:	gwinit (&lldata.gwdata);
 	strcpy (w->stage, "LL");
 	inverse_p = 1.0 / (double) p;
 	w->pct_complete = (double) counter * inverse_p;
-	calc_output_frequencies (&lldata.gwdata, &output_frequency, &output_title_frequency);
+	calc_interval_adjustments (&lldata.gwdata, &output_adjustment, &title_adjustment);
 
 /* Start off with the 1st Lucas number - four (ATH requested making the starting value overriddable). */
 /* Note we do something a little strange here.  We actually set the first number to 4 but shifted by */
@@ -6886,7 +6886,7 @@ begin:	gwinit (&lldata.gwdata);
 
 /* Output the title every so often */
 
-		actual_frequency = (int) (ITER_OUTPUT * output_title_frequency);
+		actual_frequency = (int) (ITER_OUTPUT * title_adjustment);
 		if (actual_frequency < 1) actual_frequency = 1;
 		if (counter % actual_frequency == 0 || first_iter_msg) {
 			sprintf (buf, "%.*f%% of LL M%ld", (int) PRECISION, trunc_percent (w->pct_complete), p);
@@ -6895,7 +6895,7 @@ begin:	gwinit (&lldata.gwdata);
 
 /* Print a message every so often */
 
-		actual_frequency = (int) (ITER_OUTPUT * output_frequency);
+		actual_frequency = (int) (ITER_OUTPUT * output_adjustment);
 		if (actual_frequency < 1) actual_frequency = 1;
 		if (counter % actual_frequency == 0 || first_iter_msg) {
 			sprintf (buf, "Iteration: %ld / %ld [%.*f%%]", counter, p, (int) PRECISION, trunc_percent (w->pct_complete));
@@ -7079,13 +7079,15 @@ begin:	gwinit (&lldata.gwdata);
 /* Format the output message */
 
 	if (isPrime)
-		sprintf (buf, "M%ld is prime! Wh%d: %08lX,%08lX\n", p, PORT, SEC1 (p), error_count);
+		sprintf (buf, "M%ld is prime! Wh%d: %08lX,%08lX", p, PORT, SEC1 (p), error_count);
 	else
-		sprintf (buf,
-			 "M%ld is not prime. Res64: %08lX%08lX. Wh%d: %08lX,%ld,%08lX\n",
-			 p, high32, low32, PORT,
-			 SEC2 (p, high32, low32, lldata.units_bit, error_count),
-			 lldata.units_bit, error_count);
+		sprintf (buf, "M%ld is not prime. Res64: %08lX%08lX. Wh%d: %08lX,%ld,%08lX",
+			 p, high32, low32, PORT, SEC2 (p, high32, low32, lldata.units_bit, error_count), lldata.units_bit, error_count);
+	if (CUMULATIVE_TIMING) {
+		strcat (buf, ".  Total time: ");
+		print_timer (timers, 0, buf, 0);
+	}
+	strcat (buf, "\n");
 	OutputStr (thread_num, buf);
 	formatMsgForResultsFile (buf, w);
 	rc = writeResults (buf);
@@ -9167,7 +9169,7 @@ void primeBenchOneWorker (void *arg)
 {
 	struct PriorityInfo sp_info;
 	llhandle lldata;
-	int	stop_reason;
+	int	batch_size, stop_reason;
 	double	timers[2];
 	struct prime_bench_arg *info;
 
@@ -9204,6 +9206,11 @@ void primeBenchOneWorker (void *arg)
 
 	generateRandomData (&lldata);
 
+/* Calculate a batch size that is large enough that timer will not be zero */
+
+	batch_size = 25000 / info->fftlen;
+	if (batch_size < 1) batch_size = 1;
+
 /* Pause until all workers are initialized */
 
 	gwmutex_lock (&bench_workers_mutex);
@@ -9229,14 +9236,14 @@ void primeBenchOneWorker (void *arg)
 		if (stop_reason) break;
 		clear_timers (timers, sizeof (timers) / sizeof (timers[0]));
 		start_timer (timers, 0);
-		gwsquare (&lldata.gwdata, lldata.lldata);
+		for (int i = 0; i < batch_size; i++) gwsquare (&lldata.gwdata, lldata.lldata);
 		end_timer (timers, 0);
-		// If any of the bench workers have finished, then do not imclude this timing
+		// If any of the bench workers have finished, then do not include this timing
 		if (bench_worker_finished) break;
 		// Add in this timing.  If time exceeds our limit, end this worker.
 		// Note: the timer should never be <= 0, but I have seen unexplained timer behavior in the past.
 		// Just to be safe from infinite loops, if the timer is zero or less, assume the iteration took 1 second.
-		info->iterations++;
+		info->iterations += batch_size;
 		if (timer_value (timers, 0) <= 0.0) info->total_time += 1.0;
 		else info->total_time += timer_value (timers, 0);
 		if (info->total_time > bench_workers_time) {
@@ -9290,7 +9297,7 @@ int primeBenchMultipleWorkersInternal (
 	for (plus1 = 0; plus1 <= 1; plus1++) {
 	  if (plus1 == 0 && time_negacyclic == 2) continue;
 	  if (plus1 == 1 && time_negacyclic == 0) continue;
-	  for (fftlen = min_FFT_length * 1024; fftlen <= max_FFT_length * 1024; fftlen += 10) {
+	  for (fftlen = (min_FFT_length ? min_FFT_length * 1024 : 10); fftlen <= max_FFT_length * 1024; fftlen += 10) {
 
 /* Initialize this FFT length */
 
@@ -9369,7 +9376,7 @@ int primeBenchMultipleWorkersInternal (
 			    sprintf (buf, "Timing %lu%s%s FFT, %d core%s%s, %d worker%s.  ",
 				     (fftlen & 0x3FF) ? fftlen : fftlen / 1024,
 				     (fftlen & 0x3FF) ? "" : "K",
-				     plus1 ? " all-complex" : "",
+				     plus1 ? " negacyclic" : "",
 				     cpus, cpus > 1 ? "s" : "",
 				     hypercpus > 1 ? " hyperthreaded" : "",
 				     workers, workers > 1 ? "s" : "");
@@ -9506,7 +9513,7 @@ int primeBenchMultipleWorkersInternal (
 					 "FFTlen=%lu%s%s, Type=%d, Arch=%d, Pass1=%lu, Pass2=%lu, clm=%lu",
 					 (fftlen & 0x3FF) ? fftlen : fftlen / 1024,
 					 (fftlen & 0x3FF) ? "" : "K",
-					 plus1 ? " all-complex" : "",
+					 plus1 ? " negacyclic" : "",
 					 lldata.gwdata.FFT_TYPE, lldata.gwdata.ARCH,
 					 fftlen / (lldata.gwdata.PASS2_SIZE ? lldata.gwdata.PASS2_SIZE : 1),
 					 lldata.gwdata.PASS2_SIZE,
@@ -9515,7 +9522,7 @@ int primeBenchMultipleWorkersInternal (
 				sprintf (buf, "Timings for %lu%s%s FFT length",
 					 (fftlen & 0x3FF) ? fftlen : fftlen / 1024,
 					 (fftlen & 0x3FF) ? "" : "K",
-					 plus1 ? " all-complex" : "");
+					 plus1 ? " negacyclic" : "");
 			    }
 			    if (hypercpus <= 2)
 				sprintf (buf+strlen(buf), " (%d core%s%s, %d worker%s): ",
@@ -9726,7 +9733,7 @@ void autoBench (void)
 		num_cores = BENCH_NUM_CORES;		/* Use gwnum.txt override or default to all cores in use */
 	else {
 		//num_cores = 0;
-		//for (i = 0; i < (int) NUM_WORKERS; i++) num_cores += CORES_PER_TEST[i];
+		//for (i = 0; i < (int) NUM_WORKERS; i++) num_cores += CORES_PER_WORKER[i];
 		//if (num_cores > (int) HW_NUM_CORES)
 		// Always auto-bench using all the cores.  Prime95 always calls gwset_bench_cores with HW_NUM_CORES.
 		num_cores = HW_NUM_CORES;
@@ -10043,7 +10050,7 @@ int primeBench (
 	    for (plus1 = 0; plus1 <= 1; plus1++) {
 	      if (plus1 == 0 && time_negacyclic == 2) continue;
 	      if (plus1 == 1 && time_negacyclic == 0) continue;
-	      for (fftlen = min_FFT_length * 1024; fftlen <= max_FFT_length * 1024; fftlen += 10) {
+	      for (fftlen = (min_FFT_length ? min_FFT_length * 1024 : 30); fftlen <= max_FFT_length * 1024; fftlen += 10) {
 	        for (impl = 1; ; impl++) {
 		  if (impl > 1 && !all_bench) break;
 
@@ -10112,7 +10119,7 @@ int primeBench (
 
 		  sprintf (buf, "Timing %lu iterations of %luK%s FFT length%s.  ",
 			 iterations, fftlen / 1024,
-			 plus1 ? " all-complex" : "",
+			 plus1 ? " negacyclic" : "",
 			 gw_using_large_pages (&lldata.gwdata) ? " using large pages" : "");
 		  OutputStr (thread_num, buf);
 
@@ -10162,7 +10169,7 @@ int primeBench (
 		  if (all_bench) {
 			sprintf (buf,
 				 "Time FFTlen=%luK%s, Type=%d, Arch=%d, Pass1=%lu, Pass2=%lu, clm=%lu: ",
-				 fftlen / 1024, plus1 ? " all-complex" : "",
+				 fftlen / 1024, plus1 ? " negacyclic" : "",
 				 lldata.gwdata.FFT_TYPE, lldata.gwdata.ARCH,
 				 fftlen / (lldata.gwdata.PASS2_SIZE ? lldata.gwdata.PASS2_SIZE : 1),
 				 lldata.gwdata.PASS2_SIZE,
@@ -10173,7 +10180,7 @@ int primeBench (
 			strcat (buf, ", avg: ");
 			print_timer (timers, 0, buf, TIMER_NL | TIMER_MS);
 		  } else {
-			sprintf (buf, "Best time for %luK%s FFT length: ", fftlen / 1024, plus1 ? " all-complex" : "");
+			sprintf (buf, "Best time for %luK%s FFT length: ", fftlen / 1024, plus1 ? " negacyclic" : "");
 			timers[0] = best_time;
 			print_timer (timers, 0, buf, TIMER_MS);
 			timers[0] = total_time / iterations;
@@ -10325,7 +10332,7 @@ void createProofResiduesFile (
 		for (i = 0; i < (int) divide_rounding_up (total_size, sizeof (buf)); i++) {
 			if (_write (fd, buf, sizeof (buf)) != sizeof (buf)) {
 				int	num_residues, new_power, new_power_mult;
-				sprintf (buf, "Error pre-allocating proof interim residues file\n");
+				sprintf (buf, "Error preallocating proof interim residues file\n");
 				OutputBoth (ps->thread_num, buf);
 				OutputBothErrno (ps->thread_num);
 
@@ -10856,22 +10863,25 @@ int generateProofFile (
 		MD5Update (&context, buf, (unsigned int) strlen (buf));
 
 		// Output number.  Enclose non-Mersennes with known factors in parentheses.  Append known factors.
-		sprintf (buf, "NUMBER=");
-		if ((w->k != 1.0 || w->c != -1) && w->known_factors != NULL) strcat (buf, "(");
-		strcat (buf, gwmodulo_as_string (gwdata));
-		if ((w->k != 1.0 || w->c != -1) && w->known_factors != NULL) strcat (buf, ")");
+		char *bigbuf = (char *) buf;
+		if (w->known_factors != NULL) bigbuf = (char *) malloc (512 + strlen (w->known_factors));
+		sprintf (bigbuf, "NUMBER=");
+		if ((w->k != 1.0 || w->c != -1) && w->known_factors != NULL) strcat (bigbuf, "(");
+		strcat (bigbuf, gwmodulo_as_string (gwdata));
+		if ((w->k != 1.0 || w->c != -1) && w->known_factors != NULL) strcat (bigbuf, ")");
 		if (w->known_factors != NULL) {		// Output known factors list
 			char	*p;
-			sprintf (buf + strlen (buf), "/%s", w->known_factors);
-			while ((p = strchr (buf, ',')) != NULL) *p = '/';
+			sprintf (bigbuf + strlen (bigbuf), "/%s", w->known_factors);
+			while ((p = strchr (bigbuf, ',')) != NULL) *p = '/';
 		}
-		strcat (buf, "\n");
-		if (_write (fdout, buf, (unsigned int) strlen (buf)) != (int) strlen (buf)) {
+		strcat (bigbuf, "\n");
+		if (_write (fdout, bigbuf, (unsigned int) strlen (bigbuf)) != (int) strlen (bigbuf)) {
 			OutputBoth (ps->thread_num, "Error writing proof file header.\n");
 			OutputBothErrno (ps->thread_num);
 			goto pfail;
 		}
-		MD5Update (&context, buf, (unsigned int) strlen (buf));
+		MD5Update (&context, bigbuf, (unsigned int) strlen (bigbuf));
+		if (w->known_factors != NULL) free (bigbuf);
 
 		// Get the header size
 		proof_header_size = _lseeki64 (fdout, 0, SEEK_CUR);
@@ -11372,6 +11382,37 @@ void good_news_prp (void *arg)
 	free (arg);
 }
 
+/* Calculate k*b^n+c mod prp_base.  Used to detect PRP tests that are divisible by the PRP base. */
+
+unsigned int kbnc_mod (
+	struct work_unit *w,		/* Number being tested */
+	unsigned int prp_base)		/* PRP base */
+{
+	mpz_t	modulus, tmp, k;
+	unsigned int result;
+
+/* Calculate b^n mod prp_base */
+
+	mpz_init_set_ui (modulus, prp_base);
+	mpz_init_set_ui (tmp, w->b);
+	mpz_powm_ui (tmp, tmp, (unsigned int) w->n, modulus);
+
+/* Final result is k * tmp + c mod prp_base */
+
+	mpz_init_set_d (k, w->k);
+	mpz_mul (tmp, k, tmp);
+	mpz_add_si (tmp, tmp, w->c);
+	mpz_mod (tmp, tmp, modulus);
+	result = mpz_get_ui (tmp);
+
+/* Cleanup and return */
+
+	mpz_clear (modulus);
+	mpz_clear (tmp);
+	mpz_clear (k);
+	return (result);
+}
+
 /* Compare two (possibly shifted) gwnums for equality.  Used in PRP error-checking. */
 
 int areTwoPRPValsEqual (
@@ -11439,6 +11480,7 @@ void basemulg (
 /* Compare the final giant in a PRP run.  Different PRP residue types check for different final values */
 
 int isPRPg (
+	gwhandle *gwdata,		/* gwnum handle */
 	giant	v,			/* Final result of PRP powering */
 	giant	N,			/* Number we are PRPing, (k*b^n+c)/known_factors */
 	struct work_unit *w,		/* Number being tested */
@@ -11471,7 +11513,7 @@ int isPRPg (
 /* Handle the cofactor case.  We calculated v = a^(N*KF-1) mod (N*KF).  We have a PRP if (v mod N) = (a^(KF-1)) mod N */
 
 	if (prp_residue_type == PRIMENET_PRP_TYPE_COFACTOR) {
-		mpz_t	kbnc, known_factors, reduced_v;
+		mpz_t	kbnc, known_factors;
 		// Calculate k*b^n+c
 		mpz_init (kbnc);
 		mpz_ui_pow_ui (kbnc, w->b, w->n);
@@ -11481,16 +11523,21 @@ int isPRPg (
 		mpz_init (known_factors);
 		mpz_divexact (known_factors, kbnc, mpz_N);
 		mpz_clear (kbnc);
-		// Compare val = base^(known_factors - 1) mod N
+		// Compare_val = base^(known_factors - 1) mod N.  For speed, use gwnum's mod N*KF routines then reduce
+		gwnum tmp = gwalloc (gwdata);
+		u64togw (gwdata, prp_base, tmp);
 		mpz_sub_ui (known_factors, known_factors, 1);
-		mpz_set_ui (compare_val, prp_base);
-		mpz_powm (compare_val, compare_val, known_factors, mpz_N);
+		exponentiate_mpz (gwdata, tmp, known_factors);
 		mpz_clear (known_factors);
-		// Reduce v mod N  and compare
-		mpz_init (reduced_v);
-		mpz_mod (reduced_v, mpz_v, mpz_N);
-		result = mpz_eq (reduced_v, compare_val);
-		mpz_clear (reduced_v);
+		giant tmpg = popg (&gwdata->gdata, ((unsigned long) gwdata->bit_length >> 5) + 5);
+		gwtogiant (gwdata, tmp, tmpg);
+		gwfree (gwdata, tmp);
+		gtompz (tmpg, compare_val);
+		pushg (&gwdata->gdata, 1);
+		mpz_mod (compare_val, compare_val, mpz_N);
+		// Reduce v mod N and compare
+		mpz_mod (mpz_v, mpz_v, mpz_N);
+		result = mpz_eq (mpz_v, compare_val);
 	}
 
 /* Handle the weird cases -- Fermat and SPRP variants, one of which gpuOwl uses */
@@ -11553,7 +11600,7 @@ int prp (
 	unsigned long last_counter = 0xFFFFFFFF;/* Iteration of last error */
 	int	maxerr_recovery_mode = 0;	/* Big roundoff err rerun */
 	double	last_maxerr = 0.0;
-	double	allowable_maxerr, output_frequency, output_title_frequency;
+	double	allowable_maxerr, output_adjustment, title_adjustment;
 	char	string_rep[80];
 	int	string_rep_truncated;
 	int	error_count_messages;
@@ -11656,9 +11703,18 @@ int prp (
 
 /* Set flag if we will perform power-of-two optimizations.  These optimizations reduce the number of mul-by-small constants */
 /* by computing a^(k*2^n) which gives us a long run of simple squarings.  These squarings let us do Gerbicz error checking. */
+/* Note: If the PRP base divides the number we are testing, then we cannot compute the inverse of prp_base and "backup" to get */
+/* the final residue (see mul_final and basemulg). */
 
 	ps.two_power_opt = (!IniGetInt (INI_FILE, "PRPStraightForward", 0) && w->b == 2 &&
 			    (w->known_factors == NULL || ps.residue_type == PRIMENET_PRP_TYPE_COFACTOR));
+	if (ps.two_power_opt && kbnc_mod (w, ps.prp_base) == 0) {
+		char	string_rep[80];
+		gw_as_string (string_rep, w->k, w->b, w->n, w->c);
+		sprintf (buf, "Gerbicz error checking will not be performed because PRP base divides %s\n", string_rep);
+		OutputStr (thread_num, buf);
+		ps.two_power_opt = FALSE;
+	}
 	if (!ps.two_power_opt) {
 		if (ps.residue_type == PRIMENET_PRP_TYPE_FERMAT_VAR) ps.residue_type = PRIMENET_PRP_TYPE_FERMAT;
 		else if (ps.residue_type == PRIMENET_PRP_TYPE_SPRP_VAR) ps.residue_type = PRIMENET_PRP_TYPE_SPRP;
@@ -11695,7 +11751,6 @@ int prp (
 	if (echk == 3) ps.error_check_type = PRP_ERRCHK_DBLCHK;
 
 /* Set the PRP proof power.  PRP proofs are only possible when b = 2. */
-/* For simplicity we also restrict proofs to the preferred residue types 1 or 5. */
 
 /* When using a 64-bit hash, proof power 8 and proof power 9 do roughly the same number */
 /* squarings when n=11M, power 9 and 10 do the same number at roughly 45M, and 10,11 */
@@ -11720,7 +11775,7 @@ int prp (
 	// Turn on storing MD5 hash of interim residues.  Versions 30.1 and 30.2 did not do this.
 	ps.md5_residues = TRUE;
 
-	if (ps.two_power_opt && (ps.residue_type == PRIMENET_PRP_TYPE_FERMAT || ps.residue_type == PRIMENET_PRP_TYPE_COFACTOR)) {
+	if (ps.two_power_opt) {
 		double	hashlen_adjust = ps.hashlen / 64.0;
 		int	best_power = (double) w->n > hashlen_adjust * 414.2e6 ? 11 :
 				     (double) w->n > hashlen_adjust * 106.5e6 ? 10 :
@@ -11731,10 +11786,10 @@ int prp (
 				     (double) w->n > hashlen_adjust * 105e3 ? 5 : 0;
 		int	power_adjust;
 
-		// Default proof power based on disk space the worker is allowed to consume
+		// Default proof power based on disk space the worker is allowed to consume (CPU_WORKER_DISK_SPACE is in GiB, 1073741824 = 1024^3)
 		ps.proof_power = best_power;
 		double	disk_space = (double) (1 << ps.proof_power) * (double) (w->n / 8);
-		while (disk_space / 1.0e9 > CPU_WORKER_DISK_SPACE) ps.proof_power--, disk_space /= 2.0;
+		while (disk_space / 1073741824.0 > CPU_WORKER_DISK_SPACE) ps.proof_power--, disk_space /= 2.0;
 
 		// Provide two more (undocumented) ways for the user to override our default proof power.
 		ps.proof_power = IniGetInt (INI_FILE, "ProofPower", ps.proof_power);
@@ -11981,50 +12036,65 @@ begin:	N = exp = NULL;
 		if (ps.max_emergency_allocs > (1 << ps.proof_power)) ps.max_emergency_allocs = (1 << ps.proof_power);
 		ps.emergency_allocs = (char **) malloc (ps.max_emergency_allocs * sizeof (char *));
 
-// Create and optionally prefill the proof interim residues file
+// Generate the proof residues file name
 
 		IniGetString (INI_FILE, "ProofResiduesDir", ps.residues_filename, sizeof (ps.residues_filename), NULL);
 		DirPlusFilename (ps.residues_filename, filename);
 		strcat (ps.residues_filename, ".residues");
-		if (ps.counter == 0)
-			createProofResiduesFile (&gwdata, &ps, IniGetInt (INI_FILE, "PreallocateDisk", 1));
+
+// James suggests creating and allocating the proof residues file after outputting a message letting the user know the file's size.
+// See https://www.mersenneforum.org/showthread.php?t=27905 post #977.  This requires a two pass approach in case the full file size cannot be allocated.
+
+		for (int pass = 1; ; pass++) {
 
 /* Calculate how many extra squarings are needed because of a version 1 PRP proof */
 
-		if (ps.proof_version == 1)
-			excess_squarings = round_up_to_multiple_of (w->n, ps.proof_power_mult << ps.proof_power) - w->n;
+			if (ps.proof_version == 1)
+				excess_squarings = round_up_to_multiple_of (w->n, ps.proof_power_mult << ps.proof_power) - w->n;
 
 /* Calculate the number of squarings in a full or partial proof and number of squarings that are handled outside of the proof */
 
-		ps.proof_num_iters = (w->n + excess_squarings) / ps.proof_power_mult;
-		initial_nonproof_iters = initiallog2k_iters + (w->n + excess_squarings) % ps.proof_power_mult;
+			ps.proof_num_iters = (w->n + excess_squarings) / ps.proof_power_mult;
+			initial_nonproof_iters = initiallog2k_iters + (w->n + excess_squarings) % ps.proof_power_mult;
 
 /* Map the current iteration (from the save file) into the next interim residue to output */
 
-		while (ps.counter >= initial_nonproof_iters + ps.proof_num_iters) initial_nonproof_iters += ps.proof_num_iters;
-		for (proof_next_interim_residue = 1; ; proof_next_interim_residue++) {
-			proof_next_interim_residue_iter = proofResidueIteration (&ps, proof_next_interim_residue);
-			if (ps.state == PRP_STATE_GERB_MID_BLOCK_MULT || ps.state == PRP_STATE_GERB_MID_BLOCK_MULT) {
-				if (ps.counter + 1 < initial_nonproof_iters + proof_next_interim_residue_iter) break;
-			} else if (ps.state == PRP_STATE_DCHK_PASS2) {
-				if (ps.end_counter < initial_nonproof_iters + proof_next_interim_residue_iter) break;
-			} else {
-				if (ps.counter < initial_nonproof_iters + proof_next_interim_residue_iter) break;
+			while (ps.counter >= initial_nonproof_iters + ps.proof_num_iters) initial_nonproof_iters += ps.proof_num_iters;
+			for (proof_next_interim_residue = 1; ; proof_next_interim_residue++) {
+				proof_next_interim_residue_iter = proofResidueIteration (&ps, proof_next_interim_residue);
+				if (ps.state == PRP_STATE_GERB_MID_BLOCK_MULT || ps.state == PRP_STATE_GERB_MID_BLOCK_MULT) {
+					if (ps.counter + 1 < initial_nonproof_iters + proof_next_interim_residue_iter) break;
+				} else if (ps.state == PRP_STATE_DCHK_PASS2) {
+					if (ps.end_counter < initial_nonproof_iters + proof_next_interim_residue_iter) break;
+				} else {
+					if (ps.counter < initial_nonproof_iters + proof_next_interim_residue_iter) break;
+				}
 			}
-		}
 
 /* Output a message detailing PRP proof resource usage */
 
-		disk_space = (double) (1 << ps.proof_power) * (double) (ps.residue_size + 16);
-		proof_file_size = (double) (ps.proof_power + 1) * (double) ps.residue_size * (double) ps.proof_power_mult;
-		if (ps.proof_power_mult == 1)
-			sprintf (buf, "PRP proof using power=%d and %d-bit hash size.\n", ps.proof_power, ps.hashlen);
-		else
-			sprintf (buf, "PRP proof using power=%dx%d and %d-bit hash size.\n", ps.proof_power, ps.proof_power_mult, ps.hashlen);
-		OutputStr (thread_num, buf);
-		sprintf (buf, "Proof requires %.1fGB of temporary disk space and uploading a %.0fMB proof file.\n",
-			 disk_space / 1.0e9, proof_file_size / 1.0e6);
-		OutputStr (thread_num, buf);
+			disk_space = (double) (1 << ps.proof_power) * (double) (ps.residue_size + 16);
+			proof_file_size = (double) (ps.proof_power + 1) * (double) ps.residue_size * (double) ps.proof_power_mult;
+			if (ps.proof_power_mult == 1)
+				sprintf (buf, "PRP proof using power=%d and %d-bit hash size.\n", ps.proof_power, ps.hashlen);
+			else
+				sprintf (buf, "PRP proof using power=%dx%d and %d-bit hash size.\n", ps.proof_power, ps.proof_power_mult, ps.hashlen);
+			OutputStr (thread_num, buf);
+			sprintf (buf, "Proof requires %.1fGB of temporary disk space and uploading a %.0fMB proof file.\n",
+				 disk_space / 1.0e9, proof_file_size / 1.0e6);
+			OutputStr (thread_num, buf);
+
+// Create and optionally fill the proof interim residues file.  If this is the second pass, the proof residues file was created on the first pass.
+// If creating the proof residues file is only partially successful, recalculate the numbers above using the new, smaller proof power.
+
+			if (pass == 1 && ps.counter == 0) {
+				int	orig_proof_power = ps.proof_power;
+				int	orig_proof_power_mult = ps.proof_power_mult;
+				createProofResiduesFile (&gwdata, &ps, IniGetInt (INI_FILE, "PreallocateDisk", 1));
+				if (ps.proof_power != orig_proof_power || ps.proof_power_mult != orig_proof_power_mult) continue;
+			}
+			break;
+		}
 	}
 
 /* Calculate the exponent we will use to do our left-to-right binary exponentiation */
@@ -12092,7 +12162,7 @@ begin:	N = exp = NULL;
 	strcpy (w->stage, "PRP");
 	inverse_explen = 1.0 / (double) final_counter;
 	w->pct_complete = (double) ps.counter * inverse_explen;
-	calc_output_frequencies (&gwdata, &output_frequency, &output_title_frequency);
+	calc_interval_adjustments (&gwdata, &output_adjustment, &title_adjustment);
 
 /* If we are near the maximum exponent this fft length can test, then we */
 /* will error check all iterations */
@@ -12456,7 +12526,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 
 /* Output the title every so often */
 
-		actual_frequency = (int) (ITER_OUTPUT * output_title_frequency);
+		actual_frequency = (int) (ITER_OUTPUT * title_adjustment);
 		if (actual_frequency < 1) actual_frequency = 1;
 		if (ps.counter % actual_frequency == 0 || first_iter_msg) {
 			sprintf (buf, "%.*f%% of PRP %s", (int) PRECISION, trunc_percent (w->pct_complete), string_rep);
@@ -12465,7 +12535,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 
 /* Print a message every so often */
 
-		actual_frequency = (int) (ITER_OUTPUT * output_frequency);
+		actual_frequency = (int) (ITER_OUTPUT * output_adjustment);
 		if (actual_frequency < 1) actual_frequency = 1;
 		if ((ps.counter % actual_frequency == 0 && ps.state != PRP_STATE_GERB_MID_BLOCK_MULT &&
 		     ps.state != PRP_STATE_GERB_END_BLOCK && ps.state != PRP_STATE_GERB_END_BLOCK_MULT &&
@@ -12571,7 +12641,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 				rotateg (tmp, w->n, ps.units_bit, &gwdata.gdata);
 				if (mul_final) basemulg (tmp, w, ps.prp_base, mul_final);
 				if (w->known_factors && ps.residue_type != PRIMENET_PRP_TYPE_COFACTOR) modg (N, tmp);
-				ps.isProbablePrime = isPRPg (tmp, N, w, ps.prp_base, ps.residue_type);
+				ps.isProbablePrime = isPRPg (&gwdata, tmp, N, w, ps.prp_base, ps.residue_type);
 				if (!ps.isProbablePrime) {
 					sprintf (ps.res64, "%08lX%08lX", (unsigned long) (tmp->sign > 1 ? tmp->n[1] : 0), (unsigned long) tmp->n[0]);
 					ps.have_res2048 = (tmp->sign > 64);
@@ -12601,7 +12671,7 @@ OutputStr (thread_num, "Iteration failed.\n");
 				rotateg (tmp, w->n, ps.alt_units_bit, &gwdata.gdata);
 				if (mul_final) basemulg (tmp, w, ps.prp_base, mul_final);
 				if (w->known_factors && ps.residue_type != PRIMENET_PRP_TYPE_COFACTOR) modg (N, tmp);
-				alt_isProbablePrime = isPRPg (tmp, N, w, ps.prp_base, ps.residue_type);
+				alt_isProbablePrime = isPRPg (&gwdata, tmp, N, w, ps.prp_base, ps.residue_type);
 				alt_match = (ps.isProbablePrime == alt_isProbablePrime);
 				if (alt_match && !alt_isProbablePrime) {
 					char	alt_res64[17];
@@ -12921,6 +12991,19 @@ pushg(&gwdata.gdata, 2);}
 		goto restart;
 	}
 
+/* A type-4 PRP with proof needs to do one more squaring to get the final residue for the proof file */
+
+	if (ps.proof_power && proof_next_interim_residue_iter == ps.counter + 1) {
+		gwsquare (&gwdata, ps.x);
+		ps.units_bit <<= 1;
+		if (ps.units_bit >= w->n) ps.units_bit -= w->n;
+		tmp = popg (&gwdata.gdata, ((unsigned long) gwdata.bit_length >> 5) + 5);
+		gwtogiant (&gwdata, ps.x, tmp);
+		rotateg (tmp, w->n, ps.units_bit, &gwdata.gdata);
+		outputProofResidue (&gwdata, &ps, proof_next_interim_residue, tmp);
+		pushg (&gwdata.gdata, 1);
+	}
+
 // Free memory in case proof generation needs it
 
 	gwfree (&gwdata, ps.u0);
@@ -12949,7 +13032,12 @@ pushg(&gwdata.gdata, 2);}
 	}
 	sprintf (buf+strlen(buf), " Wh%d: %08lX,", PORT, SEC1 (w->n));
 	if (ps.units_bit) sprintf (buf+strlen(buf), "%ld,", ps.units_bit);
-	sprintf (buf+strlen(buf), "%08lX\n", ps.error_count);
+	sprintf (buf+strlen(buf), "%08lX", ps.error_count);
+	if (CUMULATIVE_TIMING) {
+		strcat (buf, ".  Total time: ");
+		print_timer (timers, 0, buf, 0);
+	}
+	strcat (buf, "\n");
 	OutputStr (thread_num, buf);
 	formatMsgForResultsFile (buf, w);
 

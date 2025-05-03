@@ -9,7 +9,7 @@
  *  This is the only C++ routine in the gwnum library.  Since gwnum is
  *  a C based library, we declare all routines here as extern "C".
  *
- *  Copyright 2005-2023 Mersenne Research, Inc.  All rights reserved.
+ *  Copyright 2005-2024 Mersenne Research, Inc.  All rights reserved.
  *
  **************************************************************/
 
@@ -147,6 +147,9 @@ void gwasm_constants (
 #define P223_P975		asm_values[40]
 #define P1_P975			asm_values[41]
 #define P782_P975		asm_values[42]
+#define P223_P623		asm_values[43]
+#define P901_P223		asm_values[44]
+#define P901_P623		asm_values[45]
 
 /* Do some initial setup */
 
@@ -214,6 +217,9 @@ void gwasm_constants (
 	P623_P975 = double (cosine1 / P975);
 	P223_P975 = double (-cosine2 / P975);
 	P1_P975 = 1.0 / P975;
+	P223_P623 = double (-cosine2 / cosine1); // Alternate radix-7 constants
+	P901_P223 = double (-cosine3 / -cosine2);
+	P901_P623 = double (-cosine3 / cosine1);
 
 /* Initialize the 24-reals sine-cosine data. */
 
@@ -527,6 +533,72 @@ void gwsincos125by (
 }
 
 extern "C"
+void gwsincos12549ADby (
+	unsigned long x,
+	unsigned long N,
+	double	*results,
+	int	incr)
+{
+	dd_real arg1, sine, cosine, sine2, cosine2, sine4, cosine4, sine5, cosine5, sine9, cosine9, sine10, cosine10, sine13, cosine13;
+
+	x86_FIX
+	arg1 = dd_real::_2pi * (double) x / (double) N;
+	sincos (arg1, sine, cosine);
+	results[0] = sine;
+	results[0] += epsilon;		/* Protect against divide by zero */
+	results[incr] = cosine / results[0];
+	results += incr + incr;
+
+	sine2 = sine * cosine * 2.0;
+	cosine2 = sqr (cosine) - sqr (sine);
+
+	results[0] = sine2;
+	results[0] += epsilon;		/* Protect against divide by zero */
+	results[incr] = cosine2 / results[0];
+	results += incr + incr;
+
+	sine4 = sine2 * cosine2 * 2.0;
+	cosine4 = sqr (cosine2) - sqr (sine2);
+
+	sine5 = sine * cosine4 + sine4 * cosine;
+	cosine5 = cosine * cosine4 - sine * sine4;
+
+	results[0] = sine5;
+	results[0] += epsilon;		/* Protect against divide by zero */
+	results[incr] = cosine5 / results[0];
+	results += incr + incr;
+
+	results[0] = sine4;
+	results[0] += epsilon;		/* Protect against divide by zero */
+	results[incr] = cosine4 / results[0];
+	results += incr + incr;
+
+	sine9 = sine5 * cosine4 + sine4 * cosine5;
+	cosine9 = cosine5 * cosine4 - sine5 * sine4;
+
+	results[0] = sine9;
+	results[0] += epsilon;		/* Protect against divide by zero */
+	results[incr] = cosine9 / results[0];
+	results += incr + incr;
+
+	sine10 = sine5 * cosine5 * 2.0;
+	cosine10 = sqr (cosine5) - sqr (sine5);
+
+	results[0] = sine10;
+	results[0] += epsilon;		/* Protect against divide by zero */
+	results[incr] = cosine10 / results[0];
+	results += incr + incr;
+
+	sine13 = sine9 * cosine4 + sine4 * cosine9;
+	cosine13 = cosine9 * cosine4 - sine9 * sine4;
+
+	results[0] = sine13;
+	results[0] += epsilon;		/* Protect against divide by zero */
+	results[incr] = cosine13 / results[0];
+	END_x86_FIX
+}
+
+extern "C"
 void gwsincos1234by_raw (
 	unsigned long x,
 	unsigned long N,
@@ -637,51 +709,6 @@ void gwcos1plusby (
 	END_x86_FIX
 }
 
-/* Special version for 8-complex and 16-real macros that multiplies some sine values by SQRTHALF */
-
-#ifdef TRY_SQRT2_TO_REDUCE_ROUNDOFF
-extern "C"
-void gwsincos1234by_sqrthalf (
-	unsigned long x,
-	unsigned long N,
-	double	*results,
-	int	incr)
-{
-	dd_real arg1, sine, cosine, sine2, cosine2, sine3, cosine3, sine4, cosine4;
-	dd_real sqrthalf;
-
-	x86_FIX
-	sqrthalf = sqrt (dd_real (0.5));
-	arg1 = dd_real::_2pi * (double) x / (double) N;
-	sincos (arg1, sine, cosine);
-	results[0] = sine * sqrthalf;
-	results[0] += epsilon;		/* Protect against divide by zero */
-	results[incr] = cosine * sqrthalf / results[0];
-	results += incr + incr;
-
-	sine2 = sine * cosine * 2.0;
-	cosine2 = sqr (cosine) - sqr (sine);
-	results[0] = sine2;
-	results[0] += epsilon;		/* Protect against divide by zero */
-	results[incr] = cosine2 / results[0];
-	results += incr + incr;
-
-	sine3 = sine * cosine2 + sine2 * cosine;
-	cosine3 = cosine * cosine2 - sine * sine2;
-	results[0] = sine3 * sqrthalf;
-	results[0] += epsilon;		/* Protect against divide by zero */
-	results[incr] = cosine3 * sqrthalf / results[0];
-	results += incr + incr;
-
-	sine4 = sine2 * cosine2 * 2.0;
-	cosine4 = sqr (cosine2) - sqr (sine2);
-	results[0] = sine4;
-	results[0] += epsilon;		/* Protect against divide by zero */
-	results[incr] = cosine4 / results[0];
-	END_x86_FIX
-}
-#endif
-
 /* Special version for 14-reals (and 7-complex) macro, multiplies sine values by 0.975 */
 
 extern "C"
@@ -717,6 +744,63 @@ void gwsincos123by_special7 (
 	tmp = sine3 + epsilon;		/* Protect against divide by zero */
 	results[0] = tmp * sine975;
 	results[incr] = cosine3 / tmp;
+	END_x86_FIX
+}
+
+extern "C"
+void gwsincos123456by_special7 (
+	unsigned long x,
+	unsigned long N,
+	double	*results,
+	int	incr)
+{
+	dd_real arg1, sine, cosine, sine2, cosine2, sine3, cosine3, sine4, cosine4, sine5, cosine5, cosine6, sine6, tmp;
+	dd_real sine975;
+
+	arg1 = dd_real::_2pi * 2.0 / 7.0;		// 2*PI * 2 / 7
+	sine975 = sin (arg1);				// sine (0.975)
+
+	x86_FIX
+	arg1 = dd_real::_2pi * (double) x / (double) N;
+	sincos (arg1, sine, cosine);
+	tmp = sine + epsilon;		/* Protect against divide by zero */
+	results[0] = tmp * sine975;
+	results[incr] = cosine / tmp;
+	results += incr + incr;
+
+	sine2 = sine * cosine * 2.0;
+	cosine2 = sqr (cosine) - sqr (sine);
+	tmp = sine2 + epsilon;		/* Protect against divide by zero */
+	results[0] = tmp * sine975;
+	results[incr] = cosine2 / tmp;
+	results += incr + incr;
+
+	sine3 = sine * cosine2 + sine2 * cosine;
+	cosine3 = cosine * cosine2 - sine * sine2;
+	tmp = sine3 + epsilon;		/* Protect against divide by zero */
+	results[0] = tmp * sine975;
+	results[incr] = cosine3 / tmp;
+	results += incr + incr;
+
+	sine4 = sine2 * cosine2 * 2.0;
+	cosine4 = sqr (cosine2) - sqr (sine2);
+	tmp = sine4 + epsilon;		/* Protect against divide by zero */
+	results[0] = tmp * sine975;
+	results[incr] = cosine4 / tmp;
+	results += incr + incr;
+
+	sine5 = sine2 * cosine3 + sine3 * cosine2;
+	cosine5 = cosine2 * cosine3 - sine2 * sine3;
+	tmp = sine5 + epsilon;		/* Protect against divide by zero */
+	results[0] = tmp * sine975;
+	results[incr] = cosine5 / tmp;
+	results += incr + incr;
+
+	sine6 = sine3 * cosine3 * 2.0;
+	cosine6 = sqr (cosine3) - sqr (sine3);
+	tmp = sine6 + epsilon;		/* Protect against divide by zero */
+	results[0] = tmp * sine975;
+	results[incr] = cosine6 / tmp;
 	END_x86_FIX
 }
 
@@ -1107,6 +1191,47 @@ void gwfft_weights3 (
 	END_x86_FIX
 }
 
+// This computes the three FFT weights divided by a different weight in one call.
+
+extern "C"
+void gwfft_weights_over_weights3 (
+	void	*dd_data_arg,
+	unsigned long j,
+	unsigned long over_j,
+	double	*fft_weight,
+	double	*fft_weight_inverse,
+	double	*fft_weight_inverse_over_fftlen)
+{
+	dd_real bpower, weight, over_bpower, over_weight;
+
+	x86_FIX
+	bpower = map_to_weight_power (dd_data_arg, j);
+	weight = exp (dd_data->gw__logb * bpower);
+	over_bpower = map_to_weight_power (dd_data_arg, over_j);
+	over_weight = exp (dd_data->gw__logb * over_bpower);
+	if (fft_weight != NULL) *fft_weight = double (weight / over_weight);
+	if (fft_weight_inverse != NULL) *fft_weight_inverse = double (1.0 / (weight / over_weight));
+	if (fft_weight_inverse_over_fftlen != NULL) *fft_weight_inverse_over_fftlen = double (dd_data->gw__over_fftlen / (weight / over_weight));
+	END_x86_FIX
+}
+
+// This computes the FFT weights minus one.  This is more accurate than weight and can be applied with one FMA instruction.
+
+extern "C"
+void gwfft_weight_minus1 (
+	void	*dd_data_arg,
+	unsigned long j,
+	double	*fft_weight_minus1)
+{
+	dd_real bpower, weight;
+
+	x86_FIX
+	bpower = map_to_weight_power (dd_data_arg, j);
+	weight = exp (dd_data->gw__logb * bpower);
+	*fft_weight_minus1 = double (weight - 1.0);
+	END_x86_FIX
+}
+
 // Returns logb(fft_weight).  This is used in determining the FFT weight
 // fudge factor in two-pass FFTs.  This is much faster than computing the
 // fft_weight because it eliminates a call to the double-double exp routine.
@@ -1371,17 +1496,17 @@ void gwfft_weights_fudged (
 	END_x86_FIX
 }
 
-/* Special version that merges group multiplier with the sine value from gwsincos1plus0123456789ABby. */
-/* Used in AVX-512 negacyclic FFTs. */
+/* Special version that merges weights with the sine value from gwsincos1plus0123456789ABby.  Used in AVX-512 negacyclic FFTs. */
 
 extern "C"
-void gwfft_weights_times_sine (
+void gwfft_weights3_times_sine (
 	void	*dd_data_arg,
-	unsigned long j,		/* For computing group multiplier */
-	unsigned long x,		/* For computing roots-of-minus-one sine value */
-	unsigned long N,		/* For computing sine value */
-	double	*fft_weight,		/* Returned group multiplier * sine */
-	double	*fft_weight_inverse)	/* Returned 1/group multiplier * sine */
+	unsigned long j,				/* For computing weights */
+	unsigned long x,				/* For computing roots-of-minus-one sine value */
+	unsigned long N,				/* For computing sine value */
+	double	*fft_weight,				/* Returned inverse weight * sine */
+	double	*fft_weight_inverse,			/* Returned inverse weight * sine */
+	double	*fft_weight_inverse_over_fftlen)	/* Returned inverse weight * sine */
 {
 	dd_real bpower, weight, sine0;
 
@@ -1397,6 +1522,7 @@ void gwfft_weights_times_sine (
 
 	if (fft_weight != NULL) *fft_weight = double (weight * sine0);
 	if (fft_weight_inverse != NULL) *fft_weight_inverse = double (sine0 / weight);
+	if (fft_weight_inverse_over_fftlen != NULL) *fft_weight_inverse_over_fftlen = double (sine0 / weight * dd_data->gw__over_fftlen);
 
 	END_x86_FIX
 }

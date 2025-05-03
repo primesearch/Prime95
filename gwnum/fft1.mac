@@ -1,4 +1,4 @@
-; Copyright 1998-2023 - Mersenne Research, Inc.  All rights reserved
+; Copyright 1998-2024 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -39,7 +39,6 @@ not4:
 ;; Do 4 eight_reals_first_fft macros
 ;;	distance between fft data elements is 4
 
-	copy_7_words
 	sub	eax, eax
 b1b:	disp eight_reals_first_fft, 4*dist1, 8*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -106,7 +105,6 @@ not4:
 ;; Do 4 four_complex_first_fft macros
 ;;	distance between fft data elements is 4
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	sub	eax, eax
 b1b:	disp four_complex_first_fft, 4*dist1, 8*dist1, 8
@@ -180,7 +178,6 @@ not4:
 ;;	distance between fft data elements is 8
 ;;	Do 4 iterations each processing 10 real values
 
-	copy_7_words
 	sub	eax, eax
 b1b:	two_five_reals_first_fft 4*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -320,7 +317,6 @@ not4:
 ;; Do 8 six_reals_first_fft macros
 ;;	distance between fft data elements is 8
 
-	copy_7_words
 	sub	eax, eax
 b1b:	disp six_reals_first_fft, 8*dist1, 16*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -469,7 +465,6 @@ not4:
 ;; Do 8 three_complex_first_fft macros
 ;;	distance between fft data elements is 8
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	sub	eax, eax
 b1b:	three_complex_first_fft 8*dist1, 16*dist1, 8
@@ -573,7 +568,6 @@ not4:
 ;;	distance between fft data elements is 8
 ;;	Do 4 iterations each processing 14 real values
 
-	copy_7_words
 	sub	eax, eax
 b1b:	two_seven_reals_first_fft 4*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -715,7 +709,6 @@ not4:
 ;; Do 8 eight_reals_first_fft macros
 ;;	distance between fft data elements is 8
 
-	copy_7_words
 	sub	eax, eax
 b1b:	disp eight_reals_first_fft, 8*dist1, 16*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -863,7 +856,6 @@ not4:
 ;; Do 8 four_complex_first_fft macros
 ;;	distance between fft data elements is 8
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	sub	eax, eax
 b1b:	disp four_complex_first_fft, 8*dist1, 16*dist1, 8
@@ -1005,7 +997,6 @@ not4:
 ;;	distance between fft data elements is 16
 ;;	Do 8 iterations each processing 10 real values
 
-	copy_7_words
 	sub	eax, eax
 b1b:	two_five_reals_first_fft 8*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -1137,7 +1128,6 @@ not4:
 ;; Do 16 six_reals_first_fft macros
 ;;	distance between fft data elements is 16
 
-	copy_7_words
 	sub	eax, eax
 b1b:	disp six_reals_first_fft, 16*dist1, 32*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -1206,7 +1196,6 @@ not4:
 ;; Do 16 three_complex_first_fft macros
 ;;	distance between fft data elements is 16
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	sub	eax, eax
 b1b:	three_complex_first_fft 16*dist1, 32*dist1, 8
@@ -1282,7 +1271,6 @@ not4:
 ;;	distance between fft data elements is 16
 ;;	Do 8 iterations each processing 14 real values
 
-	copy_7_words
 	sub	eax, eax
 b1b:	two_seven_reals_first_fft 8*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -1414,7 +1402,6 @@ not4:
 ;; Do 16 eight_reals_first_fft macros
 ;;	distance between fft data elements is 16
 
-	copy_7_words
 	sub	eax, eax
 b1b:	disp eight_reals_first_fft, 16*dist1, 32*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -1483,7 +1470,6 @@ not4:
 ;; Do 16 four_complex_first_fft macros
 ;;	distance between fft data elements is 16
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	sub	eax, eax
 b1b:	disp four_complex_first_fft, 16*dist1, 32*dist1, 8
@@ -1559,7 +1545,6 @@ not4:
 ;;	distance between fft data elements is 32
 ;;	Do 16 iterations each processing 10 real values
 
-	copy_7_words
 	sub	eax, eax
 b1b:	two_five_reals_first_fft 16*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -1694,7 +1679,6 @@ not4:
 ;; Do 32 six_reals_first_fft macros
 ;;	distance between fft data elements is 32
 
-	copy_7_words
 	sub	eax, eax
 b1b:	disp six_reals_first_fft, 32*dist1, 64*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -1801,7 +1785,6 @@ not4:
 ;; Do 32 three_complex_first_fft macros
 ;;	distance between fft data elements is 32
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	sub	eax, eax
 b1b:	three_complex_first_fft 32*dist1, 64*dist1, 8
@@ -1906,7 +1889,6 @@ not4:
 ;;	distance between fft data elements is 32
 ;;	Do 16 iterations each processing 14 real values
 
-	copy_7_words
 	sub	eax, eax
 b1b:	two_seven_reals_first_fft 16*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -2041,7 +2023,6 @@ not4:
 ;; Do 32 eight_reals_first_fft macros
 ;;	distance between fft data elements is 32
 
-	copy_7_words
 	sub	eax, eax
 b1b:	disp eight_reals_first_fft, 32*dist1, 64*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -2238,7 +2219,6 @@ not4:
 ;; Do 32 four_complex_first_fft macros
 ;;	distance between fft data elements is 32
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	sub	eax, eax
 b1b:	disp four_complex_first_fft, 32*dist1, 64*dist1, 8
@@ -2411,7 +2391,6 @@ not4:
 ;;	distance between fft data elements is 64
 ;;	Do 32 iterations each processing 10 real values
 
-	copy_7_words
 	sub	eax, eax
 b1b:	two_five_reals_first_fft 32*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -2546,7 +2525,6 @@ not4:
 ;; Do 64 six_reals_first_fft macros
 ;;	distance between fft data elements is 64
 
-	copy_7_words
 	sub	eax, eax
 b1b:	disp six_reals_first_fft, 64*dist1, 128*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -2615,7 +2593,6 @@ not4:
 ;; Do 64 three_complex_first_fft macros
 ;;	distance between fft data elements is 64
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	sub	eax, eax
 b1b:	three_complex_first_fft 64*dist1, 128*dist1, 8
@@ -2691,7 +2668,6 @@ not4:
 ;;	distance between fft data elements is 64
 ;;	Do 32 iterations each processing 14 real values
 
-	copy_7_words
 	sub	eax, eax
 b1b:	two_seven_reals_first_fft 32*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -2826,7 +2802,6 @@ not4:
 ;; Do 64 eight_reals_first_fft macros
 ;;	distance between fft data elements is 64
 
-	copy_7_words
 	sub	eax, eax
 b1b:	disp eight_reals_first_fft, 64*dist1, 128*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -2895,7 +2870,6 @@ not4:
 ;; Do 64 four_complex_first_fft macros
 ;;	distance between fft data elements is 64
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	sub	eax, eax
 b1b:	disp four_complex_first_fft, 64*dist1, 128*dist1, 8
@@ -2971,7 +2945,6 @@ not4:
 ;;	distance between fft data elements is 128
 ;;	Do 64 iterations each processing 10 real values
 
-	copy_7_words
 	sub	eax, eax
 b1b:	two_five_reals_first_fft 64*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -3106,7 +3079,6 @@ not4:
 ;; Do 128 six_reals_first_fft macros
 ;;	distance between fft data elements is 128
 
-	copy_7_words
 	sub	eax, eax
 b1b:	disp six_reals_first_fft, 128*dist1, 256*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -3213,7 +3185,6 @@ not4:
 ;; Do 128 three_complex_first_fft macros
 ;;	distance between fft data elements is 128
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	sub	eax, eax
 b1b:	three_complex_first_fft 128*dist1, 256*dist1, 8
@@ -3318,7 +3289,6 @@ not4:
 ;;	distance between fft data elements is 128
 ;;	Do 64 iterations each processing 14 real values
 
-	copy_7_words
 	sub	eax, eax
 b1b:	two_seven_reals_first_fft 64*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -3453,7 +3423,6 @@ not4:
 ;; Do 128 eight_reals_first_fft macros
 ;;	distance between fft data elements is 128
 
-	copy_7_words
 	sub	eax, eax
 b1b:	disp eight_reals_first_fft, 128*dist1, 256*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -3688,7 +3657,6 @@ not4:
 ;; Do 128 four_complex_first_fft macros
 ;;	distance between fft data elements is 128
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	sub	eax, eax
 b1b:	disp four_complex_first_fft, 128*dist1, 256*dist1, 8
@@ -3891,7 +3859,6 @@ not4:
 ;;	distance between fft data elements is 256
 ;;	Do 128 iterations each processing 10 real values
 
-	copy_7_words
 	sub	eax, eax
 b1b:	two_five_reals_first_fft 128*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -4026,7 +3993,6 @@ not4:
 ;; Do 256 six_reals_first_fft macros
 ;;	distance between fft data elements is 256
 
-	copy_7_words
 	sub	eax, eax		;; 256 iterations
 b1b:	disp six_reals_first_fft, 256*dist1, 512*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -4095,7 +4061,6 @@ not4:
 ;; Do 256 three_complex_first_fft macros
 ;;	distance between fft data elements is 256
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	sub	eax, eax		;; 256 iterations
 b1b:	three_complex_first_fft 256*dist1, 512*dist1, 8
@@ -4171,7 +4136,6 @@ not4:
 ;;	distance between fft data elements is 256
 ;;	Do 128 iterations each processing 14 real values
 
-	copy_7_words
 	sub	eax, eax
 b1b:	two_seven_reals_first_fft 128*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -4306,7 +4270,6 @@ not4:
 ;; Do 256 eight_reals_first_fft macros
 ;;	distance between fft data elements is 256
 
-	copy_7_words
 	sub	eax, eax		;; 256 iterations
 b1b:	disp eight_reals_first_fft, 256*dist1, 512*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -4375,7 +4338,6 @@ not4:
 ;; Do 256 four_complex_first_fft macros
 ;;	distance between fft data elements is 256
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	sub	eax, eax
 b1b:	disp four_complex_first_fft, 256*dist1, 512*dist1, 8
@@ -4451,7 +4413,6 @@ not4:
 ;;	distance between fft data elements is 512
 ;;	Do 256 iterations each processing 10 real values
 
-	copy_7_words
 	sub	eax, eax
 b1b:	two_five_reals_first_fft 256*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -4587,7 +4548,6 @@ not4:
 ;; Do 512 six_reals_first_fft macros
 ;;	distance between fft data elements is 512
 
-	copy_7_words
 	mov	eax, 512		;; 512 iterations
 b1b:	disp six_reals_first_fft, 512*dist1, 1024*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -4696,7 +4656,6 @@ not4:
 ;; Do 512 three_complex_first_fft macros
 ;;	distance between fft data elements is 512
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	mov	eax, 512		;; 512 iterations
 b1b:	three_complex_first_fft 512*dist1, 1024*dist1, 8
@@ -4802,7 +4761,6 @@ not4:
 ;;	distance between fft data elements is 512
 ;;	Do 256 iterations each processing 14 real values
 
-	copy_7_words
 	sub	eax, eax
 b1b:	two_seven_reals_first_fft 256*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -4938,7 +4896,6 @@ not4:
 ;; Do 512 eight_reals_first_fft macros
 ;;	distance between fft data elements is 512
 
-	copy_7_words
 	mov	eax, 512		;; 512 iterations
 b1b:	disp eight_reals_first_fft, 512*dist1, 1024*dist1, 8
 	lea	esi, [esi+dist1]	;; Next source pointer
@@ -5413,7 +5370,6 @@ not4:
 ;; Do 512 four_complex_first_fft macros
 ;;	distance between fft data elements is 512
 
-	copy_7_words
 	mov	edi, plus1_premults	;; Address of premultiplier table
 	mov	eax, 512		;; 512 iterations
 b1b:	disp four_complex_first_fft, 512*dist1, 1024*dist1, 8

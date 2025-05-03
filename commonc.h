@@ -1,4 +1,4 @@
-/* Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved */
+/* Copyright 1995-2025 Mersenne Research, Inc.  All rights reserved */
 
 #ifndef _COMMONC_H
 #define _COMMONC_H
@@ -11,8 +11,8 @@ extern "C" {
 
 /* Constants */
 
-#define VERSION		"30.19"
-#define BUILD_NUM	"21"
+#define VERSION		"31.0"
+#define BUILD_NUM	"4"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -155,7 +155,7 @@ extern int DIAL_UP;			/* TRUE if we're dialing into */
 extern unsigned int NUM_WORKERS;	/* Number of workers to launch */
 extern unsigned int WORK_PREFERENCE[MAX_NUM_WORKERS];
 					/* Type of work (factoring, testing, etc.) to get from the server. */
-extern unsigned int CORES_PER_TEST[MAX_NUM_WORKERS];
+extern unsigned int CORES_PER_WORKER[MAX_NUM_WORKERS];
 					/* Number of cores gwnum can use in computations */
 extern int HYPERTHREAD_TF;		/* TRUE if trial factoring should use hyperthreads */
 extern int HYPERTHREAD_LL;		/* TRUE if FFTs (LL, P-1, ECM, PRP) should use hyperthreads */
@@ -166,7 +166,7 @@ extern int volatile ERRCHK;		/* 1 to turn on roundoff error checking */
 extern unsigned int PRIORITY;		/* Desired priority level */
 extern int MANUAL_COMM;			/* Set on if user explicitly starts */
 					/* all communication with the server */
-extern float volatile CPU_WORKER_DISK_SPACE; /* Disk space in GB each worker is allowed to use */
+extern float volatile CPU_WORKER_DISK_SPACE; /* Disk space in GiB each worker is allowed to use */
 extern unsigned int volatile CPU_HOURS;	/* Hours per day program will run */
 extern int CLASSIC_OUTPUT;		/* LL and PRP output to worker windows should use the pre-v28.5 classic style */
 extern int OUTPUT_ROUNDOFF;		/* LL and PRP output to worker windows shound include the roundoff error */
@@ -463,9 +463,10 @@ struct work_unit *getNextWorkToDoLine (int, struct work_unit *, int);
 void decrementWorkUnitUseCount (struct work_unit *, int);
 #define ADD_TO_FRONT		1
 #define ADD_TO_LOGICAL_END	2		// Add after last non-blank line
-#define ADD_TO_END		3
-#define ADD_BEFORE_SPECIFIC	4		// Add before w->next
-#define ADD_AFTER_SPECIFIC	5		// Add after w->next
+#define ADD_TO_END		3		// Add to absolute end
+#define ADD_TO_END_NO_CHANGE	4		// Add to absolute end and don't set WORKTODO_CHANGED (used when reading file initially)
+#define ADD_BEFORE_SPECIFIC	5		// Add before w->next
+#define ADD_AFTER_SPECIFIC	6		// Add after w->next
 int addWorkToDoLine (int, struct work_unit *, int);
 int updateWorkToDoLine (int, struct work_unit *);
 int deleteWorkToDoLine (int, struct work_unit *, int);

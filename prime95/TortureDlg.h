@@ -1,5 +1,5 @@
 //
-// Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved
 //
 
 #pragma once
@@ -29,7 +29,7 @@ public:
 	int	m_minfft;
 	int	m_maxfft;
 	BOOL	m_in_place;
-	float	m_memory;		// in GB
+	float	m_memory;		// in GiB
 	int	m_timefft;
 	int	m_avx512;
 	int	m_fma3;
@@ -54,7 +54,7 @@ public:
 	CButton c_avx;
 	CButton c_sse2;
 
-	int	m_blendmemory;			// Default blend memory (in MB)
+	int	m_blendmemory;			// Default blend memory (in MiB)
 
 	afx_msg void OnEnKillfocusCores();
 	afx_msg void OnBnClickedL2Cache();

@@ -132,10 +132,10 @@ buildfor CORE + FMA3_64,	yonepass 2560, 0
 buildfor CORE + FMA3_64,	yonepass 3K, 0
 buildfor CORE + FMA3_64,	yonepass 4K, 0
 buildfor CORE + FMA3_64,	yonepass 5K, 0
-buildfor               ,	yonepass 6K, 0
-buildfor               ,	yonepass 8K, 0
-buildfor               ,	yonepass 10K, 0
-buildfor               ,	yonepass 12K, 0
+buildfor        FMA3_64,	yonepass 6K, 0
+buildfor        FMA3_64,	yonepass 8K, 0
+buildfor        FMA3_64,	yonepass 10K, 0
+buildfor        FMA3_64,	yonepass 12K, 0
 buildfor        FMA3_64,	yonepass 16K, 0
 buildfor               ,	yonepass 18K, 0
 buildfor        FMA3_64,	yonepass 20K, 0

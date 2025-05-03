@@ -1,4 +1,4 @@
-; Copyright 2011-2023 Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2024 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -36,14 +36,14 @@ loopcount2	EQU	DPTR [rsp+first_local+SZPTR+4]
 loopcount3	EQU	DPTR [rsp+first_local+SZPTR+8]
 blk8_counter	EQU	BYTE PTR [rsp+first_local+SZPTR+12]
 
-inorm	MACRO	lab, ttp, zero, echk, const, base2
+inorm	MACRO	lab, ttp, echk, const, base2
 	LOCAL	ilp0, ilp1, ilp2, not8, done
 	PROCFLP	lab
 	int_prolog SZPTR+16,0,0
 echk	vmovapd	ymm6, YMM_MAXERR	;; Load maximum error
 	mov	saved_rsi, rsi		;; Save for top_carry_adjust
 
-	ynorm_wpn_preload ttp, base2, zero, echk, const
+	ynorm_wpn_preload ttp, base2, echk, const
 
 	mov	rdx, norm_grp_mults	;; Addr of the group multipliers
 	mov	rbp, carries		;; Addr of the carries
@@ -58,7 +58,7 @@ ilp1:	mov	eax, cache_line_multiplier ;; Load inner loop counter
 	mov	loopcount1, rax		;; Save loop counter
 	vmovapd ymm2, [rbp+0*32]	;; Load carries
 	vmovapd ymm3, [rbp+1*32]
-ilp2:	ynorm_wpn ttp, base2, zero, echk, const ;; Normalize 8 values
+ilp2:	ynorm_wpn ttp, base2, echk, const ;; Normalize 8 values
 	bump	rsi, 64			;; Next cache line
 ttp	bump	rdi, 2			;; Next big/little flags
 	sub	loopcount1, 1		;; Test loop counter
@@ -102,14 +102,14 @@ loopcount2	EQU	DPTR [rsp+first_local+SZPTR+4]
 loopcount3	EQU	DPTR [rsp+first_local+SZPTR+8]
 blk8_counter	EQU	BYTE PTR [rsp+first_local+SZPTR+12]
 
-inorm	MACRO	lab, ttp, zero, echk, const, base2
+inorm	MACRO	lab, ttp, echk, const, base2
 	LOCAL	noinc, ilp0, ilp1, ilp2, not8, done
 	PROCFLP	lab
 	int_prolog SZPTR+16,0,0
 echk	vmovapd	ymm6, YMM_MAXERR	;; Load maximum error
 	mov	saved_rsi, rsi		;; Save for top_carry_adjust
 
-	ynorm_wpn_preload ttp, base2, zero, echk, const
+	ynorm_wpn_preload ttp, base2, echk, const
 
 	mov	r12, norm_grp_mults	;; Addr of the group multipliers
 	mov	rbp, carries		;; Addr of the carries
@@ -138,7 +138,7 @@ ttp	movzx	rcx, WORD PTR [r14]	;; Preload 4 big vs. little & fudge flags
 	vmovapd ymm3, [rbp+1*32]
 	vmovapd ymm9, [rbp+2*32]
 	vmovapd ymm10, [rbp+3*32]
-ilp2:	ynorm_wpn ttp, base2, zero, echk, const ;; Normalize 2 sets of 8 values
+ilp2:	ynorm_wpn ttp, base2, echk, const ;; Normalize 2 sets of 8 values
 	bump	rsi, 64			;; Next cache line
 	bump	r13, 64			;; Next cache line
 ttp	bump	rdi, 2			;; Next big/little flags
@@ -188,14 +188,14 @@ loopcount2	EQU	DPTR [rsp+first_local+SZPTR+0]
 loopcount3	EQU	DPTR [rsp+first_local+SZPTR+4]
 blk8_counter	EQU	BYTE PTR [rsp+first_local+SZPTR+8]
 
-inorm	MACRO	lab, ttp, zero, echk, const, base2
+inorm	MACRO	lab, ttp, echk, const, base2
 	LOCAL	ilp0, ilp1, ilp2, not8, done
 	PROCFLP	lab
 	int_prolog SZPTR+12,0,0
 echk	vmovapd	ymm6, YMM_MAXERR	;; Load maximum error
 	mov	saved_rsi, rsi		;; Save for top_carry_adjust
 
-	ynorm_wpn_preload ttp, base2, zero, echk, const
+	ynorm_wpn_preload ttp, base2, echk, const
 
 	mov	r12, norm_grp_mults	;; Addr of the group multipliers
 	mov	rbp, carries		;; Addr of the carries
@@ -219,7 +219,7 @@ ttp	movzx	rcx, WORD PTR [r14]	;; Preload 4 big vs. little & fudge flags
 	vmovapd ymm3, [rbp+1*32]
 	vmovapd ymm9, [rbp+2*32]
 	vmovapd ymm10, [rbp+3*32]
-ilp2:	ynorm_wpn ttp, base2, zero, echk, const ;; Normalize 2 sets of 8 values
+ilp2:	ynorm_wpn ttp, base2, echk, const ;; Normalize 2 sets of 8 values
 	bump	rsi, 64			;; Next cache line
 	bump	r13, 64			;; Next cache line
 ttp	bump	rdi, 2			;; Next big/little flags
@@ -273,6 +273,10 @@ zpnorm	MACRO	lab, ttp, echk, const, base2, khi, c1, cm1
 	LOCAL	ilp0, ilp1, ilp2, not8
 	PROCFLP	lab
 	int_prolog 12,0,0
+
+;; Handled in C code by pass1_pre_carries
+;;	c_call	ZPAD_SUB7		;; Subtract 7 ZPAD words from lowest FFT words
+
 echk	vmovapd	ymm6, YMM_MAXERR	;; Load maximum error
 
 	ynorm_wpn_zpad_preload ttp, base2, echk, const, khi, c1, cm1
@@ -322,6 +326,10 @@ zpnorm	MACRO	lab, ttp, echk, const, base2, khi, c1, cm1
 	LOCAL	noinc, ilp0, ilp1, ilp2, not8
 	PROCFLP	lab
 	int_prolog 4,0,0
+
+;; Handled in C code by pass1_pre_carries
+;;	c_call	ZPAD_SUB7		;; Subtract 7 ZPAD words from lowest FFT words
+
 echk	vmovapd	ymm6, YMM_MAXERR	;; Load maximum error
 
 	ynorm_wpn_zpad_preload ttp, base2, echk, const, khi, c1, cm1
@@ -401,6 +409,10 @@ zpnorm	MACRO	lab, ttp, echk, const, base2, khi, c1, cm1
 	LOCAL	ilp0, ilp1, ilp2, not8
 	PROCFLP	lab
 	int_prolog 0,0,0
+
+;; Handled in C code by pass1_pre_carries
+;;	c_call	ZPAD_SUB7		;; Subtract 7 ZPAD words from lowest FFT words
+
 echk	vmovapd	ymm6, YMM_MAXERR	;; Load maximum error
 
 	ynorm_wpn_zpad_preload ttp, base2, echk, const, khi, c1, cm1
@@ -469,22 +481,16 @@ ENDIF
 
 ENDIF
 
-; The 16 different normalization routines.  One for each combination of
-; rational/irrational, zeroing/no zeroing, error check/no error check, and
-; mul by const/no mul by const.
+; The 16 different normalization routines.  One for each combination of rational/irrational, error check/no error check, and mul by const/no mul by const.
 
-	inorm	yr3, noexec, noexec, noexec, noexec, exec
-	inorm	yr3e, noexec, noexec, exec, noexec, exec
-	inorm	yr3c, noexec, noexec, noexec, exec, exec
-	inorm	yr3ec, noexec, noexec, exec, exec, exec
-	inorm	yr3z, noexec, exec, noexec, noexec, exec
-	inorm	yr3ze, noexec, exec, exec, noexec, exec
-	inorm	yi3, exec, noexec, noexec, noexec, exec
-	inorm	yi3e, exec, noexec, exec, noexec, exec
-	inorm	yi3c, exec, noexec, noexec, exec, exec
-	inorm	yi3ec, exec, noexec, exec, exec, exec
-	inorm	yi3z, exec, exec, noexec, noexec, exec
-	inorm	yi3ze, exec, exec, exec, noexec, exec
+	inorm	yr3, noexec, noexec, noexec, exec
+	inorm	yr3e, noexec, exec, noexec, exec
+	inorm	yr3c, noexec, noexec, exec, exec
+	inorm	yr3ec, noexec, exec, exec, exec
+	inorm	yi3, exec, noexec, noexec, exec
+	inorm	yi3e, exec, exec, noexec, exec
+	inorm	yi3c, exec, noexec, exec, exec
+	inorm	yi3ec, exec, exec, exec, exec
 	zpnorm	yr3zp, noexec, noexec, noexec, exec, exec, noexec, noexec
 	zpnorm	yr3zpc1, noexec, noexec, noexec, exec, exec, exec, noexec
 	zpnorm	yr3zpcm1, noexec, noexec, noexec, exec, exec, noexec, exec
@@ -518,14 +524,14 @@ ENDIF
 	zpnorm	yi3zpck, exec, noexec, exec, exec, noexec, noexec, noexec
 	zpnorm	yi3zpeck, exec, exec, exec, exec, noexec, noexec, noexec
 
-	inorm	yr3b, noexec, noexec, noexec, noexec, noexec
-	inorm	yr3eb, noexec, noexec, exec, noexec, noexec
-	inorm	yr3cb, noexec, noexec, noexec, exec, noexec
-	inorm	yr3ecb, noexec, noexec, exec, exec, noexec
-	inorm	yi3b, exec, noexec, noexec, noexec, noexec
-	inorm	yi3eb, exec, noexec, exec, noexec, noexec
-	inorm	yi3cb, exec, noexec, noexec, exec, noexec
-	inorm	yi3ecb, exec, noexec, exec, exec, noexec
+	inorm	yr3b, noexec, noexec, noexec, noexec
+	inorm	yr3eb, noexec, exec, noexec, noexec
+	inorm	yr3cb, noexec, noexec, exec, noexec
+	inorm	yr3ecb, noexec, exec, exec, noexec
+	inorm	yi3b, exec, noexec, noexec, noexec
+	inorm	yi3eb, exec, exec, noexec, noexec
+	inorm	yi3cb, exec, noexec, exec, noexec
+	inorm	yi3ecb, exec, exec, exec, noexec
 	zpnorm	yr3zpb, noexec, noexec, noexec, noexec, exec, noexec, noexec
 	zpnorm	yr3zpbc1, noexec, noexec, noexec, noexec, exec, exec, noexec
 	zpnorm	yr3zpbcm1, noexec, noexec, noexec, noexec, exec, noexec, exec

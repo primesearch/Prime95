@@ -10,7 +10,7 @@
  *	Other important ideas courtesy of Peter Montgomery, Alex Kruppa, Mihai Preda, Pavel Atnashev.
  *
  *	c. 1997 Perfectly Scientific, Inc.
- *	c. 1998-2024 Mersenne Research, Inc.
+ *	c. 1998-2025 Mersenne Research, Inc.
  *	All Rights Reserved.
  *
  *************************************************************/
@@ -6031,9 +6031,10 @@ int ecm_choose_B2 (
 
 /* Handle case where midpoint has worse efficiency than the start point.  The search code requires best[1] is better than best[0] and best[2]. */
 /* There is an edge case where max_safe_poly_size returns a very small value and there is no case where best[1] is better than best[0]. */
-/* Thus, the test for best[0].i > 1.  We'll eventually use a larger FFT size with a larger safe poly_size. */
+/* Thus, the test for best[0].i== 1.  We'll eventually use a larger stage 2 FFT size with a larger safe poly_size. */
 
-	while (best[0].efficiency > best[1].efficiency && best[0].i > 1) {
+	while (best[0].efficiency > best[1].efficiency) {
+		if (best[0].i == 1) return (FALSE);	// Edge case - no B2 works.
 		best[2] = best[1];
 		best[1] = best[0];
 		kruppa (best[0], best[0].i / 2);
@@ -6047,6 +6048,11 @@ int ecm_choose_B2 (
 		best[1] = best[2];
 		kruppa (best[2], best[1].i * 5);
 	}
+
+/* There are cases where 
+	
+		ASSERTG (best[1].efficiency >= best[0].efficiency);
+		ASSERTG (best[1].efficiency >= best[2].efficiency);
 
 /* Find the best B2.  We use a binary-like search to speed things up (new in version 30.3b3). */
 
@@ -6616,6 +6622,7 @@ void ecm_helper (
 
 		// Initialize a polymult structure that uses the cloned gwdata
 		polymult_init (&pmdata, gwdata);
+		polymult_set_cpu_flags (&pmdata, CPU_FLAGS);					// Allow AVX-512 polymults on FMA3 FFTs
 
 		// Loop working on length 2, 3, or 4 polys
 		gwarray source_poly = ecmdata->poly1;
@@ -6681,6 +6688,7 @@ void ecm_helper (
 
 		// Initialize a polymult structure that uses the cloned gwdata
 		polymult_init (&pmdata, gwdata);
+		polymult_set_cpu_flags (&pmdata, CPU_FLAGS);					// Allow AVX-512 polymults on FMA3 FFTs
 
 		// Loop working on length 2, 3, or 4 polys
 		gwarray polyG = ecmdata->polyGH;
@@ -6795,7 +6803,7 @@ int ecm (
 {
 	ecmhandle ecmdata;
 	uint64_t next_prime, last_output, last_output_t, dictionary_memory;
-	double	one_over_B, output_frequency, output_title_frequency;
+	double	one_over_B, output_adjustment, title_adjustment;
 	double	base_pct_complete, one_relp_pct;
 	int	i;
 	unsigned int memused;
@@ -7207,7 +7215,7 @@ if (w->n == 604) {
 	last_output = last_output_t = ecmdata.modinv_count = 0;
 	gw_clear_fft_count (&ecmdata.gwdata);
 	first_iter_msg = TRUE;
-	calc_output_frequencies (&ecmdata.gwdata, &output_frequency, &output_title_frequency);
+	calc_interval_adjustments (&ecmdata.gwdata, &output_adjustment, &title_adjustment);
 	dictionary_memory = (uint64_t) IniGetInt (INI_FILE, "DictionaryMemory", 256) << 20;	// Default to 256MiB dictionary memory
 
 /* Optionally do a probable prime test */
@@ -7377,7 +7385,7 @@ restart0:
 		ecmdata.sigma = w->curve;
 		w->curves_to_do = 1;
 	}
-	default_sigma_type = (IniGetInt (INI_FILE, "DictionarySize", (int) (dictionary_memory / (3 * gwnum_size (&ecmdata.gwdata)))) < 4) ? 1 : 0;
+	default_sigma_type = (IniGetInt (INI_FILE, "DictionarySize", (int) (dictionary_memory / (3 * gwnum_size (&ecmdata.gwdata)))) < 7) ? 1 : 0;
 	ecmdata.sigma_type = IniGetInt (INI_FILE, "MontgSigma", default_sigma_type);
 	ecmdata.montg_stage1 = IniGetInt(INI_FILE, "MontgStage1", ecmdata.sigma_type == 1);
 	curve_start_msg (&ecmdata);
@@ -7452,7 +7460,7 @@ restart1:
 /* Output the title every so often */
 
 			if (first_iter_msg ||
-			    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
+			    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output_t + 2 * ITER_OUTPUT * title_adjustment)) {
 				sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 1",
 					 (int) PRECISION, trunc_percent (w->pct_complete), ecmdata.N_short_string_rep, ecmdata.curve);
 				title (thread_num, buf);
@@ -7462,7 +7470,7 @@ restart1:
 /* Print a message every so often */
 
 			if (first_iter_msg ||
-			    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
+			    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_adjustment)) {
 				sprintf (buf, "%s curve %" PRIu32 " stage 1 at prime %" PRIu64 " [%.*f%%].",
 					 ecmdata.N_short_string_rep, ecmdata.curve, ecmdata.stage1_prime, (int) PRECISION, trunc_percent (w->pct_complete));
 				end_timer (timers, 0);
@@ -7532,7 +7540,7 @@ restart1:
 				ecmdata.NAF_dictionary_size = (uint32_t) (dictionary_memory / (3 * gwnum_size (&ecmdata.gwdata)));
 				if (ecmdata.NAF_dictionary_size > best_size) ecmdata.NAF_dictionary_size = best_size;
 				ecmdata.NAF_dictionary_size = IniGetInt (INI_FILE, "DictionarySize", ecmdata.NAF_dictionary_size);  // User override
-				if (ecmdata.NAF_dictionary_size < 4) ecmdata.NAF_dictionary_size = 4;		// Not sure what the minimum is, 2 crashes
+				if (ecmdata.NAF_dictionary_size < 7) ecmdata.NAF_dictionary_size = 7;		// Minimum size that does not crash
 			}
 			sprintf (buf, "%sxponent length is %" PRIu64 ", best dictionary size is %" PRIu32 ", actual dictionary size is %" PRIu32 "\n",
 				 ecmdata.stage1_prime <= ecmdata.B ? "Partial e" : "E",
@@ -7589,7 +7597,7 @@ restart1:
 /* Output the title every so often */
 
 				if (first_iter_msg ||
-				    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
+				    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output_t + 2 * ITER_OUTPUT * title_adjustment)) {
 					sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 1",
 						 (int) PRECISION, trunc_percent (w->pct_complete), ecmdata.N_short_string_rep, ecmdata.curve);
 					title (thread_num, buf);
@@ -7599,7 +7607,7 @@ restart1:
 /* Print a message every so often */
 
 				if (first_iter_msg ||
-				    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
+				    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_adjustment)) {
 					sprintf (buf, "%s curve %" PRIu32 " stage 1 at exponent bit %" PRIu32 " [%.*f%%].",
 						 ecmdata.N_short_string_rep, ecmdata.curve, ecmdata.stage1_bitnum,
 						 (int) PRECISION, trunc_percent (w->pct_complete));
@@ -7811,6 +7819,7 @@ replan:	unsigned long best_fftlen;
 /* Initialize the polymult library (needed for calling polymult_mem_required).  Let user override polymult tuning parameters. */
 
 		polymult_init (&ecmdata.polydata, &ecmdata.gwdata);
+		polymult_set_cpu_flags (&ecmdata.polydata, CPU_FLAGS);		// Allow AVX-512 polymults on FMA3 FFTs
 		polymult_set_max_num_threads (&ecmdata.polydata, ecmdata.stage2_threads);
 		polymult_default_tuning (&ecmdata.polydata,
 					 IniGetInt (INI_FILE, "PolymultCacheSize", CPU_NUM_L2_CACHES > 0 ? CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES : 256),
@@ -7902,12 +7911,18 @@ OutputStr (thread_num, buf); }
 		if (best_poly_efficiency != 0.0) best_fails++;
 		if (best_fails == 3) found_best = TRUE;
 
-		// Switch to next larger or confirmed best FFT length
-		for ( ; ; ) {
-			unsigned long next_fftlen = gwfftlen (&ecmdata.gwdata) + 1;  // Try next larger FFT length
+		// Switch to next larger or confirmed best FFT length.  For small AVX-512 FFTs, we may try also try smaller FMA3 FFT lengths
+		// to obtain more temporaries and higher degree polynomials.
+		for (bool first_loop = TRUE; ; first_loop = FALSE) {
+			unsigned long next_fftlen = gwfftlen (&ecmdata.gwdata) + 1;  // By default, try next larger FFT length
+			// Hack in a search for smaller FMA3 FFTs (lengths 32, 64, 96, 160, 192, 320) on AVX-512 CPUs.
+			if (CPU_FLAGS & CPU_AVX512F &&
+			    gwfftlen (&ecmdata.gwdata) == ecmdata.stage1_fftlen && ecmdata.stage1_fftlen <= 384 && first_loop &&
+			    IniGetInt (INI_FILE, "SearchFMA3FFTs", 1))
+				next_fftlen = ecmdata.stage1_fftlen - 127;
+			// Other overrides for next_fftlen
 			if (next_fftlen < maxerr_fftlen) next_fftlen = maxerr_fftlen;
 			if (found_best) next_fftlen = best_fftlen;
-			msgbuf[0] = 0;
 			// Detect when no FFT length change is necessary (e.g. prime pairing selected and memory is very tight)
 			if (next_fftlen == gwfftlen (&ecmdata.gwdata)) break;
 			// Save Ad4, terminate current FFT size.
@@ -7919,9 +7934,15 @@ OutputStr (thread_num, buf); }
 			}
 			polymult_done (&ecmdata.polydata);
 			gwdone (&ecmdata.gwdata);
-			// Re-init gwnum with a larger FFT
+			// Re-init gwnum with next FFT length to cost
+			msgbuf[0] = 0;
 			gwinit (&ecmdata.gwdata);
 			if (next_fftlen != best_fftlen) gwset_information_only (&ecmdata.gwdata);
+			if (CPU_FLAGS & CPU_AVX512F &&
+			    (next_fftlen <= 96 || (next_fftlen > 128 && next_fftlen <= 192) || (next_fftlen > 256 && next_fftlen <= 320)) &&
+			    IniGetInt (INI_FILE, "SearchFMA3FFTs", 1)) {
+				ecmdata.gwdata.cpu_flags &= ~CPU_AVX512F;
+			}
 			if (IniGetInt (INI_FILE, "UseLargePages", 0)) gwset_use_large_pages (&ecmdata.gwdata);
 			if (HYPERTHREAD_LL) sp_info->normal_work_hyperthreading = TRUE, gwset_will_hyperthread (&ecmdata.gwdata, 2);
 			gwset_bench_cores (&ecmdata.gwdata, HW_NUM_CORES);
@@ -7946,6 +7967,7 @@ OutputStr (thread_num, buf); }
 				stop_reason = STOP_FATAL_ERROR;
 				goto exit;
 			}
+			if (!found_best && gwfftlen (&ecmdata.gwdata) == ecmdata.stage1_fftlen) continue;  // Can happen when trying to find smaller FMA3 FFTs
 			gwerror_checking (&ecmdata.gwdata, ERRCHK || near_fft_limit);
 			if (gwfftlen (&ecmdata.gwdata) != ecmdata.stage1_fftlen) {
 				char	fft_desc[200];
@@ -8705,7 +8727,7 @@ OutputStr (thread_num, buf); }
 /* Output the title every so often */
 
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output_t + 2 * ITER_OUTPUT * title_adjustment)) {
 			sprintf (buf, "%.*f%% of %s ECM curve %" PRIu32 " stage 2 (using %uMB)",
 				 (int) PRECISION, trunc_percent (w->pct_complete), ecmdata.N_short_string_rep, ecmdata.curve, memused);
 			title (thread_num, buf);
@@ -8715,7 +8737,7 @@ OutputStr (thread_num, buf); }
 /* Print a message every so often */
 
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) >= last_output + 2 * ITER_OUTPUT * output_adjustment)) {
 			sprintf (buf, "%s curve %" PRIu32 " stage 2 at B2=%" PRIu64 " [%.*f%%].",
 				 ecmdata.N_short_string_rep, ecmdata.curve, ecmdata.B2_start + ecmdata.Dsection * ecmdata.D + ecmdata.D / 2,
 				 (int) PRECISION, trunc_percent (w->pct_complete));
@@ -8735,7 +8757,7 @@ OutputStr (thread_num, buf); }
 /* Write a save file when the user interrupts the calculation and every DISK_WRITE_TIME minutes. */
 
 		stop_reason = stopCheck (thread_num);
-		if (stop_reason || testSaveFilesFlag (thread_num)) {
+		if (stop_reason || (testSaveFilesFlag (thread_num) && IniGetInt (INI_FILE, "EcmSaveDuringStage2", 1))) {
 			ecm_save (&ecmdata);
 			if (stop_reason) goto exit;
 		}
@@ -9159,7 +9181,7 @@ start_timer_from_zero (timers, 0);
 if (IniGetInt (INI_FILE, "PolyVerbose", 0)) {
 end_timer (timers, 0);
 double poly_size = ecmdata.poly_size / pow (2.0, log2_num_polys);
-if (poly_size < 2.0) sprintf (buf, "Round off: %.10g, avg poly_size: %g, EB: %g, SM: %g, Time:", gw_get_maxerr (&ecmdata.gwdata), poly_size, ecmdata.gwdata.EXTRA_BITS, ecmdata.gwdata.safety_margin);
+if (poly_size < 2.0) sprintf (buf, "Round off: %.10g, avg poly_size: %g, EB: %g, SM: %g, Time: ", gw_get_maxerr (&ecmdata.gwdata), poly_size, ecmdata.gwdata.EXTRA_BITS, ecmdata.gwdata.safety_margin);
 else sprintf (buf, "Round off: %.10g, avg poly_size: %g, Time: ", gw_get_maxerr (&ecmdata.gwdata), poly_size);
 print_timer (timers, 0, buf, TIMER_NL);
 OutputStr (thread_num, buf); gw_clear_maxerr (&ecmdata.gwdata);
@@ -9449,7 +9471,7 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&ecmdata.gwdata);}
 //GW: The * 3 is a total guess to compensate for time spent in polymult
 #define ITER_FUDGE 3
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) * ITER_FUDGE >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) * ITER_FUDGE >= last_output_t + 2 * ITER_OUTPUT * title_adjustment)) {
 			sprintf (buf, "%.*f%% of %s ECM stage 2 (using %uMB)",
 				 (int) PRECISION, trunc_percent (w->pct_complete), ecmdata.N_short_string_rep, memused);
 			title (thread_num, buf);
@@ -9459,9 +9481,10 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&ecmdata.gwdata);}
 /* Write out a message every now and then */
 
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) * ITER_FUDGE >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
-			sprintf (buf, "%s stage 2 at B2=%" PRIu64 " [%.*f%%]",
-				 ecmdata.N_short_string_rep, ecmdata.B2_start + ecmdata.Dsection * ecmdata.D, (int) PRECISION, trunc_percent (w->pct_complete));
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&ecmdata.gwdata) * ITER_FUDGE >= last_output + 2 * ITER_OUTPUT * output_adjustment)) {
+			sprintf (buf, "%s curve %" PRIu32 " stage 2 at B2=%" PRIu64 " [%.*f%%]",
+				 ecmdata.N_short_string_rep, ecmdata.curve, ecmdata.B2_start + ecmdata.Dsection * ecmdata.D,
+				 (int) PRECISION, trunc_percent (w->pct_complete));
 			end_timer (timers, 0);
 			if (first_iter_msg) {
 				strcat (buf, "\n");
@@ -10068,6 +10091,7 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 
 	if (continueECM) {
 		w->curves_to_do -= ecmdata.curve;
+		w->skip_curves += ecmdata.curve;
 		char *new_known_factors = addNewKnownFactor (w, str);
 		free (w->known_factors);
 		w->known_factors = new_known_factors;
@@ -11189,10 +11213,10 @@ int pm1_choose_B2 (
 
 	if (forced_stage2_type == 99 && numvals >= 150) forced_stage2_type = 1;
 
-// Since Kruppa_adjust cannot be used to compare "curves" with different B1 values, we'll just optimize based on an assumed TF level of 67 bits
+// Since Kruppa_adjust cannot be used to compare "curves" with different B1 values, we'll just optimize based on an assumed TF level of TJAOI 68.2 bits
 
 	saved_sieve_depth = pm1data->w->sieve_depth;
-	if (saved_sieve_depth == 0.0) pm1data->w->sieve_depth = 67.0;
+	if (saved_sieve_depth == 0.0) pm1data->w->sieve_depth = 68.2;
 
 // Cost out a B2 value.  Then compare it to the next larger B2 to determine if investing more time in larger B1 or larger B2 would be better.
 	max_B2mult = IniGetInt (INI_FILE, "MaxOptimalB2Multiplier", (int) (numvals < 100000 ? numvals * 100 : 10000000));
@@ -11433,7 +11457,7 @@ double pm1_stage2_impl (
 	// With trial factoring done to 2^69, optimal B2 is 5*B1 = 125000000.
 	// The problem is the caller is comparing how efficiently factors are found rather than maximizing the chance of finding a factor.  Unlike ECM where
 	// one can run another maximally efficient curve, in P-1 we want to make the most of our one chance at running P-1.
-	return (B2_was_chosen ? cost_data.factor_probability : cost_data.c.efficiency);
+	return (B2_was_chosen && cost_data.factor_probability != 0.0 ? cost_data.factor_probability : cost_data.c.efficiency);
 }
 
 
@@ -11634,7 +11658,7 @@ int pminus1 (
 	int	pminus1_base, res, stop_reason, saving, near_fft_limit, echk;
 	double	one_over_len, one_over_B, base_pct_complete, one_relp_pct;
 	uint64_t last_output, last_output_t, last_output_r;
-	double	allowable_maxerr, output_frequency, output_title_frequency;
+	double	allowable_maxerr, output_adjustment, title_adjustment;
 	int	first_iter_msg;
 	int	msglen;
 	char	*str, *msg;
@@ -11750,7 +11774,7 @@ restart:
 	last_output = last_output_t = last_output_r = 0;
 	gw_clear_fft_count (&pm1data.gwdata);
 	first_iter_msg = TRUE;
-	calc_output_frequencies (&pm1data.gwdata, &output_frequency, &output_title_frequency);
+	calc_interval_adjustments (&pm1data.gwdata, &output_adjustment, &title_adjustment);
 	clear_timers (timers, 2);
 
 /* Output message about the FFT length chosen */
@@ -11981,7 +12005,7 @@ restart0:
 /* Output the title every so often */
 
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) >= last_output_t + 2 * ITER_OUTPUT * title_adjustment)) {
 			sprintf (buf, "%.*f%% of %s P-1 stage 1",
 				 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&pm1data.gwdata));
 			title (thread_num, buf);
@@ -11991,7 +12015,7 @@ restart0:
 /* Every N squarings, output a progress report */
 
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) >= last_output + 2 * ITER_OUTPUT * output_adjustment)) {
 			sprintf (buf, "%s stage 1 is %.*f%% complete.",
 				 gwmodulo_as_string (&pm1data.gwdata), (int) PRECISION, trunc_percent (w->pct_complete));
 			end_timer (timers, 0);
@@ -12093,7 +12117,7 @@ restart1:
 /* Output the title every so often */
 
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) >= last_output_t + 2 * ITER_OUTPUT * title_adjustment)) {
 			sprintf (buf, "%.*f%% of %s P-1 stage 1",
 				 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&pm1data.gwdata));
 			title (thread_num, buf);
@@ -12103,7 +12127,7 @@ restart1:
 /* Every N squarings, output a progress report */
 
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) >= last_output + 2 * ITER_OUTPUT * output_adjustment)) {
 			sprintf (buf, "%s stage 1 is %.*f%% complete.",
 				 gwmodulo_as_string (&pm1data.gwdata), (int) PRECISION, trunc_percent (w->pct_complete));
 			end_timer (timers, 0);
@@ -12332,6 +12356,7 @@ replan:	unsigned long best_fftlen;
 /* Initialize the polymult library (needed for calling polymult_mem_required).  Let user override polymult tuning parameters. */
 
 		polymult_init (&pm1data.polydata, &pm1data.gwdata);
+		polymult_set_cpu_flags (&pm1data.polydata, CPU_FLAGS);		// Allow AVX-512 polymults on FMA3 FFTs
 		polymult_set_max_num_threads (&pm1data.polydata, pm1data.stage2_threads);
 		polymult_default_tuning (&pm1data.polydata,
 					 IniGetInt (INI_FILE, "PolymultCacheSize", CPU_NUM_L2_CACHES > 0 ? CPU_TOTAL_L2_CACHE_SIZE / CPU_NUM_L2_CACHES : 256),
@@ -12967,7 +12992,7 @@ OutputStr (thread_num, buf); }
 /* Output the title every so often */
 
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) >= last_output_t + 2 * ITER_OUTPUT * title_adjustment)) {
 			sprintf (buf, "%.*f%% of %s P-1 stage 2 (using %uMB)",
 				 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&pm1data.gwdata), memused);
 			title (thread_num, buf);
@@ -12977,7 +13002,7 @@ OutputStr (thread_num, buf); }
 /* Write out a message every now and then */
 
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) >= last_output + 2 * ITER_OUTPUT * output_adjustment)) {
 			sprintf (buf, "%s stage 2 is %.*f%% complete.",
 				 gwmodulo_as_string (&pm1data.gwdata), (int) PRECISION, trunc_percent (w->pct_complete));
 			end_timer (timers, 0);
@@ -13521,7 +13546,7 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&pm1data.gwdata);}
 //GW: The * 3 is a total guess to compensate for time spent in polymult
 #define ITER_FUDGE 3
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) * ITER_FUDGE >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) * ITER_FUDGE >= last_output_t + 2 * ITER_OUTPUT * title_adjustment)) {
 			sprintf (buf, "%.*f%% of %s P-1 stage 2 (using %uMB)",
 				 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&pm1data.gwdata), memused);
 			title (thread_num, buf);
@@ -13531,7 +13556,7 @@ OutputStr (thread_num, buf); gw_clear_maxerr (&pm1data.gwdata);}
 /* Write out a message every now and then */
 
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) * ITER_FUDGE >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pm1data.gwdata) * ITER_FUDGE >= last_output + 2 * ITER_OUTPUT * output_adjustment)) {
 			sprintf (buf, "%s stage 2 at B2=%" PRIu64 " [%.*f%%]",
 				 gwmodulo_as_string (&pm1data.gwdata), pm1data.B2_start + pm1data.Dsection * pm1data.D,
 				 (int) PRECISION, trunc_percent (w->pct_complete));
@@ -14209,7 +14234,7 @@ void guess_pminus1_bounds (
 	if (IniGetInt (INI_FILE, "Poly1Compress", 2) == 2) g.cost_data.c.poly_compression *= 0.875;
 	if (IniGetInt (INI_FILE, "Poly1Compress", 2) == 0) g.cost_data.c.poly_compression = 1.0;
 	g.cost_data.c.stage1_fftlen = gwmap_to_fftlen (k, b, n, c);
-	g.cost_data.c.stage1_threads = CORES_PER_TEST[thread_num];
+	g.cost_data.c.stage1_threads = CORES_PER_WORKER[thread_num];
 	g.cost_data.c.stage2_threads = g.cost_data.c.stage1_threads + IniGetInt (INI_FILE, "Stage2ExtraThreads", 0);
 	init_gcd_costs ((n * log ((double) b) + log (k)) / log (2.0), &g.cost_data);
 
@@ -14232,7 +14257,6 @@ void guess_pminus1_bounds (
 	gwdata.c = c;
 	gwdata.FFTLEN = (unsigned long) (g.cost_data.c.stage1_fftlen * 1.10);
 	gwdata.cpu_flags = CPU_FLAGS;
-	if (gwdata.FFTLEN < 1024 && gwdata.cpu_flags & CPU_AVX512F) gwdata.cpu_flags &= ~CPU_AVX512F;
 	gwdata.num_threads = g.cost_data.c.stage2_threads;
 	polymult_init (&g.polydata, &gwdata);
 	polymult_default_tuning (&g.polydata,
@@ -14361,8 +14385,8 @@ int pfactor (
 	OutputStr (thread_num, buf);
 	if (w->known_factors != NULL) {
 		OutputStr (thread_num, "Skipping known factors: ");
-		OutputStr (thread_num, w->known_factors);
-		OutputStr (thread_num, "\n");
+		OutputStrNoTimeStamp (thread_num, w->known_factors);
+		OutputStrNoTimeStamp (thread_num, "\n");
 	}
 	sprintf (buf, "Assuming no%s factors below 2^%.2g and %.2g primality test%s saved if a factor is found.\n",
 		 w->known_factors != NULL ? " other" : "", w->sieve_depth, w->tests_saved, w->tests_saved == 1.0 ? "" : "s");
@@ -14687,7 +14711,7 @@ int pp1_restore (
 
 	if (pp1data->state >= PP1_STATE_MIDSTAGE && pp1data->state <= PP1_STATE_GCD) {
 		int	have_gg;
-		if (version == 4) have_gg = TRUE;				// 30.6 save files
+		if (version == 1) have_gg = TRUE;				// 30.6 save files
 		else if (! read_int (fd, &have_gg, &sum)) goto readerr;		// 30.7 save files
 		if (have_gg) {
 			pp1data->gg = gwalloc (&pp1data->gwdata);
@@ -15375,7 +15399,7 @@ int pplus1 (
 	uint64_t sieve_start, next_prime;
 	double	one_over_B, base_pct_complete, one_relp_pct;
 	uint64_t last_output, last_output_t, last_output_r;
-	double	allowable_maxerr, output_frequency, output_title_frequency;
+	double	allowable_maxerr, output_adjustment, title_adjustment;
 	int	maxerr_restart_count = 0;
 	char	*str, *msg;
 	int	msglen;
@@ -15518,7 +15542,7 @@ restart:
 	last_output = last_output_t = last_output_r = 0;
 	gw_clear_fft_count (&pp1data.gwdata);
 	first_iter_msg = TRUE;
-	calc_output_frequencies (&pp1data.gwdata, &output_frequency, &output_title_frequency);
+	calc_interval_adjustments (&pp1data.gwdata, &output_adjustment, &title_adjustment);
 
 /* Output message about the FFT length chosen */
 
@@ -15729,7 +15753,7 @@ restart1:
 /* Output the title every so often */
 
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pp1data.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pp1data.gwdata) >= last_output_t + 2 * ITER_OUTPUT * title_adjustment)) {
 			sprintf (buf, "%.*f%% of %s P+1 stage 1",
 				 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&pp1data.gwdata));
 			title (thread_num, buf);
@@ -15739,7 +15763,7 @@ restart1:
 /* Every N squarings, output a progress report */
 
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pp1data.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pp1data.gwdata) >= last_output + 2 * ITER_OUTPUT * output_adjustment)) {
 			sprintf (buf, "%s stage 1 is %.*f%% complete.",
 				 gwmodulo_as_string (&pp1data.gwdata), (int) PRECISION, trunc_percent (w->pct_complete));
 			end_timer (timers, 0);
@@ -16318,7 +16342,7 @@ replan:	{
 /* Output the title every so often */
 
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pp1data.gwdata) >= last_output_t + 2 * ITER_OUTPUT * output_title_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pp1data.gwdata) >= last_output_t + 2 * ITER_OUTPUT * title_adjustment)) {
 			sprintf (buf, "%.*f%% of %s P+1 stage 2 (using %uMB)",
 				 (int) PRECISION, trunc_percent (w->pct_complete), gwmodulo_as_string (&pp1data.gwdata), memused);
 			title (thread_num, buf);
@@ -16328,7 +16352,7 @@ replan:	{
 /* Write out a message every now and then */
 
 		if (first_iter_msg ||
-		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pp1data.gwdata) >= last_output + 2 * ITER_OUTPUT * output_frequency)) {
+		    (ITER_OUTPUT != 999999999 && gw_get_fft_count (&pp1data.gwdata) >= last_output + 2 * ITER_OUTPUT * output_adjustment)) {
 			sprintf (buf, "%s stage 2 is %.*f%% complete.",
 				 gwmodulo_as_string (&pp1data.gwdata), (int) PRECISION, trunc_percent (w->pct_complete));
 			end_timer (timers, 0);

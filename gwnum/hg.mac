@@ -1,4 +1,4 @@
-; Copyright 2001-2023 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2001-2024 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -2403,8 +2403,6 @@ s2cl_eight_reals_fft_2_final MACRO srcreg,srcinc,d1
 ; Do an eight_reals_with_square_2 on 8 doubles and
 ; a four_complex_with_square_2 on 8 doubles
 s2cl_eight_reals_with_square_2 MACRO srcreg,srcinc,d1
-	xmult7	srcreg, srcreg
-
 	movsd	xmm0, Q [srcreg]	;; R1
 	movsd	xmm1, Q [srcreg+8]	;; R2
 	movsd	xmm2, Q [srcreg+d1]	;; R3
@@ -2468,8 +2466,6 @@ s2cl_eight_reals_with_square_2 MACRO srcreg,srcinc,d1
 ; Do an eight_reals_with_mult_2 on 8 doubles and
 ; a four_complex_with_mult on 8 doubles
 s2cl_eight_reals_with_mult_2 MACRO srcreg,srcinc,d1
-	xmult7	srcreg, srcreg+rbp
-
 	movsd	xmm0, Q [srcreg]	;; R1
 	movsd	xmm1, Q [srcreg+8]	;; R2
 	movsd	xmm2, Q [srcreg+d1]	;; R3
@@ -2520,8 +2516,6 @@ s2cl_eight_reals_with_mult_2 MACRO srcreg,srcinc,d1
 ; Do an eight_reals_with_mulf_2 on 8 doubles and
 ; a four_complex_with_mulf_2 on 8 doubles
 s2cl_eight_reals_with_mulf_2 MACRO srcreg,srcinc,d1
-	xmult7	srcreg+rbx, srcreg+rbp
-
 	movsd	xmm3, Q [srcreg][rbx]	;; R1
 	movsd	xmm2, Q [srcreg+8][rbx]	;; R2
 	movsd	xmm0, Q [srcreg+16][rbx];; R3

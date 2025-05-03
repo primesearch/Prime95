@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2025 Mersenne Research, Inc.  All rights reserved
 | Author:  George Woltman
 | Email: woltman@alum.mit.edu
 |
@@ -61,11 +61,10 @@ int	CPU_L1_SET_ASSOCIATIVE = -1;
 int	CPU_L2_SET_ASSOCIATIVE = -1;
 int	CPU_L3_SET_ASSOCIATIVE = -1;
 
-unsigned int CPU_SIGNATURE = 0;		/* Vendor-specific family number, */
-					/* model number, stepping ID, etc. */
-
-int	CPU_ARCHITECTURE = 0;		/* Our attempt to derive the CPU */
-					/* architecture. */
+int	CPU_FAMILY = 0;			/* Vendor-specific family number */
+int	CPU_MODEL = 0;			/* Vendor-specific model number */
+unsigned int CPU_SIGNATURE = 0;		/* Vendor-specific family number, model number, stepping ID, etc. */
+int	CPU_ARCHITECTURE = 0;		/* Our attempt to derive the CPU architecture. */
 
 /* Masm routines to burn up a specific number of clocks */
 
@@ -279,9 +278,8 @@ void guessCpuType (void)
 	unsigned int num_logical_processors;
 	unsigned long max_cpuid_value;
 	unsigned long max_extended_cpuid_value;
-	unsigned long extended_family, extended_model, type, family_code;
-	unsigned long model_number, stepping_id, brand_index;
-	unsigned long family, model, retry_count;
+	int	type, stepping_id, brand_index;
+	unsigned long retry_count;
 	char	vendor_id[13];
 static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 			"",	/* brand_index = 0 */
@@ -357,6 +355,8 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 /* the processor family, stepping, etc.  It also returns the feature flags. */
 
 	if (max_cpuid_value >= 1) {
+		int	extended_family, extended_model, family_code, model_number;
+
 		Cpuid (1, &reg);
 		CPU_SIGNATURE = reg.EAX & 0x0FFF3FFF;
 		extended_family = (reg.EAX >> 20) & 0xFF;
@@ -387,6 +387,19 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 		if ((reg.ECX >> 20) & 0x1)
 			CPU_FLAGS |= CPU_SSE42;
 
+/* Intel wants us to start paying attention to extended family and extended model numbers.  The AP-485 document isn't clear whether */
+/* this should always be done (the documentation) or just done for families 6 and 15 (the sample code). */
+/* Assume other vendors adopt Intel's numbering scheme. */
+
+		if (family_code == 15)
+			CPU_FAMILY = extended_family + family_code;
+		else
+			CPU_FAMILY = family_code;
+		if (family_code == 15 || family_code == 6)
+			CPU_MODEL = (extended_model << 4) + model_number;
+		else
+			CPU_MODEL = model_number;
+
 /* If hardware supports AVX that doesn't mean the OS supports AVX. */
 /* See if OS supports XGETBV, then see if OS supports AVX, FMA, and AVX-512. */
 
@@ -397,21 +410,22 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 			if (((reg.ECX >> 28) & 0x1) && ((getbv_reg.EAX & 6) == 6)) CPU_FLAGS |= CPU_AVX;
 			if (((reg.ECX >> 12) & 0x1) && (CPU_FLAGS & CPU_AVX)) CPU_FLAGS |= CPU_FMA3;
 
-/* Get more feature flags.  Specifically the AVX2, AVX512F, AVX512PF and PREFETCHWT1 flags. */
+/* Get more feature flags.  Specifically the AVX2, AVX512F, AVX512VL, AVX512DQ, AVX512PF and PREFETCHWT1 flags. */
 
 			if (max_cpuid_value >= 7) {
 				reg.ECX = 0;
 				Cpuid (7, &reg);
 				if (((reg.EBX >> 5) & 0x1) && (CPU_FLAGS & CPU_AVX)) CPU_FLAGS |= CPU_AVX2;
 				if (((reg.EBX >> 16) & 0x1) && ((getbv_reg.EAX & 0xE0) == 0xE0)) CPU_FLAGS |= CPU_AVX512F;
+				if (((reg.EBX >> 17) & 0x1) && (CPU_FLAGS & CPU_AVX512F)) CPU_FLAGS |= CPU_AVX512DQ;
 				if (((reg.EBX >> 26) & 0x1) && (CPU_FLAGS & CPU_AVX512F)) CPU_FLAGS |= CPU_AVX512PF;
+				if (((reg.EBX >> 31) & 0x1) && (CPU_FLAGS & CPU_AVX512F)) CPU_FLAGS |= CPU_AVX512VL;
 				if (reg.ECX & 0x1) CPU_FLAGS |= CPU_PREFETCHWT1;
 			}
 		}
 	}
 
-/* Call CPUID with 0x80000000 argument.  It tells us how many extended CPU */
-/* functions are supported. */
+/* Call CPUID with 0x80000000 argument.  It tells us how many extended CPU functions are supported. */
 
 	Cpuid (0x80000000, &reg);
 	max_extended_cpuid_value = reg.EAX;
@@ -479,104 +493,90 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 
 	if (strcmp ((const char *) vendor_id, "GenuineIntel") == 0) {
 
-/* Intel wants us to start paying attention to extended family */
-/* and extended model numbers.  The AP-485 document isn't clear whether */
-/* this should always be done (the documentation) or just done for */
-/* families 6 and 15 (the sample code). */
-
-		if (family_code == 15)
-			family = extended_family + family_code;
-		else
-			family = family_code;
-		if (family_code == 15 || family_code == 6)
-			model = (extended_model << 4) + model_number;
-		else
-			model = model_number;
-
 /* According to "Intel 64 and IA-32 Architectures Optimization Reference */
 /* Manual", only early Pentium 4's require TLB priming during prefetch. */
 
-		if (family_code == 15 && model_number <= 2)
+		if (CPU_FAMILY == 15 && CPU_MODEL <= 2)
 			CPU_FLAGS |= CPU_TLB_PRIMING;
 
 /* Try to determine the CPU architecture.  See https://en.wikichip.org/wiki/intel/cpuid#Family_15 */
 
 		if (! (CPU_FLAGS & CPU_SSE2))
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_PRE_SSE2;
-		else if ((family == 15 && model <= 4) ||
-			 (family == 15 && model == 6))
+		else if ((CPU_FAMILY == 15 && CPU_MODEL <= 4) ||
+			 (CPU_FAMILY == 15 && CPU_MODEL == 6))
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_PENTIUM_4;
-		else if ((family == 6 && model == 9) ||
-			 (family == 6 && model == 13))
+		else if ((CPU_FAMILY == 6 && CPU_MODEL == 9) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 13))
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_PENTIUM_M;
-		else if (family == 6 && model == 14)
+		else if (CPU_FAMILY == 6 && CPU_MODEL == 14)
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_CORE;
-		else if ((family == 6 && model == 15) ||
-			 (family == 6 && model == 22) ||
-			 (family == 6 && model == 23) ||
-			 (family == 6 && model == 29))			// Xeon MP (based on Core 2 technology)
+		else if ((CPU_FAMILY == 6 && CPU_MODEL == 15) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 22) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 23) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 29))		// Xeon MP (based on Core 2 technology)
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_CORE_2;
-		else if ((family == 6 && model == 26) ||		// Core i7
-			 (family == 6 && model == 30) ||		// Core i5/i7
-			 (family == 6 && model == 46) ||		// Xeon MP (based on Core i7 technology)
-			 (family == 6 && model == 47) ||		// Xeon MP (based on Sandy Bridge technology)
-			 (family == 6 && model == 69) ||		// Xeon MP (based on Haswell technology)
-			 (family == 6 && model == 44) ||		// Core i7 (based on Sandy Bridge technology)
-			 (family == 6 && model == 37) ||		// Core i3, mobile i5/i7 (based on Sandy Bridge technology)
-			 (family == 6 && model == 42) ||		// Core i7 (based on Sandy Bridge technology)
-			 (family == 6 && model == 45) ||		// Core i7 (based on Sandy Bridge-E technology)
-			 (family == 6 && model == 58) ||		// Core i7 (based on Ivy Bridge technology)
-			 (family == 6 && model == 62) ||		// Core i7 (based on Ivy Bridge-E technology)
-			 (family == 6 && model == 60) ||		// Core i7 (based on Haswell technology)
-			 (family == 6 && model == 63) ||		// Core i7 (based on Haswell-E technology)
-			 (family == 6 && model == 69) ||		// Core i7, mobile (based on Haswell technology)
-			 (family == 6 && model == 70) ||		// Core i7 (based on Haswell technology)
-			 (family == 6 && model == 61) ||		// Core i7 (based on Broadwell technology)
-			 (family == 6 && model == 79) ||		// Core i7 (based on Broadwell-E technology)
-			 (family == 6 && model == 71) ||		// Core i7, mobile (based on Broadwell technology)
-			 (family == 6 && model == 85) ||		// Core i9 (based on Skylake-X technology)
-			 (family == 6 && model == 86) ||		// Core i7, mobile (based on Broadwell technology)
-			 (family == 6 && model == 94) ||		// Core i7 (based on Skylake technology)
-			 (family == 6 && model == 142) ||		// Core i7, (based on Kaby Lake technology)
-			 (family == 6 && model == 158) ||		// Core i7, mobile (based on Coffee Lake technology)
-			 (family == 6 && model == 168) ||		// Core i7, (based on Coffee Lake technology)
-			 (family == 6 && model == 78) ||		// Core i3/i5/i7, mobile (based on Skylake technology)
-			 (family == 6 && model == 102) ||		// Core i3/i5/i7, Cannon Lake
-			 (family == 6 && model == 165) ||		// Core i3/i5/i7, Comet Lake
-			 (family == 6 && model == 106) ||		// Core i3/i5/i7, Ice Lake
-			 (family == 6 && model == 108) ||		// Core i3/i5/i7, Ice Lake
-			 (family == 6 && model == 125) ||		// Core i3/i5/i7, Ice Lake
-			 (family == 6 && model == 126) ||		// Core i3/i5/i7, Ice Lake
-			 (family == 6 && model == 143) ||		// Core i3/i5/i7, Sapphire Rapids
-			 (family == 6 && model == 140) ||		// Core i3/i5/i7, Tiger Lake
-			 (family == 6 && model == 141) ||		// Core i3/i5/i7, Tiger Lake
-			 (family == 6 && model == 167) ||		// Core i3/i5/i7, Rocket Lake
-			 (family == 6 && model == 154) ||		// Core i3/i5/i7, Alder Lake
-			 (family == 6 && model == 151) ||		// Core i3/i5/i7, Alder Lake
-			 (family == 6 && model == 183) ||		// Core i3/i5/i7/i9, Raptor Lake
-			 (family == 6 && model == 186))			// Core i3/i5/i7/i9, Raptor Lake
+		else if ((CPU_FAMILY == 6 && CPU_MODEL == 26) ||	// Core i7
+			 (CPU_FAMILY == 6 && CPU_MODEL == 30) ||	// Core i5/i7
+			 (CPU_FAMILY == 6 && CPU_MODEL == 46) ||	// Xeon MP (based on Core i7 technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 47) ||	// Xeon MP (based on Sandy Bridge technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 69) ||	// Xeon MP (based on Haswell technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 44) ||	// Core i7 (based on Sandy Bridge technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 37) ||	// Core i3, mobile i5/i7 (based on Sandy Bridge technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 42) ||	// Core i7 (based on Sandy Bridge technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 45) ||	// Core i7 (based on Sandy Bridge-E technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 58) ||	// Core i7 (based on Ivy Bridge technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 62) ||	// Core i7 (based on Ivy Bridge-E technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 60) ||	// Core i7 (based on Haswell technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 63) ||	// Core i7 (based on Haswell-E technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 69) ||	// Core i7, mobile (based on Haswell technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 70) ||	// Core i7 (based on Haswell technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 61) ||	// Core i7 (based on Broadwell technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 79) ||	// Core i7 (based on Broadwell-E technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 71) ||	// Core i7, mobile (based on Broadwell technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 85) ||	// Core i9 (based on Skylake-X technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 86) ||	// Core i7, mobile (based on Broadwell technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 94) ||	// Core i7 (based on Skylake technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 142) ||	// Core i7, (based on Kaby Lake technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 158) ||	// Core i7, mobile (based on Coffee Lake technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 168) ||	// Core i7, (based on Coffee Lake technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 78) ||	// Core i3/i5/i7, mobile (based on Skylake technology)
+			 (CPU_FAMILY == 6 && CPU_MODEL == 102) ||	// Core i3/i5/i7, Cannon Lake
+			 (CPU_FAMILY == 6 && CPU_MODEL == 165) ||	// Core i3/i5/i7, Comet Lake
+			 (CPU_FAMILY == 6 && CPU_MODEL == 106) ||	// Core i3/i5/i7, Ice Lake
+			 (CPU_FAMILY == 6 && CPU_MODEL == 108) ||	// Core i3/i5/i7, Ice Lake
+			 (CPU_FAMILY == 6 && CPU_MODEL == 125) ||	// Core i3/i5/i7, Ice Lake
+			 (CPU_FAMILY == 6 && CPU_MODEL == 126) ||	// Core i3/i5/i7, Ice Lake
+			 (CPU_FAMILY == 6 && CPU_MODEL == 143) ||	// Core i3/i5/i7, Sapphire Rapids
+			 (CPU_FAMILY == 6 && CPU_MODEL == 140) ||	// Core i3/i5/i7, Tiger Lake
+			 (CPU_FAMILY == 6 && CPU_MODEL == 141) ||	// Core i3/i5/i7, Tiger Lake
+			 (CPU_FAMILY == 6 && CPU_MODEL == 167) ||	// Core i3/i5/i7, Rocket Lake
+			 (CPU_FAMILY == 6 && CPU_MODEL == 154) ||	// Core i3/i5/i7, Alder Lake
+			 (CPU_FAMILY == 6 && CPU_MODEL == 151) ||	// Core i3/i5/i7, Alder Lake
+			 (CPU_FAMILY == 6 && CPU_MODEL == 183) ||	// Core i3/i5/i7/i9, Raptor Lake
+			 (CPU_FAMILY == 6 && CPU_MODEL == 186))		// Core i3/i5/i7/i9, Raptor Lake
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_CORE_I7;
-		else if ((family == 6 && model == 28) ||
-			 (family == 6 && model == 38) ||
-			 (family == 6 && model == 39) ||
-			 (family == 6 && model == 53) ||
-			 (family == 6 && model == 54) ||
-			 (family == 6 && model == 55) ||
-			 (family == 6 && model == 74) ||		// Silvermont
-			 (family == 6 && model == 77) ||
-			 (family == 6 && model == 90) ||
-			 (family == 6 && model == 93) ||
-			 (family == 6 && model == 76) ||		// Airmont
-			 (family == 6 && model == 92) ||		// Goldmont
-			 (family == 6 && model == 95) ||
-			 (family == 6 && model == 122) ||		// Goldmont+
-			 (family == 6 && model == 134) ||		// Tremont
-			 (family == 6 && model == 138) ||
-			 (family == 6 && model == 150) ||
-			 (family == 6 && model == 156))
+		else if ((CPU_FAMILY == 6 && CPU_MODEL == 28) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 38) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 39) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 53) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 54) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 55) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 74) ||	// Silvermont
+			 (CPU_FAMILY == 6 && CPU_MODEL == 77) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 90) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 93) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 76) ||	// Airmont
+			 (CPU_FAMILY == 6 && CPU_MODEL == 92) ||	// Goldmont
+			 (CPU_FAMILY == 6 && CPU_MODEL == 95) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 122) ||	// Goldmont+
+			 (CPU_FAMILY == 6 && CPU_MODEL == 134) ||	// Tremont
+			 (CPU_FAMILY == 6 && CPU_MODEL == 138) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 150) ||
+			 (CPU_FAMILY == 6 && CPU_MODEL == 156))
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_ATOM;
-		else if ((family == 6 && model == 87) ||		// Knight's Landing
-			 (family == 6 && model == 133))			// Knight's Mill
+		else if ((CPU_FAMILY == 6 && CPU_MODEL == 87) ||	// Knight's Landing
+			 (CPU_FAMILY == 6 && CPU_MODEL == 133))		// Knight's Mill
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_PHI;
 		else
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_INTEL_OTHER;
@@ -743,7 +743,7 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 						CPU_L2_SET_ASSOCIATIVE = 6;
 						break;
 					case 0x40:
-						if (family == 15) {
+						if (CPU_FAMILY == 15) {
 							/* no L3 cache */
 						} else {
 							CPU_L2_CACHE_SIZE = 0;
@@ -790,7 +790,7 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 						CPU_L2_SET_ASSOCIATIVE = 12;
 						break;
 					case 0x49:
-						if (family == 0x0F && model == 0x06) {
+						if (CPU_FAMILY == 0x0F && CPU_MODEL == 0x06) {
 							CPU_L3_CACHE_SIZE = 4096;
 							CPU_L3_CACHE_LINE_SIZE = 64;
 							CPU_L3_SET_ASSOCIATIVE = 16;
@@ -1077,33 +1077,33 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 
 		if (CPU_BRAND[0] == 0) {
 
-			if (family == 4)
+			if (CPU_FAMILY == 4)
 				strcpy (CPU_BRAND, "Intel 486 processor");
 
-			else if (family == 5) {
-				if (type == 0 && model <= 2)
+			else if (CPU_FAMILY == 5) {
+				if (type == 0 && CPU_MODEL <= 2)
 					strcpy (CPU_BRAND, "Intel Pentium processor");
-				else if (type == 1 && model <= 3)
+				else if (type == 1 && CPU_MODEL <= 3)
 					strcpy (CPU_BRAND, "Intel Pentium OverDrive processor");
-				else if (type == 0 && model >= 4)
+				else if (type == 0 && CPU_MODEL >= 4)
 					strcpy (CPU_BRAND, "Intel Pentium MMX processor");
-				else if (type == 1 && model >= 4)
+				else if (type == 1 && CPU_MODEL >= 4)
 					strcpy (CPU_BRAND, "Intel Pentium MMX OverDrive processor");
 				else
 					strcpy (CPU_BRAND, "Intel Pentium processor");
 			}
 
-			else if (family == 6 && model == 1)
+			else if (CPU_FAMILY == 6 && CPU_MODEL == 1)
 				strcpy (CPU_BRAND, "Intel Pentium Pro processor");
 
-			else if (family == 6 && model == 3) {
+			else if (CPU_FAMILY == 6 && CPU_MODEL == 3) {
 				if (type == 0)
 					strcpy (CPU_BRAND, "Intel Pentium II processor");
 				else
 					strcpy (CPU_BRAND, "Intel Pentium II OverDrive processor");
 			}
 
-			else if (family == 6 && model == 5) {
+			else if (CPU_FAMILY == 6 && CPU_MODEL == 5) {
 				if (CPU_L2_CACHE_SIZE == 0)
 					strcpy (CPU_BRAND, "Intel Celeron processor");
 				else if (CPU_L2_CACHE_SIZE >= 1024)
@@ -1112,30 +1112,29 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 					strcpy (CPU_BRAND, "Intel Pentium II or Pentium II Xeon processor");
 			}
 
-			else if (family == 6 && model == 6)
+			else if (CPU_FAMILY == 6 && CPU_MODEL == 6)
 				strcpy (CPU_BRAND, "Intel Celeron processor");
 
-			else if (family == 6 && model == 7) {
+			else if (CPU_FAMILY == 6 && CPU_MODEL == 7) {
 				if (CPU_L2_CACHE_SIZE >= 1024)
 					strcpy (CPU_BRAND, "Intel Pentium III Xeon processor");
 				else
 					strcpy (CPU_BRAND, "Intel Pentium III or Pentium III Xeon processor");
 			}
 
-			else if (family == 6 && model == 0xB &&
+			else if (CPU_FAMILY == 6 && CPU_MODEL == 0xB &&
 				 stepping_id == 1 && brand_index == 0x3)
 				strcpy (CPU_BRAND, "Intel(R) Celeron(R) processor");
 
-			else if (family == 15 && model == 1 &&
+			else if (CPU_FAMILY == 15 && CPU_MODEL == 1 &&
 				 stepping_id == 3 && brand_index == 0xB)
 				strcpy (CPU_BRAND, "Intel(R) Xeon(TM) processor MP");
 
-			else if (family == 15 && model == 1 &&
+			else if (CPU_FAMILY == 15 && CPU_MODEL == 1 &&
 				 stepping_id == 3 && brand_index == 0xE)
 				strcpy (CPU_BRAND, "Intel(R) Xeon(TM) processor");
 
-			else if (brand_index != 0 &&
-				 brand_index < NUM_BRAND_NAMES)
+			else if (brand_index != 0 && brand_index < NUM_BRAND_NAMES)
 				strcpy (CPU_BRAND, BRAND_NAMES[brand_index]);
 
 /* If we've failed to figure out the brand string, create a default. */
@@ -1170,30 +1169,30 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 /* Publication # 20734 Revision: 3.07 February 2004 */
 /* Chap.3 Table 4: Summary of Processor Signatures for AMD Processors */
 
-		if (family_code == 4) {
+		if (CPU_FAMILY == 4) {
 			strcpy (CPU_BRAND, "AMD Am486 or Am5x86 processor");
 		}
 		if ((CPU_BRAND[0] == 0) || (strstr (CPU_BRAND, "Unknown"))) {
-			if (family_code == 5) {
-				if (model_number <= 3) {
+			if (CPU_FAMILY == 5) {
+				if (CPU_MODEL <= 3) {
 					strcpy (CPU_BRAND, "AMD K5 processor");
 				}
-				else if ((model_number >= 6) && (model_number <= 7)) {
+				else if ((CPU_MODEL >= 6) && (CPU_MODEL <= 7)) {
 					strcpy (CPU_BRAND, "AMD K6 processor");
 				}
-				else if (model_number == 8) {
+				else if (CPU_MODEL == 8) {
 					strcpy (CPU_BRAND, "AMD K6-2 processor");
 				}
-				else if (model_number == 9) {
+				else if (CPU_MODEL == 9) {
 					strcpy (CPU_BRAND, "AMD K6-III processor");
 				}
 			}
-			if (family_code == 6) {
+			if (CPU_FAMILY == 6) {
 				int mobileCPU = (advanced_power_mgmt & 7) == 7;
 				int mp = 0 != (extended_feature_bits & (1 << 19));
 				char *szCPU = "";
 
-				switch (model_number)
+				switch (CPU_MODEL)
 				{
 					case 1:
 					case 2:
@@ -1227,11 +1226,11 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 				}
 				strcpy (CPU_BRAND, szCPU);
 			}
-			if (family_code == 15) {
-				if (model_number == 4) {
+			if (CPU_FAMILY == 15) {
+				if (CPU_MODEL == 4) {
 					strcpy (CPU_BRAND, "AMD Athlon 64 processor");
 				}
-				else if (model_number == 5) {
+				else if (CPU_MODEL == 5) {
 					strcpy (CPU_BRAND, "AMD Opteron processor");
 				}
 			}
@@ -1330,9 +1329,9 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 
 		if (! (CPU_FLAGS & CPU_SSE2))
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_PRE_SSE2;
-		else if (family_code == 15 && (extended_family == 8 || extended_family == 10))
+		else if (CPU_FAMILY == 23 || CPU_FAMILY == 25 || CPU_FAMILY == 26)
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_AMD_ZEN;
-		else if (family_code == 15 && extended_family >= 9)		// Future AMD processors
+		else if (CPU_FAMILY >= 24)				// Future AMD processors
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_AMD_OTHER;
 // Do we need to check for Bobcat and Jaguar family codes here?
 // The code below will return K10 for Bobcat and Bulldozer for Jaguar
@@ -1374,7 +1373,7 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 
 		if (max_extended_cpuid_value >= 0x80000006) {
 			Cpuid (0x80000006, &reg);
-			if (family_code < 6 || (family_code == 6 && model_number <= 7))		// Older VIA processors
+			if (CPU_FAMILY < 6 || (CPU_FAMILY == 6 && CPU_MODEL <= 7))		// Older VIA processors
 				CPU_L2_CACHE_SIZE = (reg.ECX >> 24) & 0xFF;
 			else									// Newer VIA processors
 				CPU_L2_CACHE_SIZE = (reg.ECX >> 16) & 0xFFFF;

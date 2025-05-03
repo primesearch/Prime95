@@ -1,4 +1,4 @@
-; Copyright 2001-2017 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2001-2024 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -2083,8 +2083,6 @@ nice_try_x4cl_four_complex_with_square MACRO srcreg,srcinc,d1,d2
 ; Do an eight_reals_with_square_2 on 8 doubles and
 ; a four_complex_with_square_2 on 8 doubles
 s2cl_eight_reals_with_square_2 MACRO srcreg,srcinc,d1
-	xmult7	srcreg, srcreg
-
 	movsd	xmm0, Q [srcreg]	;; R1
 	movsd	xmm1, Q [srcreg+8]	;; R2
 	movsd	xmm2, Q [srcreg+d1]	;; R3

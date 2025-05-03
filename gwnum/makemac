@@ -1,9 +1,8 @@
 # Makefile for Mac OS X gwnum library
 #
 
-# This line was used to make a Mac OS X prime95 that was backward compatible to most OSX versions
-# This no longer works as I get error messages that include file <atomic> cannot be found
-#ENVP= MACOSX_DEPLOYMENT_TARGET=10.3
+# Targeting Mac OS X version older than Mavericks no longer works as they don't have support for C++ atomics.
+ENVP= MACOSX_DEPLOYMENT_TARGET=10.9
 
 CC = gcc
 CFLAGS = -I.. -I../sqlite-amalgamation-3420000 -O2 -m32 -std=gnu99 -march=i686 -fno-exceptions

@@ -1,4 +1,4 @@
-; Copyright 2009-2023 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2009-2024 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -3557,7 +3557,6 @@ r8_h16r_simple_fft_part2 MACRO src,dstreg,d1,d2
 
 
 r8_h8cl_sixteen_reals_eight_complex_with_square MACRO srcreg,srcinc,d1,d2,d4
-	xmult7	srcreg, srcreg
 	r8_h16r_simple_fft_part1 srcreg+0,d1,d2,d4,XMM_COL_MULTS
 	r8_x8c_simple_fft_part1 srcreg+32,d1,d2,d4,XMM_COL_MULTS[256]
 	r8_h16r_simple_fft_with_square XMM_COL_MULTS,d1,d2,srcreg
@@ -4099,7 +4098,6 @@ r8_h16r_simple_unfft MACRO src,dstreg,d1,d2
 
 
 r8_h8cl_sixteen_reals_eight_complex_with_mult MACRO srcreg,srcinc,d1,d2,d4
-	xmult7	srcreg, srcreg+rbp
 	r8_h16r_simple_fft_part1 srcreg+0,d1,d2,d4,XMM_COL_MULTS
 	r8_x8c_simple_fft_part1 srcreg+32,d1,d2,d4,XMM_COL_MULTS[256]
 	r8_h16r_simple_fft_with_mult XMM_COL_MULTS,srcreg+rbp,d1,d2,srcreg
@@ -4340,7 +4338,6 @@ r8_h16r_simple_fft_with_mult MACRO src,altsrc,d1,d2,origsrc
 
 
 r8_h8cl_sixteen_reals_eight_complex_with_mulf MACRO srcreg,srcinc,d1,d2,d4
-	xmult7	srcreg+rbx, srcreg+rbp
 	r8_h16r_simple_fft_with_mulf srcreg,d1,d2,XMM_COL_MULTS
 	r8_x8c_simple_fft_with_mulf srcreg+d4,d1,d2,XMM_COL_MULTS[256]
 	r8_h16r_simple_unfft XMM_COL_MULTS,srcreg+0,d1,d2

@@ -118,7 +118,7 @@ int isKnownMersennePrime (unsigned long);
 void makestr (unsigned long, unsigned long, unsigned long, char *);
 
 int exponent_near_fft_limit (gwhandle *gwdata);
-void calc_output_frequencies (gwhandle *gwdata, double *output_frequency, double *output_title_frequency);
+void calc_interval_adjustments (gwhandle *gwdata, double *output_adjustment, double *title_adjustment);
 double trunc_percent (double percent);
 int testSaveFilesFlag (int thread_num);
 int SleepFive (int thread_num);

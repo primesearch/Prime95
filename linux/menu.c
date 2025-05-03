@@ -1,4 +1,4 @@
-/* Copyright 1995-2024 Mersenne Research, Inc. */
+/* Copyright 1995-2025 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -465,7 +465,7 @@ void test_workers (void)
 	m_num_thread = NUM_WORKERS;
 	for (i = 0; i < NUM_WORKERS; i++) {
 		m_work_pref[i] = WORK_PREFERENCE[i];
-		m_numcpus[i] = CORES_PER_TEST[i];
+		m_numcpus[i] = CORES_PER_WORKER[i];
 	}
 	for ( ; i < MAX_NUM_WORKERS; i++) {
 		m_work_pref[i] = WORK_PREFERENCE[i];
@@ -592,12 +592,12 @@ again:	if (max_num_workers () > 1)
 			}
 		}
 
-/* If the user changed any of the cores_per_test record it in the INI file */
+/* If the user changed any of the cores_per_worker record it in the INI file */
 
 		if (AreAllTheSame (m_numcpus, m_num_thread))
-			PTOSetAll (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, m_numcpus[0]);
+			PTOSetAll (INI_FILE, "CoresPerWorker", NULL, CORES_PER_WORKER, m_numcpus[0]);
 		else for (i = 0; i < (int) NUM_WORKERS; i++)
-			PTOSetOne (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, m_numcpus[i]);
+			PTOSetOne (INI_FILE, "CoresPerWorker", NULL, CORES_PER_WORKER, i, m_numcpus[i]);
 
 /* Write the new CertWork setting */
 
@@ -931,8 +931,8 @@ void options_resources (void)
 	outputLongLine ("Consult readme.txt prior to changing any of these settings.\n\n");
 
 	m_disk = CPU_WORKER_DISK_SPACE;
-	m_upload_bandwidth = IniSectionGetFloat (INI_FILE, SEC_PrimeNet, KEY_UploadRateLimit, 0.25);
-	if (m_upload_bandwidth <= 0.0 || m_upload_bandwidth > 10000.0) m_upload_bandwidth = 10000.0;
+	m_upload_bandwidth = IniSectionGetFloat (INI_FILE, SEC_PrimeNet, KEY_UploadRateLimit, 1.0);
+	if (m_upload_bandwidth < 0.0 || m_upload_bandwidth > 10000.0) m_upload_bandwidth = 10000.0;
 	IniSectionGetString (INI_FILE, SEC_PrimeNet, KEY_UploadStartTime, m_upload_start, sizeof (m_upload_start), "00:00");
 	if (strcmp (m_upload_start, "00:00") != 0) minutesToStr (strToMinutes (m_upload_start), m_upload_start);
 	IniSectionGetString (INI_FILE, SEC_PrimeNet, KEY_UploadEndTime, m_upload_end, sizeof (m_upload_end), "24:00");
@@ -964,7 +964,7 @@ void options_resources (void)
 		}
 	}
 	if (can_upload) {
-		askFloat ("Upload bandwidth limit in Mbps", &m_upload_bandwidth, 0.05, 10000.0);
+		askFloat ("Upload bandwidth limit in Mbps, zero = no limit", &m_upload_bandwidth, 0.0, 10000.0);
 		askStr ("Upload large files time period start", m_upload_start, 8);
 		askStr ("Upload large files time period end", m_upload_end, 8);
 	}
@@ -1312,7 +1312,7 @@ void help_about (void)
 	printf ("GIMPS: Mersenne Prime Search\n");
 	printf ("Web site: http://mersenne.org\n");
 	printf ("%s\n", app_string);
-	printf ("Copyright 1996-2024 Mersenne Research, Inc.\n");
+	printf ("Copyright 1996-2025 Mersenne Research, Inc.\n");
 	printf ("Author: George Woltman\n");
 	printf ("Email:  woltman@alum.mit.edu\n");
 	askOK ();

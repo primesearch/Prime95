@@ -1,4 +1,4 @@
-; Copyright 2001-2023 Mersenne Research, Inc.  All rights reserved
+; Copyright 2001-2024 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -596,36 +596,6 @@ asskip2:dec	loopcount2		; Decrement outer loop counter
 
 	ad_epilog 4*SZPTR+20,0,rbx,rbp,rsi,rdi,xmm6,xmm7
 gwxaddsub2 ENDP
-
-;;
-;; Copy one number and zero some low order words.
-;;
-
-PROCFL	gwxcopyzero2
-	ad_prolog 0,0,rbx,rsi,rdi
-	mov	rsi, SRCARG		; Address of first number
-	mov	rdi, DESTARG		; Address of destination
-	sub	ecx, ecx		; Offset to compare to COPYZERO
-	mov	ebx, addcount1		; Get number of blocks
-cz1:	mov	eax, normval4		; Load count of 8KB chunks in a block
-cz2:	xcopyzero
-	bump	rsi, 64			; Next source
-	bump	rdi, 64			; Next dest
-	bump	rcx, 64			; Next compare offset
-	add	eax, 80000000h/64	; 128 cache lines in a 8KB chunk
-	jnc	short cz2		; Loop if necessary
-	bump	rsi, 128		; Skip 128 bytes every 8KB
-	bump	rdi, 128		; Skip 128 bytes every 8KB
-	bump	rcx, 128		; Skip 128 bytes every 8KB
-	dec	rax			; Test loop counter
-	jnz	cz2			; Loop if necessary
-	add	rsi, pass2gapsize
-	add	rdi, pass2gapsize
-	add	rcx, pass2gapsize
-	dec	rbx			; Test loop counter
-	jnz	cz1			; Loop if necessary
-	ad_epilog 0,0,rbx,rsi,rdi
-gwxcopyzero2 ENDP
 
 ;;
 ;; Multiply a number by a small value with carry propagation

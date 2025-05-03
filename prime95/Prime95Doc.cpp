@@ -1,6 +1,6 @@
 // Prime95Doc.cpp : implementation of the CPrime95Doc class
 //
-// Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2025 Mersenne Research, Inc.  All rights reserved
 //
 
 #include "stdafx.h"
@@ -324,7 +324,7 @@ void CPrime95Doc::OnWorkers()
 	dlg.m_num_workers = NUM_WORKERS;
 	for (i = 0; i < MAX_NUM_WORKERS; i++) {
 		dlg.m_work_pref[i] = WORK_PREFERENCE[i];
-		dlg.m_numcpus[i] = CORES_PER_TEST[i];
+		dlg.m_numcpus[i] = CORES_PER_WORKER[i];
 	}
 	dlg.m_cert_work = IniGetInt (INI_FILE, "CertWork", 1);
 
@@ -392,12 +392,12 @@ again:	if (dlg.DoModal () == IDOK) {
 			}
 		}
 
-/* If user changed any of the cores_per_test, then record it in the INI file */
+/* If user changed any of the cores_per_worker, then record it in the INI file */
 
 		if (dlg.AreAllTheSame (dlg.m_numcpus))
-			PTOSetAll (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, dlg.m_numcpus[0]);
+			PTOSetAll (INI_FILE, "CoresPerWorker", NULL, CORES_PER_WORKER, dlg.m_numcpus[0]);
 		else for (i = 0; i < (int) NUM_WORKERS; i++)
-			PTOSetOne (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, dlg.m_numcpus[i]);
+			PTOSetOne (INI_FILE, "CoresPerWorker", NULL, CORES_PER_WORKER, i, dlg.m_numcpus[i]);
 
 /* Write the new CertWork setting */
 
@@ -690,8 +690,9 @@ void CPrime95Doc::OnResources()
 	dlg.m_start_time = timebuf;
 	minutesToStr (day_end_time, timebuf);
 	dlg.m_end_time = timebuf;
-	dlg.m_upload_bandwidth = IniSectionGetFloat (INI_FILE, SEC_PrimeNet, KEY_UploadRateLimit, 0.25);
-	if (dlg.m_upload_bandwidth <= 0.0 || dlg.m_upload_bandwidth > 10000.0) dlg.m_upload_bandwidth = 10000.0;
+	dlg.m_upload_bandwidth = IniSectionGetFloat (INI_FILE, SEC_PrimeNet, KEY_UploadRateLimit, 1.0);
+	if (dlg.m_upload_bandwidth < 0.0 || dlg.m_upload_bandwidth > 10000.0) dlg.m_upload_bandwidth = 10000.0;
+	if (dlg.m_upload_bandwidth == 0.0) dlg.m_no_limit = TRUE, dlg.m_upload_bandwidth = 0.25;
 	IniSectionGetString (INI_FILE, SEC_PrimeNet, KEY_UploadStartTime, timebuf, sizeof (timebuf), "00:00");
 	if (strcmp (timebuf, "00:00") != 0) minutesToStr (strToMinutes (timebuf), timebuf);
 	dlg.m_upload_start = timebuf;
@@ -726,6 +727,7 @@ void CPrime95Doc::OnResources()
 /* Write bandwidth settings */
 
 		if (dlg.m_can_upload) {
+			if (dlg.m_no_limit) dlg.m_upload_bandwidth = 0.0;
 			IniSectionWriteFloat (INI_FILE, SEC_PrimeNet, KEY_UploadRateLimit, dlg.m_upload_bandwidth);
 			IniSectionWriteString (INI_FILE, SEC_PrimeNet, KEY_UploadStartTime, (const char *) dlg.m_upload_start);
 			IniSectionWriteString (INI_FILE, SEC_PrimeNet, KEY_UploadEndTime, (const char *) dlg.m_upload_end);
@@ -1212,6 +1214,13 @@ void PreLaunchCallback (
 			Sleep (delay * 1000);
 		}
 	}
+
+// Call Windows routine to prevent the OS going into sleep mode
+
+	int state = IniGetInt (INI_FILE, "SetThreadExecutionState", 0);
+	if (state == 1) SetThreadExecutionState (ES_SYSTEM_REQUIRED | ES_CONTINUOUS);
+	else if (state == 2) SetThreadExecutionState (ES_AWAYMODE_REQUIRED | ES_CONTINUOUS);
+	else if (state == 3) SetThreadExecutionState (ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED | ES_CONTINUOUS);
 }
 
 /* Do some work after workers have terminated */
@@ -1219,6 +1228,11 @@ void PreLaunchCallback (
 void PostLaunchCallback (
 	int	launch_type)
 {
+
+// Call Windows routine to resume the OS going into sleep mode
+
+	int state = IniGetInt (INI_FILE, "SetThreadExecutionState", 0);
+	if (state == 1 || state == 2) SetThreadExecutionState (ES_CONTINUOUS);
 }
 
 /* OSes that must poll for whether the ESC key was hit do it here. */

@@ -1,4 +1,4 @@
-; Copyright 2001-2023 Mersenne Research, Inc.  All rights reserved
+; Copyright 2001-2024 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -38,14 +38,14 @@ loopcount2	EQU	DPTR [rsp+first_local+SZPTR+4]
 loopcount3	EQU	DPTR [rsp+first_local+SZPTR+8]
 blk8_counter	EQU	BYTE PTR [rsp+first_local+SZPTR+12]
 
-inorm	MACRO	lab, ttp, zero, echk, const, base2, sse4
+inorm	MACRO	lab, ttp, echk, const, base2, sse4
 	LOCAL	setlp, ilp0, ilp1, ilp2, not8, done
 	PROCFLP	lab
 	int_prolog SZPTR+16,0,0
 echk	xload	xmm6, XMM_MAXERR	;; Load maximum error
 	mov	saved_rsi, rsi		;; Save for xtop_carry_adjust
 
-	xnorm_wpn_preload ttp, zero, echk, const, base2, sse4
+	xnorm_wpn_preload ttp, echk, const, base2, sse4
 
 	mov	rdx, norm_grp_mults	;; Addr of the group multipliers
 	mov	rbp, carries		;; Addr of the carries
@@ -65,7 +65,7 @@ no const xload	xmm4, [rbp+2*16]
 no const xload	xmm5, [rbp+3*16]
 ENDIF
 ilp2:	xprefetchw [rsi+64]
-	xnorm_wpn ttp, zero, echk, const, base2, sse4 ;; Normalize 8 values
+	xnorm_wpn ttp, echk, const, base2, sse4 ;; Normalize 8 values
 	bump	rsi, 64			;; Next cache line
 ttp	bump	rdi, 2			;; Next big/little flags
 	sub	loopcount1, 1		;; Test loop counter
@@ -109,6 +109,10 @@ zpnorm	MACRO	lab, ttp, echk, const, base2, sse4, khi, c1, cm1
 	LOCAL	setlp, ilp0, ilp1, ilp2, not8
 	PROCFLP	lab
 	int_prolog 12,0,0
+
+;; Handled in C code by pass1_pre_carries
+;;	c_call	ZPAD_SUB7		;; Subtract 7 ZPAD words from lowest FFT words
+
 echk	xload	xmm6, XMM_MAXERR	;; Load maximum error
 
 	xnorm_wpn_zpad_preload ttp, echk, const, base2, sse4, khi, c1, cm1
@@ -157,22 +161,16 @@ echk	xstore	XMM_MAXERR, xmm6	;; Save maximum error
 	ENDPP	lab
 	ENDM
 
-; The 16 different normalization routines.  One for each combination of
-; rational/irrational, zeroing/no zeroing, error check/no error check, and
-; mul by const/no mul by const.
+; The 16 different normalization routines.  One for each combination of rational/irrational, error check/no error check, and mul by const/no mul by const.
 
-	inorm	xr3, noexec, noexec, noexec, noexec, exec, noexec
-	inorm	xr3e, noexec, noexec, exec, noexec, exec, noexec
-	inorm	xr3c, noexec, noexec, noexec, exec, exec, noexec
-	inorm	xr3ec, noexec, noexec, exec, exec, exec, noexec
-	inorm	xr3z, noexec, exec, noexec, noexec, exec, noexec
-	inorm	xr3ze, noexec, exec, exec, noexec, exec, noexec
-	inorm	xi3, exec, noexec, noexec, noexec, exec, noexec
-	inorm	xi3e, exec, noexec, exec, noexec, exec, noexec
-	inorm	xi3c, exec, noexec, noexec, exec, exec, noexec
-	inorm	xi3ec, exec, noexec, exec, exec, exec, noexec
-	inorm	xi3z, exec, exec, noexec, noexec, exec, noexec
-	inorm	xi3ze, exec, exec, exec, noexec, exec, noexec
+	inorm	xr3, noexec, noexec, noexec, exec, noexec
+	inorm	xr3e, noexec, exec, noexec, exec, noexec
+	inorm	xr3c, noexec, noexec, exec, exec, noexec
+	inorm	xr3ec, noexec, exec, exec, exec, noexec
+	inorm	xi3, exec, noexec, noexec, exec, noexec
+	inorm	xi3e, exec, exec, noexec, exec, noexec
+	inorm	xi3c, exec, noexec, exec, exec, noexec
+	inorm	xi3ec, exec, exec, exec, exec, noexec
 	zpnorm	xr3zp, noexec, noexec, noexec, exec, noexec, exec, noexec, noexec
 	zpnorm	xr3zpc1, noexec, noexec, noexec, exec, noexec, exec, exec, noexec
 	zpnorm	xr3zpcm1, noexec, noexec, noexec, exec, noexec, exec, noexec, exec
@@ -206,14 +204,14 @@ echk	xstore	XMM_MAXERR, xmm6	;; Save maximum error
 	zpnorm	xi3zpck, exec, noexec, exec, exec, noexec, noexec, noexec, noexec
 	zpnorm	xi3zpeck, exec, exec, exec, exec, noexec, noexec, noexec, noexec
 
-	inorm	xr3b, noexec, noexec, noexec, noexec, noexec, noexec
-	inorm	xr3eb, noexec, noexec, exec, noexec, noexec, noexec
-	inorm	xr3cb, noexec, noexec, noexec, exec, noexec, noexec
-	inorm	xr3ecb, noexec, noexec, exec, exec, noexec, noexec
-	inorm	xi3b, exec, noexec, noexec, noexec, noexec, noexec
-	inorm	xi3eb, exec, noexec, exec, noexec, noexec, noexec
-	inorm	xi3cb, exec, noexec, noexec, exec, noexec, noexec
-	inorm	xi3ecb, exec, noexec, exec, exec, noexec, noexec
+	inorm	xr3b, noexec, noexec, noexec, noexec, noexec
+	inorm	xr3eb, noexec, exec, noexec, noexec, noexec
+	inorm	xr3cb, noexec, noexec, exec, noexec, noexec
+	inorm	xr3ecb, noexec, exec, exec, noexec, noexec
+	inorm	xi3b, exec, noexec, noexec, noexec, noexec
+	inorm	xi3eb, exec, exec, noexec, noexec, noexec
+	inorm	xi3cb, exec, noexec, exec, noexec, noexec
+	inorm	xi3ecb, exec, exec, exec, noexec, noexec
 	zpnorm	xr3zpb, noexec, noexec, noexec, noexec, noexec, exec, noexec, noexec
 	zpnorm	xr3zpbc1, noexec, noexec, noexec, noexec, noexec, exec, exec, noexec
 	zpnorm	xr3zpbcm1, noexec, noexec, noexec, noexec, noexec, exec, noexec, exec
@@ -247,14 +245,14 @@ echk	xstore	XMM_MAXERR, xmm6	;; Save maximum error
 	zpnorm	xi3zpcbk, exec, noexec, exec, noexec, noexec, noexec, noexec, noexec
 	zpnorm	xi3zpecbk, exec, exec, exec, noexec, noexec, noexec, noexec, noexec
 
-	inorm	xr3s4, noexec, noexec, noexec, noexec, exec, exec
-	inorm	xr3es4, noexec, noexec, exec, noexec, exec, exec
-	inorm	xr3cs4, noexec, noexec, noexec, exec, exec, exec
-	inorm	xr3ecs4, noexec, noexec, exec, exec, exec, exec
-	inorm	xi3s4, exec, noexec, noexec, noexec, exec, exec
-	inorm	xi3es4, exec, noexec, exec, noexec, exec, exec
-	inorm	xi3cs4, exec, noexec, noexec, exec, exec, exec
-	inorm	xi3ecs4, exec, noexec, exec, exec, exec, exec
+	inorm	xr3s4, noexec, noexec, noexec, exec, exec
+	inorm	xr3es4, noexec, exec, noexec, exec, exec
+	inorm	xr3cs4, noexec, noexec, exec, exec, exec
+	inorm	xr3ecs4, noexec, exec, exec, exec, exec
+	inorm	xi3s4, exec, noexec, noexec, exec, exec
+	inorm	xi3es4, exec, exec, noexec, exec, exec
+	inorm	xi3cs4, exec, noexec, exec, exec, exec
+	inorm	xi3ecs4, exec, exec, exec, exec, exec
 	zpnorm	xr3zps4, noexec, noexec, noexec, exec, exec, exec, noexec, noexec
 	zpnorm	xr3zps4c1, noexec, noexec, noexec, exec, exec, exec, exec, noexec
 	zpnorm	xr3zps4cm1, noexec, noexec, noexec, exec, exec, exec, noexec, exec
@@ -288,14 +286,14 @@ echk	xstore	XMM_MAXERR, xmm6	;; Save maximum error
 	zpnorm	xi3zpcs4k, exec, noexec, exec, exec, exec, noexec, noexec, noexec
 	zpnorm	xi3zpecs4k, exec, exec, exec, exec, exec, noexec, noexec, noexec
 
-	inorm	xr3bs4, noexec, noexec, noexec, noexec, noexec, exec
-	inorm	xr3ebs4, noexec, noexec, exec, noexec, noexec, exec
-	inorm	xr3cbs4, noexec, noexec, noexec, exec, noexec, exec
-	inorm	xr3ecbs4, noexec, noexec, exec, exec, noexec, exec
-	inorm	xi3bs4, exec, noexec, noexec, noexec, noexec, exec
-	inorm	xi3ebs4, exec, noexec, exec, noexec, noexec, exec
-	inorm	xi3cbs4, exec, noexec, noexec, exec, noexec, exec
-	inorm	xi3ecbs4, exec, noexec, exec, exec, noexec, exec
+	inorm	xr3bs4, noexec, noexec, noexec, noexec, exec
+	inorm	xr3ebs4, noexec, exec, noexec, noexec, exec
+	inorm	xr3cbs4, noexec, noexec, exec, noexec, exec
+	inorm	xr3ecbs4, noexec, exec, exec, noexec, exec
+	inorm	xi3bs4, exec, noexec, noexec, noexec, exec
+	inorm	xi3ebs4, exec, exec, noexec, noexec, exec
+	inorm	xi3cbs4, exec, noexec, exec, noexec, exec
+	inorm	xi3ecbs4, exec, exec, exec, noexec, exec
 	zpnorm	xr3zpbs4, noexec, noexec, noexec, noexec, exec, exec, noexec, noexec
 	zpnorm	xr3zpbs4c1, noexec, noexec, noexec, noexec, exec, exec, exec, noexec
 	zpnorm	xr3zpbs4cm1, noexec, noexec, noexec, noexec, exec, exec, noexec, exec

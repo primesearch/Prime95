@@ -5,7 +5,7 @@
  * Comm95b contains information used only during execution
  * Comm95c contains information used during setup and execution
  *
- * Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
+ * Copyright 1995-2025 Mersenne Research, Inc.  All rights reserved
  *
  */ 
 
@@ -59,6 +59,17 @@ void setOsThreadPriority (
 /* Disable thread priority boost */
 
 	SetThreadPriorityBoost (h, TRUE);
+
+/* Optionally enter ECO mode (run at reduced CPU clock frequencies */
+
+	if (IniGetInt (INI_FILE, "EcoMode", 0)) {
+		THREAD_POWER_THROTTLING_STATE PowerThrottling;
+		memset (&PowerThrottling, 0, sizeof(PowerThrottling));
+		PowerThrottling.Version = THREAD_POWER_THROTTLING_CURRENT_VERSION;
+		PowerThrottling.ControlMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
+		PowerThrottling.StateMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
+		SetThreadInformation (GetCurrentThread(), ThreadPowerThrottling, &PowerThrottling, sizeof(PowerThrottling));
+	}
 }
 
 /* Register a thread termination.  We remove the thread handle from the list of active workers. */

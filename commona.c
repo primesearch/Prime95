@@ -8,7 +8,7 @@
 | Commonb contains information used only during execution
 | Commonc contains information used during setup and execution
 |
-| Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2025 Mersenne Research, Inc.  All rights reserved
 +---------------------------------------------------------------------*/
 
 /* Routine to eliminate odd puctuation characters from user ID */
@@ -207,6 +207,14 @@ int min_cores_for_work_pref (
 // Default minimum number of cores is 1.
 
 	cores = 1;
+
+// Several work types are suitable for one core no matter how many hours per day the computer runs
+
+	if (work_pref == PRIMENET_WP_FACTOR_LMH || work_pref == PRIMENET_WP_FACTOR || work_pref == PRIMENET_WP_PMINUS1 ||
+	    work_pref == PRIMENET_WP_PFACTOR || work_pref == PRIMENET_WP_ECM_SMALL || work_pref == PRIMENET_WP_ECM_FERMAT ||
+	    work_pref == PRIMENET_WP_ECM_CUNNINGHAM || work_pref == PRIMENET_WP_ECM_COFACTOR ||
+	    work_pref == PRIMENET_WP_PRP_COFACTOR || work_pref == PRIMENET_WP_PRP_COFACTOR_DBLCHK)
+		return (cores);
 
 // If LL or PRP testing 100M digit numbers, use at least 4 cores (or all cores)
 

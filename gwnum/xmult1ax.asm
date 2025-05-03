@@ -358,23 +358,34 @@ naddsubdn:
 gwxaddsub1 ENDP
 
 ;;
-;; Copy one number and zero some low order words.
+;; Copy and mask 4KB of a number
 ;;
 
-PROCFL	gwxcopyzero1
+PROCFL	gwxcopy4kb
 	ad_prolog 0,0,rsi,rdi
 	mov	rsi, SRCARG		; Address of first number
+	mov	rcx, SRC2ARG		; Address of mask
 	mov	rdi, DESTARG		; Address of destination
-	sub	ecx, ecx		; Offset to compare to COPYZERO
-	mov	eax, addcount1		; Load loop counter
-cz1:	xcopyzero			; Copy/zero 8 values
-	bump	rsi, 64			; Next source
-	bump	rdi, 64			; Next dest
-	bump	rcx, 64			; Next compare offset
-	sub	eax, 1			; Test loop counter
-	jnz	cz1			; Loop if necessary
+	mov	al, 4096/64		; Count of 64 byte chunks in 4KB
+x4klp:	movapd	xmm0, [rsi]
+	andpd	xmm0, [rcx]
+	movapd	xmm1, [rsi+16]
+	andpd	xmm1, [rcx+16]
+	movapd	xmm2, [rsi+32]
+	andpd	xmm2, [rcx+32]
+	movapd	xmm3, [rsi+48]
+	andpd	xmm3, [rcx+48]
+	xstore	[rdi], xmm0		; Store destination data
+	xstore	[rdi+16], xmm1
+	xstore	[rdi+32], xmm2
+	xstore	[rdi+48], xmm3
+	bump	rsi, 64			; Next src ptr
+	bump	rcx, 64			; Next mask ptr
+	bump	rdi, 64			; Next dest ptr
+	dec	al			; Decrement count
+	jnz	short x4klp
 	ad_epilog 0,0,rsi,rdi
-gwxcopyzero1 ENDP
+gwxcopy4kb ENDP
 
 ;;
 ;; Multiply a number by a small value
@@ -470,16 +481,15 @@ saved_reg1	EQU	PPTR [rsp+first_local+0*SZPTR]
 saved_reg2	EQU	PPTR [rsp+first_local+1*SZPTR]
 saved_reg3	EQU	PPTR [rsp+first_local+2*SZPTR]
 
-inorm	MACRO	lab, ttp, zero, echk, const, base2, sse4
+inorm	MACRO	lab, ttp, echk, const, base2, sse4
 	LOCAL	ilp0, ilp1, off_ok
 	PROCFLP	lab
-	int_prolog 3*SZPTR,0,0
+	int_prolog 3*SZPTR,0,4
 	mov	rsi, DESTARG		;; Addr of multiplied number
-no zero	mov	edi, ADDIN_OFFSET	;; Get address to add value into
-no zero	movsd	xmm0, Q [rsi][rdi]	;; Get the value
-no zero	addsd	xmm0, ADDIN_VALUE	;; Add in the requested value
-no zero	movsd	Q [rsi][rdi], xmm0	;; Save the new value
-no zero	subsd	xmm7, ADDIN_VALUE	;; Do not include addin in sumout
+	mov	edi, ADDIN_OFFSET	;; Get address to add value into
+	movsd	xmm0, Q [rsi][rdi]	;; Get the value
+	addsd	xmm0, ADDIN_VALUE	;; Add in the requested value
+	movsd	Q [rsi][rdi], xmm0	;; Save the new value
 	xload	xmm2, XMM_BIGVAL	;; Start process with no carry
 	xcopy	xmm3, xmm2
 	movlpd	xmm6, MAXERR		;; Current maximum error
@@ -495,7 +505,7 @@ ttp	mov	saved_reg1, rbp		;; remember ebp for xnorm012_1d_mid
 
 ilp0:	mov	ebx, edx		;; Load loop counter
 	and	ebx, 07FFh		;; Grab 11 bits of the counter
-ilp1:	xnorm_1d ttp, zero, echk, const, base2, sse4 ;; Normalize 8 values
+ilp1:	xnorm_1d ttp, echk, const, base2, sse4 ;; Normalize 8 values
 	bump	rsi, 64			;; Next cache line
 ttp	bump	rbp, 128		;; Next set of 8 multipliers
 ttp	bump	rdi, 4			;; Next big/little flags
@@ -505,35 +515,37 @@ ttp	bump	rdi, 4			;; Next big/little flags
 	xchg	rsi, saved_reg3		;; Restore FFT data addr
 ttp	xchg	rdi, saved_reg2		;; Restore big/lit pointer
 ttp	xchg	rbp, saved_reg1		;; Restore ttp pointer
-	xnorm012_1d_mid ttp, zero, base2 ;; Rotate carries and add in carries
+	xnorm012_1d_mid ttp, base2	;; Rotate carries and add in carries
 	mov	rsi, saved_reg3		;; Restore FFT data addr
 ttp	mov	rdi, saved_reg2		;; Restore big/lit pointer
 ttp	mov	rbp, saved_reg1		;; Restore ttp pointer
 
 	shr	edx, 11			;; Get next loop amount
 	jnz	ilp0
-no zero	mov	rsi, DESTARG		;; Addr of multiplied number
-no zero	mov	edi, ADDIN_OFFSET	;; Get address to add value into
-no zero	mov	edx, 11000b		;; Unlike AVX, FMA, and AVX512 FFTs, one pass SSE2 FFT's ADDIN_OFFSET can be different than POST_ADDIN_OFFSET
-no zero and	edx, edi		;; Look at if this is the 1st, 2nd, 3rd, or 4th double in a group of 4 doubles
-no zero	jz	off_ok			;; First double, offset is OK
-no zero	cmp	edx, 11000b		;; Fourth double?
-no zero	je	off_ok			;; Yes, offset is OK
-no zero	xor	edi, 11000b		;; Swap address for second and third doubles
+	mov	rsi, DESTARG		;; Addr of multiplied number
+	mov	edi, ADDIN_OFFSET	;; Get address to add value into
+	mov	edx, 11000b		;; Unlike AVX, FMA, and AVX512 FFTs, one pass SSE2 FFT's ADDIN_OFFSET can be different than POST_ADDIN_OFFSET
+	and	edx, edi		;; Look at if this is the 1st, 2nd, 3rd, or 4th double in a group of 4 doubles
+	jz	off_ok			;; First double, offset is OK
+	cmp	edx, 11000b		;; Fourth double?
+	je	off_ok			;; Yes, offset is OK
+	xor	edi, 11000b		;; Swap address for second and third doubles
 off_ok:
-no zero	movsd	xmm0, Q [rsi][rdi]	;; Get the value
-no zero	addsd	xmm0, POSTADDIN_VALUE	;; Add in the requested value
-no zero	movsd	Q [rsi][rdi], xmm0	;; Save the new value
+	movsd	xmm0, Q [rsi][rdi]	;; Get the value
+	addsd	xmm0, POSTADDIN_VALUE	;; Add in the requested value
+	movsd	Q [rsi][rdi], xmm0	;; Save the new value
 no base2 jmp	non2dn			;; Go to non-base2 end code
-zero	jmp	zdn			;; Go to zero upper half end code
-base2 no zero jmp idn			;; Go to normal end code
+base2	jmp	idn			;; Go to normal end code
 	ENDPP lab
 	ENDM
 
 zpnorm	MACRO	lab, ttp, echk, const, base2, sse4, khi, c1, cm1
 	LOCAL	ilp0, ilp1
 	PROCFLP	lab
-	int_prolog 3*SZPTR,0,0
+	int_prolog 3*SZPTR,0,4
+
+	c_call	ZPAD_SUB7		;; Subtract 7 ZPAD words from lowest FFT words
+
 	mov	rsi, DESTARG		;; Addr of multiplied number
 	xload	xmm2, XMM_BIGVAL	;; Start process with no carry
 	subpd	xmm3, xmm3
@@ -568,22 +580,17 @@ base2 no const jmp zpdn			;; Go to zero padded FFT end code
 	ENDPP lab
 	ENDM
 
-; The many different normalization routines.  One for each valid combination of
-; rational/irrational, zeroing/no zeroing, error check/no error check,
+; The many different normalization routines.  One for each valid combination of rational/irrational, error check/no error check,
 ; mul by const/no mul by const, base2 / other than base 2
 
-	inorm	xr1, noexec, noexec, noexec, noexec, exec, noexec
-	inorm	xr1e, noexec, noexec, exec, noexec, exec, noexec
-	inorm	xr1c, noexec, noexec, noexec, exec, exec, noexec
-	inorm	xr1ec, noexec, noexec, exec, exec, exec, noexec
-	inorm	xr1z, noexec, exec, noexec, noexec, exec, noexec
-	inorm	xr1ze, noexec, exec, exec, noexec, exec, noexec
-	inorm	xi1, exec, noexec, noexec, noexec, exec, noexec
-	inorm	xi1e, exec, noexec, exec, noexec, exec, noexec
-	inorm	xi1c, exec, noexec, noexec, exec, exec, noexec
-	inorm	xi1ec, exec, noexec, exec, exec, exec, noexec
-	inorm	xi1z, exec, exec, noexec, noexec, exec, noexec
-	inorm	xi1ze, exec, exec, exec, noexec, exec, noexec
+	inorm	xr1, noexec, noexec, noexec, exec, noexec
+	inorm	xr1e, noexec, exec, noexec, exec, noexec
+	inorm	xr1c, noexec, noexec, exec, exec, noexec
+	inorm	xr1ec, noexec, exec, exec, exec, noexec
+	inorm	xi1, exec, noexec, noexec, exec, noexec
+	inorm	xi1e, exec, exec, noexec, exec, noexec
+	inorm	xi1c, exec, noexec, exec, exec, noexec
+	inorm	xi1ec, exec, exec, exec, exec, noexec
 	zpnorm	xr1zp, noexec, noexec, noexec, exec, noexec, exec, noexec, noexec
 	zpnorm	xr1zpc1, noexec, noexec, noexec, exec, noexec, exec, exec, noexec
 	zpnorm	xr1zpcm1, noexec, noexec, noexec, exec, noexec, exec, noexec, exec
@@ -617,14 +624,14 @@ base2 no const jmp zpdn			;; Go to zero padded FFT end code
 	zpnorm	xi1zpck, exec, noexec, exec, exec, noexec, noexec, noexec, noexec
 	zpnorm	xi1zpeck, exec, exec, exec, exec, noexec, noexec, noexec, noexec
 
-	inorm	xr1b, noexec, noexec, noexec, noexec, noexec, noexec
-	inorm	xr1eb, noexec, noexec, exec, noexec, noexec, noexec
-	inorm	xr1cb, noexec, noexec, noexec, exec, noexec, noexec
-	inorm	xr1ecb, noexec, noexec, exec, exec, noexec, noexec
-	inorm	xi1b, exec, noexec, noexec, noexec, noexec, noexec
-	inorm	xi1eb, exec, noexec, exec, noexec, noexec, noexec
-	inorm	xi1cb, exec, noexec, noexec, exec, noexec, noexec
-	inorm	xi1ecb, exec, noexec, exec, exec, noexec, noexec
+	inorm	xr1b, noexec, noexec, noexec, noexec, noexec
+	inorm	xr1eb, noexec, exec, noexec, noexec, noexec
+	inorm	xr1cb, noexec, noexec, exec, noexec, noexec
+	inorm	xr1ecb, noexec, exec, exec, noexec, noexec
+	inorm	xi1b, exec, noexec, noexec, noexec, noexec
+	inorm	xi1eb, exec, exec, noexec, noexec, noexec
+	inorm	xi1cb, exec, noexec, exec, noexec, noexec
+	inorm	xi1ecb, exec, exec, exec, noexec, noexec
 	zpnorm	xr1zpb, noexec, noexec, noexec, noexec, noexec, exec, noexec, noexec
 	zpnorm	xr1zpbc1, noexec, noexec, noexec, noexec, noexec, exec, exec, noexec
 	zpnorm	xr1zpbcm1, noexec, noexec, noexec, noexec, noexec, exec, noexec, exec
@@ -658,14 +665,14 @@ base2 no const jmp zpdn			;; Go to zero padded FFT end code
 	zpnorm	xi1zpcbk, exec, noexec, exec, noexec, noexec, noexec, noexec, noexec
 	zpnorm	xi1zpecbk, exec, exec, exec, noexec, noexec, noexec, noexec, noexec
 
-	inorm	xr1s4, noexec, noexec, noexec, noexec, exec, exec
-	inorm	xr1es4, noexec, noexec, exec, noexec, exec, exec
-	inorm	xr1cs4, noexec, noexec, noexec, exec, exec, exec
-	inorm	xr1ecs4, noexec, noexec, exec, exec, exec, exec
-	inorm	xi1s4, exec, noexec, noexec, noexec, exec, exec
-	inorm	xi1es4, exec, noexec, exec, noexec, exec, exec
-	inorm	xi1cs4, exec, noexec, noexec, exec, exec, exec
-	inorm	xi1ecs4, exec, noexec, exec, exec, exec, exec
+	inorm	xr1s4, noexec, noexec, noexec, exec, exec
+	inorm	xr1es4, noexec, exec, noexec, exec, exec
+	inorm	xr1cs4, noexec, noexec, exec, exec, exec
+	inorm	xr1ecs4, noexec, exec, exec, exec, exec
+	inorm	xi1s4, exec, noexec, noexec, exec, exec
+	inorm	xi1es4, exec, exec, noexec, exec, exec
+	inorm	xi1cs4, exec, noexec, exec, exec, exec
+	inorm	xi1ecs4, exec, exec, exec, exec, exec
 	zpnorm	xr1zps4, noexec, noexec, noexec, exec, exec, exec, noexec, noexec
 	zpnorm	xr1zps4c1, noexec, noexec, noexec, exec, exec, exec, exec, noexec
 	zpnorm	xr1zps4cm1, noexec, noexec, noexec, exec, exec, exec, noexec, exec
@@ -699,14 +706,14 @@ base2 no const jmp zpdn			;; Go to zero padded FFT end code
 	zpnorm	xi1zpcs4k, exec, noexec, exec, exec, exec, noexec, noexec, noexec
 	zpnorm	xi1zpecs4k, exec, exec, exec, exec, exec, noexec, noexec, noexec
 
-	inorm	xr1bs4, noexec, noexec, noexec, noexec, noexec, exec
-	inorm	xr1ebs4, noexec, noexec, exec, noexec, noexec, exec
-	inorm	xr1cbs4, noexec, noexec, noexec, exec, noexec, exec
-	inorm	xr1ecbs4, noexec, noexec, exec, exec, noexec, exec
-	inorm	xi1bs4, exec, noexec, noexec, noexec, noexec, exec
-	inorm	xi1ebs4, exec, noexec, exec, noexec, noexec, exec
-	inorm	xi1cbs4, exec, noexec, noexec, exec, noexec, exec
-	inorm	xi1ecbs4, exec, noexec, exec, exec, noexec, exec
+	inorm	xr1bs4, noexec, noexec, noexec, noexec, exec
+	inorm	xr1ebs4, noexec, exec, noexec, noexec, exec
+	inorm	xr1cbs4, noexec, noexec, exec, noexec, exec
+	inorm	xr1ecbs4, noexec, exec, exec, noexec, exec
+	inorm	xi1bs4, exec, noexec, noexec, noexec, exec
+	inorm	xi1ebs4, exec, exec, noexec, noexec, exec
+	inorm	xi1cbs4, exec, noexec, exec, noexec, exec
+	inorm	xi1ecbs4, exec, exec, exec, noexec, exec
 	zpnorm	xr1zpbs4, noexec, noexec, noexec, noexec, exec, exec, noexec, noexec
 	zpnorm	xr1zpbs4c1, noexec, noexec, noexec, noexec, exec, exec, exec, noexec
 	zpnorm	xr1zpbs4cm1, noexec, noexec, noexec, noexec, exec, exec, noexec, exec
@@ -748,7 +755,7 @@ base2 no const jmp zpdn			;; Go to zero padded FFT end code
 PROCF	__common_xnorm1_end_code
 
 	;; Dummy prolog to match normalization code
-	int_prolog 3*SZPTR,0,0
+	int_prolog 3*SZPTR,0,4
 
 ; Finish off the normalization process by adding any carry to first values.
 ; Handle both the with and without two-to-phi array cases.
@@ -786,14 +793,7 @@ non2dn:	mov	rsi, DESTARG		; Address of squared number
 	mov	rdi, norm_biglit_array	; Address of the big/little flags array
 	mov	rbp, norm_col_mults	; Restart the column multipliers
 	sub	rax, rax
-	xnorm012_1d noexec, noexec	; Add in carries
-	jmp	cmnend			; All done, go cleanup
-
-zdn:	mov	rsi, DESTARG		; Address of squared number
-	mov	rdi, norm_biglit_array	; Address of the big/little flags array
-	mov	rbp, norm_col_mults	; Restart the column multipliers
-	sub	rax, rax
-	xnorm012_1d exec, exec		; Add in carries
+	xnorm012_1d noexec		; Add in carries
 	jmp	cmnend			; All done, go cleanup
 
 idn:	mov	rsi, DESTARG		; Address of squared number
@@ -801,22 +801,18 @@ idn:	mov	rsi, DESTARG		; Address of squared number
 	mov	rdi, norm_biglit_array	; Address of the big/little flags array
 	mov	rbp, norm_col_mults	; Restart the column multipliers
 	sub	rax, rax
-	xnorm012_1d noexec, exec	; Add in carries
+	xnorm012_1d exec		; Add in carries
 
-; Normalize SUMOUT value by multiplying by 1 / (fftlen/2).
+; Combine MAXERR
 
 cmnend:	mov	rsi, DESTARG		; Address of squared number
-	xstore	XMM_TMP1, xmm7		; Add together the two partial sumouts
-	addsd	xmm7, Q XMM_TMP1+8
-	mulsd	xmm7, ttmp_ff_inv
-	movsd	Q [rsi-24], xmm7	; Save sum of FFT outputs
 	xstore	XMM_TMP1, xmm6		; Compute new maximum error
 	maxsd	xmm6, Q XMM_TMP1+8
 	movsd	MAXERR, xmm6
 
 ; Return
 
-	int_epilog 3*SZPTR,0,0
+	int_epilog 3*SZPTR,0,4
 __common_xnorm1_end_code ENDP
 
 _TEXT	ENDS

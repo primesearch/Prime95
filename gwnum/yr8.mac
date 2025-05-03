@@ -1,4 +1,4 @@
-; Copyright 2011-2023 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2024 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -7374,7 +7374,6 @@ yr8_16r_simple_fft_part2 MACRO srcreg,d1,d2,d4
 
 
 yr8_8cl_sixteen_reals_eight_complex_with_square MACRO srcreg,srcinc,d1,d2,d4
-	ysquare7 srcreg
 	;; Do the sixteen reals part 1
 	yr8_16r_simple_fft_part1 srcreg,d1,d2,d4
 	;; Do the three eight-complex part
@@ -7646,7 +7645,6 @@ yr8_16r_simple_unfft MACRO srcreg,d1,d2,d4
 
 
 yr8_8cl_sixteen_reals_eight_complex_with_mult MACRO srcreg,srcinc,d1,d2,d4
-	ymult7	srcreg, srcreg+rbp
 	;; Do the sixteen reals part 1
 	yr8_16r_simple_fft_part1 srcreg,d1,d2,d4
 	;; Do the three eight-complex part
@@ -7759,7 +7757,6 @@ yr8_16r_simple_fft_with_mult MACRO srcreg,altsrc,d1,d2,d4
 
 
 yr8_8cl_sixteen_reals_eight_complex_with_mulf MACRO srcreg,srcinc,d1,d2,d4
-	ymult7	srcreg+rbx, srcreg+rbp
 	;; Start the sixteen reals work
 	yr8_16r_simple_fft_with_mulf srcreg,d1,d2,d4
 	;; Do the three eight-complex part
@@ -7858,8 +7855,6 @@ IFDEF X86_64
 yr8_8cl_sixteen_reals_eight_complex_with_mult MACRO srcreg,srcinc,d1,d2,d4
 	LOCAL	orig, back_to_orig, nofftsave, disptab, addmul, submul, muladd, muladdhard, mulsub, mulsubhard, unfft, done
 	LOCAL	addmul312, addmul313, addmul132, addmul133, submul312, submul313, submul132, submul133
-
-	ymult7	srcreg, srcreg+rbp
 
 	;; Do the sixteen reals
 
@@ -10046,8 +10041,6 @@ back_to_orig:
 
 yr8_8cl_sixteen_reals_eight_complex_with_mulf MACRO srcreg,srcinc,d1,d2,d4
 	LOCAL	orig, back_to_orig, fma_or_unfft, fma, addmul, submul, muladd, muladdhard, mulsub, mulsubhard, unfft
-
-	ymult7	srcreg+rbx, srcreg+rbp
 
 	mov	al, mul4_opcode			;; Load the mul4_opcode
 	cmp	al, 0				;; See if we need to do more than the original type-4 FFT multiply

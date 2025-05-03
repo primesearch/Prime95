@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 2020-2023 Mersenne Research, Inc.  All rights reserved
+| Copyright 2020-2024 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines to certify a PRP proof.
 +---------------------------------------------------------------------*/
@@ -129,7 +129,7 @@ int cert (
 	writeSaveFileState write_save_file_state; /* Manage savefile names during writing */
 	char	filename[32];
 	char	buf[1000], JSONbuf[4000], fft_desc[200];
-	double	allowable_maxerr, output_frequency, output_title_frequency;
+	double	allowable_maxerr, output_adjustment, title_adjustment;
 	char	string_rep[80];
 	int	error_count_messages;
 	hash256_t hash;
@@ -251,7 +251,7 @@ int cert (
 	strcpy (w->stage, "CERT");
 	inverse_explen = 1.0 / (double) w->cert_squarings;
 	w->pct_complete = (double) cs.counter * inverse_explen;
-	calc_output_frequencies (&cs.gwdata, &output_frequency, &output_title_frequency);
+	calc_interval_adjustments (&cs.gwdata, &output_adjustment, &title_adjustment);
 
 /* If we are near the maximum exponent this fft length can test, then we */
 /* will error check all iterations */
@@ -382,7 +382,7 @@ int cert (
 
 /* Output the title every so often */
 
-		actual_frequency = (int) (ITER_OUTPUT * output_title_frequency);
+		actual_frequency = (int) (ITER_OUTPUT * title_adjustment);
 		if (actual_frequency < 1) actual_frequency = 1;
 		if (cs.counter % actual_frequency == 0 || first_iter_msg) {
 			sprintf (buf, "%.*f%% of cert %s", (int) PRECISION, trunc_percent (w->pct_complete), string_rep);
@@ -391,7 +391,7 @@ int cert (
 
 /* Print a message every so often */
 
-		actual_frequency = (int) (ITER_OUTPUT * output_frequency);
+		actual_frequency = (int) (ITER_OUTPUT * output_adjustment);
 		if (actual_frequency < 1) actual_frequency = 1;
 		if (cs.counter % actual_frequency == 0 || first_iter_msg) {
 			sprintf (buf, "Iteration: %ld / %ld [%.*f%%]",

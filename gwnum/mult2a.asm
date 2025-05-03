@@ -1,4 +1,4 @@
-; Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
+; Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -61,23 +61,21 @@ loopcount3	EQU	DPTR [rsp+first_local+8]
 saved_edx	EQU	DPTR [rsp+first_local+12]
 saved_esi	EQU	DPTR [rsp+first_local+16]
 
-inorm	MACRO	lab, ttp, zero, echk, const
+inorm	MACRO	lab, ttp, echk, const
 	LOCAL	noadd, ilp0, ilp1, ilpdn, noadd2, done
 	PROCFLP	lab
 	int_prolog 20,0,0,rcx,rbp
 	mov	saved_edx, edx		;; Save registers for top_carry_adjust
 	mov	saved_esi, esi
-no zero	mov	zero_fft, 0		;; Set flag saying not zero upper half
-zero	mov	zero_fft, 1		;; Set flag saying zero upper half
 echk	fld	MAXERR			;; Load maximum error
 	fld	SUMOUT			;; Load SUMOUT
-no zero	cmp	edx, ADDIN_ROW		;; Is this the time to do our addin?
-no zero	jne	short noadd		;; Jump if addin does not occur now
-no zero	mov	edi, ADDIN_OFFSET	;; Get address to add value into
-no zero	fld	QWORD PTR [esi][edi]	;; Get the value
-no zero	fadd	ADDIN_VALUE		;; Add in the requested value
-no zero	fstp	QWORD PTR [esi][edi]	;; Save the new value
-no zero	fsub	ADDIN_VALUE		;; Do not include addin in sumout
+	cmp	edx, ADDIN_ROW		;; Is this the time to do our addin?
+	jne	short noadd		;; Jump if addin does not occur now
+	mov	edi, ADDIN_OFFSET	;; Get address to add value into
+	fld	QWORD PTR [esi][edi]	;; Get the value
+	fadd	ADDIN_VALUE		;; Add in the requested value
+	fstp	QWORD PTR [esi][edi]	;; Save the new value
+	fsub	ADDIN_VALUE		;; Do not include addin in sumout
 noadd:	mov	edx, norm_grp_mults	;; Addr of the group multipliers
 	mov	ebp, carries		;; Addr of the carries
 	mov	edi, norm_ptr1		;; Load big/little flags array ptr
@@ -92,7 +90,7 @@ ilp0:	mov	ecx, cache_line_multiplier ;; Load inner loop counter
 	fld	QWORD PTR [ebp+1*8]	;; Load carry2
 	fadd	BIGVAL			;; c2 = c2 + rounding constant
 	mov	saved_ptr, esi		;; Save FFT data ptr
-ilp1:	norm_2d ttp, zero, echk, const	;; Normalize 4 vals (2 grps, 2 cols)
+ilp1:	norm_2d ttp, echk, const	;; Normalize 4 vals (2 grps, 2 cols)
 	lea	esi, [esi+4*8]		;; Next FFT source
 ttp	lea	ebx, [ebx+2*16]		;; Next column multipliers
 ttp	lea	edi, [edi+2]		;; Next big/little flags
@@ -118,12 +116,12 @@ ttp	mov	norm_ptr1, edi		;; Save big/little flags array ptr
 ttp	mov	norm_ptr2, ebx		;; Save column multipliers ptr
 	mov	edx, saved_edx		;; Restore edx (pass1 loop counter)
 	mov	esi, saved_esi		;; Restore esi (FFT data pointer)
-no zero	cmp	edx, ADDIN_ROW		;; Is this the time to do our addin?
-no zero	jne	short noadd2		;; Jump if addin does not occur now
-no zero	mov	edi, ADDIN_OFFSET	;; Get address to add value into
-no zero	fld	QWORD PTR [esi][edi]	;; Get the value
-no zero	fadd	POSTADDIN_VALUE		;; Add in the requested value
-no zero	fstp	QWORD PTR [esi][edi]	;; Save the new value
+	cmp	edx, ADDIN_ROW		;; Is this the time to do our addin?
+	jne	short noadd2		;; Jump if addin does not occur now
+	mov	edi, ADDIN_OFFSET	;; Get address to add value into
+	fld	QWORD PTR [esi][edi]	;; Get the value
+	fadd	POSTADDIN_VALUE		;; Add in the requested value
+	fstp	QWORD PTR [esi][edi]	;; Save the new value
 noadd2:
 	;; Handle adjusting the carry out of the topmost FFT word
 	cmp	edx, 65536+256		;; Check for last iteration
@@ -138,6 +136,10 @@ zpnorm	MACRO	lab, ttp, echk, const
 	LOCAL	ilp0, ilp1, ilpdn
 	PROCFLP	lab
 	int_prolog 12,0,0,rcx,rdx,rsi,rbp
+
+;; Two-pass x87 sub7 is not handled by C code
+;;	c_call	ZPAD_SUB7		;; Subtract 7 ZPAD words from lowest FFT words
+
 no const mov	const_fft, 0		;; Set flag saying not mul-by-const
 const	mov	const_fft, 1		;; Set flag saying mul-by-const
 echk	fld	MAXERR			;; Load maximum error
@@ -185,18 +187,14 @@ ttp	mov	norm_ptr2, ebx		;; Save column multipliers ptr
 
 ; The 16 different normalization routines
 
-	inorm	r2, noexec, noexec, noexec, noexec
-	inorm	r2e, noexec, noexec, exec, noexec
-	inorm	r2c, noexec, noexec, noexec, exec
-	inorm	r2ec, noexec, noexec, exec, exec
-	inorm	r2z, noexec, exec, noexec, noexec
-	inorm	r2ze, noexec, exec, exec, noexec
-	inorm	i2, exec, noexec, noexec, noexec
-	inorm	i2e, exec, noexec, exec, noexec
-	inorm	i2c, exec, noexec, noexec, exec
-	inorm	i2ec, exec, noexec, exec, exec
-	inorm	i2z, exec, exec, noexec, noexec
-	inorm	i2ze, exec, exec, exec, noexec
+	inorm	r2, noexec, noexec, noexec
+	inorm	r2e, noexec, exec, noexec
+	inorm	r2c, noexec, noexec, exec
+	inorm	r2ec, noexec, exec, exec
+	inorm	i2, exec, noexec, noexec
+	inorm	i2e, exec, exec, noexec
+	inorm	i2c, exec, noexec, exec
+	inorm	i2ec, exec, exec, exec
 
 	zpnorm	r2zp, noexec, noexec, noexec
 	zpnorm	r2zpe, noexec, exec, noexec

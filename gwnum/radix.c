@@ -4,7 +4,7 @@
 | This file contains the C routines for radix conversion when required
 | by gianttogw or gwtogiant.
 | 
-|  Copyright 2020-2023 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2020-2024 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -801,16 +801,27 @@ int nonbase2_gwtogiant (	/* Returns an error code or zero for success */
 		gwiter	iter;
 		int32_t	val;
 		int64_t accum;
-		int	bits, accumbits;
-		unsigned long limit;
-		uint32_t *outptr;
+		int	bits, accumbits, limit;
+		uint32_t *outptr, *outptr_end, outval;
+		uint64_t outcarry;
+
+/* Set variables based on k */
+
+		uint64_t k = (uint64_t) gwdata->k;
+		uint32_t khi = (uint32_t) (k >> 32);
+		uint32_t klo = (uint32_t) (k & 0xFFFFFFFFULL);
+		bool k_is_small = (khi == 0);
+		bool k_is_one = (k == 1);
 
 /* Collect bits until we have all of them */
 
 		accum = 0;
 		accumbits = 0;
+		outcarry = 0;
 		outptr = g->n;
-		limit = divide_rounding_up ((int) ceil (gwdata->bit_length), 32) + 1;
+		limit = divide_rounding_up ((int) ceil (gwdata->bit_length), 32) + 3;
+		if (limit > g->maxsize) limit = g->maxsize;
+		outptr_end = g->n + limit;
 		for (gwiter_init_zero (work_gwdata, &iter, t1); ; ) {
 			if (gwiter_index (&iter) < (int) work_gwdata->FFTLEN) {
 				err_code = gwiter_get_fft_value (&iter, &val);
@@ -822,23 +833,37 @@ int nonbase2_gwtogiant (	/* Returns an error code or zero for success */
 				gwiter_next (&iter);
 				if (accumbits < 32) continue;
 			}
-			*outptr++ = (uint32_t) accum;
+			// Extract the 32 output bits
+			outval = (uint32_t) accum;
 			accum >>= 32;
 			accumbits -= 32;
-			if (outptr == g->n + limit) break;
+
+			// Now mul by k
+			if (!k_is_one) {
+				if (k_is_small) {
+					uint64_t tmp = (uint64_t) outval * (uint64_t) klo + outcarry;
+					outval = (uint32_t) tmp;
+					outcarry = tmp >> 32;
+				} else {
+					uint64_t tmp = (uint64_t) outval * (uint64_t) klo + outcarry;
+					outcarry = (tmp >> 32) + (uint64_t) outval * (uint64_t) khi;
+					outval = (uint32_t) tmp;
+				}
+			}
+
+			// Output the value
+			*outptr++ = outval;
+
+			// Check for end of output
+			if (outptr == outptr_end) break;
 		}
-		ASSERTG (accum == 0 || accum == -1);
+		ASSERTG (accum == 0);
 
 /* Set the length */
 
 		g->sign = (long) (outptr - g->n);
+		ASSERTG (g->maxsize >= g->sign);
 		while (g->sign && g->n[g->sign-1] == 0) g->sign--;
-
-/* Divide the upper bits by k, leave the remainder in the upper bits and multiply the quotient by c and subtract that from the lower bits. */
-
-		stackgiant(upper,5);					// Upper bits shouldn't be much more than k^2 (100 bits)
-		gtogshiftrightsplit (work_gwdata->n, g, upper, accum);	// Split v at bit n into two giants optionally negating upper bits
-		if (!isZero (upper)) addg (upper, g);			// Lower bits minus upper bits * c
 	}
 
 /* Finish cleanup */

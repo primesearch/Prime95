@@ -1,4 +1,4 @@
-; Copyright 1998-2023 - Mersenne Research, Inc.  All rights reserved
+; Copyright 1998-2024 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -37,7 +37,6 @@ pass1levels6pfa5 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -386,7 +385,6 @@ pass1levels6pfa6 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -743,7 +741,6 @@ pass1levels6complex3 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -1056,7 +1053,6 @@ pass1levels6pfa7 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -1405,7 +1401,6 @@ pass1levels6pfa8 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -1762,7 +1757,6 @@ pass1levels6complex4 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -2075,7 +2069,6 @@ pass1levels7pfa5 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -2432,7 +2425,6 @@ pass1levels7pfa6 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -2789,7 +2781,6 @@ pass1levels7complex3 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -3102,7 +3093,6 @@ pass1levels7pfa7 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -3459,7 +3449,6 @@ pass1levels7pfa8 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -3816,7 +3805,6 @@ pass1levels7complex4 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -4130,7 +4118,6 @@ pass1levels8pfa5 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -4559,7 +4546,6 @@ pass1levels8pfa6 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -4994,7 +4980,6 @@ pass1levels8complex3 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -5365,7 +5350,6 @@ pass1levels8pfa7 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -5794,7 +5778,6 @@ pass1levels8pfa8 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -6241,7 +6224,6 @@ pass1levels8complex4 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -6624,7 +6606,6 @@ pass1levels9pfa5 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -7065,7 +7046,6 @@ pass1levels9pfa6 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -7511,7 +7491,6 @@ pass1levels9complex3 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -7899,7 +7878,6 @@ pass1levels9pfa7 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -8340,7 +8318,6 @@ pass1levels9pfa8 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -8792,7 +8769,6 @@ pass1levels9complex4 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -9182,7 +9158,6 @@ pass1levels10pfa5 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -9723,7 +9698,6 @@ pass1levels10pfa6 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -10262,7 +10236,6 @@ pass1levels10complex3 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -10717,7 +10690,6 @@ pass1levels10pfa7 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -11258,7 +11230,6 @@ pass1levels10pfa8 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels
@@ -11797,7 +11768,6 @@ pass1levels10complex4 MACRO pass2_macro, p2cl, clmarg
 	mov	norm_ptr1, 0		;; Set FFT-ing flag
 	mov	edx, p2cl/128*65536+128/clm*256;; Load loop counter
 pfing	mov	ebp, clm*32		;; Set prefetch distance
-	copy_7_words
 	jmp	b0b			;; Do the pass 1 fft
 
 ;; Do the last 8 FFT levels

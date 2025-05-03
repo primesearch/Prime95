@@ -23,7 +23,10 @@ public:
 	CString m_upload_end;
 	UINT	m_download_mb;
 	BOOL	m_can_upload;
+	BOOL	m_no_limit;
 	CStatic	c_upload_bandwidth_text;
+	CStatic	c_upload_bandwidth_text2;
+	CButton c_no_limit;
 	CEdit	c_upload_bandwidth;
 	CStatic	c_upload_start_text;
 	CEdit	c_upload_start;
@@ -47,6 +50,8 @@ protected:
 	afx_msg void OnAdvanced();
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
+	afx_msg void OnEnKillfocusUploadLimit();
+	afx_msg void OnBnClickedNoLimit();
 };
 
 

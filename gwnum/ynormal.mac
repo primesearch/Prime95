@@ -1,4 +1,4 @@
-; Copyright 2011-2023 - Mersenne Research, Inc.  All rights reserved.
+; Copyright 2011-2024 - Mersenne Research, Inc.  All rights reserved.
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -615,7 +615,6 @@ rotate_five_carries MACRO ymmreg1, ymmreg2, ymmtmp
 ;
 
 ; For 1D macros, these registers are set on input:
-; ymm7 = sumout
 ; ymm6 = MAXERR
 ; rsi = pointer to the FFT data values
 ; rbp = pointer two-to-phi multipliers
@@ -631,7 +630,6 @@ rotate_five_carries MACRO ymmreg1, ymmreg2, ymmtmp
 ;	movzx	rax, BYTE PTR [rdi]	;; Load big vs. little flags
 ;	vmovapd	ymm0, [rsi+0*dist1]	;; Load values
 ;	vmulpd	ymm4, ymm0, [rbp+0]	;; Mul values1 by two-to-minus-phi
-;	vaddpd	sumout, sumout, ymm0	;; sumout += values
 ;	vaddpd	ymm4, ymm4, ymm2	;; x = values + carry
 ;	vmovpad	ymm0, YMM_LIMIT_BIGMAX[rax*2];; Load maximum * BIGVAL - BIGVAL
 ;	vaddpd	ymm2, ymm4, ymm0	;; y = top bits of x
@@ -641,26 +639,23 @@ rotate_five_carries MACRO ymmreg1, ymmreg2, ymmtmp
 ;	vmulpd	ymm4, ymm4, [rbp+32]	;; new value = val * two-to-phi
 ;	ystore	[rsi+0*dist1], ymm4	;; Save new value
 
-ynorm_1d_preload MACRO ttp, base2, zero, echk, const
+ynorm_1d_preload MACRO ttp, base2, echk, const
 	ENDM
 
-ynorm_1d MACRO ttp, base2, zero, echk, const
+ynorm_1d MACRO ttp, base2, echk, const
 ttp		movzx	rax, BYTE PTR [rdi]	;; Load big vs. little flags
 ttp		movzx	rcx, BYTE PTR [rdi+1]
 		vmovapd	ymm0, [rsi]		;; Load value1
 		vmulpd	ymm4, ymm0, [rbp]	;; Mul value1 by two-to-minus-phi
 		vmovapd	ymm1, [rsi+32]		;; Load value2
 		vmulpd	ymm5, ymm1, [rbp+64]	;; Mul value2 by two-to-minus-phi
-		vaddpd	ymm7, ymm7, ymm0	;; sumout += value1
-		vaddpd	ymm7, ymm7, ymm1	;; sumout += value2
 const		mul_by_const_interleaved ttp, base2, echk, ymm4, ymm2, ymm0, rax*2, ymm5, ymm3, ymm1, rcx*2, ymm6
 no const echk	error_check_interleaved ymm4, ymm0, ymm5, ymm1, ymm6
 no const	vaddpd	ymm4, ymm4, ymm2	;; x1 = value + carry
 no const	vaddpd	ymm5, ymm5, ymm3	;; x2 = value + carry
 		rounding_interleaved ttp, base2, const, ymm4, ymm2, ymm0, rax*2, ymm5, ymm3, ymm1, rcx*2
 ttp		vmulpd	ymm4, ymm4, [rbp+32]	;; new value1 = val * two-to-phi
-ttp no zero	vmulpd	ymm5, ymm5, [rbp+96]	;; new value2 = val * two-to-phi
-zero		vxorpd	ymm5, ymm5, ymm5
+ttp		vmulpd	ymm5, ymm5, [rbp+96]	;; new value2 = val * two-to-phi
 		ystore	[rsi], ymm4		;; Save value1
 		ystore	[rsi+32], ymm5		;; Save value2
 	ENDM
@@ -668,7 +663,7 @@ zero		vxorpd	ymm5, ymm5, ymm5
 
 IFDEF X86_64
 
-ynorm_1d_preload MACRO ttp, base2, zero, echk, const
+ynorm_1d_preload MACRO ttp, base2, echk, const
 echk		vmovapd	ymm15, YMM_ABSVAL
 base2 const	vmovapd	ymm14, YMM_BIGBIGVAL
 const		vmovapd	ymm13, YMM_MULCONST
@@ -677,12 +672,12 @@ base2 no const	vmovapd ymm14, YMM_ONE
 ENDIF
 	ENDM
 
-ynorm_1d MACRO ttp, base2, zero, echk, const
+ynorm_1d MACRO ttp, base2, echk, const
 ttp		movzx	rax, BYTE PTR [rdi]	;; Load big vs. little flags
 ttp		movzx	rcx, BYTE PTR [rdi+1]
 
-base2 no const ttp	ynorm_1d_base2_noconst	echk, zero, rax*2, rcx*2
-base2 no const no ttp	ynorm_1d_base2_noconst	echk, zero, 0, 0
+base2 no const ttp	ynorm_1d_base2_noconst	echk, rax*2, rcx*2
+base2 no const no ttp	ynorm_1d_base2_noconst	echk, 0, 0
 base2 const ttp		ynorm_1d_base2_const	echk, rax*2, rcx*2
 base2 const no ttp	ynorm_1d_base2_const	echk, 0, 0
 no base2 no const ttp	ynorm_1d_nobase2_noconst echk, rax*2, rcx*2
@@ -691,20 +686,17 @@ no base2 const ttp	ynorm_1d_nobase2_const	echk, rax*2, rcx*2
 no base2 const no ttp	ynorm_1d_nobase2_const	echk, 0, 0
 
 ttp		vmulpd	ymm4, ymm4, [rbp+32]	;; new value1 = val * two-to-phi
-ttp no zero	vmulpd	ymm5, ymm5, [rbp+96]	;; new value2 = val * two-to-phi
-zero		vxorpd	ymm5, ymm5, ymm5
+ttp		vmulpd	ymm5, ymm5, [rbp+96]	;; new value2 = val * two-to-phi
 		ystore	[rsi], ymm4		;; Save value1
 		ystore	[rsi+32], ymm5		;; Save value2
 	ENDM
 
 
-ynorm_1d_base2_noconst MACRO echk, zero, basereg, basereg2
+ynorm_1d_base2_noconst MACRO echk, basereg, basereg2
 	vmovapd	ymm0, [rsi]				;; Load value1
 	vmulpd	ymm8, ymm0, [rbp]			;; Mul value1 by two-to-minus-phi		; 1-5
 	vmovapd	ymm1, [rsi+32]				;; Load value2
 	vmulpd	ymm9, ymm1, [rbp+64]			;; Mul value2 by two-to-minus-phi		; 2-6
-	vaddpd	ymm7, ymm7, ymm0			;; sumout += value1				;  1-3
-	vaddpd	ymm7, ymm7, ymm1			;; sumout += value2				;  4-6
 	vaddpd	ymm0, ymm8, ymm2			;; x = value1 + carry				; 6-8	First dependence on previous iteration
 	vaddpd	ymm1, ymm9, ymm3			;; x = value2 + carry				; 7-9
 echk	vroundpd ymm10, ymm8, 0				;; Convert to an integer			;	(8-10)	(and 11-13 on Haswell)
@@ -717,12 +709,12 @@ echk	vsubpd	ymm10, ymm10, ymm8			;; This is the convolution error		;	(12-14)	(14
 echk	vsubpd	ymm11, ymm11, ymm9			;; This is the convolution error		;	(13-15)	(15-17)
 	vsubpd	ymm4, ymm2, ymm4			;; z = y - (maximum * BIGVAL - BIGVAL)		; 12-14	(14-16) (16-18)
 	vmulpd	ymm2, ymm2, YMM_LIMIT_INVERSE[basereg]	;; carry = shifted y				; 12-16	(13-17)	(13-17)
-no zero	vsubpd	ymm5, ymm3, ymm5			;; z = y - (maximum * BIGVAL - BIGVAL)		; 13-15	(15-17)	(17-19)
+	vsubpd	ymm5, ymm3, ymm5			;; z = y - (maximum * BIGVAL - BIGVAL)		; 13-15	(15-17)	(17-19)
 	vmulpd	ymm3, ymm3, YMM_LIMIT_INVERSE[basereg2]	;; carry = shifted y				; 13-17	(14-18)	(16-20)
 echk	absval	ymm10					;; Compute absolute value			;	(15)	(17)
 echk	absval	ymm11					;; Compute absolute value			;	(16)	(18)
 	vsubpd	ymm4, ymm0, ymm4			;; rounded val = x - z				; 15-17	(17-19)	(19-21)
-no zero	vsubpd	ymm5, ymm1, ymm5			;; rounded val = x - z				; 16-18	(18-20)	(20-22)
+	vsubpd	ymm5, ymm1, ymm5			;; rounded val = x - z				; 16-18	(18-20)	(20-22)
 echk	vmaxpd	ymm6, ymm6, ymm10			;; Compute maximum error			;	(19-21)	(18-20)
 echk	vmaxpd	ymm6, ymm6, ymm11			;; Compute maximum error			;	(20-22)	(21-23)
 ENDM
@@ -736,15 +728,11 @@ ENDM
 ;; This is done by computing "convolution error = value - (x - carry)
 
 IF (@INSTR(,%yarch,<FMA3>) NE 0)
-ynorm_1d_base2_noconst MACRO echk, zero, basereg, basereg2
+ynorm_1d_base2_noconst MACRO echk, basereg, basereg2
 	vmovapd	ymm0, [rsi]				;; Load value1
 	vmulpd	ymm8, ymm0, [rbp]			;; Mul value1 by two-to-minus-phi		; presumably free (can execute in previous iteration)
 	vmovapd	ymm1, [rsi+32]				;; Load value2
 	vmulpd	ymm9, ymm1, [rbp+64]			;; Mul value2 by two-to-minus-phi		; presumably free
-no echk	vaddpd	ymm7, ymm7, ymm0			;; sumout += value1				; presumably free (add slots in prev iter are not hard to find)
-no echk	vaddpd	ymm7, ymm7, ymm1			;; sumout += value2				; presumably free
-echk	yfmaddpd ymm7, ymm7, ymm14, ymm0		;; sumout += value1				; presumably free (add slots in prev iter are hard to find)
-echk	yfmaddpd ymm7, ymm7, ymm14, ymm1		;; sumout += value1				; presumably free
 	vaddpd	ymm0, ymm8, ymm2			;; x = value1 + carry				; 6-8	First dependence on previous iteration
 	vaddpd	ymm1, ymm9, ymm3			;; x = value2 + carry				; 7-9
 	vmovapd	ymm4, YMM_LIMIT_BIGMAX[basereg]		;; Load maximum * BIGVAL - BIGVAL
@@ -755,12 +743,12 @@ echk	vsubpd	ymm10, ymm0, ymm2			;; Start error calc (x - carry)			;	(11-13)
 echk	vsubpd	ymm11, ymm1, ymm3			;; Start error calc (x - carry)			;	(12-14)
 	vsubpd	ymm4, ymm12, ymm4			;; z = y - (maximum * BIGVAL - BIGVAL)		; 12-14	(13-15)
 	vmulpd	ymm2, ymm12, YMM_LIMIT_INVERSE[basereg]	;; carry = shifted y				; 12-16	(13-17)
-no zero	vsubpd	ymm5, ymm13, ymm5			;; z = y - (maximum * BIGVAL - BIGVAL)		; 13-15	(14-16)
+	vsubpd	ymm5, ymm13, ymm5			;; z = y - (maximum * BIGVAL - BIGVAL)		; 13-15	(14-16)
 	vmulpd	ymm3, ymm13, YMM_LIMIT_INVERSE[basereg2];; carry = shifted y				; 13-17	(14-18)
 echk	vsubpd	ymm10, ymm8, ymm10			;; Convolution error = value - (x - carry)	;	(15-17)
 echk	vsubpd	ymm11, ymm9, ymm11			;; Convolution error = value - (x - carry)	;	(16-18)
 	vsubpd	ymm4, ymm0, ymm4			;; rounded val = x - z				; 15-17	(17-19)
-no zero	vsubpd	ymm5, ymm1, ymm5			;; rounded val = x - z				; 16-18	(18-20)
+	vsubpd	ymm5, ymm1, ymm5			;; rounded val = x - z				; 16-18	(18-20)
 echk	absval	ymm10					;; Compute absolute value			;	(18)
 echk	absval	ymm11					;; Compute absolute value			;	(19)
 echk	vmaxpd	ymm6, ymm6, ymm10			;; Compute maximum error			;	(19-21)
@@ -771,10 +759,8 @@ ENDIF
 ynorm_1d_base2_const MACRO echk, basereg, basereg2
 	vmovapd	ymm0, [rsi]				;; Load value1
 	vmulpd	ymm10, ymm0, [rbp]			;; Mul value1 by two-to-minus-phi		; 1-5
-	vaddpd	ymm7, ymm7, ymm0			;; sumout += value1				;  1-3
 	vmovapd	ymm1, [rsi+32]				;; Load value2
 	vmulpd	ymm11, ymm1, [rbp+64]			;; Mul value2 by two-to-minus-phi		; 2-6
-	vaddpd	ymm7, ymm7, ymm1			;; sumout += value2				;  4-6
 	vaddpd	ymm0, ymm10, ymm14			;; Round to nearest multiple of 2^25		; 6-8
 	vaddpd	ymm1, ymm11, ymm14			;; Round to nearest multiple of 2^25		; 7-9
 	vroundpd ymm8, ymm10, 0				;; Round FFT value to an integer		; 8-10
@@ -813,10 +799,8 @@ IF (@INSTR(,%yarch,<FMA3>) NE 0)
 ynorm_1d_base2_const MACRO echk, basereg, basereg2
 	vmovapd	ymm0, [rsi]				;; Load value1
 	vmulpd	ymm8, ymm0, [rbp]			;; Mul value1 by two-to-minus-phi		; 1-5
-	vaddpd	ymm7, ymm7, ymm0			;; sumout += value1				;  1-3
 	vmovapd	ymm1, [rsi+32]				;; Load value2
 	vmulpd	ymm9, ymm1, [rbp+64]			;; Mul value2 by two-to-minus-phi		; 2-6
-	vaddpd	ymm7, ymm7, ymm1			;; sumout += value2				;  4-6
 	vaddpd	ymm0, ymm8, ymm14			;; Round to nearest multiple of 2^25		; 6-8
 	vaddpd	ymm1, ymm9, ymm14			;; Round to nearest multiple of 2^25		; 7-9
 	vroundpd ymm10, ymm8, 0				;; Round FFT value to an integer		; 8-10
@@ -856,10 +840,8 @@ ENDIF
 ynorm_1d_nobase2_noconst MACRO echk, basereg, basereg2
 	vmovapd	ymm0, [rsi]				;; Load value1
 	vmulpd	ymm4, ymm0, [rbp]			;; Mul value1 by two-to-minus-phi		; 1-5
-	vaddpd	ymm7, ymm7, ymm0			;; sumout += value1				;  1-3
 	vmovapd	ymm1, [rsi+32]				;; Load value2
 	vmulpd	ymm5, ymm1, [rbp+64]			;; Mul value2 by two-to-minus-phi		; 2-6
-	vaddpd	ymm7, ymm7, ymm1			;; sumout += value2				;  4-6
 	vaddpd	ymm4, ymm4, ymm2			;; x = value + carry				; 6-8	First dependence on previous iteration
 	vaddpd	ymm5, ymm5, ymm3			;; x = value + carry				; 7-9
 	vmulpd	ymm2, ymm4, YMM_LIMIT_INVERSE[basereg]	;; val / base					; 9-13
@@ -884,10 +866,8 @@ IF (@INSTR(,%yarch,<FMA3>) NE 0)
 ynorm_1d_nobase2_noconst MACRO echk, basereg, basereg2
 	vmovapd	ymm0, [rsi]				;; Load value1
 	vmulpd	ymm4, ymm0, [rbp]			;; x = value1 * two-to-minus-phi		; presumably free (can execute in previous iteration)
-	vaddpd	ymm7, ymm7, ymm0			;; sumout += value1				; presumably free
 	vmovapd	ymm1, [rsi+32]				;; Load value2
 	vmulpd	ymm5, ymm1, [rbp+64]			;; x = value2 * two-to-minus-phi		; presumably free
-	vaddpd	ymm7, ymm7, ymm1			;; sumout += value2				; presumably free
 	vaddpd	ymm4, ymm4, ymm2			;; x += carry					; 3-5	First dependence on previous iteration
 	vaddpd	ymm5, ymm5, ymm3			;; x += carry					; 4-6
 	vmulpd	ymm2, ymm4, YMM_LIMIT_INVERSE[basereg]	;; val / base					; 6-10
@@ -911,10 +891,8 @@ ENDIF
 ynorm_1d_nobase2_const MACRO echk, basereg, basereg2
 	vmovapd	ymm0, [rsi]				;; Load value1
 	vmulpd	ymm4, ymm0, [rbp]			;; Mul value1 by two-to-minus-phi		; presumably free
-	vaddpd	ymm7, ymm7, ymm0			;; sumout += value1				; presumably free
 	vmovapd	ymm1, [rsi+32]				;; Load value2
 	vmulpd	ymm5, ymm1, [rbp+64]			;; Mul value2 by two-to-minus-phi		; presumably free
-	vaddpd	ymm7, ymm7, ymm1			;; sumout += value2				; presumably free
 	vmulpd	ymm0, ymm4, YMM_LIMIT_INVERSE[basereg]	;; HiFFTval = FFT value / base			; 6-10
 	vroundpd ymm8, ymm4, 0				;; Round FFT value				; 6-8
 	vmulpd	ymm1, ymm5, YMM_LIMIT_INVERSE[basereg2]	;; HiFFTval = FFT value / base			; 7-11
@@ -953,10 +931,8 @@ IF (@INSTR(,%yarch,<FMA3>) NE 0)
 ynorm_1d_nobase2_const MACRO echk, basereg, basereg2
 	vmovapd	ymm0, [rsi]				;; Load value1
 	vmulpd	ymm4, ymm0, [rbp]			;; Mul value1 by two-to-minus-phi		; presumably free
-	vaddpd	ymm7, ymm7, ymm0			;; sumout += value1				; presumably free
 	vmovapd	ymm1, [rsi+32]				;; Load value2
 	vmulpd	ymm5, ymm1, [rbp+64]			;; Mul value2 by two-to-minus-phi		; presumably free
-	vaddpd	ymm7, ymm7, ymm1			;; sumout += value2				; presumably free
 	vmulpd	ymm0, ymm4, YMM_LIMIT_INVERSE[basereg]	;; HiFFTval = FFT value / base			; 6-10
 	vroundpd ymm8, ymm4, 0				;; Round FFT value				; 6-8,9-11
 	vmulpd	ymm1, ymm5, YMM_LIMIT_INVERSE[basereg2]	;; HiFFTval = FFT value / base			; 7-11
@@ -1005,10 +981,8 @@ IF (@INSTR(,%yarch,<FMA3>) NE 0)
 new_ynorm_1d_nobase2_noconst MACRO echk, basereg, basereg2
 	vmovapd	ymm0, [rsi]				;; Load value1
 	vmulpd	ymm4, ymm0, [rbp]			;; value1 * two-to-minus-phi			; presumably free
-	vaddpd	ymm7, ymm7, ymm0			;; sumout += value1				; presumably free
 	vmovapd	ymm1, [rsi+32]				;; Load value2
 	vmulpd	ymm5, ymm1, [rbp+64]			;; value2 * two-to-minus-phi			; presumably free
-	vaddpd	ymm7, ymm7, ymm1			;; sumout += value2				; presumably free
 	vaddpd	ymm0, ymm4, ymm2			;; x = value + carry				; 3-5	First dependence on previous iteration
 	vaddpd	ymm1, ymm5, ymm3			;; x = value + carry				; 4-6
 	vmovapd ymm8, YMM_LIMIT_BIGMAX[basereg]		;; Load constant for creating next carry
@@ -1048,10 +1022,8 @@ IF (@INSTR(,%yarch,<FMA3>) NE 0)
 new_ynorm_1d_nobase2_const MACRO echk, basereg, basereg2
 	vmovapd	ymm0, [rsi]				;; Load value1
 	yfmaddpd ymm4, ymm0, [rbp], ymm14		;; Mul value1 by two-to-minus-phi + BIGVAL	; presumably free
-	vaddpd	ymm7, ymm7, ymm0			;; sumout += value1				; presumably free
 	vmovapd	ymm1, [rsi+32]				;; Load value2
 	yfmaddpd ymm5, ymm1, [rbp+64], ymm14		;; Mul value2 by two-to-minus-phi + BIGVAL	; presumably free
-	vaddpd	ymm7, ymm7, ymm1			;; sumout += value2				; presumably free
 
 	vmovapd ymm8, YMM_LIMIT_BIGMAX[basereg]		;; Load constant for creating next carry
 	vmovapd ymm9, YMM_LIMIT_BIGMAX[basereg2]	;; Load constant for creating next carry
@@ -1106,7 +1078,6 @@ ENDIF
 ; word by k and adding in the upper word times -c.  Of course, this is made
 ; very tedious because we have to carefully avoid any loss of precision.
 ;
-; ymm7 = sumout
 ; ymm6 = MAXERR
 ; ymm3 = carry #2 (previous high FFT data - not yet mul'ed by K)
 ; ymm2 = carry #1 (traditional carry)
@@ -1122,9 +1093,7 @@ ynorm_1d_zpad MACRO ttp, base2, echk, const, khi, c1, cm1
 ttp		movzx	rax, BYTE PTR [rdi]	;; Load big vs. little flags
 		vmovapd	ymm0, [rsi]		;; Load values1
 		vmovapd	ymm1, [rsi+32]		;; Load values2
-		vaddpd	ymm7, ymm7, ymm0	;; sumout += values1
 		vmulpd	ymm0, ymm0, [rbp]	;; Mul values1 by two-to-minus-phi
-		vaddpd	ymm7, ymm7, ymm1	;; sumout += values2
 		vmulpd	ymm1, ymm1, [rbp]	;; Mul values2 by two-to-minus-phi
 
 		split_lower_zpad_word ttp, base2, echk, ymm0, ymm3, ymm4, rax*2
@@ -1182,9 +1151,7 @@ ynorm_1d_zpad MACRO ttp, base2, echk, const, khi, c1, cm1
 ttp	movzx	rax, BYTE PTR [rdi]		;; Load big vs. little flags
 	vmovapd	ymm0, [rsi]			;; Load value1
 	vmovapd	ymm1, [rsi+32]			;; Load value2
-	vaddpd	ymm7, ymm7, ymm0		;; sumout += value1
 	vmulpd	ymm0, ymm0, [rbp]		;; Mul value1 by two-to-minus-phi
-	vaddpd	ymm7, ymm7, ymm1		;; sumout += value2
 	vmulpd	ymm1, ymm1, [rbp]		;; Mul value2 by two-to-minus-phi
 	vaddpd	ymm0, ymm0, ymm3		;; Add in previous high FFT data
 
@@ -1208,9 +1175,7 @@ ynorm_1d_zpad MACRO ttp, base2, echk, const, khi, c1, cm1
 ttp	movzx	rax, BYTE PTR [rdi]		;; Load big vs. little flags
 	vmovapd	ymm0, [rsi]			;; Load value1
 	vmovapd	ymm1, [rsi+32]			;; Load value2
-	vaddpd	ymm7, ymm7, ymm0		;; sumout += value1
 	yfmaddpd ymm0, ymm0, [rbp], ymm3	;; Mul value1 by two-to-minus-phi + previous high FFT data
-	vaddpd	ymm7, ymm7, ymm1		;; sumout += value2
 	vmulpd	ymm1, ymm1, [rbp]		;; Mul value2 by two-to-minus-phi
 
 base2 no const ttp	ynorm_1d_zpad_base2	echk, khi, c1, cm1, rax*2
@@ -1436,7 +1401,7 @@ ENDIF
 ; ymm2,ymm3 = carries
 ; rax, rdx, rsi, rbp, rdi = trash
 
-ynorm_1d_mid_cleanup MACRO ttp, base2, zero, srcptr, biglitptr, ttpptr
+ynorm_1d_mid_cleanup MACRO ttp, base2, srcptr, biglitptr, ttpptr
 	LOCAL	section_start, section_loop, force_done, done
 
 	rotate_carries_interleaved base2, ymm2, ymm4, ymm3, ymm5, ymm0, ymm1
@@ -1479,9 +1444,9 @@ ttp		vmulpd	ymm1, ymm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
 		vaddpd	ymm1, ymm1, ymm3		;; x2 = values + carry
 		rounding_interleaved ttp, base2, noexec, ymm0, ymm2, ymm4, rax*2, ymm1, ymm3, ymm5, rcx*2
 ttp		vmulpd	ymm0, ymm0, [rbp+32]		;; new value1 = val * two-to-phi
-ttp no zero	vmulpd	ymm1, ymm1, [rbp+96]		;; new value2 = val * two-to-phi
+ttp		vmulpd	ymm1, ymm1, [rbp+96]		;; new value2 = val * two-to-phi
 		ystore	[rsi], ymm0			;; Save new value1
-no zero		ystore	[rsi+32], ymm1			;; Save new value2
+		ystore	[rsi+32], ymm1			;; Save new value2
 
 ttp	bump	rdi, 2				;; Advance pointers
 	bump	rsi, 64
@@ -1503,11 +1468,11 @@ force_done:
 base2		vsubpd	ymm2, ymm2, YMM_BIGVAL		;; Subtract rounding constant from carry
 base2		vsubpd	ymm3, ymm3, YMM_BIGVAL
 ttp		vmulpd	ymm2, ymm2, [rbp+32]		;; carry1 *= two-to-phi
-ttp no zero	vmulpd	ymm3, ymm3, [rbp+96]		;; carry2 *= two-to-phi
+ttp		vmulpd	ymm3, ymm3, [rbp+96]		;; carry2 *= two-to-phi
 		vaddpd	ymm2, ymm2, [rsi]		;; Add in values1
-no zero		vaddpd	ymm3, ymm3, [rsi+32]		;; Add in values2
+		vaddpd	ymm3, ymm3, [rsi+32]		;; Add in values2
 		ystore	[rsi], ymm2			;; Save new value1
-no zero		ystore	[rsi+32], ymm3			;; Save new value2
+		ystore	[rsi+32], ymm3			;; Save new value2
 
 done:	vmovapd	ymm2, YMM_TMP1			;; Restore carry for next section
 	vmovapd	ymm3, YMM_TMP2			;; Restore carry for next section
@@ -1608,7 +1573,7 @@ done:	vmovapd	ymm2, YMM_TMP1			;; Restore carry for next section
 ; rdi = big vs. little array pointer
 ; Input arguments are destroyed!
 
-ynorm_1d_cleanup MACRO ttp, base2, zero
+ynorm_1d_cleanup MACRO ttp, base2
 		LOCAL	section_begin, section_restart, section_loop, new_section, done, force_done
 
 ttp		mov	rdi, norm_biglit_array		;; Address of the big/little flags array
@@ -1646,28 +1611,26 @@ base2		vmovapd	ymm1, YMM_BIGVAL		;; Load comparison value
 no base2	vxorpd	ymm1, ymm1, ymm1		;; Create comparison value
 		vcmppd	ymm0, ymm3, ymm1, 0Ch		;; Are any carries non-zero
 		vmovmskpd rax, ymm0			;; Extract 4 comparison bits
-no zero		vcmppd	ymm0, ymm2, ymm1, 0Ch		;; Are any carries non-zero
-no zero		vmovmskpd rcx, ymm0			;; Extract 4 comparison bits
-no zero		or	rax, rcx			;; Are any bits on?
-zero		test	rax, rax			;; Are any bits on?
+		vcmppd	ymm0, ymm2, ymm1, 0Ch		;; Are any carries non-zero
+		vmovmskpd rcx, ymm0			;; Extract 4 comparison bits
+		or	rax, rcx			;; Are any bits on?
 		jz	done				;; No, we're all done
 
 ttp		movzx	rax, BYTE PTR [rdi]		;; Load big vs. little flags
-no zero ttp	movzx	rcx, BYTE PTR [rdi+1]
+ttp		movzx	rcx, BYTE PTR [rdi+1]
 		vmovapd	ymm0, [rsi]			;; Load values1
 ttp		vmulpd	ymm0, ymm0, [rbp]		;; Mul values1 by two-to-minus-phi
 ttp		vmulpd	ymm0, ymm0, YMM_NORM012_FF	;; Mul by FFTLEN/2
-no zero		vmovapd	ymm1, [rsi+32]			;; Load values2
-no zero ttp	vmulpd	ymm1, ymm1, [rbp+64]		;; Mul values2 by two-to-minus-phi
-no zero ttp	vmulpd	ymm1, ymm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
+		vmovapd	ymm1, [rsi+32]			;; Load values2
+ttp		vmulpd	ymm1, ymm1, [rbp+64]		;; Mul values2 by two-to-minus-phi
+ttp		vmulpd	ymm1, ymm1, YMM_NORM012_FF	;; Mul by FFTLEN/2
 		vaddpd	ymm0, ymm0, ymm3		;; x1 = values + carry
-no zero		vaddpd	ymm1, ymm1, ymm2		;; x2 = values + carry
-no zero		rounding_interleaved ttp, base2, noexec, ymm0, ymm3, ymm4, rax*2, ymm1, ymm2, ymm5, rcx*2
-zero		rounding ttp, base2, noexec, ymm0, ymm3, ymm4, rax*2
+		vaddpd	ymm1, ymm1, ymm2		;; x2 = values + carry
+		rounding_interleaved ttp, base2, noexec, ymm0, ymm3, ymm4, rax*2, ymm1, ymm2, ymm5, rcx*2
 ttp		vmulpd	ymm0, ymm0, [rbp+32]		;; new value1 = val * two-to-phi
-no zero ttp	vmulpd	ymm1, ymm1, [rbp+96]		;; new value2 = val * two-to-phi
+ttp		vmulpd	ymm1, ymm1, [rbp+96]		;; new value2 = val * two-to-phi
 		ystore	[rsi], ymm0			;; Save new value1
-no zero		ystore	[rsi+32], ymm1			;; Save new value2
+		ystore	[rsi+32], ymm1			;; Save new value2
 
 ttp		bump	rdi, 2				;; Advance pointers
 		bump	rsi, 64
@@ -1708,11 +1671,11 @@ ttp		mov	rbp, PPTR YMM_TMP3
 base2		vsubpd	ymm3, ymm3, YMM_BIGVAL		;; Subtract rounding constant from carry
 base2		vsubpd	ymm2, ymm2, YMM_BIGVAL
 ttp		vmulpd	ymm3, ymm3, [rbp+32]		;; carry1 *= two-to-phi
-ttp no zero	vmulpd	ymm2, ymm2, [rbp+96]		;; carry2 *= two-to-phi
+ttp		vmulpd	ymm2, ymm2, [rbp+96]		;; carry2 *= two-to-phi
 		vaddpd	ymm3, ymm3, [rsi]		;; Add in values1
-no zero		vaddpd	ymm2, ymm2, [rsi+32]		;; Add in values2
+		vaddpd	ymm2, ymm2, [rsi+32]		;; Add in values2
 		ystore	[rsi], ymm3			;; Save new value1
-no zero		ystore	[rsi+32], ymm2			;; Save new value2
+		ystore	[rsi+32], ymm2			;; Save new value2
 
 		mov	rsi, PPTR YMM_TMP7		;; Load next section pointers
 ttp		mov	rbp, PPTR YMM_TMP8
@@ -1735,12 +1698,11 @@ force_done:
 base2		vsubpd	ymm3, ymm3, YMM_BIGVAL		;; Subtract rounding constant from carry
 base2		vsubpd	ymm2, ymm2, YMM_BIGVAL
 ttp		vmulpd	ymm3, ymm3, [rbp+32]		;; carry1 *= two-to-phi
-ttp no zero	vmulpd	ymm2, ymm2, [rbp+96]		;; carry2 *= two-to-phi
+ttp		vmulpd	ymm2, ymm2, [rbp+96]		;; carry2 *= two-to-phi
 		vaddpd	ymm3, ymm3, [rsi]		;; Add in values1
-no zero		vaddpd	ymm2, ymm2, [rsi+32]		;; Add in values2
+		vaddpd	ymm2, ymm2, [rsi+32]		;; Add in values2
 		ystore	[rsi], ymm3			;; Save new value1
-no zero		ystore	[rsi+32], ymm2			;; Save new value2
-
+		ystore	[rsi+32], ymm2			;; Save new value2
 	ENDM
 
 ; This macro is similar to the above, but is for the zero padding case.
@@ -2398,10 +2360,10 @@ kok:
 ; eax = big vs. little word flag #1
 ; ymm2,ymm3 = carries
 
-ynorm_wpn_preload MACRO ttp, base2, zero, echk, const
+ynorm_wpn_preload MACRO ttp, base2, echk, const
 	ENDM
 
-ynorm_wpn MACRO ttp, base2, zero, echk, const
+ynorm_wpn MACRO ttp, base2, echk, const
 		L1prefetchw rsi+64, L1PREFETCH_ALL
 ttp		movzx	ecx, bl				;; Fudge flags 1
 ttp		and	rcx, 0e0h
@@ -2417,8 +2379,7 @@ no const	vaddpd	ymm0, ymm0, ymm2		;; x1 = values + carry
 no const	vaddpd	ymm1, ymm1, ymm3		;; x2 = values + carry
 		rounding_interleaved ttp, base2, const, ymm0, ymm2, ymm4, rax*8, ymm1, ymm3, ymm5, rax*8+32
 ttp		vmulpd	ymm0, ymm0, [rdx+0*YMM_GMD+YMM_GMD/2][rcx] ;; value1 = rounded value * fudged grp two-to-phi
-ttp no zero	vmulpd	ymm1, ymm1, [rdx+1*YMM_GMD+YMM_GMD/2][rbx*8] ;; value2 = rounded value * fudged grp two-to-phi
-zero		vxorpd	ymm1, ymm1, ymm1
+ttp		vmulpd	ymm1, ymm1, [rdx+1*YMM_GMD+YMM_GMD/2][rbx*8] ;; value2 = rounded value * fudged grp two-to-phi
 ttp		movzx	rbx, WORD PTR [rdi+2]		;; Load next 4 big vs. little & fudge flags
 		ystore	[rsi+0*32], ymm0		;; Save new value1
 		ystore	[rsi+1*32], ymm1		;; Save new value2
@@ -2428,7 +2389,7 @@ ttp		movzx	rbx, WORD PTR [rdi+2]		;; Load next 4 big vs. little & fudge flags
 
 IFDEF X86_64
 
-ynorm_wpn_preload MACRO ttp, base2, zero, echk, const
+ynorm_wpn_preload MACRO ttp, base2, echk, const
 echk		vmovapd	ymm15, YMM_ABSVAL
 base2 const	vmovapd	ymm14, YMM_BIGBIGVAL
 IF (@INSTR(,%yarch,<FMA3>) NE 0)
@@ -2456,18 +2417,18 @@ const		vmovapd	ymm13, YMM_MULCONST
 ; rdx = big vs. little word flag #3-4
 ; ymm9,ymm10 = carries #2
 
-ynorm_wpn MACRO ttp, base2, zero, echk, const
+ynorm_wpn MACRO ttp, base2, echk, const
 IFDEF YIMPL_WPN1_FFTS
-no const	ynorm_wpn_noconst ttp, base2, zero, echk, r15
+no const	ynorm_wpn_noconst ttp, base2, echk, r15
 const		ynorm_wpn_const ttp, base2, echk, r15
 ENDIF
 IFDEF YIMPL_WPN4_FFTS
-no const	ynorm_wpn_noconst ttp, base2, zero, echk, r12
+no const	ynorm_wpn_noconst ttp, base2, echk, r12
 const		ynorm_wpn_const ttp, base2, echk, r12
 ENDIF
 	ENDM
 
-ynorm_wpn_noconst MACRO ttp, base2, zero, echk, grpreg2
+ynorm_wpn_noconst MACRO ttp, base2, echk, grpreg2
 		L1prefetchw rsi+64, L1PREFETCH_ALL
 		L1prefetchw r13+64, L1PREFETCH_ALL
 
@@ -2493,23 +2454,21 @@ ttp		L1prefetch r9, L1PREFETCH_ALL
 ttp		L1prefetch r9+64, L1PREFETCH_ALL
 ttp		bump	r9, 128
 
-base2 no echk ttp	ynorm_wpn_base2_noconst	zero, rax*8, rax*8+32, rdx*8, rdx*8+32
-base2 no echk no ttp	ynorm_wpn_base2_noconst	zero, 0, 0, 0, 0
-base2 echk ttp		ynorm_wpn_base2_noconst_echk zero, rax*8, rax*8+32, rdx*8, rdx*8+32
-base2 echk no ttp	ynorm_wpn_base2_noconst_echk zero, 0, 0, 0, 0
+base2 no echk ttp	ynorm_wpn_base2_noconst	rax*8, rax*8+32, rdx*8, rdx*8+32
+base2 no echk no ttp	ynorm_wpn_base2_noconst	0, 0, 0, 0
+base2 echk ttp		ynorm_wpn_base2_noconst_echk rax*8, rax*8+32, rdx*8, rdx*8+32
+base2 echk no ttp	ynorm_wpn_base2_noconst_echk 0, 0, 0, 0
 no base2 no echk ttp	ynorm_wpn_nobase2_noconst rax*8, rax*8+32, rdx*8, rdx*8+32
 no base2 no echk no ttp	ynorm_wpn_nobase2_noconst 0, 0, 0, 0
 no base2 echk ttp	ynorm_wpn_nobase2_noconst_echk rax*8, rax*8+32, rdx*8, rdx*8+32
 no base2 echk no ttp	ynorm_wpn_nobase2_noconst_echk 0, 0, 0, 0
 
 ttp		vmulpd	ymm4, ymm4, [r12+0*YMM_GMD+YMM_GMD/2][r8] ;; value1 = rounded value * fudged grp two-to-phi
-ttp no zero	vmulpd	ymm5, ymm5, [r12+1*YMM_GMD+YMM_GMD/2][rbx*8] ;; value2 = rounded value * fudged grp two-to-phi
-zero		vxorpd	ymm5, ymm5, ymm5
+ttp		vmulpd	ymm5, ymm5, [r12+1*YMM_GMD+YMM_GMD/2][rbx*8] ;; value2 = rounded value * fudged grp two-to-phi
 ttp		movzx	rbx, WORD PTR [rdi+2]		;; Load next 4 big vs. little & fudge flags
 
 ttp		vmulpd	ymm11, ymm11, [grpreg2+0*YMM_GMD+YMM_GMD/2][r10] ;; value1 = rounded value * fudged grp two-to-phi
-ttp no zero	vmulpd	ymm12, ymm12, [grpreg2+1*YMM_GMD+YMM_GMD/2][rcx*8] ;; value2 = rounded value * fudged grp two-to-phi
-zero		vxorpd	ymm12, ymm12, ymm12
+ttp		vmulpd	ymm12, ymm12, [grpreg2+1*YMM_GMD+YMM_GMD/2][rcx*8] ;; value2 = rounded value * fudged grp two-to-phi
 ttp		movzx	rcx, WORD PTR [r14+2]		;; Load next 4 big vs. little & fudge flags
 
 		ystore	[rsi+0*32], ymm4		;; Save new value1
@@ -2519,7 +2478,7 @@ ttp		movzx	rcx, WORD PTR [r14+2]		;; Load next 4 big vs. little & fudge flags
 	ENDM
 
 IF (@INSTR(,%yarch,<FMA3>) NE 0)
-ynorm_wpn_noconst MACRO ttp, base2, zero, echk, grpreg2
+ynorm_wpn_noconst MACRO ttp, base2, echk, grpreg2
 		L1prefetchw rsi+64, L1PREFETCH_ALL
 		L1prefetchw r13+64, L1PREFETCH_ALL
 
@@ -2577,23 +2536,21 @@ ttp		L1prefetch r9, L1PREFETCH_ALL
 ttp		L1prefetch r9+64, L1PREFETCH_ALL
 ttp		bump	r9, 128
 
-base2 no echk ttp	ynorm_wpn_base2_noconst	zero, rax*8, rax*8+32, rdx*8, rdx*8+32
-base2 no echk no ttp	ynorm_wpn_base2_noconst	zero, 0, 0, 0, 0
-base2 echk ttp		ynorm_wpn_base2_noconst_echk zero, rax*8, rax*8+32, rdx*8, rdx*8+32
-base2 echk no ttp	ynorm_wpn_base2_noconst_echk_nottp zero, 0, 0, 0, 0
+base2 no echk ttp	ynorm_wpn_base2_noconst rax*8, rax*8+32, rdx*8, rdx*8+32
+base2 no echk no ttp	ynorm_wpn_base2_noconst 0, 0, 0, 0
+base2 echk ttp		ynorm_wpn_base2_noconst_echk rax*8, rax*8+32, rdx*8, rdx*8+32
+base2 echk no ttp	ynorm_wpn_base2_noconst_echk_nottp 0, 0, 0, 0
 no base2 no echk ttp	ynorm_wpn_nobase2_noconst rax*8, rax*8+32, rdx*8, rdx*8+32
 no base2 no echk no ttp	ynorm_wpn_nobase2_noconst 0, 0, 0, 0
 no base2 echk ttp	ynorm_wpn_nobase2_noconst_echk rax*8, rax*8+32, rdx*8, rdx*8+32
 no base2 echk no ttp	ynorm_wpn_nobase2_noconst_echk 0, 0, 0, 0
 
 ttp		vmulpd	ymm4, ymm4, [r12+0*YMM_GMD+YMM_GMD/2][r8] ;; value1 = rounded value * fudged grp two-to-phi
-ttp no zero	vmulpd	ymm5, ymm5, [r12+1*YMM_GMD+YMM_GMD/2][rbx*8] ;; value2 = rounded value * fudged grp two-to-phi
-zero		vxorpd	ymm5, ymm5, ymm5
+ttp		vmulpd	ymm5, ymm5, [r12+1*YMM_GMD+YMM_GMD/2][rbx*8] ;; value2 = rounded value * fudged grp two-to-phi
 ttp		movzx	rbx, WORD PTR [rdi+2]		;; Load next 4 big vs. little & fudge flags
 
 ttp		vmulpd	ymm11, ymm11, [grpreg2+0*YMM_GMD+YMM_GMD/2][r10] ;; value1 = rounded value * fudged grp two-to-phi
-ttp no zero	vmulpd	ymm12, ymm12, [grpreg2+1*YMM_GMD+YMM_GMD/2][rcx*8] ;; value2 = rounded value * fudged grp two-to-phi
-zero		vxorpd	ymm12, ymm12, ymm12
+ttp		vmulpd	ymm12, ymm12, [grpreg2+1*YMM_GMD+YMM_GMD/2][rcx*8] ;; value2 = rounded value * fudged grp two-to-phi
 ttp		movzx	rcx, WORD PTR [r14+2]		;; Load next 4 big vs. little & fudge flags
 
 		ystore	[rsi+0*32], ymm4		;; Save new value1
@@ -2653,7 +2610,7 @@ ttp		movzx	rcx, WORD PTR [r14+2]		;; Load next 4 big vs. little & fudge flags
 	ENDM
 
 
-ynorm_wpn_base2_noconst MACRO zero, basereg, basereg2, basereg3, basereg4
+ynorm_wpn_base2_noconst MACRO basereg, basereg2, basereg3, basereg4
 	vaddpd	ymm0, ymm0, ymm2			;; x = value1 + carry				; 6-8	First dependence on previous iteration
 	vaddpd	ymm1, ymm1, ymm3			;; x = value2 + carry				; 7-9
 	vaddpd	ymm7, ymm7, ymm9			;; x = value1 + carry				; 8-10
@@ -2668,20 +2625,20 @@ ynorm_wpn_base2_noconst MACRO zero, basereg, basereg2, basereg3, basereg4
 	vaddpd	ymm10, ymm8, ymm12			;; y = top bits of val				; 13-15
 	vsubpd	ymm4, ymm2, ymm4			;; z = y - (maximum * BIGVAL - BIGVAL)		; 14-16
 	vmulpd	ymm2, ymm2, YMM_LIMIT_INVERSE[basereg]	;; carry = shifted y				;  13-17
-no zero	vsubpd	ymm5, ymm3, ymm5			;; z = y - (maximum * BIGVAL - BIGVAL)		; 15-17
+	vsubpd	ymm5, ymm3, ymm5			;; z = y - (maximum * BIGVAL - BIGVAL)		; 15-17
 	vmulpd	ymm3, ymm3, YMM_LIMIT_INVERSE[basereg2]	;; carry = shifted y				;  14-18
 	vsubpd	ymm11, ymm9, ymm11			;; z = y - (maximum * BIGVAL - BIGVAL)		; 16-18
 	vmulpd	ymm9, ymm9, YMM_LIMIT_INVERSE[basereg3]	;; carry = shifted y				;  15-19
-no zero	vsubpd	ymm12, ymm10, ymm12			;; z = y - (maximum * BIGVAL - BIGVAL)		; 17-19
+	vsubpd	ymm12, ymm10, ymm12			;; z = y - (maximum * BIGVAL - BIGVAL)		; 17-19
 	vmulpd	ymm10, ymm10, YMM_LIMIT_INVERSE[basereg4] ;; carry = shifted y				;  16-20
 	vsubpd	ymm4, ymm0, ymm4			;; rounded val = x - z				; 18-20
-no zero	vsubpd	ymm5, ymm1, ymm5			;; rounded val = x - z				; 19-21
+	vsubpd	ymm5, ymm1, ymm5			;; rounded val = x - z				; 19-21
 	vsubpd	ymm11, ymm7, ymm11			;; rounded val = x - z				; 20-22
-no zero	vsubpd	ymm12, ymm8, ymm12			;; rounded val = x - z				; 21-23
+	vsubpd	ymm12, ymm8, ymm12			;; rounded val = x - z				; 21-23
 ENDM
 
 IF (@INSTR(,%yarch,<FMA3>) NE 0)
-ynorm_wpn_base2_noconst MACRO zero, basereg, basereg2, basereg3, basereg4
+ynorm_wpn_base2_noconst MACRO basereg, basereg2, basereg3, basereg4
 	vmovapd	ymm4, YMM_LIMIT_BIGMAX[basereg]		;; Load maximum * BIGVAL - BIGVAL
 	vaddpd	ymm2, ymm0, ymm4			;; y = top bits of val				; 6-8
 	vmovapd	ymm5, YMM_LIMIT_BIGMAX[basereg2]	;; Load maximum * BIGVAL - BIGVAL
@@ -2692,20 +2649,20 @@ ynorm_wpn_base2_noconst MACRO zero, basereg, basereg2, basereg3, basereg4
 	vaddpd	ymm10, ymm8, ymm12			;; y = top bits of val				; 9-11
 	vsubpd	ymm4, ymm2, ymm4			;; z = y - (maximum * BIGVAL - BIGVAL)		; 10-12
 	vmulpd	ymm2, ymm2, YMM_LIMIT_INVERSE[basereg]	;; carry = shifted y				;  9-13
-no zero	vsubpd	ymm5, ymm3, ymm5			;; z = y - (maximum * BIGVAL - BIGVAL)		; 11-13
+	vsubpd	ymm5, ymm3, ymm5			;; z = y - (maximum * BIGVAL - BIGVAL)		; 11-13
 	vmulpd	ymm3, ymm3, YMM_LIMIT_INVERSE[basereg2]	;; carry = shifted y				;  10-14
 	vsubpd	ymm11, ymm9, ymm11			;; z = y - (maximum * BIGVAL - BIGVAL)		; 12-14
 	vmulpd	ymm9, ymm9, YMM_LIMIT_INVERSE[basereg3]	;; carry = shifted y				;  11-15
-no zero	vsubpd	ymm12, ymm10, ymm12			;; z = y - (maximum * BIGVAL - BIGVAL)		; 13-15
+	vsubpd	ymm12, ymm10, ymm12			;; z = y - (maximum * BIGVAL - BIGVAL)		; 13-15
 	vmulpd	ymm10, ymm10, YMM_LIMIT_INVERSE[basereg4] ;; carry = shifted y				;  12-16
 	vsubpd	ymm4, ymm0, ymm4			;; rounded val = x - z				; 14-16
-no zero	vsubpd	ymm5, ymm1, ymm5			;; rounded val = x - z				; 15-17
+	vsubpd	ymm5, ymm1, ymm5			;; rounded val = x - z				; 15-17
 	vsubpd	ymm11, ymm7, ymm11			;; rounded val = x - z				; 16-18
-no zero	vsubpd	ymm12, ymm8, ymm12			;; rounded val = x - z				; 17-19
+	vsubpd	ymm12, ymm8, ymm12			;; rounded val = x - z				; 17-19
 ENDM
 ENDIF
 
-ynorm_wpn_base2_noconst_echk MACRO zero, basereg, basereg2, basereg3, basereg4
+ynorm_wpn_base2_noconst_echk MACRO basereg, basereg2, basereg3, basereg4
 	vroundpd ymm11, ymm0, 0				;; Convert to an integer			; 6-8	(and 9-11 on Haswell)
 	vroundpd ymm12, ymm1, 0				;; Convert to an integer			; 7-9	(and 10-12 on Haswell)
 	vroundpd ymm13, ymm7, 0				;; Convert to an integer			; 8-10	(and 11-13 on Haswell)
@@ -2732,18 +2689,18 @@ ynorm_wpn_base2_noconst_echk MACRO zero, basereg, basereg2, basereg3, basereg4
 	vaddpd	ymm10, ymm8, ymm12			;; y = top bits of val				; 22-24
 	vsubpd	ymm4, ymm2, ymm4			;; z = y - (maximum * BIGVAL - BIGVAL)		; 24-26
 	vmulpd	ymm2, ymm2, YMM_LIMIT_INVERSE[basereg]	;; carry = shifted y				;  21-25
-no zero	vsubpd	ymm5, ymm3, ymm5			;; z = y - (maximum * BIGVAL - BIGVAL)		; 25-27
+	vsubpd	ymm5, ymm3, ymm5			;; z = y - (maximum * BIGVAL - BIGVAL)		; 25-27
 	vmulpd	ymm3, ymm3, YMM_LIMIT_INVERSE[basereg2]	;; carry = shifted y				;  22-26
 	vsubpd	ymm11, ymm9, ymm11			;; z = y - (maximum * BIGVAL - BIGVAL)		; 26-28
 	vmulpd	ymm9, ymm9, YMM_LIMIT_INVERSE[basereg3]	;; carry = shifted y				;  24-28
-no zero	vsubpd	ymm12, ymm10, ymm12			;; z = y - (maximum * BIGVAL - BIGVAL)		; 27-29
+	vsubpd	ymm12, ymm10, ymm12			;; z = y - (maximum * BIGVAL - BIGVAL)		; 27-29
 	vmulpd	ymm10, ymm10, YMM_LIMIT_INVERSE[basereg4] ;; carry = shifted y				;  25-29
 	vsubpd	ymm4, ymm0, ymm4			;; rounded val = x - z				; 28-30
 	absval	ymm13					;; Compute absolute value			;	15
 	vmaxpd	ymm6, ymm6, ymm13			;; Compute maximum error			; 29-31
-no zero	vsubpd	ymm5, ymm1, ymm5			;; rounded val = x - z				; 30-32
+	vsubpd	ymm5, ymm1, ymm5			;; rounded val = x - z				; 30-32
 	vsubpd	ymm11, ymm7, ymm11			;; rounded val = x - z				; 31-33
-no zero	vsubpd	ymm12, ymm8, ymm12			;; rounded val = x - z				; 32-34
+	vsubpd	ymm12, ymm8, ymm12			;; rounded val = x - z				; 32-34
 	absval	ymm13					;; Compute absolute value			;	16
 	vmaxpd	ymm6, ymm6, ymm13			;; Compute maximum error			; 33-35
 ENDM
@@ -2752,7 +2709,7 @@ ENDM
 ;; This is done by computing "convolution error = val - carry - fftval * ttp"
 
 IF (@INSTR(,%yarch,<FMA3>) NE 0)
-ynorm_wpn_base2_noconst_echk MACRO zero, basereg, basereg2, basereg3, basereg4
+ynorm_wpn_base2_noconst_echk MACRO basereg, basereg2, basereg3, basereg4
 	vsubpd	ymm2, ymm0, ymm2			;; Start error calc (val - carry)		; 6-8
 	vsubpd	ymm3, ymm1, ymm3			;; Start error calc (val - carry)		; 7-9
 	vsubpd	ymm9, ymm7, ymm9			;; Start error calc (val - carry)		; 8-10
@@ -2775,25 +2732,25 @@ ynorm_wpn_base2_noconst_echk MACRO zero, basereg, basereg2, basereg3, basereg4
 	vaddpd	ymm10, ymm8, ymm12			;; y = top bits of val				; 13-15
 	vsubpd	ymm4, ymm2, ymm4			;; z = y - (maximum * BIGVAL - BIGVAL)		; 14-16
 	vmulpd	ymm2, ymm2, YMM_LIMIT_INVERSE[basereg]	;; carry = shifted y				;  13-17
-no zero	vsubpd	ymm5, ymm3, ymm5			;; z = y - (maximum * BIGVAL - BIGVAL)		; 15-17
+	vsubpd	ymm5, ymm3, ymm5			;; z = y - (maximum * BIGVAL - BIGVAL)		; 15-17
 	vmulpd	ymm3, ymm3, YMM_LIMIT_INVERSE[basereg2]	;; carry = shifted y				;  14-18
 	vsubpd	ymm11, ymm9, ymm11			;; z = y - (maximum * BIGVAL - BIGVAL)		; 16-18
 	vmulpd	ymm9, ymm9, YMM_LIMIT_INVERSE[basereg3]	;; carry = shifted y				;  15-19
-no zero	vsubpd	ymm12, ymm10, ymm12			;; z = y - (maximum * BIGVAL - BIGVAL)		; 17-19
+	vsubpd	ymm12, ymm10, ymm12			;; z = y - (maximum * BIGVAL - BIGVAL)		; 17-19
 	vmulpd	ymm10, ymm10, YMM_LIMIT_INVERSE[basereg4] ;; carry = shifted y				;  16-20
 	vsubpd	ymm4, ymm0, ymm4			;; rounded val = x - z				; 19-21
-no zero	vsubpd	ymm5, ymm1, ymm5			;; rounded val = x - z				; 20-22
+	vsubpd	ymm5, ymm1, ymm5			;; rounded val = x - z				; 20-22
 	absval	ymm13					;; Compute absolute value			; 16
 	vmaxpd	ymm6, ymm6, ymm13			;; Compute maximum error			; 21-23
 	vsubpd	ymm11, ymm7, ymm11			;; rounded val = x - z				; 22-24
-no zero	vsubpd	ymm12, ymm8, ymm12			;; rounded val = x - z				; 23-25
+	vsubpd	ymm12, ymm8, ymm12			;; rounded val = x - z				; 23-25
 	absval	ymm14					;; Compute absolute value			; 17
 	vmaxpd	ymm6, ymm6, ymm14			;; Compute maximum error			; 24-26
 ENDM
 ENDIF
 
 IF (@INSTR(,%yarch,<FMA3>) NE 0)
-ynorm_wpn_base2_noconst_echk_nottp MACRO zero, basereg, basereg2, basereg3, basereg4
+ynorm_wpn_base2_noconst_echk_nottp MACRO basereg, basereg2, basereg3, basereg4
 	vsubpd	ymm2, ymm0, ymm2			;; Start error calc (val - carry)		; 6-8
 	vsubpd	ymm3, ymm1, ymm3			;; Start error calc (val - carry)		; 7-9
 	vsubpd	ymm9, ymm7, ymm9			;; Start error calc (val - carry)		; 8-10
@@ -2816,18 +2773,18 @@ ynorm_wpn_base2_noconst_echk_nottp MACRO zero, basereg, basereg2, basereg3, base
 	vaddpd	ymm10, ymm8, ymm12			;; y = top bits of val				; 19-21
 	vsubpd	ymm4, ymm2, ymm4			;; z = y - (maximum * BIGVAL - BIGVAL)		; 20-22
 	vmulpd	ymm2, ymm2, YMM_LIMIT_INVERSE[basereg]	;; carry = shifted y				;  14-18
-no zero	vsubpd	ymm5, ymm3, ymm5			;; z = y - (maximum * BIGVAL - BIGVAL)		; 21-23
+	vsubpd	ymm5, ymm3, ymm5			;; z = y - (maximum * BIGVAL - BIGVAL)		; 21-23
 	vmulpd	ymm3, ymm3, YMM_LIMIT_INVERSE[basereg2]	;; carry = shifted y				;  16-20
 	vsubpd	ymm11, ymm9, ymm11			;; z = y - (maximum * BIGVAL - BIGVAL)		; 22-24
 	vmulpd	ymm9, ymm9, YMM_LIMIT_INVERSE[basereg3]	;; carry = shifted y				;  19-23
-no zero	vsubpd	ymm12, ymm10, ymm12			;; z = y - (maximum * BIGVAL - BIGVAL)		; 23-25
+	vsubpd	ymm12, ymm10, ymm12			;; z = y - (maximum * BIGVAL - BIGVAL)		; 23-25
 	vmulpd	ymm10, ymm10, YMM_LIMIT_INVERSE[basereg4] ;; carry = shifted y				;  22-26
 	vsubpd	ymm4, ymm0, ymm4			;; rounded val = x - z				; 24-26
-no zero	vsubpd	ymm5, ymm1, ymm5			;; rounded val = x - z				; 25-27
+	vsubpd	ymm5, ymm1, ymm5			;; rounded val = x - z				; 25-27
 	absval	ymm13					;; Compute absolute value			; 17
 	vmaxpd	ymm6, ymm6, ymm13			;; Compute maximum error			; 26-28
 	vsubpd	ymm11, ymm7, ymm11			;; rounded val = x - z				; 27-29
-no zero	vsubpd	ymm12, ymm8, ymm12			;; rounded val = x - z				; 28-30
+	vsubpd	ymm12, ymm8, ymm12			;; rounded val = x - z				; 28-30
 	absval	ymm14					;; Compute absolute value			; 20
 	vmaxpd	ymm6, ymm6, ymm14			;; Compute maximum error			; 29-31
 ENDM
@@ -3178,10 +3135,8 @@ uh oh, we can't have the caller do the mul-by-ttmp
 
 	vmovapd	ymm0, [rsi]				;; Load value1
 	yfmaddpd ymm4, ymm0, [rbp], ymm14		;; Mul value1 by two-to-minus-phi + BIGVAL	; presumably free
-	vaddpd	ymm7, ymm7, ymm0			;; sumout += value1				; presumably free
 	vmovapd	ymm1, [rsi+32]				;; Load value2
 	yfmaddpd ymm5, ymm1, [rbp+64], ymm14		;; Mul value2 by two-to-minus-phi + BIGVAL	; presumably free
-	vaddpd	ymm7, ymm7, ymm1			;; sumout += value2				; presumably free
 
 	vmovapd ymm8, YMM_LIMIT_BIGMAX[basereg]		;; Load constant for creating next carry
 	vmovapd ymm9, YMM_LIMIT_BIGMAX[basereg2]	;; Load constant for creating next carry
@@ -3230,7 +3185,7 @@ ENDIF
 
 ;; new style code! 12 FMAs, 4 muls, 4 adds = 20 ops.  Best case would be 10 clocks.
 IF (@INSTR(,%yarch,<FMA3>) NE 0)
-new_ynorm_wpn_base2_noconst MACRO echk, zero, basereg, basereg2, basereg3, basereg4
+new_ynorm_wpn_base2_noconst MACRO echk, basereg, basereg2, basereg3, basereg4
 
 	vmovapd ymm4, YMM_LIMIT_BIGMAX[basereg]		;; Load constant for creating next carry
 	yfmaddpd ymm2, ymm0, YMM_LIMIT_INVERSE[basereg], ymm4	;; next carry = x / base + BIGVAL	; 4-8
@@ -4203,15 +4158,10 @@ done:
 ; rax,rbx,rcx = destroyed
 
 ynorm012_wpn MACRO ttp, base2, srcptr, carryptr, biglitptr
-	LOCAL	nz, cloop, last_iter, done
+	LOCAL	cloop, last_iter, done
 
 	vmovapd	ymm2, [rsi]			;; Load low carry word
 	vmovapd	ymm3, [rsi+32]			;; Load hi carry word
-
-base2	cmp	zero_fft, 1			;; Are we zeroing high words?
-base2	jne	short nz			;; No, leave top carry alone
-base2	vmovapd	ymm3, YMM_BIGVAL		;; Yes, don't add carries into upper words
-nz:
 
 	mov	srcptr, rbp			;; Save pointers
 	mov	carryptr, rsi
@@ -5683,7 +5633,7 @@ ttp	bump	rbp, 64				;; Next two-to-phi ptr
 ; rax, rdx, rsi, rbp, rdi = trash
 
 ynorm_smallmul_1d_mid_cleanup MACRO ttp, base2, srcptr, biglitptr, ttpptr
-	ynorm_1d_mid_cleanup ttp, base2, noexec, srcptr, biglitptr, ttpptr
+	ynorm_1d_mid_cleanup ttp, base2, srcptr, biglitptr, ttpptr
 	ENDM
 
 ; This macro performs the smallmul normalize process by adding the section
@@ -5783,7 +5733,7 @@ ynorm_smallmul_1d_cleanup MACRO ttp, base2, destptr
 	mov	rbp, norm_col_mults		;; Address of the multipliers
 	mov	rdi, norm_biglit_array		;; Addr of the big/little flags array
 ttp	ynorm_top_carry_1d ttp, base2		;; No, do a very standard carry
-	ynorm_1d_cleanup ttp, base2, noexec
+	ynorm_1d_cleanup ttp, base2
 	ENDM
 
 ; This macro is similar to ynorm_op_1d_zpad_cleanup for handling zpad carries in an
@@ -7189,29 +7139,4 @@ ttp	movzx	rax, BYTE PTR [rdi+6]		;; Load big vs. little flags
 base2	vsubsd	xmm2, xmm2, Q YMM_BIGVAL	;; Remove rounding constant
 	vaddsd	xmm2, xmm2, Q [rsi]		;; Add in FFT data
 	vmovsd	Q [rsi], xmm2			;; Save value8
-	ENDM
-
-
-;;
-;; Macro to copy and possibly zero 8 doubles
-;;
-
-ycopyzero MACRO
-	LOCAL	nz1,nz2,nz3,nz4
-	cmp	ecx, COPYZERO[3*4]	;; Is this the first cache line where we copy 1 values?
-	jne	short nz1		;; No, jump
-	vmovapd	ymm1, YMM_TMP1		;; Yes, switch to the copy 1 values mask
-nz1:	cmp	ecx, COPYZERO[2*4]	;; Is this the first cache line where we copy 2 values?
-	jne	short nz2		;; No, jump
-	vmovapd	ymm1, YMM_TMP2		;; Yes, switch to the copy 2 values mask
-nz2:	cmp	ecx, COPYZERO[1*4]	;; Is this the first cache line where we copy 3 values?
-	jne	short nz3		;; No, jump
-	vmovapd	ymm1, YMM_TMP3		;; Yes, switch to the copy 3 values mask
-nz3:	cmp	ecx, COPYZERO[0*4]	;; Is this the first cache line where we copy 4 values?
-	jne	short nz4		;; No, jump
-	vmovapd	ymm1, YMM_TMP4		;; Yes, switch to the copy 4 values mask
-nz4:	vmaskmovpd ymm0, ymm1, [rsi]	;; Conditionally load low doubles
-	ystore	[rdi], ymm0		;; Save low doubles
-	vmovapd	ymm2, [rsi+32]		;; Load high doubles
-	ystore	[rdi+32], ymm2		;; Save high doubles
 	ENDM

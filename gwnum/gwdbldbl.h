@@ -4,7 +4,7 @@
 | This file contains the headers for the gwnum helper routines that use
 | extended-precision floats.
 | 
-|  Copyright 2005-2023 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2005-2024 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWDBLDBL_H
@@ -81,6 +81,11 @@ void gwsincos159by (unsigned long, unsigned long, double *, int, int);
 #define gwsincos125by8(a,b,c)		gwsincos125by(a,b,c,8)
 void gwsincos125by (unsigned long, unsigned long, double *, int);
 
+#define gwsincos12549ADby2(a,b,c)	gwsincos12549ADby(a,b,c,2)
+#define gwsincos12549ADby4(a,b,c)	gwsincos12549ADby(a,b,c,4)
+#define gwsincos12549ADby8(a,b,c)	gwsincos12549ADby(a,b,c,8)
+void gwsincos12549ADby (unsigned long, unsigned long, double *, int);
+
 #define gwsincos1by1_raw(a,b,c)		gwsincos1234by_raw(a,b,c,1,1)
 #define gwsincos1by2_raw(a,b,c)		gwsincos1234by_raw(a,b,c,2,1)
 #define gwsincos1by4_raw(a,b,c)		gwsincos1234by_raw(a,b,c,4,1)
@@ -129,6 +134,9 @@ void gwsincos1234by_sqrthalf (unsigned long, unsigned long, double *, int);
 #define gwsincos123by8_special7(a,b,c)		gwsincos123by_special7(a,b,c,8)
 void gwsincos123by_special7 (unsigned long, unsigned long, double *, int);
 
+#define gwsincos123456by8_special7(a,b,c)	gwsincos123456by_special7(a,b,c,8)
+void gwsincos123456by_special7 (unsigned long, unsigned long, double *, int);
+
 #define gwsincos135by1_special7(a,b,c)		gwsincos135by_special7(a,b,c,1)
 #define gwsincos135by8_special7(a,b,c)		gwsincos135by_special7(a,b,c,8)
 void gwsincos135by_special7 (unsigned long, unsigned long, double *, int);
@@ -143,11 +151,13 @@ double gwfft_weight_inverse_squared (void *, unsigned long);
 double gwfft_weight_inverse_sloppy (void *, unsigned long);
 double gwfft_weight_inverse_over_fftlen (void *, unsigned long);
 void gwfft_weights3 (void *, unsigned long, double *, double *, double *);
+void gwfft_weights_over_weights3 (void *, unsigned long, unsigned long, double *, double *, double *);
+void gwfft_weight_minus1 (void *, unsigned long, double	*);
+void gwfft_weights3_times_sine (void *, unsigned long, unsigned long, unsigned long, double *, double *, double *);
 double gwfft_weight_exponent (void *, unsigned long);
 double gwfft_weight_no_c (void *, unsigned long);
 unsigned long gwfft_base (void *, unsigned long);
 void gwfft_weights_fudged (void	*, unsigned long, unsigned long, double *, double *, double *, double *);
-void gwfft_weights_times_sine (void *, unsigned long, unsigned long, unsigned long, double *, double *);
 double gwfft_partial_weight (void *, unsigned long, unsigned long);
 double gwfft_partial_weight_sloppy (void *, unsigned long, unsigned long);
 double gwfft_partial_weight_inverse (void *, unsigned long, unsigned long);

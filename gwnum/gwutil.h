@@ -2,7 +2,7 @@
 | This file contains various utility routines that may be used by gwnum
 | routines, prime95, or other consumers of gwnum.
 | 
-|  Copyright 2004-2023 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2004-2024 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 #ifndef _GWUTIL_H
@@ -24,6 +24,7 @@ extern "C" {
 //#define log2f(n)			(logf((float)(n)) * (float) CONST_ONE_OVER_LOG2)
 #define divide_rounding_up(a,b)		(((a) + (b) - 1) / (b))
 #define divide_rounding_down(a,b)	((a) / (b))
+#define divide_rounding(a,b)		(((a) + (b) / 2) / (b))
 #define round_up_to_multiple_of(a,b)	(divide_rounding_up (a, b) * (b))
 #define round_down_to_multiple_of(a,b)	(divide_rounding_down (a, b) * (b))
 #define fltmod(a,b)			((double)(a) - floor ((double)(a) / (double)(b)) * (double)(b))

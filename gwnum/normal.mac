@@ -1,4 +1,4 @@
-; Copyright 1995-2023 - Mersenne Research, Inc.  All rights reserved.
+; Copyright 1995-2024 - Mersenne Research, Inc.  All rights reserved.
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -84,12 +84,6 @@ brute_force_mul_by_const MACRO
 	fmul	MULCONST		;; Multiply by the small constant
 	ENDM
 
-; Zero upper words of FFT
-
-brute_force_zero MACRO
-	fsub	st, st			;; Zero the word
-	ENDM
-
 
 ; *************** 1D macro ******************
 ; A pipelined version of this code:
@@ -107,7 +101,7 @@ brute_force_zero MACRO
 ;	fmulp	QWORD PTR [ebx+0*16]	;; new value = val * two-to-phi
 ;	fstp	QWORD PTR [esi+0*8]	;; Save the value
 
-norm_1d MACRO ttp, zero, echk, const
+norm_1d MACRO ttp, echk, const
 					;; c2, c1, sumout, maxerr
 ttp	mov	al, [edi+0]		;; Load big vs. little flags
 	fld	QWORD PTR [esi+0*8]	;; Load values1
@@ -145,7 +139,6 @@ ttp	fmul	QWORD PTR [ebx+0*16+8]	;; mul by two-to-phi
 	fstp	QWORD PTR [esi+0*8]	;; Save new value1
 	fxch	st(1)			;; x2, c2, c1, sum, err
 ttp	fmul	QWORD PTR [ebx+1*16+8]	;; mul by two-to-phi
-zero	brute_force_zero
 	fstp	QWORD PTR [esi+1*8]	;; Save new value2
 
 					;; c2, c1, sum, err
@@ -185,7 +178,6 @@ ttp	fmul	QWORD PTR [ebx+2*16+8]	;; mul by two-to-phi
 	fstp	QWORD PTR [esi+2*8]	;; Save new value1
 	fxch	st(1)			;; x2, c2, c1, sum, err
 ttp	fmul	QWORD PTR [ebx+3*16+8]	;; mul by two-to-phi
-zero	brute_force_zero
 	fstp	QWORD PTR [esi+3*8]	;; Save new value2
 
 ttp	mov	al, [edi+2]		;; Load big vs. little flags
@@ -224,7 +216,6 @@ ttp	fmul	QWORD PTR [ebx+4*16+8]	;; mul by two-to-phi
 	fstp	QWORD PTR [esi+4*8]	;; Save new value1
 	fxch	st(1)			;; x2, c2, c1, sum, err
 ttp	fmul	QWORD PTR [ebx+5*16+8]	;; mul by two-to-phi
-zero	brute_force_zero
 	fstp	QWORD PTR [esi+5*8]	;; Save new value2
 
 					;; c2, c1, sum, err
@@ -264,7 +255,6 @@ ttp	fmul	QWORD PTR [ebx+6*16+8]	;; mul by two-to-phi
 	fstp	QWORD PTR [esi+6*8]	;; Save new value1
 	fxch	st(1)			;; x2, c2, c1, sum, err
 ttp	fmul	QWORD PTR [ebx+7*16+8]	;; mul by two-to-phi
-zero	brute_force_zero
 	fstp	QWORD PTR [esi+7*8]	;; Save new value2
 	ENDM
 
@@ -280,7 +270,7 @@ zero	brute_force_zero
 ; ebx = pointer two-to-power multipliers
 ; eax = big/lit flag
 
-norm012_1d MACRO zero
+norm012_1d MACRO
 					;; c1, c2
 	mov	al, [edi+0]		;; Load big vs. little flags
 	fsub	BIGVAL			;; Convert wrap-around carry to integer
@@ -315,8 +305,7 @@ norm012_1d MACRO zero
 	fmul	QWORD PTR [ebx+0*16+8]	;; mul by two-to-phi
 	fstp	QWORD PTR [esi+0*8]	;; Save new value1
 	fxch	st(2)			;; x2, c1, c2
-no zero	fmul	QWORD PTR [ebx+1*16+8]	;; mul by two-to-phi
-zero	brute_force_zero
+	fmul	QWORD PTR [ebx+1*16+8]	;; mul by two-to-phi
 	fstp	QWORD PTR [esi+1*8]	;; Save new value2
 
 	fxch	st(1)			;; c2, c1
@@ -351,8 +340,7 @@ zero	brute_force_zero
 	fmul	QWORD PTR [ebx+2*16+8]	;; mul by two-to-phi
 	fstp	QWORD PTR [esi+2*8]	;; Save new value1
 	fxch	st(1)			;; x2, c2, c1
-no zero	fmul	QWORD PTR [ebx+3*16+8]	;; mul by two-to-phi
-zero	brute_force_zero
+	fmul	QWORD PTR [ebx+3*16+8]	;; mul by two-to-phi
 	fstp	QWORD PTR [esi+3*8]	;; Save new value2
 
 	mov	al, [edi+2]		;; Load big vs. little flags
@@ -386,15 +374,13 @@ zero	brute_force_zero
 	fmul	QWORD PTR [ebx+4*16+8]	;; mul by two-to-phi
 	fstp	QWORD PTR [esi+4*8]	;; Save new value1
 	fxch	st(1)			;; x2, c2, c1
-no zero	fmul	QWORD PTR [ebx+5*16+8]	;; mul by two-to-phi
-zero	brute_force_zero
+	fmul	QWORD PTR [ebx+5*16+8]	;; mul by two-to-phi
 	fstp	QWORD PTR [esi+5*8]	;; Save new value2
 
 					;; c2, c1
-no zero	fsub	BIGVAL			;; Make carry an integer
-no zero	fmul	QWORD PTR [ebx+7*16+8]	;; c1 *= two-to-phi
-no zero	fadd	QWORD PTR [esi+7*8]	;; Load values1
-zero	brute_force_zero
+	fsub	BIGVAL			;; Make carry an integer
+	fmul	QWORD PTR [ebx+7*16+8]	;; c1 *= two-to-phi
+	fadd	QWORD PTR [esi+7*8]	;; Load values1
 	fstp	QWORD PTR [esi+7*8]	;; Save new value1
 	fsub	BIGVAL			;; Make carry an integer
 	fmul	QWORD PTR [ebx+6*16+8]	;; c2 *= two-to-phi
@@ -1258,7 +1244,7 @@ div_k_done:
 ;	movapd	[esi+0*8], xmm0		;; Save new value1
 ;	movapd	[ebp+0*8], xmm2		;; Save carry
 
-norm_2d MACRO ttp, zero, echk, const
+norm_2d MACRO ttp, echk, const
 ttp	mov	al, [edi+0]		;; Load big vs. little flags
 	fld	QWORD PTR [esi+0*8]	;; Load values1
 	fadd	st(3), st		;; sumout += values1
@@ -1307,7 +1293,6 @@ ttp	fmul	QWORD PTR [ebx+0*16+8]	;; mul by col two-to-phi
 ttp	fld	TTP_FUDGE[eax+8]	;; mul by fudge two-to-phi
 ttp	fmul	QWORD PTR [edx+1*16+8]	;; new value2 = val * grp two-to-phi
 ttp	fmulp	st(1), st
-zero	brute_force_zero
 	fstp	QWORD PTR [esi+1*8]	;; Save new value2
 
 					;; c2, c1, sum, err
@@ -1359,7 +1344,6 @@ ttp	fmul	QWORD PTR [ebx+1*16+8]	;; mul by col two-to-phi
 ttp	fld	TTP_FUDGE[eax+8]	;; mul by fudge two-to-phi
 ttp	fmul	QWORD PTR [edx+1*16+8]	;; new value2 = val * grp two-to-phi
 ttp	fmulp	st(1), st
-zero	brute_force_zero
 	fstp	QWORD PTR [esi+3*8]	;; Save new value2
 	ENDM
 
@@ -1386,7 +1370,7 @@ norm012_2d_part1 MACRO
 ; edx = pointer two-to-power group multipliers
 ; eax = upper 3 bytes must be zero
 norm012_2d MACRO
-	LOCAL	hard, done, zskip
+	LOCAL	hard, done
 
 	;; If k or c is more than one, then there will be fewer bits-per-word.
 	;; This means the carry may need to be spread over 4 words instead
@@ -1441,15 +1425,7 @@ norm012_2d MACRO
 	fstp	QWORD PTR [ebp+0*16]	;; Save x1
 	fxch	st(1)			;; c1, c2, x2
 	fstp	QWORD PTR [ebp+1*16]	;; Save c1
-
-	;; If we are zeroing the high words, we skip writing the carries
-	;; into the high words.
-
-	cmp	zero_fft, 0		;; Are we zeroing high words?
-	je	short zskip		;; No, go output high words
-	fcompp				;; Pop the two high words
-	jmp	done			;; All done
-zskip:	fstp	QWORD PTR [ebp+1*16+8]	;; Save c2
+	fstp	QWORD PTR [ebp+1*16+8]	;; Save c2
 	fstp	QWORD PTR [ebp+0*16+8]	;; Save x2
 	jmp	done			;; All done
 
@@ -1575,17 +1551,6 @@ hard:					;; x2 = high carry, x1 = low carry
 	fstp	QWORD PTR [ebp+3*16]	;; Save c1
 	fstp	QWORD PTR [ebp+3*16+8]	;; Save c2
 
-	;; If we are zeroing the high words, we skip writing the carries
-	;; into the high words.
-
-	cmp	zero_fft, 0		;; Are we zeroing high words?
-	je	short done		;; No, we're done
-	fldz				;; Zero the four words we just wrote
-	fst	QWORD PTR [ebp+0*16+8]
-	fst	QWORD PTR [ebp+1*16+8]
-	fst	QWORD PTR [ebp+2*16+8]
-	fstp	QWORD PTR [ebp+3*16+8]
-
 ;; Load next carries and clear carry area for next multiply
 
 done:	fld	QWORD PTR [esi]		;; Load low carry
@@ -1603,7 +1568,7 @@ done:	fld	QWORD PTR [esi]		;; Load low carry
 ; ecx = pointer to upper half of FFT data
 ; ebp = pointer to low carries
 ; ebx = pointer to high carries
-norm012_2d_addin MACRO zero
+norm012_2d_addin MACRO
 	fld	QWORD PTR [esi]		;; Load FFT word
 	fadd	QWORD PTR [ebp+0*8]	;; Add in carries
 	fstp	QWORD PTR [esi]		;; Save FFT word
@@ -1613,12 +1578,10 @@ norm012_2d_addin MACRO zero
 	fstp	QWORD PTR [esi+dist1]	;; Save FFT word
 	fld	QWORD PTR [ecx]		;; Load FFT word
 	fadd	QWORD PTR [ebp+1*8]	;; Add in carries
-zero	brute_force_zero
 	fstp	QWORD PTR [ecx]		;; Save FFT word
 	fst	QWORD PTR [ebp+1*8]	;; Clear carries for next time
 	fld	QWORD PTR [ecx+dist1]	;; Load FFT word
 	fadd	QWORD PTR [ebx+1*8]	;; Add in carries
-zero	brute_force_zero
 	fstp	QWORD PTR [ecx+dist1]	;; Save FFT word
 
 	fld	QWORD PTR [esi+8]	;; Load FFT word
@@ -1632,12 +1595,10 @@ zero	brute_force_zero
 	fadd	QWORD PTR [ebp+3*8]	;; Add in carries
 ;;BUG - should we be zeroing the carries when POSTFFT is set???
 ;;BUG - I think we should be zeroing in split carries instead.
-zero	brute_force_zero
 	fstp	QWORD PTR [ecx+8]	;; Save FFT word
 	fst	QWORD PTR [ebp+3*8]	;; Clear carries for next time
 	fld	QWORD PTR [ecx+dist1+8]	;; Load FFT word
 	fadd	QWORD PTR [ebx+3*8]	;; Add in carries
-zero	brute_force_zero
 	fstp	QWORD PTR [ecx+dist1+8]	;; Save FFT word
 	ENDM
 
@@ -1886,6 +1847,7 @@ const	fmul	MULCONST
 	fxch	st(1)			;; lowbits,hibits,c1,c2,sumout,maxerr
 no const fmul	MINUS_C
 const	fmul	MINUS_C_TIMES_MULCONST
+	fadd	POSTADDIN_VALUE
 	faddp	st(2), st		;; Add in traditional carry
 	fld	BIGBIGVAL		;; Big word rounding constant
 	fadd	st, st(2)		;; Round to multiple of big word

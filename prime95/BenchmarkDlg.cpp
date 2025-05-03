@@ -1,6 +1,6 @@
 // BenchmarkDlg.cpp : implementation file
 //
-// Copyright 2017-2023 Mersenne Research, Inc.  All rights reserved
+// Copyright 2017-2024 Mersenne Research, Inc.  All rights reserved
 //
 
 #include "stdafx.h"
@@ -43,7 +43,7 @@ void CBenchmarkDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_MINFFT_TEXT, c_minFFT_text);
 	DDX_Control(pDX, IDC_MINFFT, c_minFFT);
 	DDX_Text(pDX, IDC_MINFFT, m_minFFT);
-	DDV_MinMaxUInt(pDX, m_minFFT, 1, 65536);
+	DDV_MinMaxUInt(pDX, m_minFFT, 0, 65536);
 	DDX_Control(pDX, IDC_MAXFFT_TEXT, c_maxFFT_text);
 	DDX_Control(pDX, IDC_MAXFFT, c_maxFFT);
 	DDX_Text(pDX, IDC_MAXFFT, m_maxFFT);

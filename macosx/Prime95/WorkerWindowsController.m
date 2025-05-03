@@ -3,7 +3,7 @@
 //  Prime95
 //
 //  Created by George Woltman on 4/26/09.
-//  Copyright 2009-2020 Mersenne Research, Inc. All rights reserved.
+//  Copyright 2009-2025 Mersenne Research, Inc. All rights reserved.
 //
 
 #import "WorkerWindowsController.h"
@@ -131,9 +131,9 @@ int AreAllTheSame (
 		WorkerData *newRow = [[WorkerData alloc] init];
 		[newRow setWorkerNumber:[[NSString alloc] initWithFormat:@"Worker #%d", i+1]];
 		[newRow setTypeOfWork:map_work_pref_to_sel(WORK_PREFERENCE[i])];
-		[newRow setMultithreading:CORES_PER_TEST[i]];
+		[newRow setMultithreading:CORES_PER_WORKER[i]];
 		[newRow setMultithreadingMax:NUM_CPUS];
-		[newRow setMultithreadingEnabled:(CORES_PER_TEST[i] > 1 || numWorkers < numWorkersMax)];
+		[newRow setMultithreadingEnabled:(CORES_PER_WORKER[i] > 1 || numWorkers < numWorkersMax)];
 		[workerDataArrayController addObject:newRow];
 		[newRow release];
 	}
@@ -291,12 +291,12 @@ int AreAllTheSame (
 		}
 	}
 
-/* If the user changed any of the cores_per_test record it in the INI file */
+/* If the user changed any of the cores_per_worker record it in the INI file */
 
 	if (AreAllTheSame (num_cpus, numWorkers))
-		PTOSetAll (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, num_cpus[0]);
+		PTOSetAll (LOCALINI_FILE, "CoresPerWorker", NULL, CORES_PER_WORKER, num_cpus[0]);
 	else for (i = 0; i < numWorkers; i++)
-		PTOSetOne (LOCALINI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, num_cpus[i]);
+		PTOSetOne (LOCALINI_FILE, "CoresPerWorker", NULL, CORES_PER_WORKER, i, num_cpus[i]);
 
 /* Spool message if any options changed, restart workers if necessary */
 

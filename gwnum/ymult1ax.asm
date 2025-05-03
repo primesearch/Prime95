@@ -1,4 +1,4 @@
-; Copyright 2011-2023 Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2024 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -1234,50 +1234,34 @@ nb2rzpaddsubsecdn:
 gwyaddsubnrzp1 ENDP
 
 ;;
-;; Copy one number and zero some low order words.
+;; Copy and mask 4KB of a number
 ;;
 
-PROCFL	gwycopyzero1
+PROCFL	gwycopy4kb
 	ad_prolog 0,0,rsi,rdi
 	mov	rsi, SRCARG		; Address of first number
+	mov	rcx, SRC2ARG		; Address of mask
 	mov	rdi, DESTARG		; Address of destination
-	sub	ecx, ecx		; Offset to compare to COPYZERO
-
-	mov	al, -1			; Create 4 masks for copying values
-	mov	BYTE PTR YMM_TMP4[7], al ; Create the copy all four values mask
-	mov	BYTE PTR YMM_TMP4[15], al
-	mov	BYTE PTR YMM_TMP4[23], al
-	mov	BYTE PTR YMM_TMP4[31], al
-	mov	BYTE PTR YMM_TMP3[7], cl ; Create the copy three values mask
-	mov	BYTE PTR YMM_TMP3[15], al
-	mov	BYTE PTR YMM_TMP3[23], al
-	mov	BYTE PTR YMM_TMP3[31], al
-	mov	BYTE PTR YMM_TMP2[7], cl ; Create the copy two values mask
-	mov	BYTE PTR YMM_TMP2[15], cl
-	mov	BYTE PTR YMM_TMP2[23], al
-	mov	BYTE PTR YMM_TMP2[31], al
-	mov	BYTE PTR YMM_TMP1[7], cl ; Create the copy one value mask
-	mov	BYTE PTR YMM_TMP1[15], cl
-	mov	BYTE PTR YMM_TMP1[23], cl
-	mov	BYTE PTR YMM_TMP1[31], al
-	vxorpd	ymm1, ymm1, ymm1	; Start with the copy zero values mask
-
-	mov	eax, addcount1		; Load loop counter
-cz2:	mov	edx, count2		; Load loop counter
-	add	rdx, rdx
-cz1:	ycopyzero			; Copy/zero 8 values
-	bump	rsi, 64			; Next source
-	bump	rdi, 64			; Next dest
-	bump	rcx, 64			; Next compare offset
-	sub	edx, 1			; Check loop counter
-	jnz	short cz1		; Loop if necessary
-	bump	rsi, 64			; Pad 64 bytes
-	bump	rdi, 64			; Pad 64 bytes
-	bump	rcx, 64			; Pad 64 bytes
-	sub	eax, 1			; Test loop counter
-	jnz	cz2			; Loop if necessary
+	mov	al, 4096/128		; Count of 128 byte chunks in 4KB
+y4klp:	vmovapd	ymm0, [rsi]
+	vandpd	ymm0, ymm0, [rcx]
+	vmovapd	ymm1, [rsi+32]
+	vandpd	ymm1, ymm1, [rcx+32]
+	vmovapd	ymm2, [rsi+64]
+	vandpd	ymm2, ymm2, [rcx+64]
+	vmovapd	ymm3, [rsi+96]
+	vandpd	ymm3, ymm3, [rcx+96]
+	ystore	[rdi], ymm0			; Store destination data
+	ystore	[rdi+32], ymm1
+	ystore	[rdi+64], ymm2
+	ystore	[rdi+96], ymm3
+	bump	rsi, 128			; Next src ptr
+	bump	rcx, 128			; Next mask ptr
+	bump	rdi, 128			; Next dest ptr
+	dec	al				; Decrement count
+	jnz	short y4klp
 	ad_epilog 0,0,rsi,rdi
-gwycopyzero1 ENDP
+gwycopy4kb ENDP
 
 ;;
 ;; Multiply a number by a small value (eight versions)
@@ -1634,23 +1618,22 @@ section_ttpptr		EQU	PPTR [rsp+first_local+5*SZPTR]
 loopcount1		EQU	DPTR [rsp+first_local+6*SZPTR]
 loopcount2		EQU	DPTR [rsp+first_local+6*SZPTR+4]
 
-inorm	MACRO	lab, ttp, zero, echk, const, base2
+inorm	MACRO	lab, ttp, echk, const, base2
 	LOCAL	ilp0, ilp1, ilp2, ilpsecdn
 	PROCFLP	lab
-	int_prolog 6*SZPTR+8,0,0
+	int_prolog 6*SZPTR+8,0,4
 	mov	rsi, DESTARG		;; Addr of multiplied number
-no zero	mov	edi, ADDIN_OFFSET	;; Get address to add value into
-no zero	vmovsd	xmm0, ADDIN_VALUE	;; Get the addin value
-no zero	vsubpd	ymm7, ymm7, ymm0	;; Do not include addin in sumout
-no zero	vaddsd	xmm0, xmm0, Q [rsi][rdi] ;; Add in the FFT value
-no zero	vmovsd	Q [rsi][rdi], xmm0	;; Save the new value
+	mov	edi, ADDIN_OFFSET	;; Get address to add value into
+	vmovsd	xmm0, ADDIN_VALUE	;; Get the addin value
+	vaddsd	xmm0, xmm0, Q [rsi][rdi] ;; Add in the FFT value
+	vmovsd	Q [rsi][rdi], xmm0	;; Save the new value
 base2	vmovapd	ymm2, YMM_BIGVAL	;; Start process with no carry
 no base2 vxorpd	ymm2, ymm2, ymm2	;; Start process with no carry
 	vmovapd	ymm3, ymm2
 echk	vxorpd	ymm6, ymm6, ymm6	;; Clear maximum error
 	mov	rbp, norm_col_mults	;; Addr of the multipliers
 	mov	rdi, norm_biglit_array	;; Addr of the big/little flags array
-	ynorm_1d_preload ttp, base2, zero, echk, const ;; Preload useful constants
+	ynorm_1d_preload ttp, base2, echk, const ;; Preload useful constants
 	mov	eax, 4			;; Load loop counter (4 sections)
 	mov	loopcount1, eax
 ilp0:	mov	section_srcptr, rsi	;; remember rsi for ynorm_1d_mid_cleanup
@@ -1659,7 +1642,7 @@ ttp	mov	section_ttpptr, rbp	;; remember rbp for ynorm_1d_mid_cleanup
 	mov	eax, normcount1		;; Load loop counter
 	mov	loopcount2, eax
 ilp2:	mov	ebx, count1		;; Get count of cache lines before a padding occurs
-ilp1:	ynorm_1d ttp, base2, zero, echk, const ;; Normalize 8 values
+ilp1:	ynorm_1d ttp, base2, echk, const ;; Normalize 8 values
 	bump	rsi, 64			;; Next cache line
 ttp	bump	rbp, 128		;; Next set of 8 multipliers
 ttp	bump	rdi, 2			;; Next big/little flags
@@ -1673,31 +1656,32 @@ ilpsecdn:
 	mov	saved_reg1, rsi		;; Save FFT data addr
 ttp	mov	saved_reg2, rdi		;; Save big/lit pointer
 ttp	mov	saved_reg3, rbp		;; Save ttp pointer
-	ynorm_1d_mid_cleanup ttp, base2, zero, section_srcptr, section_biglitptr, section_ttpptr ;; Rotate carries and add in carries
+	ynorm_1d_mid_cleanup ttp, base2, section_srcptr, section_biglitptr, section_ttpptr ;; Rotate carries and add in carries
 	mov	rsi, saved_reg1		;; Restore FFT data addr
 ttp	mov	rdi, saved_reg2		;; Restore big/lit pointer
 ttp	mov	rbp, saved_reg3		;; Restore ttp pointer
 	sub	loopcount1, 1		;; Test section counter
 	jnz	ilp0
 echk	ystore	YMM_MAXERR, ymm6	;; Save maximum error
-no zero mov	rsi, DESTARG		;; Addr of multiplied number
-no zero	mov	edi, ADDIN_OFFSET	;; Get address to add value into
-no zero	vmovsd	xmm0, POSTADDIN_VALUE	;; Get the addin value
-no zero	vaddsd	xmm0, xmm0, Q [rsi][rdi] ;; Add in the FFT value
-no zero	vmovsd	Q [rsi][rdi], xmm0	;; Save the new value
-zero ttp		jmp	zdn	;; Go to zero upper half irrational end code
-zero no ttp		jmp	zrdn	;; Go to zero upper half rational end code
-no base2 ttp		jmp	nb2dn	;; Go to non-base2 irrational end code
-no base2 no ttp		jmp	nb2rdn	;; Go to non-base2 rational end code
-base2 no zero ttp	jmp	b2dn	;; Go to base2 irrational end code
-base2 no zero no ttp	jmp	b2rdn	;; Go to base2 rational end code
+	mov	rsi, DESTARG		;; Addr of multiplied number
+	mov	edi, ADDIN_OFFSET	;; Get address to add value into
+	vmovsd	xmm0, POSTADDIN_VALUE	;; Get the addin value
+	vaddsd	xmm0, xmm0, Q [rsi][rdi] ;; Add in the FFT value
+	vmovsd	Q [rsi][rdi], xmm0	;; Save the new value
+no base2 ttp	jmp	nb2dn		;; Go to non-base2 irrational end code
+no base2 no ttp	jmp	nb2rdn		;; Go to non-base2 rational end code
+base2 ttp	jmp	b2dn		;; Go to base2 irrational end code
+base2 no ttp	jmp	b2rdn		;; Go to base2 rational end code
 	ENDPP lab
 	ENDM
 
 zpnorm	MACRO	lab, ttp, echk, const, base2, khi, c1, cm1
 	LOCAL	ilp0, ilp1, ilp2, ilpsecdn
 	PROCFLP	lab
-	int_prolog 6*SZPTR+8,0,0
+	int_prolog 6*SZPTR+8,0,4
+
+	c_call	ZPAD_SUB7		;; Subtract 7 ZPAD words from lowest FFT words
+
 	mov	rsi, DESTARG		;; Addr of multiplied number
 base2	vmovapd	ymm2, YMM_BIGVAL	;; Start process with no carry
 no base2 vxorpd	ymm2, ymm2, ymm2	;; Start process with no carry
@@ -1742,22 +1726,17 @@ base2 no const jmp zpdn			;; Go to zero padded FFT end code
 	ENDPP lab
 	ENDM
 
-; The many different normalization routines.  One for each valid combination of
-; rational/irrational, zeroing/no zeroing, error check/no error check,
+; The many different normalization routines.  One for each valid combination of rational/irrational, error check/no error check,
 ; mul by const/no mul by const, base2 / other than base 2
 
-	inorm	yr1, noexec, noexec, noexec, noexec, exec
-	inorm	yr1e, noexec, noexec, exec, noexec, exec
-	inorm	yr1c, noexec, noexec, noexec, exec, exec
-	inorm	yr1ec, noexec, noexec, exec, exec, exec
-	inorm	yr1z, noexec, exec, noexec, noexec, exec
-	inorm	yr1ze, noexec, exec, exec, noexec, exec
-	inorm	yi1, exec, noexec, noexec, noexec, exec
-	inorm	yi1e, exec, noexec, exec, noexec, exec
-	inorm	yi1c, exec, noexec, noexec, exec, exec
-	inorm	yi1ec, exec, noexec, exec, exec, exec
-	inorm	yi1z, exec, exec, noexec, noexec, exec
-	inorm	yi1ze, exec, exec, exec, noexec, exec
+	inorm	yr1, noexec, noexec, noexec, exec
+	inorm	yr1e, noexec, exec, noexec, exec
+	inorm	yr1c, noexec, noexec, exec, exec
+	inorm	yr1ec, noexec, exec, exec, exec
+	inorm	yi1, exec, noexec, noexec, exec
+	inorm	yi1e, exec, exec, noexec, exec
+	inorm	yi1c, exec, noexec, exec, exec
+	inorm	yi1ec, exec, exec, exec, exec
 	zpnorm	yr1zp, noexec, noexec, noexec, exec, exec, noexec, noexec
 	zpnorm	yr1zpc1, noexec, noexec, noexec, exec, exec, exec, noexec
 	zpnorm	yr1zpcm1, noexec, noexec, noexec, exec, exec, noexec, exec
@@ -1791,14 +1770,14 @@ base2 no const jmp zpdn			;; Go to zero padded FFT end code
 	zpnorm	yi1zpck, exec, noexec, exec, exec, noexec, noexec, noexec
 	zpnorm	yi1zpeck, exec, exec, exec, exec, noexec, noexec, noexec
 
-	inorm	yr1b, noexec, noexec, noexec, noexec, noexec
-	inorm	yr1eb, noexec, noexec, exec, noexec, noexec
-	inorm	yr1cb, noexec, noexec, noexec, exec, noexec
-	inorm	yr1ecb, noexec, noexec, exec, exec, noexec
-	inorm	yi1b, exec, noexec, noexec, noexec, noexec
-	inorm	yi1eb, exec, noexec, exec, noexec, noexec
-	inorm	yi1cb, exec, noexec, noexec, exec, noexec
-	inorm	yi1ecb, exec, noexec, exec, exec, noexec
+	inorm	yr1b, noexec, noexec, noexec, noexec
+	inorm	yr1eb, noexec, exec, noexec, noexec
+	inorm	yr1cb, noexec, noexec, exec, noexec
+	inorm	yr1ecb, noexec, exec, exec, noexec
+	inorm	yi1b, exec, noexec, noexec, noexec
+	inorm	yi1eb, exec, exec, noexec, noexec
+	inorm	yi1cb, exec, noexec, exec, noexec
+	inorm	yi1ecb, exec, exec, exec, noexec
 	zpnorm	yr1zpb, noexec, noexec, noexec, noexec, exec, noexec, noexec
 	zpnorm	yr1zpbc1, noexec, noexec, noexec, noexec, exec, exec, noexec
 	zpnorm	yr1zpbcm1, noexec, noexec, noexec, noexec, exec, noexec, exec
@@ -1840,7 +1819,7 @@ base2 no const jmp zpdn			;; Go to zero padded FFT end code
 PROCFP	__common_ynorm1_end_code
 
 	;; Dummy prolog to match normalization code
-	int_prolog 6*SZPTR+8,0,0
+	int_prolog 6*SZPTR+8,0,4
 
 ; Finish off the normalization process by adding any carry to first values.
 ; Handle both the with and without two-to-phi array cases.
@@ -1857,40 +1836,26 @@ zpcdn:	ynorm_1d_zpad_cleanup exec, exec ; Add in carries
 zpdn:	ynorm_1d_zpad_cleanup noexec, exec ; Add in carries
 	jmp	cmnend			; All done, go cleanup
 
-zdn:	mov	rsi, DESTARG		; Address of squared number
-	ynorm_1d_cleanup exec, exec, exec ; Add in carries
-	jmp	cmnend			; All done, go cleanup
-
-zrdn:	mov	rsi, DESTARG		; Address of squared number
-	ynorm_1d_cleanup noexec, exec, exec ; Add in carries
-	jmp	cmnend			; All done, go cleanup
-
 nb2dn:	mov	rsi, DESTARG		; Address of squared number
 	ynorm_top_carry_1d exec, noexec	; Adjust top carry when k > 1
-	ynorm_1d_cleanup exec, noexec, noexec ; Add in carries
+	ynorm_1d_cleanup exec, noexec	; Add in carries
 	jmp	cmnend			; All done, go cleanup
 
 nb2rdn:	mov	rsi, DESTARG		; Address of squared number
-	ynorm_1d_cleanup noexec, noexec, noexec ; Add in carries
+	ynorm_1d_cleanup noexec, noexec	; Add in carries
 	jmp	cmnend			; All done, go cleanup
 
 b2dn:	mov	rsi, DESTARG		; Address of squared number
 	ynorm_top_carry_1d exec, exec	; Adjust top carry when k > 1
-	ynorm_1d_cleanup exec, exec, noexec ; Add in carries
+	ynorm_1d_cleanup exec, exec	; Add in carries
 	jmp	cmnend			; All done, go cleanup
 
 b2rdn:	mov	rsi, DESTARG		; Address of squared number
-	ynorm_1d_cleanup noexec, exec, noexec ; Add in carries
+	ynorm_1d_cleanup noexec, exec	; Add in carries
 
-; Normalize SUMOUT value by multiplying by 1 / (fftlen/2).
+; Combine MAXERR
 
 cmnend:	mov	rsi, DESTARG		; Address of squared number
-	ystore	YMM_TMP1, ymm7		; Add together the four partial sumouts
-	vaddsd	xmm7, xmm7, Q YMM_TMP1[8]
-	vaddsd	xmm7, xmm7, Q YMM_TMP1[16]
-	vaddsd	xmm7, xmm7, Q YMM_TMP1[24]
-	vmulsd	xmm7, xmm7, ttmp_ff_inv
-	vmovsd	Q [rsi-24], xmm7	; Save sum of FFT outputs
 	vmovsd	xmm6, MAXERR		; Compute new maximum error
 	vmaxsd	xmm6, xmm6, Q YMM_MAXERR[0]
 	vmaxsd	xmm6, xmm6, Q YMM_MAXERR[8]
@@ -1900,7 +1865,7 @@ cmnend:	mov	rsi, DESTARG		; Address of squared number
 
 ; Return
 
-	int_epilog 6*SZPTR+8,0,0
+	int_epilog 6*SZPTR+8,0,4
 	ENDPP __common_ynorm1_end_code 
 
 _TEXT	ENDS

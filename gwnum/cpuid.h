@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2017 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved
 | Author:  George Woltman
 | Email: woltman@alum.mit.edu
 |
@@ -60,6 +60,8 @@ extern double CPU_SPEED;		/* Actual CPU Speed in MHz */
 #define CPU_PREFETCHWT1		0x80000	/* PREFETCHWT1 instruction supported */
 #define CPU_AVX512F		0x100000/* AVX512F instructions supported */
 #define CPU_AVX512PF		0x200000/* AVX512PF instructions supported */
+#define CPU_AVX512DQ		0x400000/* AVX512DQ instructions supported */
+#define CPU_AVX512VL		0x800000/* AVX512VL instructions supported */
 extern unsigned int CPU_FLAGS;		/* Cpu capabilities */
 extern unsigned int CPU_CORES;		/* Number CPU cores */
 extern unsigned int CPU_HYPERTHREADS;	/* Number of virtual processors that each CPU core supports. */
@@ -77,6 +79,8 @@ extern int CPU_L1_SET_ASSOCIATIVE;
 extern int CPU_L2_SET_ASSOCIATIVE;
 extern int CPU_L3_SET_ASSOCIATIVE;
 
+extern int CPU_FAMILY;			/* Intel or AMD family code*/
+extern int CPU_MODEL;			/* Intel or AMD model number */
 extern unsigned int CPU_SIGNATURE;	/* Vendor-specific family number, model number, stepping ID, etc. */
 
 #define CPU_ARCHITECTURE_PRE_SSE2	0

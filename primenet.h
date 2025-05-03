@@ -4,7 +4,7 @@
 // THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
 // PARTICULAR PURPOSE.
 //
-// Copyright (c) 1997-2021 Mersenne Research, Inc. All Rights Reserved.
+// Copyright (c) 1997-2024 Mersenne Research, Inc. All Rights Reserved.
 //
 */
 
@@ -370,6 +370,7 @@ struct primenetPingServer {
 #define PRIMENET_ERROR_INVALID_RESULT_TYPE 45
 #define PRIMENET_ERROR_INVALID_WORK_TYPE 46
 #define PRIMENET_ERROR_WORK_NO_LONGER_NEEDED 47
+#define PRIMENET_ERROR_ILLEGAL_RESIDUE 48
 
 /* These error codes are not returned by the server but are generated */
 /* by the client code that communicates with the server. */

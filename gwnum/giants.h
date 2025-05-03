@@ -10,7 +10,7 @@
  *	    20 Apr 97  RDW
  *
  *	c. 1997 Perfectly Scientific, Inc.
- *	c. 1998-2023 Mersenne Research, Inc.
+ *	c. 1998-2025 Mersenne Research, Inc.
  *	All Rights Reserved.
  *
  **************************************************************/
@@ -55,18 +55,14 @@ extern "C" {
 
 typedef struct
 {
-	int	maxsize;	/* not used except for debugging.  Makes giantstruct compatible with GMP library! */
+	int	maxsize;	/* Makes giantstruct compatible with GMP library!  Used by gwtogiant to make sure a large enough buffer has been allocated. */
 	int	sign;		/* abs(sign) is number of uint32_t's in n.  If sign is negative, giant is negative. */
 	uint32_t *n;		/* ptr to array of longs */
 } giantstruct;
 
 typedef giantstruct *giant;
 
-#ifdef GDEBUG
 #define setmaxsize(g,s)	(g)->maxsize = s
-#else
-#define setmaxsize(g,s)
-#endif
 
 /**************************************************************
  *

@@ -3,7 +3,7 @@
 |
 | This file contains the C routines for fast polynomial multiplication
 | 
-|  Copyright 2021-2023 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2021-2025 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -175,7 +175,7 @@ typedef struct {
 // SIMD-specific code
 
 #if defined (AVX512)
-#define VLEN			512			// Vector is 256 bits wide
+#define VLEN			512			// Vector is 512 bits wide
 #define VDT			__m512d			// Vector data type
 #define VFMA			1			// FMA is supported
 #define	prep_line		prep_line_avx512	// Naming extension for this option
@@ -472,7 +472,7 @@ uint64_t polymult_mem_required (
 	ASSERTG (pmdata->num_threads >= 1);
 
 	// Determine the complex vector size in bytes
-	int complex_vector_size = complex_vector_size_in_doubles (pmdata->gwdata->cpu_flags);
+	int complex_vector_size = complex_vector_size_in_doubles (pmdata->cpu_flags);
 
 	// Adjust sizes due to RLPs.  Calculate the output size assuming no monic inputs.
 	adjusted_invec1_size = (options & POLYMULT_INVEC1_RLP) ? 2 * invec1_size - 1 : invec1_size;
@@ -512,13 +512,14 @@ void polymult_init (
 {
 	memset (pmdata, 0, sizeof (pmhandle));
 	pmdata->gwdata = gwdata;
+	pmdata->cpu_flags = gwdata->cpu_flags;
 
 	// Initialize default number of threads
 	pmdata->max_num_threads = gwget_num_threads (gwdata);
 	pmdata->num_threads = pmdata->max_num_threads;
 
 	// Calculate doubles in a complex vector
-	int complex_vector_size = complex_vector_size_in_doubles (gwdata->cpu_flags);
+	int complex_vector_size = complex_vector_size_in_doubles (pmdata->cpu_flags);
 
 	// Calculate how many "lines" or "work units" polymult threads will work on
 	int num_doubles = gwfftlen (pmdata->gwdata);					// Number of doubles in a gwnum
@@ -528,7 +529,7 @@ void polymult_init (
 	pmdata->num_lines = divide_rounding_up (num_doubles, complex_vector_size);	// Number of doubles / doubles in a complex vector
 
 	// Initialize default breakeven points
-	if (pmdata->gwdata->cpu_flags & CPU_AVX) {
+	if (pmdata->cpu_flags & CPU_AVX) {
 		pmdata->KARAT_BREAK = 32;			//GW: Fix me
 		pmdata->FFT_BREAK = 64;				//GW: Fix me
 	}
@@ -551,6 +552,20 @@ void polymult_init (
 	}
 }
 
+// Set alternate CPU flags.  This allows polymult to use a different instruction set than gwnum uses.
+void polymult_set_cpu_flags (
+	pmhandle *pmdata,		// Handle for polymult library
+	int	cpu_flags)		// Alternate CPU flags to use for polymult
+{
+	// At present the only alternate CPU flags supported is AVX-512 polymult on AVX or FMA3 gwnums.
+	if ((cpu_flags & CPU_AVX512F) && !(pmdata->cpu_flags & CPU_AVX512F) && !(pmdata->gwdata->cpu_flags & CPU_AVX512F) && (pmdata->gwdata->cpu_flags & CPU_AVX)) {
+		// Set new cpu flags
+		pmdata->cpu_flags = cpu_flags;
+		// Re-calculate pmdata members dependent on the cpu flags
+		pmdata->num_lines = divide_rounding_up (pmdata->num_lines, 2);		// An AVX-512 vector operates on twice as many elements
+	}
+}
+
 // Set default polymult tuning using CPU cache sizes.  If this routine is not called, default tuning parameters are set using L2 cache of 256KB, and
 // L3 cache of 6144KB (6MB).  These tuning defaults are almost certainly imperfect.  Feel free to change the tuning defaults to suit your exact needs.
 // Read the polymult_default_tuning code to see some of the considerations used in selecting tuning parameters.  Also, run prime95 Advanced/Time 8900
@@ -561,7 +576,7 @@ void polymult_default_tuning (
 	uint32_t L3_CACHE_SIZE)		// Optimize FFTs to fit in this size cache (number is in KB).  Default is 6144KB (6MB).
 {
 	// Calculate doubles in a complex vector
-	int complex_vector_size = complex_vector_size_in_doubles (pmdata->gwdata->cpu_flags);
+	int complex_vector_size = complex_vector_size_in_doubles (pmdata->cpu_flags);
 
 	// Multi-threading lines has an inefficiency if number of threads does not divide number of lines.  For example, if there are 9 lines (gwnum FFT size 64)
 	// and eight threads, then 8 threads each do 1 line followed by 1 thread doing a line a 7 threads being idle.
@@ -644,10 +659,14 @@ unsigned long cache_line_offset (
 {
 	unsigned long addr, grps;
 
-/* Memory layouts for AVX-512 machines */
+/* Memory layouts for AVX-512 gwnums */
 
 	if (gwdata->cpu_flags & CPU_AVX512F) {
-		if (gwdata->PASS1_SIZE == 0) {
+		if (gwdata->PASS2_SIZE == 0) {
+			addr = i * 64;
+			// No padding (yet) in traditional one-pass FFTs
+		}
+		else if (gwdata->PASS1_SIZE == 0) {
 			addr = i * 64;
 			/* Now optionally add 64 pad bytes every 4KB */
 			if (gwdata->FOURKBGAPSIZE) addr = addr + (addr / (gwdata->FOURKBGAPSIZE << 6)) * 64;
@@ -660,7 +679,7 @@ unsigned long cache_line_offset (
 		}
 	}
 
-/* Memory layouts for AVX machines */
+/* Memory layouts for AVX gwnums */
 
 	else if (gwdata->cpu_flags & CPU_AVX) {
 		if (gwdata->PASS2_SIZE == 0) {
@@ -676,7 +695,7 @@ unsigned long cache_line_offset (
 		}
 	}
 
-/* Memory layouts for SSE2 machines */
+/* Memory layouts for SSE2 gwnums */
 
 	else if (gwdata->cpu_flags & CPU_SSE2) {
 
@@ -718,7 +737,7 @@ unsigned long cache_line_offset (
 
 //
 // Process the 7 values in the header of zero-padded FFT gwnums.  These seven values cannot be multiplied pointwise as is required by polymult.
-// The assembly code (see zmult7) multiplies the 7 values keeping the high half of the result.  An zero-padded 13-reals FFT of the 7 values allows
+// The gwnum.c zpad_prep code multiplies the 7 values keeping the high half of the result.  A zero-padded 13-reals FFT of the 7 values allows
 // us to do pointwise multiplies.  A zero-padded FFT produces 1 real value and 6 complex values for a total of 13 doubles.  The extra 6 doubles need
 // to be stored somewhere in the gwnum header or a pad line in the gwnum.
 //
@@ -1251,6 +1270,7 @@ void read_line_slice_avx512 (int helper_num, pmhandle *pmdata, void *rwlsd)
 	int	options = ((read_write_line_slice_data *) rwlsd)->options;
 	bool	post_process_monics = ((read_write_line_slice_data *) rwlsd)->post_process_monics;
 	uint64_t slice_size = ((read_write_line_slice_data *) rwlsd)->slice_size;
+	bool	avx512_gwnum = (pmdata->gwdata->cpu_flags & CPU_AVX512F);	// Flag indicating reading AVX512 gwnum data rather than AVX/FMA3 gwnum data
 
 	// Read one slice at a time
 	for ( ; ; ) {
@@ -1292,7 +1312,7 @@ void read_line_slice_avx512 (int helper_num, pmhandle *pmdata, void *rwlsd)
 		// If input is an RLP then read the data into the high half of vec.  We will duplicate the data as the last step.
 		if (options & (POLYMULT_INVEC1_RLP | POLYMULT_INVEC2_RLP)) vec += (size-1);
 
-		// AVX512 implementation
+		// AVX512 implementation -- 8 values in a vector
 		if (index == -1) {			// First real-only value and optionally seven zero-pad values
 			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
@@ -1303,18 +1323,24 @@ void read_line_slice_avx512 (int helper_num, pmhandle *pmdata, void *rwlsd)
 				}
 				// Zero padded FFTs also return the 7 FFTed values for the 7 real values stored in the header
 				else {
-					vec[j].real = _mm512_set_pd (data[j][-18], data[j][-17], data[j][-16], data[j][-15],
-								     data[j][-14], data[j][-13], data[j][-12], data[j][0]);
-					vec[j].imag = _mm512_set_pd (data[j][-24], data[j][-23], data[j][-22], data[j][-21],
-								     data[j][-20], data[j][-19], 0.0, 0.0);
+					double *d = data[j];
+					vec[j].real = _mm512_set_pd (d[-18], d[-17], d[-16], d[-15], d[-14], d[-13], d[-12], d[0]);
+					vec[j].imag = _mm512_set_pd (d[-24], d[-23], d[-22], d[-21], d[-20], d[-19], 0.0, 0.0);
 				}
 			}
 		}
 		else if (index == 0 && !gwdata->NEGACYCLIC_FFT) {	// Second real-only value and 7 complex values
 			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof (CVDT)); continue; }
-				vec[j].real = _mm512_set_pd (data[j][7], data[j][6], data[j][5], data[j][4], data[j][3], data[j][2], data[j][1], data[j][8]);
-				vec[j].imag = _mm512_set_pd (data[j][15], data[j][14], data[j][13], data[j][12], data[j][11], data[j][10], data[j][9], 0.0);
+				if (avx512_gwnum) {
+					double *d = data[j];
+					vec[j].real = _mm512_set_pd (d[7], d[6], d[5], d[4], d[3], d[2], d[1], d[8]);
+					vec[j].imag = _mm512_set_pd (d[15], d[14], d[13], d[12], d[11], d[10], d[9], 0.0);
+				} else {
+					double *d = data[j];
+					vec[j].real = _mm512_set_pd (d[11], d[10], d[9], d[8], d[3], d[2], d[1], d[4]);
+					vec[j].imag = _mm512_set_pd (d[15], d[14], d[13], d[12], d[7], d[6], d[5], 0.0);
+				}
 			}
 		}
 		else {				// Process complex values where imaginary part is in the high half of the cache line
@@ -1322,8 +1348,14 @@ void read_line_slice_avx512 (int helper_num, pmhandle *pmdata, void *rwlsd)
 			for (uint64_t j = slice_start; j < slice_end; j++) {
 				if (data[j] == NULL) { memset (&vec[j], 0, sizeof(CVDT)); continue; }
 				ASSERTG (FFT_state (data[j]) == FULLY_FFTed);
-				vec[j].real = ((VDT *) data[j])[offset];
-				vec[j].imag = ((VDT *) data[j])[offset+1];
+				if (avx512_gwnum) {
+					vec[j].real = ((VDT *) data[j])[offset];
+					vec[j].imag = ((VDT *) data[j])[offset+1];
+				} else {
+					double *d = (double *) data[j] + offset * 8;
+					vec[j].real = _mm512_set_pd (d[11], d[10], d[9], d[8], d[3], d[2], d[1], d[0]);
+					vec[j].imag = _mm512_set_pd (d[15], d[14], d[13], d[12], d[7], d[6], d[5], d[4]);
+				}
 			}
 		}
 
@@ -1372,6 +1404,7 @@ void write_line_slice_strided_avx512 (pmhandle *pmdata, read_write_line_slice_da
 	int	index = rwlsd->lsd.index;
 	int	options = rwlsd->options;
 	CVDT	fmaval, oneval;
+	bool	avx512_gwnum = (pmdata->gwdata->cpu_flags & CPU_AVX512F);	// Flag indicating writing AVX512 gwnum data rather than AVX/FMA3 gwnum data
 
 	// Support sliced and strided (even though not used).  An example, writing every 64th gwnum starting with the 10th gwnum in an 8K FFT.  Say we only
 	// want to write gwnums with an index between 150 and 500.  So, slice_start = 150, slice_end=500, stride_offset=10, stride=64.
@@ -1382,7 +1415,7 @@ void write_line_slice_strided_avx512 (pmhandle *pmdata, read_write_line_slice_da
 	uint64_t j_in = divide_rounding_up (slice_start + rwlsd->LSWs_skipped - stride_offset, stride);
 	uint64_t j_out = j_in * stride + stride_offset - rwlsd->LSWs_skipped;
 
-	// AVX512 implementation
+	// AVX512 implementation -- 8 doubles in a vector
 	union {
 		VDT	a;
 		double	b[8];
@@ -1393,77 +1426,93 @@ void write_line_slice_strided_avx512 (pmhandle *pmdata, read_write_line_slice_da
 			if (options & (POLYMULT_FMADD | POLYMULT_FMSUB | POLYMULT_FNMADD)) {
 				if (fma_data == NULL || fma_data[j_out] == NULL)
 					fmaval.real = broadcastsd (0.0), fmaval.imag = broadcastsd (0.0);
-				else
-					fmaval.real = _mm512_set_pd (fma_data[j_out][-18], fma_data[j_out][-17], fma_data[j_out][-16], fma_data[j_out][-15],
-								     fma_data[j_out][-14], fma_data[j_out][-13], fma_data[j_out][-12], fma_data[j_out][0]),
-					fmaval.imag = _mm512_set_pd (fma_data[j_out][-24], fma_data[j_out][-23], fma_data[j_out][-22], fma_data[j_out][-21],
-								     fma_data[j_out][-20], fma_data[j_out][-19], 0.0, 0.0);
+				else {
+					double *f = fma_data[j_out];
+					fmaval.real = _mm512_set_pd (f[-18], f[-17], f[-16], f[-15], f[-14], f[-13], f[-12], f[0]);
+					fmaval.imag = _mm512_set_pd (f[-24], f[-23], f[-22], f[-21], f[-20], f[-19], 0.0, 0.0);
+				}
 				if (gwdata->GENERAL_MMGW_MOD || gwdata->k != 1.0) {
-					oneval.real = _mm512_set_pd (gwdata->GW_FFT1[-18], gwdata->GW_FFT1[-17], gwdata->GW_FFT1[-16], gwdata->GW_FFT1[-15],
-								     gwdata->GW_FFT1[-14], gwdata->GW_FFT1[-13], gwdata->GW_FFT1[-12], gwdata->GW_FFT1[0]);
-					oneval.imag = _mm512_set_pd (gwdata->GW_FFT1[-24], gwdata->GW_FFT1[-23], gwdata->GW_FFT1[-22], gwdata->GW_FFT1[-21],
-								     gwdata->GW_FFT1[-20], gwdata->GW_FFT1[-19], 0.0, 0.0);
+					double *o = gwdata->GW_FFT1;
+					oneval.real = _mm512_set_pd (o[-18], o[-17], o[-16], o[-15], o[-14], o[-13], o[-12], o[0]);
+					oneval.imag = _mm512_set_pd (o[-24], o[-23], o[-22], o[-21], o[-20], o[-19], 0.0, 0.0);
 					cvmul (fmaval, fmaval, oneval);
 				}
 				if (options & POLYMULT_FMADD) cvadd (vec[j_in], vec[j_in], fmaval);
 				else if (options & POLYMULT_FMSUB) cvsub (vec[j_in], vec[j_in], fmaval);
 				else cvsub (vec[j_in], fmaval, vec[j_in]);
 			}
-			// Return the first real-only value
+			// Set the first real-only value
+			double *d = data[j_out];
 			x.a = vec[j_in].real;
-			data[j_out][0] = x.b[0];
-			// Zero padded FFTs also return the 7 real values stored in the header
+			d[0] = x.b[0];
+			// Zero padded FFTs also set the 7 real values stored in the header
 			if (gwdata->ZERO_PADDED_FFT) {
-				data[j_out][-18] = x.b[7];
-				data[j_out][-17] = x.b[6];
-				data[j_out][-16] = x.b[5];
-				data[j_out][-15] = x.b[4];
-				data[j_out][-14] = x.b[3];
-				data[j_out][-13] = x.b[2];
-				data[j_out][-12] = x.b[1];
+				d[-18] = x.b[7], d[-17] = x.b[6], d[-16] = x.b[5], d[-15] = x.b[4], d[-14] = x.b[3], d[-13] = x.b[2], d[-12] = x.b[1];
 				x.a = vec[j_in].imag;
-				data[j_out][-24] = x.b[7];
-				data[j_out][-23] = x.b[6];
-				data[j_out][-22] = x.b[5];
-				data[j_out][-21] = x.b[4];
-				data[j_out][-20] = x.b[3];
-				data[j_out][-19] = x.b[2];
+				d[-24] = x.b[7], d[-23] = x.b[6], d[-22] = x.b[5], d[-21] = x.b[4], d[-20] = x.b[3], d[-19] = x.b[2];
 			}
 		}
 	}
 	else if (index == 0 && !gwdata->NEGACYCLIC_FFT) {	// Second real-only value and 7 complex values
 		for ( ; j_out < slice_end; j_out += stride, j_in++) {
 			if (data[j_out] == NULL) continue;
-			if (options & (POLYMULT_FMADD | POLYMULT_FMSUB | POLYMULT_FNMADD)) {
+			if (avx512_gwnum) {
+			    if (options & (POLYMULT_FMADD | POLYMULT_FMSUB | POLYMULT_FNMADD)) {
 				if (fma_data == NULL || fma_data[j_out] == NULL)
 					fmaval.real = broadcastsd (0.0), fmaval.imag = broadcastsd (0.0);
-				else
-					fmaval.real = _mm512_set_pd (fma_data[j_out][7], fma_data[j_out][6], fma_data[j_out][5], fma_data[j_out][4],
-								     fma_data[j_out][3], fma_data[j_out][2], fma_data[j_out][1], fma_data[j_out][8]),
-					fmaval.imag = _mm512_set_pd (fma_data[j_out][15], fma_data[j_out][14], fma_data[j_out][13], fma_data[j_out][12],
-								     fma_data[j_out][11], fma_data[j_out][10], fma_data[j_out][9], 0.0);
+				else {
+					double *f = fma_data[j_out];
+					fmaval.real = _mm512_set_pd (f[7], f[6], f[5], f[4], f[3], f[2], f[1], f[8]);
+					fmaval.imag = _mm512_set_pd (f[15], f[14], f[13], f[12], f[11], f[10], f[9], 0.0);
+				}
 				if (gwdata->GENERAL_MMGW_MOD || gwdata->k != 1.0) {
-					oneval.real = _mm512_set_pd (gwdata->GW_FFT1[7], gwdata->GW_FFT1[6], gwdata->GW_FFT1[5], gwdata->GW_FFT1[4],
-								     gwdata->GW_FFT1[3], gwdata->GW_FFT1[2], gwdata->GW_FFT1[1], gwdata->GW_FFT1[8]);
-					oneval.imag = _mm512_set_pd (gwdata->GW_FFT1[15], gwdata->GW_FFT1[14], gwdata->GW_FFT1[13], gwdata->GW_FFT1[12],
-								     gwdata->GW_FFT1[11], gwdata->GW_FFT1[10], gwdata->GW_FFT1[9], 0.0);
+					double *o = gwdata->GW_FFT1;
+					oneval.real = _mm512_set_pd (o[7], o[6], o[5], o[4], o[3], o[2], o[1], o[8]);
+					oneval.imag = _mm512_set_pd (o[15], o[14], o[13], o[12], o[11], o[10], o[9], 0.0);
 					cvmul (fmaval, fmaval, oneval);
 				}
 				if (options & POLYMULT_FMADD) cvadd (vec[j_in], vec[j_in], fmaval);
 				else if (options & POLYMULT_FMSUB) cvsub (vec[j_in], vec[j_in], fmaval);
 				else cvsub (vec[j_in], fmaval, vec[j_in]);
+			    }
+			    double *d = data[j_out];
+			    x.a = vec[j_in].real;
+			    d[7] = x.b[7], d[6] = x.b[6], d[5] = x.b[5], d[4] = x.b[4], d[3] = x.b[3], d[2] = x.b[2], d[1] = x.b[1], d[8] = x.b[0];
+			    x.a = vec[j_in].imag;
+			    d[15] = x.b[7], d[14] = x.b[6], d[13] = x.b[5], d[12] = x.b[4], d[11] = x.b[3], d[10] = x.b[2], d[9] = x.b[1];
+			} else {
+			    if (options & (POLYMULT_FMADD | POLYMULT_FMSUB | POLYMULT_FNMADD)) {
+				if (fma_data == NULL || fma_data[j_out] == NULL)
+					fmaval.real = broadcastsd (0.0), fmaval.imag = broadcastsd (0.0);
+				else {
+					double *f = fma_data[j_out];
+					fmaval.real = _mm512_set_pd (f[11], f[10], f[9], f[8], f[3], f[2], f[1], f[4]);
+					fmaval.imag = _mm512_set_pd (f[15], f[14], f[13], f[12], f[7], f[6], f[5], 0.0);
+				}
+				if (gwdata->GENERAL_MMGW_MOD || gwdata->k != 1.0) {
+					double *o = gwdata->GW_FFT1;
+					oneval.real = _mm512_set_pd (o[11], o[10], o[9], o[8], o[3], o[2], o[1], o[4]);
+					oneval.imag = _mm512_set_pd (o[15], o[14], o[13], o[12], o[7], o[6], o[5], 0.0);
+					cvmul (fmaval, fmaval, oneval);
+				}
+				if (options & POLYMULT_FMADD) cvadd (vec[j_in], vec[j_in], fmaval);
+				else if (options & POLYMULT_FMSUB) cvsub (vec[j_in], vec[j_in], fmaval);
+				else cvsub (vec[j_in], fmaval, vec[j_in]);
+			    }
+			    double *d = data[j_out];
+			    x.a = vec[j_in].real;
+			    d[11] = x.b[7], d[10] = x.b[6], d[9] = x.b[5], d[8] = x.b[4], d[3] = x.b[3], d[2] = x.b[2], d[1] = x.b[1], d[4] = x.b[0];
+			    x.a = vec[j_in].imag;
+			    d[15] = x.b[7], d[14] = x.b[6], d[13] = x.b[5], d[12] = x.b[4], d[7] = x.b[3], d[6] = x.b[2], d[5] = x.b[1];
 			}
-			x.a = vec[j_in].real, data[j_out][7] = x.b[7], data[j_out][6] = x.b[6], data[j_out][5] = x.b[5], data[j_out][4] = x.b[4],
-					      data[j_out][3] = x.b[3], data[j_out][2] = x.b[2], data[j_out][1] = x.b[1], data[j_out][8] = x.b[0];
-			x.a = vec[j_in].imag, data[j_out][15] = x.b[7], data[j_out][14] = x.b[6], data[j_out][13] = x.b[5], data[j_out][12] = x.b[4],
-					      data[j_out][11] = x.b[3], data[j_out][10] = x.b[2], data[j_out][9] = x.b[1];
 		}
 	}
 	else {				// Process complex values where imaginary part is in the high half of the cache line
 		unsigned long offset = rwlsd->lsd.offset;
 		for ( ; j_out < slice_end; j_out += stride, j_in++) {
 			if (data[j_out] == NULL) continue;
-			if (options & (POLYMULT_FMADD | POLYMULT_FMSUB | POLYMULT_FNMADD)) {
+			if (avx512_gwnum) {
+			    if (options & (POLYMULT_FMADD | POLYMULT_FMSUB | POLYMULT_FNMADD)) {
 				if (fma_data == NULL || fma_data[j_out] == NULL) fmaval.real = broadcastsd (0.0), fmaval.imag = broadcastsd (0.0);
 				else fmaval.real = ((VDT *) fma_data[j_out])[offset], fmaval.imag = ((VDT *) fma_data[j_out])[offset+1];
 				if (gwdata->GENERAL_MMGW_MOD || gwdata->k != 1.0) {
@@ -1473,6 +1522,31 @@ void write_line_slice_strided_avx512 (pmhandle *pmdata, read_write_line_slice_da
 				if (options & POLYMULT_FMADD) cvadd (vec[j_in], vec[j_in], fmaval);
 				else if (options & POLYMULT_FMSUB) cvsub (vec[j_in], vec[j_in], fmaval);
 				else cvsub (vec[j_in], fmaval, vec[j_in]);
+			    }
+			} else {
+			    if (options & (POLYMULT_FMADD | POLYMULT_FMSUB | POLYMULT_FNMADD)) {
+				if (fma_data == NULL || fma_data[j_out] == NULL)
+					fmaval.real = broadcastsd (0.0), fmaval.imag = broadcastsd (0.0);
+				else {
+					double *f = (double *) fma_data[j_out] + offset * 8;
+					fmaval.real = _mm512_set_pd (f[11], f[10], f[9], f[8], f[3], f[2], f[1], f[0]);
+					fmaval.imag = _mm512_set_pd (f[15], f[14], f[13], f[12], f[7], f[6], f[5], f[4]);
+				}
+				if (gwdata->GENERAL_MMGW_MOD || gwdata->k != 1.0) {
+					double *o = (double *) gwdata->GW_FFT1 + offset * 8;
+					oneval.real = _mm512_set_pd (o[11], o[10], o[9], o[8], o[3], o[2], o[1], o[0]);
+					oneval.imag = _mm512_set_pd (o[15], o[14], o[13], o[12], o[7], o[6], o[5], o[4]);
+					cvmul (fmaval, fmaval, oneval);
+				}
+				if (options & POLYMULT_FMADD) cvadd (vec[j_in], vec[j_in], fmaval);
+				else if (options & POLYMULT_FMSUB) cvsub (vec[j_in], vec[j_in], fmaval);
+				else cvsub (vec[j_in], fmaval, vec[j_in]);
+			    }
+			    // Move doubles around so we can use streaming stores
+			    double tmp[4];
+			    memcpy (tmp, ((double *) &vec[j_in].real) + 4, 4 * sizeof (double));
+			    memcpy (((double *) &vec[j_in].real) + 4, (double *) &vec[j_in].imag, 4 * sizeof (double));
+			    memcpy ((double *) &vec[j_in].imag, tmp, 4 * sizeof (double));
 			}
 			if (rwlsd->streamed_stores) {
 				streampd (&((VDT *) data[j_out])[offset], vec[j_in].real);
@@ -4389,14 +4463,14 @@ void polymult_dispatch (
 	case HELPER_POLYMULT_LINE:
 #ifdef X86_64
 		// Polymult_line optimized routines for AVX512 instructions
-		if (pmdata->gwdata->cpu_flags & CPU_AVX512F) polymult_line_avx512 (pmdata); else
+		if (pmdata->cpu_flags & CPU_AVX512F) polymult_line_avx512 (pmdata); else
 #endif
 		// Polymult optimized routines for FMA3 instructions
-		if (pmdata->gwdata->cpu_flags & CPU_FMA3) polymult_line_fma (pmdata);
+		if (pmdata->cpu_flags & CPU_FMA3) polymult_line_fma (pmdata);
 		// Polymult optimized routines for AVX instructions
-		else if (pmdata->gwdata->cpu_flags & CPU_AVX) polymult_line_avx (pmdata);
+		else if (pmdata->cpu_flags & CPU_AVX) polymult_line_avx (pmdata);
 		// Polymult optimized routines for SSE2 instructions
-		else if (pmdata->gwdata->cpu_flags & CPU_SSE2) polymult_line_sse2 (pmdata);
+		else if (pmdata->cpu_flags & CPU_SSE2) polymult_line_sse2 (pmdata);
 		// Polymult default routines using no vector instructions
 #ifndef X86_64
 		else polymult_line_dbl (pmdata);
@@ -4411,11 +4485,11 @@ void polymult_dispatch (
 	// Polymult_preprocess_line optimized for several instruction sets
 	case HELPER_PREPROCESS_LINE:
 #ifdef X86_64
-		if (pmdata->gwdata->cpu_flags & CPU_AVX512F) polymult_line_preprocess_avx512 (pmdata); else
+		if (pmdata->cpu_flags & CPU_AVX512F) polymult_line_preprocess_avx512 (pmdata); else
 #endif
-		if (pmdata->gwdata->cpu_flags & CPU_FMA3) polymult_line_preprocess_fma (pmdata);
-		else if (pmdata->gwdata->cpu_flags & CPU_AVX) polymult_line_preprocess_avx (pmdata);
-		else if (pmdata->gwdata->cpu_flags & CPU_SSE2) polymult_line_preprocess_sse2 (pmdata);
+		if (pmdata->cpu_flags & CPU_FMA3) polymult_line_preprocess_fma (pmdata);
+		else if (pmdata->cpu_flags & CPU_AVX) polymult_line_preprocess_avx (pmdata);
+		else if (pmdata->cpu_flags & CPU_SSE2) polymult_line_preprocess_sse2 (pmdata);
 #ifndef X86_64
 		else polymult_line_preprocess_dbl (pmdata);
 #endif
@@ -4650,7 +4724,7 @@ gwarray polymult_preprocess (		// Returns a plug-in replacement for the input po
 // Allocate space for the preprocessed poly under construction
 
 	// Calculate complex vector size in bytes
-	int complex_vector_size = complex_vector_size_in_bytes (pmdata->gwdata->cpu_flags);
+	int complex_vector_size = complex_vector_size_in_bytes (pmdata->cpu_flags);
 	// Compute size of each line to be written
 	element_size = complex_vector_size * (uint64_t) ((options & POLYMULT_PRE_FFT) ? plan.fft_size : invec1_size);
 
@@ -5377,7 +5451,7 @@ use_it:		    ASSERTG (best_choice != 0);
 		    else {
 			plan->planpart[i].impl = POLYMULT_IMPL_FFT;
 			plan->planpart[i].fft_size = fft_size = best_fft_size;
-			int complex_vector_size = complex_vector_size_in_bytes (pmdata->gwdata->cpu_flags);
+			int complex_vector_size = complex_vector_size_in_bytes (pmdata->cpu_flags);
 			if (pmdata->num_threads > 1 && fft_size >= pmdata->mt_ffts_start && fft_size < pmdata->mt_ffts_end)
 				plan->mt_polymult_line = FALSE;
 		    }
@@ -5610,8 +5684,8 @@ void polymult_post_unfft (
 			     (!(options & POLYMULT_INVEC1_MONIC) != !(options & POLYMULT_INVEC2_MONIC) && // Monic * non-monic (or vice-versa)
 			      plan->planpart[i].circular_size == plan->planpart[i].true_outvec_size &&	// Not doing a circular multiply
 			      plan->planpart[i].MSWs_skipped == 0))) {					// Top coefficient of monic * non-monic is output
-				float	unnorms1 = plan->unnorms1;		// Unnormalized add count of top invec1 coefficient
-				float	unnorms2 = plan->planpart[i].unnorms2;	// Unnormalized add count of top invec2 coefficient
+				float	unnorms1 = plan->unnorms1;				// Unnormalized add count of top invec1 coefficient
+				float	unnorms2 = plan->planpart[i].unnorms2;			// Unnormalized add count of top invec2 coefficient
 				// This optimization requires gwset_polymult_safety_margin was called with the output of polymult_safety_margin.
 				ASSERTG (gwdata->polymult_safety_margin > 0.0);
 				if (! (options & POLYMULT_INVEC2_MONIC))			// Invec1 monic, returning 1 * invec2's top

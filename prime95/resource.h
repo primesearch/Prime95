@@ -2,7 +2,7 @@
 // Microsoft Visual C++ generated include file.
 // Used by Prime95.rc
 //
-// Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved
 //
 #define IDH_PRIMENET                    11
 #define IDH_WORKERS                     12
@@ -97,10 +97,12 @@
 #define IDC_MAXFFT                      1011
 #define IDC_WORK                        1011
 #define IDC_CERT_CPU_TEXT               1011
+#define IDC_NO_LIMIT                    1011
 #define IDC_NUM_CURVES                  1012
 #define IDC_TIMEFFT                     1012
 #define IDC_ARCHIVE_DIR_TEXT            1012
 #define IDC_WORKER			1013
+#define IDC_UPLOAD_BANDWIDTH_TEXT2      1013
 #define IDC_WORKER_TEXT			1014
 #define IDC_USERID                      1015
 #define IDC_P4                          1015

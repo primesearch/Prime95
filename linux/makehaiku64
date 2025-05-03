@@ -1,0 +1,55 @@
+# Makefile for Haiku 64-bit mprime
+#
+# created by Karl L. Brennan, aka Generic Username 3485
+# requires curl_devel, hwloc2_devel, and gmp_devel
+#
+# last updated 2024-10-02
+
+# NOTE: The value of PORT is a placeholder, as there is none for 64-bit Haiku yet.
+
+CC = gcc
+CFLAGS = -I.. -I../gwnum -I/usr/local/include -std=gnu99 -DX86_64 -Wno-unused-result -O2 -DPORT=-1
+
+CPP = g++
+CPPFLAGS = -I.. -I../gwnum -I../../boost_1_76_0 -DX86_64 -std=c++11 -O2 -DPORT=-1
+
+LFLAGS = -Wl,-M -Wl,-no-pie
+LIBS = ../gwnum/gwnum.a ../gwnum/polymult.a -lm -lpthread -lhwloc -lcurl -lstdc++ -lgmp
+
+FACTOROBJ = factor64.o
+HAIKUOBJS = prime.o menu.o cJSON.o ecm.o exponentiate.o pair.o pm1prob.o
+EXE      = mprime
+
+#########################################################################
+
+$(EXE): security $(HAIKUOBJS) $(FACTOROBJ)
+	$(CC) $(LFLAGS) -o $(EXE) $(HAIKUOBJS) $(FACTOROBJ) $(LIBS)
+
+security:
+	[ ! -e ../security.h ] && touch ../security.h || true
+	[ ! -e ../security.c ] && touch ../security.c || true
+	[ ! -e ../secure5.c ] && touch ../secure5.c || true
+
+clean:
+	rm -f $(EXE) $(EXE2) $(HAIKUOBJS)
+
+cJSON.o:
+	$(CC) $(CFLAGS) -c ../cJSON.c
+
+ecm.o:
+	$(CPP) $(CPPFLAGS) -c ../ecm.cpp
+
+exponentiate.o:
+	$(CC) $(CFLAGS) -c ../exponentiate.c
+
+pair.o:
+	$(CPP) $(CPPFLAGS) -c ../pair.cpp
+
+pm1prob.o:
+	$(CC) $(CFLAGS) -c ../pm1prob.c
+
+.c.o:
+	$(CC) $(CFLAGS) -c $<
+
+.cpp.o:
+	$(CPP) $(CPPFLAGS) -c $<

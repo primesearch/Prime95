@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2025 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -11,7 +11,7 @@
 | Commonc contains information used during setup and execution
 +---------------------------------------------------------------------*/
 
-static const char JUNK[]="Copyright 1996-2024 Mersenne Research, Inc. All rights reserved";
+static const char JUNK[]="Copyright 1996-2025 Mersenne Research, Inc. All rights reserved";
 
 char	INI_FILE[260] = {0};
 char	WORKTODO_FILE[260] = {0};
@@ -37,7 +37,7 @@ int volatile ERRCHK = 0;
 unsigned int PRIORITY = 1;
 unsigned int NUM_WORKERS = 1;		/* Number of workers to launch */
 unsigned int WORK_PREFERENCE[MAX_NUM_WORKERS] = {0};
-unsigned int CORES_PER_TEST[MAX_NUM_WORKERS] = {1}; /* Number of cores gwnum can use in computations. */
+unsigned int CORES_PER_WORKER[MAX_NUM_WORKERS] = {1}; /* Number of cores gwnum can use in computations */
 int	HYPERTHREAD_TF = 1;		/* TRUE if trial factoring should use hyperthreads */
 int	HYPERTHREAD_LL = 0;		/* TRUE if FFTs (LL, P-1, ECM, PRP) should use hyperthreads */
 int	MANUAL_COMM = 0;
@@ -1617,10 +1617,10 @@ int good_default_for_num_workers (void)
 	return (HW_NUM_COMPUTE_THREADING_NODES * (cores_per_node <= 6 ? 1 : divide_rounding_up (cores_per_node, 4)));
 }
 
-/* Read CoresPerTest values.  This may require upgrading ThreadsPerTest to CoresPerTest. */
-/* This INI setting changed from threads to cores in version 29.1. */
+/* Read CoresPerWorker values.  This may require upgrading ThreadsPerTest or CoresPerTest to CoresPerWorker. */
+/* This INI setting changed from threads to cores in version 29.1 and from Test to Worker in 31.0. */
 
-void read_cores_per_test (void)
+void read_cores_per_worker (void)
 {
 	int	i, all_the_same;
 	unsigned int temp[MAX_NUM_WORKERS];
@@ -1654,25 +1654,47 @@ void read_cores_per_test (void)
 			if (i && temp[i] != temp[i-1]) all_the_same = FALSE;
 		}
 		// Write out the new settings
-		memset (CORES_PER_TEST, 0xFF, sizeof (CORES_PER_TEST));
+		memset (CORES_PER_WORKER, 0xFF, sizeof (CORES_PER_WORKER));
 		if (all_the_same)
-			PTOSetAll (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, temp[0]);
+			PTOSetAll (INI_FILE, "CoresPerWorker", NULL, CORES_PER_WORKER, temp[0]);
 		else for (i = 0; i < (int) NUM_WORKERS; i++)
-			PTOSetOne (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, temp[i]);
+			PTOSetOne (INI_FILE, "CoresPerWorker", NULL, CORES_PER_WORKER, i, temp[i]);
 		// Clear old settings
 		PTOSetAll (INI_FILE, "ThreadsPerTest", NULL, temp, 0);
 		IniWriteString (INI_FILE, "ThreadsPerTest", NULL);
 	}
 
-/* Read in the CoresPerTest values that we support as of version 29.1 */
+/* Read in the CoresPerTest values that we supported as of version 29.1 */
 
-	PTOGetAll (INI_FILE, "CoresPerTest", CORES_PER_TEST, 0);
+	PTOGetAll (INI_FILE, "CoresPerTest", temp, 0);
+
+/* If we found some old settings then delete them from the INI file and write out the new settings */
+
+	if (temp[0] != 0) {
+		// See if each worker has the same number of cores
+		for (i = 0, all_the_same = TRUE; i < (int) NUM_WORKERS; i++) {
+			if (i && temp[i] != temp[i-1]) all_the_same = FALSE;
+		}
+		// Write out the new settings
+		memset (CORES_PER_WORKER, 0xFF, sizeof (CORES_PER_WORKER));
+		if (all_the_same)
+			PTOSetAll (INI_FILE, "CoresPerWorker", NULL, CORES_PER_WORKER, temp[0]);
+		else for (i = 0; i < (int) NUM_WORKERS; i++)
+			PTOSetOne (INI_FILE, "CoresPerWorker", NULL, CORES_PER_WORKER, i, temp[i]);
+		// Clear old settings
+		PTOSetAll (INI_FILE, "CoresPerTest", NULL, temp, 0);
+		IniWriteString (INI_FILE, "CoresPerTest", NULL);
+	}
+
+/* Read in the CoresPerTest values that we support as of version 31.0 */
+
+	PTOGetAll (INI_FILE, "CoresPerWorker", CORES_PER_WORKER, 0);
 
 /* If we did not find any settings, use hwloc's information to give us a good default setting. */
 /* For example, consider a dual CPU Xeon system with 9 cores per CPU.  A good setting for four workers */
 /* would be 4 cores, 5 cores, 4 cores, 5 cores.  That way, we do not have a PRP/LL test spanning across CPUs. */
 
-	if (CORES_PER_TEST[0] == 0) {
+	if (CORES_PER_WORKER[0] == 0) {
 		int	cores, workers, node;
 
 /* Decide how many workers will run on each compute node.  Then distribute the cores among those workers. */
@@ -1705,16 +1727,16 @@ void read_cores_per_test (void)
 		}
 		// Write out the new settings
 		if (all_the_same)
-			PTOSetAll (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, temp[0]);
+			PTOSetAll (INI_FILE, "CoresPerWorker", NULL, CORES_PER_WORKER, temp[0]);
 		else for (i = 0; i < (int) NUM_WORKERS; i++)
-			PTOSetOne (INI_FILE, "CoresPerTest", NULL, CORES_PER_TEST, i, temp[i]);
+			PTOSetOne (INI_FILE, "CoresPerWorker", NULL, CORES_PER_WORKER, i, temp[i]);
 	}
 
-/* Sanity check the CoresPerTest.  In case user hand-edited prime.txt */
+/* Sanity check CoresPerWorker.  In case user hand-edited prime.txt */
 
 	for (i = 0; i < (int) NUM_WORKERS; i++) {
-		if (CORES_PER_TEST[i] < 1) CORES_PER_TEST[i] = 1;
-		if (CORES_PER_TEST[i] > HW_NUM_CORES) CORES_PER_TEST[i] = HW_NUM_CORES;
+		if (CORES_PER_WORKER[i] < 1) CORES_PER_WORKER[i] = 1;
+		if (CORES_PER_WORKER[i] > HW_NUM_CORES) CORES_PER_WORKER[i] = HW_NUM_CORES;
 	}
 }
 
@@ -1747,7 +1769,7 @@ int readIniFiles (void)
 	DAYS_OF_WORK = (unsigned int) IniGetInt (INI_FILE, "DaysOfWork", 3);
 	if (DAYS_OF_WORK > 180) DAYS_OF_WORK = 180;
 
-	CPU_WORKER_DISK_SPACE = IniGetFloat (INI_FILE, "WorkerDiskSpace", 6.0);
+	CPU_WORKER_DISK_SPACE = IniGetFloat (INI_FILE, "WorkerDiskSpace", 10.0);
 	if (CPU_WORKER_DISK_SPACE < 0.0) CPU_WORKER_DISK_SPACE = 0.0;
 	if (CPU_WORKER_DISK_SPACE > 1000.0) CPU_WORKER_DISK_SPACE = 1000.0;
 
@@ -1821,7 +1843,7 @@ int readIniFiles (void)
 		spoolMessage (PRIMENET_PROGRAM_OPTIONS, NULL);
 		IniSectionWriteInt (INI_FILE, SEC_Internals, KEY_V30OptionsConverted, 1);
 	}
-	read_cores_per_test ();		// Get CORES_PER_TEST array, may require upgrading old INI settings
+	read_cores_per_worker ();	// Get CORES_PER_WORKER array, may require upgrading old INI settings
 	HYPERTHREAD_TF = IniGetInt (INI_FILE, "HyperthreadTF", OS_CAN_SET_AFFINITY);
 	HYPERTHREAD_LL = IniGetInt (INI_FILE, "HyperthreadLL", 0);
 	MANUAL_COMM = (int) IniGetInt (INI_FILE, "ManualComm", 0);
@@ -2669,15 +2691,16 @@ int addToWorkUnitArray (
 
 	switch (add_point) {
 	case ADD_TO_END:
+	case ADD_TO_END_NO_CHANGE:
 		insertion_point = WORK_UNITS[tnum].last;
 		break;
 
-/* If add_to_front is set, add work unit to the front of the array after any comment lines. */
+/* If add_to_front is set, add work unit to the front of the array after any comment and CERT lines. */
 
 	case ADD_TO_FRONT:
 		if (WORK_UNITS[tnum].first != NULL && WORK_UNITS[tnum].first->work_type == WORK_NONE)
 			for (insertion_point = WORK_UNITS[tnum].first; insertion_point->next != NULL; insertion_point = insertion_point->next) {
-				if (insertion_point->next->work_type != WORK_NONE) break;
+				if (insertion_point->next->work_type != WORK_NONE && insertion_point->next->work_type != WORK_CERT) break;
 			}
 		else
 			insertion_point = NULL;
@@ -2725,7 +2748,7 @@ int addToWorkUnitArray (
 
 /* Set flag indicating worktodo needs writing */
 
-	WORKTODO_CHANGED = TRUE;
+	if (add_point != ADD_TO_END_NO_CHANGE) WORKTODO_CHANGED = TRUE;
 
 /* Return success */
 
@@ -3116,6 +3139,11 @@ int parseWorkToDoLine (
 /* Make sure this line of work from the file makes sense. The exponent should be a prime number, bounded by values we can handle, and we */
 /* should never be asked to factor a number more than we are capable of. */
 
+	if (w->k < 1.0 || w->b < 2 || w->c == 0) {
+		sprintf (buf, "Error: Illegal number in worktodo.txt file, k < 1 or b < 2, or c = 0\n");
+		OutputBoth (MAIN_THREAD_NUM, buf);
+		goto illegal_line;
+	}
 	if (w->k == 1.0 && w->b == 2 && !isPrime (w->n) && w->c == -1 && w->known_factors == NULL &&
 	    w->work_type != WORK_ECM && w->work_type != WORK_PMINUS1 && w->work_type != WORK_PPLUS1 &&
 	    !(w->work_type == WORK_PRP && IniGetInt (INI_FILE, "PhiExtensions", 0))) {
@@ -3291,7 +3319,7 @@ int readWorkToDoFile (void)
 
 /* Grow the work_unit array if necessary and add this entry */
 
-	    rc = addToWorkUnitArray (tnum, w, ADD_TO_END);
+	    rc = addToWorkUnitArray (tnum, w, ADD_TO_END_NO_CHANGE);
 	    if (rc) goto retrc;
 	}
 
@@ -4040,11 +4068,11 @@ double work_estimate (
 /* reduces the time by a factor of 1.9.  Also assume each additional CPU */
 /* is less beneficial.  Trial factoring is an exception -- it scales quite nicely. */
 
-	if (can_use_multiple_threads && CORES_PER_TEST[thread_num] > 1) {
+	if (can_use_multiple_threads && CORES_PER_WORKER[thread_num] > 1) {
 		double	effective_num_cpus, cpu_value;
 		effective_num_cpus = 0.0;
 		cpu_value = 1.0;
-		for (i = 0; i < CORES_PER_TEST[thread_num]; i++) {
+		for (i = 0; i < CORES_PER_WORKER[thread_num]; i++) {
 			effective_num_cpus += cpu_value;
 			cpu_value *= (w->work_type == WORK_FACTOR ? 1.0 : 0.9);
 		}
@@ -4054,7 +4082,7 @@ double work_estimate (
 /* If the user unwisely oversubscribed the CPU cores, then increase the time estimate */
 
 	total_cores = 0;
-	for (i = 0; i < NUM_WORKERS; i++) total_cores += CORES_PER_TEST[i];
+	for (i = 0; i < NUM_WORKERS; i++) total_cores += CORES_PER_WORKER[i];
 	if (total_cores > HW_NUM_CORES) est *= (double) total_cores / (double) HW_NUM_CORES;
 
 /* Return the total estimated time in seconds */
@@ -4355,6 +4383,10 @@ void tempFileName (
 			c = buf[2], buf[2] = buf[3], buf[3] = (char)(c - 25);
 	} else
 		sprintf (buf, "p%ld", p);
+
+/* If skip_curves is set (multiple workers doing ECM on the same GMP_ECM stage 1 results) then use that value to make file name unique */
+
+	if (w->work_type == WORK_ECM && w->skip_curves) sprintf (buf + strlen (buf), "_%u", w->skip_curves);
 
 /* Use different first letters for different work types.  This isn't */
 /* completely compatible with v24 (the -An extension and P-1 and ECM when c=1 */
@@ -5544,15 +5576,6 @@ void readMessage (
 
 		if (*msgType == -1) continue;
 
-/* Patch pre-v30.8 spool files where B1/B2 was stored as a double rather than a uint64_t. */
-/* If top bit is on, assume the data is a double and convert it to a uint64_t. */
-
-		if (*msgType == PRIMENET_ASSIGNMENT_RESULT) {
-			struct primenetAssignmentResult *ar_msg = (struct primenetAssignmentResult *) msg;
-			if (ar_msg->B1 >> 63) ar_msg->B1 = (uint64_t) *((double *) &ar_msg->B1);
-			if (ar_msg->B2 >> 63) ar_msg->B2 = (uint64_t) *((double *) &ar_msg->B2);
-		}
-
 /* Return if msgType is one we expected. */
 
 		if (*msgType == PRIMENET_ASSIGNMENT_PROGRESS ||
@@ -6512,8 +6535,8 @@ retry:
 /* Also, lots of work_units is not a typical setup -- may indicate a large worktodo.txt file with high costs reading and writing it.  Also, check */
 /* that this thread isn't stopped and provide a method of limiting CERT work to one specific worker. */
 
-	    if (can_get_cert_work && first_work_unit_interruptable && num_work_units < 20 && ACTIVE_WORKERS[tnum] &&
-		IniGetInt (INI_FILE, "CertWorker", tnum+1) == tnum+1) {
+	if (ACTIVE_WORKERS[tnum] && IniGetInt (INI_FILE, "CertWorker", tnum+1) == tnum+1 &&
+	    (IniGetInt (INI_FILE, "ForceGetCertWork", 0) || (can_get_cert_work && first_work_unit_interruptable && num_work_units < 20))) {
 		int	num_certs = 0;
 
 		can_get_cert_work = FALSE;	// Only one worker can get certification work
@@ -6695,6 +6718,10 @@ retry:
 			w.prp_base = pkt1.prp_base;
 			w.prp_residue_type = pkt1.prp_residue_type;
 			w.prp_dblchk = pkt1.prp_dblchk;
+			break;
+		case PRIMENET_WORK_TYPE_CERT:
+			w.work_type = WORK_CERT;
+			w.cert_squarings = pkt1.num_squarings;
 			break;
 		default:
 			sprintf (buf, "Received unknown work type: %lu.\n", (unsigned long) pkt1.work_type);

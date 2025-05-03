@@ -1,6 +1,6 @@
 // ResourcesDlg.cpp : implementation file
 //
-// Copyright 1995-2023 Mersenne Research, Inc.  All rights reserved
+// Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved
 //
 
 #include "stdafx.h"
@@ -32,6 +32,7 @@ CResourcesDlg::CResourcesDlg(CWnd* pParent /*=NULL*/)
 	m_upload_end = _T("");
 	m_download_mb = 0;
 	m_can_upload = 0;
+	m_no_limit = 0;
 	//}}AFX_DATA_INIT
 }
 
@@ -57,6 +58,9 @@ void CResourcesDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Text(pDX, IDC_DOWNLOAD_MB, m_download_mb);
 	DDV_MinMaxUInt(pDX, m_download_mb, 0, 999999);
 	DDX_Control(pDX, IDC_UPLOAD_BANDWIDTH_TEXT, c_upload_bandwidth_text);
+	DDX_Control(pDX, IDC_UPLOAD_BANDWIDTH_TEXT2, c_upload_bandwidth_text2);
+	DDX_Check(pDX, IDC_NO_LIMIT, m_no_limit);
+	DDX_Control(pDX, IDC_NO_LIMIT, c_no_limit);
 	DDX_Control(pDX, IDC_UPLOAD_BANDWIDTH, c_upload_bandwidth);
 	DDX_Control(pDX, IDC_UPLOAD_START_TEXT, c_upload_start_text);
 	DDX_Control(pDX, IDC_UPLOAD_START, c_upload_start);
@@ -64,7 +68,9 @@ void CResourcesDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_UPLOAD_END, c_upload_end);
 	//}}AFX_DATA_MAP
 	c_upload_bandwidth_text.EnableWindow (m_can_upload);
-	c_upload_bandwidth.EnableWindow (m_can_upload);
+	c_upload_bandwidth_text2.EnableWindow (m_can_upload && !m_no_limit);
+	c_no_limit.EnableWindow (m_can_upload);
+	c_upload_bandwidth.EnableWindow (m_can_upload && !m_no_limit);
 	c_upload_start_text.EnableWindow (m_can_upload);
 	c_upload_start.EnableWindow (m_can_upload);
 	c_upload_end_text.EnableWindow (m_can_upload);
@@ -75,12 +81,25 @@ void CResourcesDlg::DoDataExchange(CDataExchange* pDX)
 BEGIN_MESSAGE_MAP(CResourcesDlg, CDialog)
 	//{{AFX_MSG_MAP(CResourcesDlg)
 	ON_BN_CLICKED(IDC_ADVANCED, OnAdvanced)
+	ON_EN_KILLFOCUS(IDC_UPLOAD_BANDWIDTH, OnEnKillfocusUploadLimit)
+	ON_BN_CLICKED(IDC_NO_LIMIT, OnBnClickedNoLimit)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
 
 /////////////////////////////////////////////////////////////////////////////
 // CResourcesDlg message handlers
+
+void CResourcesDlg::OnBnClickedNoLimit()
+{
+	UpdateData ();
+}
+
+void CResourcesDlg::OnEnKillfocusUploadLimit()
+{
+	UpdateData ();
+	UpdateData (0);
+}
 
 void CResourcesDlg::OnAdvanced()
 {

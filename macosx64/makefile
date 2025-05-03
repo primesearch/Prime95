@@ -1,7 +1,7 @@
 # Makefile for Mac OS X 64-bit mprime
 #
 # Hwloc can be downloaded from https://www.open-mpi.org/projects/hwloc/
-# Configure hwloc with --enable-static --disable-shared --disable-pci --disable-cuda --disable-gl --disable-opencl --disable-rsmi
+# Configure hwloc with --enable-static --disable-shared --disable-io
 #
 # GMP can be configured with --prefix=/usr/local --enable-fat --enable-static --disable-shared
 #
@@ -40,19 +40,19 @@ clean:
 	rm -f $(EXE) $(EXE2) $(OBJS)
 
 cJSON.o:
-	$(CC) $(CFLAGS) -c ../cJSON.c
+	$(ENVP) $(CC) $(CFLAGS) -c ../cJSON.c
 
 ecm.o:
-	$(CPP) $(CPPFLAGS) -c ../ecm.cpp
+	$(ENVP) $(CPP) $(CPPFLAGS) -c ../ecm.cpp
 
 exponentiate.o:
-	$(CC) $(CFLAGS) -c ../exponentiate.c
+	$(ENVP) $(CC) $(CFLAGS) -c ../exponentiate.c
 
 pair.o:
-	$(CPP) $(CPPFLAGS) -c ../pair.cpp
+	$(ENVP) $(CPP) $(CPPFLAGS) -c ../pair.cpp
 
 pm1prob.o:
-	$(CC) $(CFLAGS) -c ../pm1prob.c
+	$(ENVP) $(CC) $(CFLAGS) -c ../pm1prob.c
 
 .c.o:
 	$(ENVP) $(CC) $(CFLAGS) -c $<
