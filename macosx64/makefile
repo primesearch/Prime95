@@ -23,7 +23,7 @@ LFLAGS = -m64 -Wl,-no_pie -L/usr/local/lib
 LIBS   = ../gwnum/gwnum.a ../gwnum/polymult.a -lm -lpthread /usr/local/lib/libhwloc.a /usr/local/lib/libgmp.a -lcurl -framework IOKit -framework CoreFoundation -lc++
 
 FACTOROBJ = ../prime95/macosx64/factor64.o
-OBJS = prime.o menu.o cJSON.o ecm.o exponentiate.o pair.o pm1prob.o
+OBJS = aff.o prime.o menu.o cJSON.o ecm.o exponentiate.o pair.o pm1prob.o
 EXE = mprime
 
 #########################################################################

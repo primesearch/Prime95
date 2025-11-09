@@ -599,6 +599,7 @@ void SetPriority (
 /* Set affinity for this thread to a specific CPU core */
 
 	if (bind_type == 0) {
+#ifndef __APPLE__
 		int	num_cores;
 		hwloc_obj_t obj;
 		num_cores = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_CORE);
@@ -630,6 +631,17 @@ void SetPriority (
 			sprintf (buf, "Error getting hwloc object for core #%d.  Affinity not set.\n", core+1);
 			OutputStr (info->worker_num, buf);
 		}
+#else
+		int merror = mach_set_thread_cpubind(pthread_self(), core);
+		if (merror) {
+			sprintf (buf, "Error setting affinity to affinity-set #%d: %s\n", core+1, strerror (merror));
+			OutputStr (info->worker_num, buf);
+		}
+		else if (info->verbosity >= 2) {
+			sprintf (buf, "Affinity set to affinity-set #%d\n", core+1);
+			OutputStr (info->worker_num, buf);
+		}
+#endif
 	}
 
 /* Set affinity for this thread to a specific logical CPU */
