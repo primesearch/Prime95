@@ -6344,6 +6344,7 @@ void ecm_save (
 
 /* Write the checksum, we're done */
 
+	if (! write_footer (fd, w)) goto writeerr;
 	if (! write_checksum (fd, sum)) goto writeerr;
 
 	closeWriteSaveFile (&ecmdata->write_save_file_state, fd);
@@ -6583,6 +6584,7 @@ int ecm_restore (			/* For version 30.4 and later save files */
 /* Read and compare the checksum */
 
 	if (filesum != sum) goto readerr;
+	if (!read_footer (fd, w)) goto readerr;
 	_close (fd);
 	return (TRUE);
 
@@ -7357,6 +7359,9 @@ restart0:
 		curve_start_msg (&ecmdata);
 		stop_reason = init_curve (&ecmdata);
 		if (stop_reason) goto exit;
+		// Since there isn't a good place to create a save file when stage 2 completes, create a save file here so that we don't redo a
+		// previously completed curve in case of a power failure.
+		if (ecmdata.curve != 1) ecm_save (&ecmdata);
 		goto restart3;
 	}
 
@@ -7814,6 +7819,15 @@ replan:	unsigned long best_fftlen;
 	best_fails = 0;
 	best_poly_efficiency = 0.0;
 	msgbuf[0] = 0;
+
+// If this worker is already waiting for more memory (i.e. looking for work that does not use a lot of memory), then wove on to the next worktodo.txt entry */
+
+	if (is_worker_waiting_for_more_memory (thread_num)) {
+		if (ecmdata.state == ECM_STATE_MIDSTAGE) ecm_save (&ecmdata);
+		stop_reason = STOP_NOT_ENOUGH_MEM;
+		goto exit;
+	}
+
 	for (bool found_best = FALSE; ; ) {
 
 /* Initialize the polymult library (needed for calling polymult_mem_required).  Let user override polymult tuning parameters. */
@@ -7903,6 +7917,9 @@ OutputStr (thread_num, buf); }
 		// If forced_stage2_type is prime pairing, then we do not need to try larger FFT lengths
 		if (best_fftlen && forced_stage2_type == 0) found_best = TRUE;
 
+		// If we used all (or nearly all) of the available numvals in a poly, then a larger FFT will be worse due to fewer available numvals
+		if (best_poly_efficiency && ecmdata.stage2_numvals >= (int) cvt_mem_to_gwnums_adj (&ecmdata.gwdata, memory, -10.0)) found_best = TRUE;
+
 		// Small optimization: Skip costing larger FFT lengths if there are less than 60 numvals
 		if (best_fftlen && (double) memory * 1000000.0 / (double) array_gwnum_size (&ecmdata.gwdata) < 60.0) found_best = TRUE;
 
@@ -7924,7 +7941,7 @@ OutputStr (thread_num, buf); }
 			if (next_fftlen < maxerr_fftlen) next_fftlen = maxerr_fftlen;
 			if (found_best) next_fftlen = best_fftlen;
 			// Detect when no FFT length change is necessary (e.g. prime pairing selected and memory is very tight)
-			if (next_fftlen == gwfftlen (&ecmdata.gwdata)) break;
+			if (next_fftlen == gwfftlen (&ecmdata.gwdata) && next_fftlen == ecmdata.stage1_fftlen) break;
 			// Save Ad4, terminate current FFT size.
 			if (ecmdata.Ad4 != NULL) {
 				ecmdata.Ad4_binary = allocgiant (((int) ecmdata.gwdata.bit_length >> 5) + 10);
@@ -9927,6 +9944,7 @@ no_more_curves:
 	if (ecmdata.sigma_type == 0) sprintf (JSONbuf+strlen(JSONbuf), ", \"Edwards\":{}");
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", ecmdata.stage1_fftlen);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, ecmdata.B, ecmdata.average_B2));
+	if (w->gmp_ecm_file != NULL) sprintf (JSONbuf+strlen(JSONbuf), ", \"program-stage1\":\"GMP-ECM\"");
 	JSONaddProgramTimestamp (JSONbuf);
 	JSONaddExponentKnownFactors (JSONbuf, w);
 	JSONaddUserComputerAID (JSONbuf, w);
@@ -10560,6 +10578,7 @@ void pm1_save (
 
 /* Write the checksum, we're done */
 
+	if (! write_footer (fd, w)) goto writeerr;
 	if (! write_checksum (fd, sum)) goto writeerr;
 
 	closeWriteSaveFile (&pm1data->write_save_file_state, fd);
@@ -10828,6 +10847,7 @@ int pm1_restore (			/* For version 30.4 and later save files */
 /* Read and compare the checksum */
 
 	if (filesum != sum) goto readerr;
+	if (!read_footer (fd, w)) goto readerr;
 	_close (fd);
 
 /* All done */
@@ -11238,10 +11258,11 @@ int pm1_choose_B2 (
 				} else x.actual_i = x.i, x.compared_to_next_i = -100.0;
 
 // Return TRUE if x is better than y.
-// Each D value has its own breakeven point.  Higher D values are always more efficient than lower D values.
+// Each D value has its own breakeven point.  Significantly higher D values ought to be more efficient than lower D values.
 // Prime pairing also has its own breakeven point.
-#define p1compare(x,y)	(((x.D && y.D) && (x.D > y.D || (x.D == y.D && x.compared_to_next_i > y.compared_to_next_i))) ||	\
-			 ((x.D == 0 || y.D == 0) && (x.compared_to_next_i > y.compared_to_next_i)))
+#define p1compare(x,y)	((x.D && y.D && x.D > y.D + (y.D >> 2)) ||		/* x.D is 25% larger than y.D */	\
+			 (!(x.D && y.D && y.D > x.D + (x.D >> 2)) &&		/* y.D is not 25% larger than x.D (i.e. D values are close) */	\
+			  x.compared_to_next_i > y.compared_to_next_i))		/* and x is closer to the breakeven point */
 
 /* Look for the best B2 which is likely between 5*B1 and 10000*B1.  If optimal is not between these bounds, don't worry we'll locate the optimal spot anyway. */
 
@@ -12350,6 +12371,15 @@ replan:	unsigned long best_fftlen;
 	best_fails = 0;
 	best_poly_efficiency = 0.0;
 	msgbuf[0] = 0;
+
+// If this worker is already waiting for more memory (i.e. looking for work that does not use a lot of memory), then wove on to the next worktodo.txt entry */
+
+	if (is_worker_waiting_for_more_memory (thread_num)) {
+		if (pm1data.state == PM1_STATE_MIDSTAGE) pm1_save (&pm1data);
+		stop_reason = STOP_NOT_ENOUGH_MEM;
+		goto exit;
+	}
+
 //GW: Can we get here (old save files) with V set and one of x or invx not set?  If so, switching is an issue unless we convert V to binary.
 	for (bool found_best = FALSE; ; ) {
 
@@ -12440,6 +12470,9 @@ OutputStr (thread_num, buf); }
 		// If forced_stage2_type is prime pairing, then we do not need to try larger FFT lengths
 		if (best_fftlen && forced_stage2_type == 0) found_best = TRUE;
 
+		// If we used all (or nearly all) of the available numvals in a poly, then a larger FFT will be worse due to fewer available numvals
+		if (best_poly_efficiency && pm1data.stage2_numvals >= (int) cvt_mem_to_gwnums_adj (&pm1data.gwdata, memory, -10.0)) found_best = TRUE;
+
 		// Small optimization: Skip costing larger FFT lengths if there are less than 60 numvals
 		if (best_fftlen && (double) memory * 1000000.0 / (double) array_gwnum_size (&pm1data.gwdata) < 60.0) found_best = TRUE;
 
@@ -12455,7 +12488,7 @@ OutputStr (thread_num, buf); }
 			if (found_best) next_fftlen = best_fftlen;
 			msgbuf[0] = 0;
 			// Detect when no FFT length change is necessary (e.g. prime pairing selected and memory is very tight)
-			if (next_fftlen == gwfftlen (&pm1data.gwdata)) break;
+			if (next_fftlen == gwfftlen (&pm1data.gwdata) && next_fftlen == pm1data.stage1_fftlen) break;
 			// Terminate current FFT size
 			polymult_done (&pm1data.polydata);
 			gwdone (&pm1data.gwdata);
@@ -14594,6 +14627,7 @@ void pp1_save (
 
 /* Write the checksum, we're done */
 
+	if (! write_footer (fd, w)) goto writeerr;
 	if (! write_checksum (fd, sum)) goto writeerr;
 
 	closeWriteSaveFile (&pp1data->write_save_file_state, fd);
@@ -14734,6 +14768,7 @@ int pp1_restore (
 /* Read and compare the checksum */
 
 	if (filesum != sum) goto readerr;
+	if (!read_footer (fd, w)) goto readerr;
 	_close (fd);
 
 /* All done */
@@ -15901,6 +15936,14 @@ replan:	{
 			pp1data.C = pp1data.B_done;
 			goto restart4;
 		}
+	}
+
+// If this worker is already waiting for more memory (i.e. looking for work that does not use a lot of memory), then wove on to the next worktodo.txt entry */
+
+	if (is_worker_waiting_for_more_memory (thread_num)) {
+		if (pp1data.state == PP1_STATE_MIDSTAGE) pp1_save (&pp1data);
+		stop_reason = STOP_NOT_ENOUGH_MEM;
+		goto exit;
 	}
 
 /* Choose the best plan implementation given the currently available memory. */

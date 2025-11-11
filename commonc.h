@@ -11,8 +11,8 @@ extern "C" {
 
 /* Constants */
 
-#define VERSION		"31.0"
-#define BUILD_NUM	"4"
+#define VERSION		"31.1"
+#define BUILD_NUM	"1"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -439,6 +439,7 @@ struct work_unit {		/* One line from the worktodo file */
 	char	*gmp_ecm_file;	/* Save file from GMP-ECM to run stage 2 on */
 	char	*known_factors;	/* ECM, P-1, P+1, PRP - list of known factors */
 	char	*comment;	/* Comment line in worktodo.txt */
+	char	*morejsoninfo;	/* Optional JSON text appended to save file */
 		/* Runtime variables */
 	struct work_unit *next; /* Next in doubly-linked list */
 	struct work_unit *prev; /* Previous in doubly-linked list */
@@ -509,6 +510,8 @@ int read_header (int fd, uint32_t *version, struct work_unit *w, uint32_t *sum);
 int write_header (int fd, uint32_t magicnum, uint32_t version, struct work_unit *w);
 int read_checksum (int fd, uint32_t *sum);
 int write_checksum (int fd, uint32_t sum);
+int read_footer (int fd, struct work_unit *w);
+int write_footer (int fd, struct work_unit *w);
 // Deprecated versions (int = int32, long = uint32, slong = int32)
 int read_long (int fd, unsigned long *val, uint32_t *sum);
 #define write_long(fd,val,sum)	write_uint32 (fd, (uint32_t) (val), sum)

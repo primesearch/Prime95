@@ -61,6 +61,7 @@ int writeCertSaveFile (			/* Returns TRUE if successful */
 		goto err;
 	}
 
+	if (!write_footer (fd, w)) goto writeerr;
 	if (!write_checksum (fd, sum)) goto writeerr;
 
 	closeWriteSaveFile (write_save_file_state, fd);
@@ -103,6 +104,7 @@ int readCertSaveFile (			/* Returns TRUE if succsessful */
 
 	// Validate checksum and return
 	if (filesum != sum) goto err;
+	if (!read_footer (fd, w)) goto err;
 	_close (fd);
 	return (TRUE);
 err:	_close (fd);

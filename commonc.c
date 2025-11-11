@@ -688,6 +688,9 @@ void getCpuInfo (void)
 	temp = IniGetInt (INI_FILE, "CpuSupportsAVX512F", 99);
 	if (temp == 0) CPU_FLAGS &= ~CPU_AVX512F;
 	if (temp == 1) CPU_FLAGS |= CPU_AVX512F;
+	temp = IniGetInt (INI_FILE, "CpuSupportsAVX512DQ", 99);
+	if (temp == 0) CPU_FLAGS &= ~CPU_AVX512DQ;
+	if (temp == 1) CPU_FLAGS |= CPU_AVX512DQ;
 
 /* Let the user override the L1/L2/L3/L4 cache size in prime.txt file */
 
@@ -1318,13 +1321,15 @@ void nameAndReadIniFiles (
 	hwloc_topology_init (&hwloc_topology);
 	hwloc_topology_load (hwloc_topology);
 
-/* See if setting CPU affinity is supported */
+/* See if setting CPU affinity is supported.  2025-11-10: Mingye Wang provided a way for Apple CPUs to set affinity. */
 
 	{
 		const struct hwloc_topology_support *support;
 		OS_CAN_SET_AFFINITY = 1;
+#ifndef __APPLE__
 		support = hwloc_topology_get_support (hwloc_topology);
 		if (support == NULL || ! support->cpubind->set_thread_cpubind) OS_CAN_SET_AFFINITY = 0;
+#endif
 	}
 
 /* Initialize mutexes */
@@ -2479,6 +2484,7 @@ void JSONaddUserComputerAID (
 	if (USERID[0]) sprintf (JSONbuf+strlen(JSONbuf), ", \"user\":\"%s\"", USERID);
 	if (COMPID[0]) sprintf (JSONbuf+strlen(JSONbuf), ", \"computer\":\"%s\"", COMPID);
 	if (w != NULL && w->assignment_uid[0]) sprintf (JSONbuf+strlen(JSONbuf), ", \"aid\":\"%s\"", w->assignment_uid);
+	if (w != NULL && w->morejsoninfo != NULL) strcat (JSONbuf, w->morejsoninfo);
 }
 
 /****************************************************************************/
@@ -3139,8 +3145,8 @@ int parseWorkToDoLine (
 /* Make sure this line of work from the file makes sense. The exponent should be a prime number, bounded by values we can handle, and we */
 /* should never be asked to factor a number more than we are capable of. */
 
-	if (w->k < 1.0 || w->b < 2 || w->c == 0) {
-		sprintf (buf, "Error: Illegal number in worktodo.txt file, k < 1 or b < 2, or c = 0\n");
+	if (w->k < 1.0 || w->b < 2 || (w->gmp_ecm_file == NULL && w->n < 1) || w->c == 0) {
+		sprintf (buf, "Error: Illegal number in worktodo.txt file, k < 1 or b < 2 or n < 1 or c = 0\n");
 		OutputBoth (MAIN_THREAD_NUM, buf);
 		goto illegal_line;
 	}
@@ -3269,6 +3275,7 @@ int readWorkToDoFile (void)
 			free (w->gmp_ecm_file);
 			free (w->known_factors);
 			free (w->comment);
+			free (w->morejsoninfo);
 			free (w);
 		}
 		WORK_UNITS[tnum].first = NULL;
@@ -4893,6 +4900,48 @@ int write_checksum (
 	return (TRUE);
 }
 
+int read_footer (
+	int	fd,
+	struct work_unit *w)
+{
+// James proposed this optional footer containing data to append to JSON results
+//    16char magic MOREINFOJSONDATA
+//    32bit dword chunk size
+//    32bit dword version
+//    32bit dword data crc32
+//    <chunk size - 8> bytes JSON data
+	char magic[16];
+	uint32_t chunk_size;
+	uint32_t version;
+	uint32_t crc32;
+	if (!read_array (fd, magic, 16, NULL)) return (TRUE);
+	if (memcmp (magic, "MOREINFOJSONDATA", 16) != 0) return (FALSE);
+	if (!read_uint32 (fd, &chunk_size, NULL)) return (FALSE);
+	if (!read_uint32 (fd, &version, NULL)) return (FALSE);
+	if (version != 1) return (FALSE);
+	if (!read_uint32 (fd, &crc32, NULL)) return (FALSE);
+	w->morejsoninfo = (char *) malloc (chunk_size - 8 + 1);
+	if (w->morejsoninfo == NULL) return (FALSE);
+	if (!read_array (fd, w->morejsoninfo, chunk_size - 8, NULL)) return (FALSE);
+	w->morejsoninfo[chunk_size - 8] = 0;
+	return (TRUE);
+}
+
+int write_footer (
+	int	fd,
+	struct work_unit *w)
+{
+	if (w->morejsoninfo == NULL) return (TRUE);
+	if (!write_array (fd, "MOREINFOJSONDATA", 16, NULL)) return (FALSE);
+	uint32_t chunk_size = (uint32_t) strlen (w->morejsoninfo) + 8;
+	if (!write_uint32 (fd, chunk_size, NULL)) return (FALSE);
+	uint32_t version = 1;
+	if (!write_uint32 (fd, version, NULL)) return (FALSE);
+	uint32_t crc32 = 0;
+	if (!write_uint32 (fd, crc32, NULL)) return (FALSE);
+	if (!write_array (fd, w->morejsoninfo, chunk_size - 8, NULL)) return (FALSE);
+	return (TRUE);
+}
 
 
 /* Format a message for writing to the results file and sending to the */

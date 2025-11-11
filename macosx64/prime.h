@@ -1,4 +1,4 @@
-/* Copyright 1995-2022 Mersenne Research, Inc. */
+/* Copyright 1995-2025 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -85,3 +85,9 @@ void test_status(void);
 
 void rangeStatus (void);
 void options_cpu (void);
+
+#ifdef __APPLE__
+#include <pthread.h>
+int mach_set_thread_cpubind(thread_t thread, int cpu);
+int mach_get_thread_cpubind(thread_t thread);
+#endif

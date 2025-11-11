@@ -1,4 +1,4 @@
-; Copyright 2011-2024 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2025 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -544,7 +544,7 @@ zr4_eight_reals_four_complex_djbfft_preload MACRO
 	knotw	k6, k7				;; Set k6 to 00000001b
 	vbroadcastsd zmm31, ZMM_ONE
 	vbroadcastsd zmm0, ZMM_SQRTHALF
-	vxorpd	zmm1, zmm1, zmm1
+	vzero	zmm1
 	vsubpd	zmm31 {k6}, zmm1, zmm31		;; 1, 1, 1, 1, 1, 1, 1		-1
 	vblendmpd zmm30 {k6}, zmm31, zmm0	;; 1, 1, 1, 1, 1, 1, 1		SQRTHALF
 	vmulpd	zmm29, zmm31, zmm30		;; 1, 1, 1, 1, 1, 1, 1		-SQRTHALF
@@ -793,7 +793,7 @@ zr4_eight_reals_four_complex_djbunfft_preload MACRO
 	knotw	k6, k7				;; Set k6 to 00000001b
 	vbroadcastsd zmm0, ZMM_SQRTHALF
 	vbroadcastsd zmm28, ZMM_ONE
-	vxorpd	zmm1, zmm1, zmm1
+	vzero	zmm1
 	vblendmpd zmm27 {k6}, zmm28, zmm0	;; 1, 1, 1, 1, 1, 1, 1		SQRTHALF
 	vsubpd	zmm28 {k6}, zmm1, zmm0		;; 1, 1, 1, 1, 1, 1, 1		-SQRTHALF
 ;;	zblendmpd_preload zmm29

@@ -418,7 +418,7 @@ void SetPriority (
 
 	if (! IniGetInt (INI_FILE, "EnableSetAffinity", 1)) return;
 
-/* Skip setting affinity if OS does not support it.  At present time, that is Apple. */
+/* Skip setting affinity if OS does not support it.  At present time, that was Apple. */
 
  	if (!OS_CAN_SET_AFFINITY) return;
 
@@ -599,6 +599,7 @@ void SetPriority (
 /* Set affinity for this thread to a specific CPU core */
 
 	if (bind_type == 0) {
+#ifndef __APPLE__
 		int	num_cores;
 		hwloc_obj_t obj;
 		num_cores = hwloc_get_nbobjs_by_type (hwloc_topology, HWLOC_OBJ_CORE);
@@ -625,6 +626,16 @@ void SetPriority (
 				sprintf (buf, "Affinity set to cpuset %s\n", str);
 				OutputStr (info->worker_num, buf);
 			}
+#else
+		if (int error = mach_set_thread_cpubind(pthread_self(), core)) {
+			sprintf (buf, "Error setting affinity to affinity-set #%d: %s\n", core+1, strerror (error));
+			OutputStr (info->worker_num, buf);
+		}
+		else if (info->verbosity >= 2) {
+			sprintf (buf, "Affinity set to affinity-set #%d\n", core+1);
+			OutputStr (info->worker_num, buf);
+		}
+#endif
 		}
 		else {					// This shouldn't happen
 			sprintf (buf, "Error getting hwloc object for core #%d.  Affinity not set.\n", core+1);
@@ -1146,7 +1157,8 @@ void read_mem_info (void)
 /* Get the maximum number of workers that can use lots of memory.  Default is one.  If not using timers, do not allow zero max high mem workers. */
 
 	MAX_HIGH_MEM_WORKERS = IniGetTimedInt (INI_FILE, "MaxHighMemWorkers", 1, &seconds);
-	if (seconds == 0 && MAX_HIGH_MEM_WORKERS < 1) MAX_HIGH_MEM_WORKERS = 1;
+	// Someone found a use for MaxHighMemWorkers=0.  They wanted one machine to do stage 1 to copy the result to a high memory machine for stage 2.
+	// if (seconds == 0 && MAX_HIGH_MEM_WORKERS < 1) MAX_HIGH_MEM_WORKERS = 1;
 	if (seconds && (seconds_until_reread == 0 || seconds < seconds_until_reread)) seconds_until_reread = seconds;
 
 /* Add the event that fires when the memory settings expire. */
@@ -1662,6 +1674,16 @@ int avail_mem (
 /* Return clean stop code */
 
 	return (0);
+}
+
+/* Routine to check if worker is already waiting for more memory.  This is used when a worker tries to run stage 2 and there isn't enough memory. */
+/* The worker then start looking ahead for work that does not require a lot of memory.  If that work also tries to run stage 2 we call this routine */
+/* to skip expensive stage 2 planning that is highly likely to conclude it doesn't have enough memory. */
+
+int is_worker_waiting_for_more_memory (
+	int thread_num)
+{
+	return (MEM_RESTART_FLAGS[thread_num]);
 }
 
 /* Routine to notify all workers the day/night memory settings have changed.  This is called when the memory change timer fires OR */
@@ -5395,6 +5417,7 @@ begin:	factor_found = 0;
 			    read_long (fd, &facmsw, NULL) &&
 			    read_long (fd, &endpthi, NULL) &&
 			    read_long (fd, &endptlo, NULL) &&
+			    read_footer (fd, w) &&
 			    (fachsw < endpthi || (fachsw == endpthi && facmsw < endptlo))) {
 				facdata.asm_data->FACHSW = fachsw;
 				facdata.asm_data->FACMSW = facmsw;
@@ -5631,7 +5654,8 @@ begin:	factor_found = 0;
 				    write_long (fd, facdata.asm_data->FACHSW, NULL) &&
 				    write_long (fd, facdata.asm_data->FACMSW, NULL) &&
 				    write_long (fd, endpthi, NULL) &&
-				    write_long (fd, endptlo, NULL))
+				    write_long (fd, endptlo, NULL) &&
+				    write_footer (fd, w))
 					closeWriteSaveFile (&write_save_file_state, fd);
 				else {
 					sprintf (buf, WRITEFILEERR, filename);
@@ -6003,6 +6027,7 @@ int writeLLSaveFile (
 	if (!write_long (fd, lldata->units_bit, &sum)) goto err;
 	if (!write_gwnum (fd, &lldata->gwdata, lldata->lldata, &sum)) goto err;
 
+	if (!write_footer (fd, w)) goto err;
 	if (!write_checksum (fd, sum)) goto err;
 
 	closeWriteSaveFile (write_save_file_state, fd);
@@ -6078,6 +6103,7 @@ int readLLSaveFile (
 	if (!read_gwnum (fd, &lldata->gwdata, lldata->lldata, &sum)) goto err;
 
 	if (filesum != sum) goto err;
+	if (!read_footer (fd, w)) goto err;
 	_close (fd);
 	return (TRUE);
 err:	_close (fd);
@@ -6422,7 +6448,7 @@ int jacobi_test (
 /* Free giants, compute the Jacobi symbol (a-2|Mp) */
 
 	silent_Jacobi = IniGetInt (INI_FILE, "SilentJacobi", 0);
-	if (!silent_Jacobi) OutputStr (thread_num, "Running Jacobi error check.  ");
+	if (!silent_Jacobi) OutputStr (thread_num, "Running Jacobi error check.\n");
 	mpz_sub_ui (a, a, 2);
 	if (mpz_sgn (a) < 0) mpz_add (a, a, b);
 	Jacobi_symbol = mpz_jacobi (a, b);
@@ -6430,8 +6456,8 @@ int jacobi_test (
 /* End the timer, print out PASS/FAIL message along with time taken */
 
 	end_timer (timers, 0);
-	sprintf (buf, "%s.  Time: %6.3f sec.\n", Jacobi_symbol == -1 ? "Passed" : "Failed", timer_value (timers, 0));
-	if (!silent_Jacobi) OutputStrNoTimeStamp (thread_num, buf);
+	sprintf (buf, "Jacobi error check %s.  Time: %6.3f sec.\n", Jacobi_symbol == -1 ? "passed" : "failed", timer_value (timers, 0));
+	if (!silent_Jacobi) OutputStr (thread_num, buf);
 	else if (Jacobi_symbol != -1) OutputStr (thread_num, "Jacobi error-check failed\n");
 
 /* Cleanup and return */
@@ -11205,6 +11231,7 @@ int writePRPSaveFile (			// Returns TRUE if successful
 		}
 	}
 
+	if (!write_footer (fd, w)) goto writeerr;
 	if (!write_checksum (fd, sum)) goto writeerr;
 
 	closeWriteSaveFile (write_save_file_state, fd);
@@ -11359,6 +11386,7 @@ int readPRPSaveFile (
 
 	// Validate checksum and return
 	if (filesum != sum) goto err;
+	if (!read_footer (fd, w)) goto err;
 	_close (fd);
 	return (TRUE);
 err:	_close (fd);

@@ -1,9 +1,15 @@
-; Copyright 2011-2024 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2025 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
 ; These macros implement basic AVX-512 building blocks that will be used by all FFT types.
 ;
+
+;; Zero a ZMM register.  VXORPD would be ideal (low latency), but it requires AVX512DQ support
+
+vzero MACRO zeroreg
+	vpxorq	zeroreg,zeroreg,zeroreg
+	ENDM
 
 ;; Store a 512-bit zmm register in memory.  In older (AMD?) architectures there was a difference
 ;; between using vmovaps and vmovapd.  We continue to use a store macro for those historical reasons. 
@@ -46,8 +52,8 @@ zmaxabspd_preload MACRO absreg
 	ENDM
 zmaxabspd MACRO dest, src1, src2
 	IF AVX512DQ EQ 0
-	vandpd	src1, src1, zmaxabspd_absreg
-	vandpd	src2, src2, zmaxabspd_absreg
+	vpandq	src1, src1, zmaxabspd_absreg
+	vpandq	src2, src2, zmaxabspd_absreg
 	vmaxpd	dest, src1, src2
 	ELSE
 	vrangepd dest, src1, src2, 1011b
@@ -56,11 +62,11 @@ zmaxabspd MACRO dest, src1, src2
 
 ;; A latency one vblendmpd instruction may introduce "bubbles" into a pipeline full af latency four adds and muls.
 ;; If so, using an vmovapd and vaddpd instruction might be faster even though it is more uops and longer latency.
-;; Benchmarking on Skylake-X suggests pipeline bubbles are not a problem
+;; Benchmarking on Skylake-X suggests pipeline bubbles are not a problem.
 
 zblendmpd_preload MACRO zeroreg
 ;;	zblendmpd_zeroreg EQU <&zeroreg>
-;;	vxorpd	zeroreg, zeroreg, zeroreg
+;;	vzero	zeroreg
 	ENDM
 zblendmpd MACRO dest, kreg, src1, src2
 	vblendmpd dest {kreg}, src1, src2

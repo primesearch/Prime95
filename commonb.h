@@ -220,6 +220,7 @@ int avail_mem (int, unsigned long, unsigned long, unsigned int *);
 #define	MEM_VARIABLE_USAGE 0x8		/* The current work unit is using a lot of memory now and if needed could use less if restarted. */
 #define MEM_WAITING 0x10		/* Set if thread is waiting for another thread to stop before returning from set_memory_usage */
 int set_memory_usage (int, int, unsigned long);
+int is_worker_waiting_for_more_memory(int thread_num);
 void set_restart_if_max_memory_change (int thread_num);
 void clear_restart_if_max_memory_change (int thread_num);
 

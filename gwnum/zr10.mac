@@ -1,4 +1,4 @@
-; Copyright 2018-2024 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2018-2025 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -1952,7 +1952,7 @@ zr25_twenty_reals_ten_complex_djbfft_preload MACRO
 	mov	r9d, 11111110b			;; We're pretty sure r9 is safe to use
 	kmovw	k7, r9d				;; Set k7 to 11111110b
 	knotw	k6, k7				;; Set k6 to 00000001b
-	vxorpd	zmm0, zmm0, zmm0
+	vzero	zmm0
 	vbroadcastsd zmm29, ZMM_ONE
 	vsubpd	zmm29 {k6}, zmm0, zmm29		;; 1 (7 times)			-1
 	vbroadcastsd zmm31, ZMM_P309
@@ -2269,7 +2269,7 @@ zr25_twenty_reals_ten_complex_djbunfft_preload MACRO
 	knotw	k6, k7				;; Set k6 to 00000001b
 	vbroadcastsd zmm31, ZMM_P309		;; .309
 	vbroadcastsd zmm30, ZMM_P809		;; .809
-	vxorpd	zmm25, zmm25, zmm25
+	vzero	zmm25
 	vmovapd	zmm29, zmm31
 	vmovapd	zmm28, zmm30
 	vsubpd	zmm29 {k6}, zmm25, zmm30	;; .309 (7 times)		-.809

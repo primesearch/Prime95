@@ -281,9 +281,9 @@ void gtog (			/* destgiant becomes equal to srcgiant. */
 	giant	srcgiant,
 	giant	destgiant)
 {
+	ASSERTG (abs (srcgiant->sign) <= destgiant->maxsize);
 	destgiant->sign = srcgiant->sign;
 	memmove (destgiant->n, srcgiant->n, abs (srcgiant->sign) * sizeof (uint32_t));
-	ASSERTG (abs (destgiant->sign) <= destgiant->maxsize);
 }
 
 int gcompg (		/* Returns -1,0,1 if a<b, a=b, a>b, respectively. */

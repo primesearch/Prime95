@@ -1,4 +1,4 @@
-; Copyright 2011-2024 - Mersenne Research, Inc.  All rights reserved.
+; Copyright 2011-2025 - Mersenne Research, Inc.  All rights reserved.
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -267,7 +267,7 @@ khi	zfmaddpd zmm7, zmm11, zmm31, zmm7		; 38-41 ;; if khi next carry8 = val4_lo *
 	zstore	[rsi+r13], zmm13				;; Save value2
 	zstore	[rsi+2*r13], zmm14				;; Save value3
 	zstore	[rsi+r14], zmm15				;; Save value4
-	vxorpd	zmm8, zmm8, zmm8
+	vzero	zmm8
 	zstore	[rsi+64], zmm8					;; Save value5
 	zstore	[rsi+r13+64], zmm8				;; Save value6
 	zstore	[rsi+2*r13+64], zmm8				;; Save value7
@@ -318,14 +318,14 @@ znorm_1d_zpad_echk_nottp MACRO const, khi
 	zfnmaddpd zmm23, [rsi+r14+64], zmm23, zmm3	; 12-15	;; err = tmp - value*inv_weight
 
 	vbroadcastsd zmm0, ZMM_ABSVAL
-	vandpd	zmm16, zmm16, zmm0			; 13	;; err = abs(err)
-	vandpd	zmm17, zmm17, zmm0			; 13	;; err = abs(err)
-	vandpd	zmm18, zmm18, zmm0			; 14	;; err = abs(err)
-	vandpd	zmm19, zmm19, zmm0			; 14	;; err = abs(err)
-	vandpd	zmm20, zmm20, zmm0			; 15	;; err = abs(err)
-	vandpd	zmm21, zmm21, zmm0			; 15	;; err = abs(err)
-	vandpd	zmm22, zmm22, zmm0			; 16	;; err = abs(err)
-	vandpd	zmm23, zmm23, zmm0			; 16	;; err = abs(err)
+	vpandq	zmm16, zmm16, zmm0			; 13	;; err = abs(err)
+	vpandq	zmm17, zmm17, zmm0			; 13	;; err = abs(err)
+	vpandq	zmm18, zmm18, zmm0			; 14	;; err = abs(err)
+	vpandq	zmm19, zmm19, zmm0			; 14	;; err = abs(err)
+	vpandq	zmm20, zmm20, zmm0			; 15	;; err = abs(err)
+	vpandq	zmm21, zmm21, zmm0			; 15	;; err = abs(err)
+	vpandq	zmm22, zmm22, zmm0			; 16	;; err = abs(err)
+	vpandq	zmm23, zmm23, zmm0			; 16	;; err = abs(err)
 
 ;; BUG - Is there a better grouping available (use regs zmm16 up and interleave with the / base FMA instructions
 ;; Use more maxerr accumulators?
@@ -406,7 +406,7 @@ khi	zfmaddpd zmm7, zmm11, zmm23, zmm7		; 54-57 ;; if khi next carry8 = val4_lo *
 	zstore	[rsi+r13], zmm13				;; Save value2
 	zstore	[rsi+2*r13], zmm14				;; Save value3
 	zstore	[rsi+r14], zmm15				;; Save value4
-	vxorpd	zmm8, zmm8, zmm8
+	vzero	zmm8
 	zstore	[rsi+64], zmm8					;; Save value5
 	zstore	[rsi+r13+64], zmm8				;; Save value6
 	zstore	[rsi+2*r13+64], zmm8				;; Save value7
@@ -526,7 +526,7 @@ zadd_carry_1d_zpad_nottp MACRO
 	LOCAL	nonconst, rloop, cloop, cloop_end, done
 
 	vmovapd	zmm23, zmm30				;; Top carries are saved here for adding into next section
-	vxorpd	zmm22, zmm22, zmm22			;; Constant zero
+	vzero	zmm22					;; Constant zero
 	;; vbroadcastsd zmm24, ZMM_K_LO			;; k_lo or k_lo*mulconst was preloaded into zmm24 by znorm_1d_zpad_preload
 	vbroadcastsd zmm21, ZMM_K_HI_OVER_SMALL_BASE	;; k_hi / small_word_base
 	cmp	const_fft, 0				;; Are we also multiplying by a constant?
@@ -641,7 +641,7 @@ zadd_carry_1d_zpad_ttp MACRO
 	push	rdi					;; Save next section's biglit pointer
 	push	r12					;; Save next section' compressed biglit table pointer
 
-	vxorpd	zmm23, zmm23, zmm23			;; Top carries are saved here for adding into next section
+	vzero	zmm23					;; Top carries are saved here for adding into next section
 	vmovapd	zmm22, zmm23				;; Constant zero
 	vbroadcastsd zmm24, ZMM_K_LO
 	vbroadcastsd zmm21, ZMM_K_HI_OVER_SMALL_BASE
@@ -833,7 +833,7 @@ zrestore_top_carries_op_1d_zpad MACRO ttp
 zadd_carry_op_1d_zpad_nottp MACRO
 	LOCAL	rloop, cloop, cloop_end, done
 
-	vxorpd	zmm23, zmm23, zmm23			;; Top carries are saved here for adding into next section
+	vzero	zmm23					;; Top carries are saved here for adding into next section
 	vmovapd	zmm22, zmm23				;; Constant zero
 
 	mov	cl, 8					;; Spread carry over a max of 8 words
@@ -903,7 +903,7 @@ zadd_carry_op_1d_zpad_ttp MACRO
 	push	rdi					;; Save next section's biglit pointer
 	push	r12					;; Save next section' compressed biglit table pointer
 
-	vxorpd	zmm23, zmm23, zmm23			;; Top carries are saved here for adding into next section
+	vzero	zmm23					;; Top carries are saved here for adding into next section
 	vmovapd	zmm22, zmm23				;; Constant zero
 
 	mov	cl, 8					;; Spread carry over a max of 8 words
@@ -1635,7 +1635,7 @@ khi	zfmaddpd zmm7, zmm11, zmm31, zmm7	; 38-41 ;; if khi next carry8 = val4_lo * 
 	zstore	[rsi+r13], zmm13			;; Save value2
 	zstore	[rsi+2*r13], zmm14			;; Save value3
 	zstore	[rsi+r14], zmm15			;; Save value4
-	vxorpd	zmm8, zmm8, zmm8
+	vzero	zmm8
 	zstore	[rsi+64], zmm8				;; Save value5
 	zstore	[rsi+r13+64], zmm8			;; Save value6
 	zstore	[rsi+2*r13+64], zmm8			;; Save value7
@@ -1682,14 +1682,14 @@ znorm_wpn_zpad_echk_nottp MACRO const, khi
 	vsubpd	zmm23, zmm23, [rsi+r14+64] 	; 12-15	;; err = rnd(value) - value
 
 	vbroadcastsd zmm0, ZMM_ABSVAL
-	vandpd	zmm16, zmm16, zmm0		; 13	;; err = abs(err)
-	vandpd	zmm17, zmm17, zmm0		; 13	;; err = abs(err)
-	vandpd	zmm18, zmm18, zmm0		; 14	;; err = abs(err)
-	vandpd	zmm19, zmm19, zmm0		; 14	;; err = abs(err)
-	vandpd	zmm20, zmm20, zmm0		; 15	;; err = abs(err)
-	vandpd	zmm21, zmm21, zmm0		; 15	;; err = abs(err)
-	vandpd	zmm22, zmm22, zmm0		; 16	;; err = abs(err)
-	vandpd	zmm23, zmm23, zmm0		; 16	;; err = abs(err)
+	vpandq	zmm16, zmm16, zmm0		; 13	;; err = abs(err)
+	vpandq	zmm17, zmm17, zmm0		; 13	;; err = abs(err)
+	vpandq	zmm18, zmm18, zmm0		; 14	;; err = abs(err)
+	vpandq	zmm19, zmm19, zmm0		; 14	;; err = abs(err)
+	vpandq	zmm20, zmm20, zmm0		; 15	;; err = abs(err)
+	vpandq	zmm21, zmm21, zmm0		; 15	;; err = abs(err)
+	vpandq	zmm22, zmm22, zmm0		; 16	;; err = abs(err)
+	vpandq	zmm23, zmm23, zmm0		; 16	;; err = abs(err)
 
 ;; BUG - Is there a better grouping available (use regs zmm16 up and interleave with the / base FMA instructions
 ;; Use more maxerr accumulators?
@@ -1770,7 +1770,7 @@ khi	zfmaddpd zmm7, zmm11, zmm23, zmm7	; 54-57 ;; if khi next carry8 = val4_lo * 
 	zstore	[rsi+r13], zmm13			;; Save value2
 	zstore	[rsi+2*r13], zmm14			;; Save value3
 	zstore	[rsi+r14], zmm15			;; Save value4
-	vxorpd	zmm8, zmm8, zmm8
+	vzero	zmm8
 	zstore	[rsi+64], zmm8				;; Save value5
 	zstore	[rsi+r13+64], zmm8			;; Save value6
 	zstore	[rsi+2*r13+64], zmm8			;; Save value7
@@ -1915,7 +1915,7 @@ khi	zfmaddpd zmm7, zmm11, zmm19, zmm7		; 52-55 ;; if khi next carry8 = val4_lo *
 	zstore	[rsi+r13], zmm13				;; Save value2
 	zstore	[rsi+2*r13], zmm14				;; Save value3
 	zstore	[rsi+r14], zmm15				;; Save value4
-	vxorpd	zmm8, zmm8, zmm8
+	vzero	zmm8
 	zstore	[rsi+64], zmm8					;; Save value5
 	zstore	[rsi+r13+64], zmm8				;; Save value6
 	zstore	[rsi+2*r13+64], zmm8				;; Save value7
@@ -1967,14 +1967,14 @@ znorm_wpn_zpad_echk_ttp MACRO const, khi
 	zfnmaddpd zmm23, [rsi+r14+64], zmm23, zmm15	; 12-15	;; err = rnd(value) - rnd(value*inv_grp_mult)
 
 	vbroadcastsd zmm0, ZMM_ABSVAL
-	vandpd	zmm16, zmm16, zmm0			; 13	;; err = abs(err)
-	vandpd	zmm17, zmm17, zmm0			; 13	;; err = abs(err)
-	vandpd	zmm18, zmm18, zmm0			; 14	;; err = abs(err)
-	vandpd	zmm19, zmm19, zmm0			; 14	;; err = abs(err)
-	vandpd	zmm20, zmm20, zmm0			; 15	;; err = abs(err)
-	vandpd	zmm21, zmm21, zmm0			; 15	;; err = abs(err)
-	vandpd	zmm22, zmm22, zmm0			; 16	;; err = abs(err)
-	vandpd	zmm23, zmm23, zmm0			; 16	;; err = abs(err)
+	vpandq	zmm16, zmm16, zmm0			; 13	;; err = abs(err)
+	vpandq	zmm17, zmm17, zmm0			; 13	;; err = abs(err)
+	vpandq	zmm18, zmm18, zmm0			; 14	;; err = abs(err)
+	vpandq	zmm19, zmm19, zmm0			; 14	;; err = abs(err)
+	vpandq	zmm20, zmm20, zmm0			; 15	;; err = abs(err)
+	vpandq	zmm21, zmm21, zmm0			; 15	;; err = abs(err)
+	vpandq	zmm22, zmm22, zmm0			; 16	;; err = abs(err)
+	vpandq	zmm23, zmm23, zmm0			; 16	;; err = abs(err)
 
 	vmaxpd	zmm20, zmm20, zmm16			; 17-20	;; accumulate maxerr
 	vmaxpd	zmm21, zmm21, zmm17			; 17-20	;; accumulate maxerr
@@ -2092,7 +2092,7 @@ khi	zfmaddpd zmm7, zmm11, zmm19, zmm7		; 52-55 ;; if khi next carry8 = val4_lo *
 	zstore	[rsi+r13], zmm13				;; Save value2
 	zstore	[rsi+2*r13], zmm14				;; Save value3
 	zstore	[rsi+r14], zmm15				;; Save value4
-	vxorpd	zmm8, zmm8, zmm8
+	vzero	zmm8
 	zstore	[rsi+64], zmm8					;; Save value5
 	zstore	[rsi+r13+64], zmm8				;; Save value6
 	zstore	[rsi+2*r13+64], zmm8				;; Save value7
@@ -2128,7 +2128,7 @@ znorm_op_wpn_zpad_nottp_preload MACRO
 	vbroadcastsd zmm30, ZMM_RNDVAL			;; Load the rounding value
 	vbroadcastsd zmm29, ZMM_SMALL_BASE		;; small_word_base
 	vbroadcastsd zmm28, ZMM_SMALL_BASE_INVERSE	;; 1 / small_word_base
-	vxorpd	zmm0, zmm0, zmm0			;; Start process with no carry
+	vzero	zmm0					;; Start process with no carry
 	vmovapd	zmm1, zmm0
 	vmovapd	zmm2, zmm0
 	vmovapd	zmm3, zmm0
@@ -2184,7 +2184,7 @@ znorm_op_wpn_zpad_ttp_preload MACRO
 	vbroadcastsd zmm28, ZMM_SMALL_BASE_INVERSE	;; 1 / small_word_base
 	vbroadcastsd zmm27, ZMM_LARGE_BASE		;; large_word_base
 	vbroadcastsd zmm26, ZMM_LARGE_BASE_INVERSE	;; 1 / large_word_base
-	vxorpd	zmm0, zmm0, zmm0			;; Start process with no carry
+	vzero	zmm0					;; Start process with no carry
 	vmovapd	zmm1, zmm0
 	vmovapd	zmm2, zmm0
 	vmovapd	zmm3, zmm0
@@ -2286,7 +2286,7 @@ znorm_addsub_wpn_zpad_nottp_preload MACRO
 	vbroadcastsd zmm30, ZMM_RNDVAL			;; Load the rounding value
 	vbroadcastsd zmm29, ZMM_SMALL_BASE		;; small_word_base
 	vbroadcastsd zmm28, ZMM_SMALL_BASE_INVERSE	;; 1 / small_word_base
-	vxorpd	zmm0, zmm0, zmm0			;; Start process with no carry
+	vzero	zmm0					;; Start process with no carry
 	vmovapd	zmm1, zmm0
 	vmovapd	zmm2, zmm0
 	vmovapd	zmm3, zmm0
@@ -2394,7 +2394,7 @@ znorm_addsub_wpn_zpad_ttp_preload MACRO
 	vbroadcastsd zmm28, ZMM_SMALL_BASE_INVERSE		;; 1 / small_word_base
 	vbroadcastsd zmm27, ZMM_LARGE_BASE			;; large_word_base
 	vbroadcastsd zmm26, ZMM_LARGE_BASE_INVERSE		;; 1 / large_word_base
-	vxorpd	zmm0, zmm0, zmm0		;; Start process with no carry
+	vzero	zmm0				;; Start process with no carry
 	vmovapd	zmm1, zmm0
 	vmovapd	zmm2, zmm0
 	vmovapd	zmm3, zmm0
@@ -2564,7 +2564,7 @@ znorm_smallmul_wpn_zpad_nottp_preload MACRO
 	vbroadcastsd zmm30, ZMM_RNDVAL			;; Load the rounding value
 	vbroadcastsd zmm29, ZMM_SMALL_BASE		;; small_word_base
 	vbroadcastsd zmm28, ZMM_SMALL_BASE_INVERSE	;; 1 / small_word_base
-	vxorpd	zmm0, zmm0, zmm0			;; Start process with no carry
+	vzero	zmm0					;; Start process with no carry
 	vmovapd	zmm1, zmm0
 	vmovapd	zmm2, zmm0
 	vmovapd	zmm3, zmm0
@@ -2606,7 +2606,7 @@ znorm_smallmul_wpn_zpad_ttp_preload MACRO
 	vbroadcastsd zmm28, ZMM_SMALL_BASE_INVERSE	;; 1 / small_word_base
 	vbroadcastsd zmm27, ZMM_LARGE_BASE		;; large_word_base
 	vbroadcastsd zmm26, ZMM_LARGE_BASE_INVERSE	;; 1 / large_word_base
-	vxorpd	zmm0, zmm0, zmm0			;; Start process with no carry
+	vzero	zmm0					;; Start process with no carry
 	vmovapd	zmm1, zmm0
 	vmovapd	zmm2, zmm0
 	vmovapd	zmm3, zmm0
@@ -2983,7 +2983,7 @@ cloop:	dec	al				;; Decrement count of sets of 4 carries we've processed
 	zstore	[rsi+2*r13], zmm10		;; Save new val3
 	zstore	[rsi+r14], zmm11		;; Save new val4
 
-	vxorpd	zmm8, zmm8, zmm8		;; Zero
+	vzero	zmm8				;; Zero
 	vcmpneqpd k1, zmm0, zmm8		;; Are any non-zero carries remaining to propagate?
 	vcmpneqpd k2, zmm1, zmm8
 	vcmpneqpd k3, zmm2, zmm8
@@ -3144,7 +3144,7 @@ zadd_carry_rows_op_zpad_ttp_preload MACRO
 	vbroadcastsd zmm28, ZMM_SMALL_BASE_INVERSE		;; 1 / small_word_base
 	vbroadcastsd zmm27, ZMM_LARGE_BASE			;; large_word_base
 	vbroadcastsd zmm26, ZMM_LARGE_BASE_INVERSE		;; 1 / large_word_base
-	vxorpd	zmm31, zmm31, zmm31				;; Zero
+	vzero	zmm31						;; Zero
 	ENDM
 
 zadd_carry_rows_op_zpad_ttp MACRO
@@ -3296,7 +3296,7 @@ zprocess_last_two_carries_op_zpad MACRO ttp
 	vmovsd	[rsi+64], xmm0			;; Save
 
 	; Clear the carry that is added to lowest FFT data in zpad_final_div_by_k.
-	vxorpd	xmm0, xmm0, xmm0
+	vzero	xmm0
 	vmovsd	Q ZMM_TMP1, xmm0
 	vmovsd	Q ZMM_TMP2, xmm0
 	ENDM
@@ -3440,7 +3440,7 @@ zpad_final_div_by_k MACRO ttp
 
 	;; This case does the divide by k where k is three words
 
-	vxorpd	zmm11, zmm11, zmm11		;; Zero quotient word that other cases set
+	vzero	zmm11				;; Zero quotient word that other cases set
 
 	vmulsd	xmm10, xmm9, ZPAD_INVERSE_K6	;; Mul by shifted 1/k
 	vroundsd xmm10, xmm10, xmm10, 0		;; Round to integer
@@ -3528,7 +3528,7 @@ mediumk:
 
 	;; This case does the divide by k where k is one word.  Assume xmm8 and xmm9 are zero.
 
-smallk:	vxorpd	zmm11, zmm11, zmm11		;; Zero quotient word that other cases set
+smallk:	vzero	zmm11				;; Zero quotient word that other cases set
 
 	vmulsd	xmm10, xmm7, ZPAD_INVERSE_K1	;; Mul data by 1/k
 	vroundsd xmm10, xmm10, xmm10, 0		;; Round to integer

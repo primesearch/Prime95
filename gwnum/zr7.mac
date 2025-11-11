@@ -1,4 +1,4 @@
-; Copyright 2011-2024 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2011-2025 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -1107,7 +1107,7 @@ zr7_fourteen_reals_seven_complex_djbfft_preload MACRO
 	mov	r9d, 11111110b			;; We're pretty sure r9 is safe to use
 	kmovw	k7, r9d				;; Set k7 to 11111110b
 	knotw	k6, k7				;; Set k6 to 00000001b
-	vxorpd	zmm0, zmm0, zmm0
+	vzero	zmm0
 	vbroadcastsd zmm28, ZMM_ONE
 	vsubpd	zmm28 {k6}, zmm0, zmm28		;; 1 (7 times)			-1
 	vbroadcastsd zmm31, ZMM_P901_P975	;; .901/.975
@@ -1357,7 +1357,7 @@ zr7_fourteen_reals_seven_complex_djbunfft_preload MACRO
 	vbroadcastsd zmm28, ZMM_P434_P975	;; .434/.975
 	vbroadcastsd zmm27, ZMM_P782_P975	;; .782/.975
 	vbroadcastsd zmm26, ZMM_P1_P975		;; 1/.975
-	vxorpd	zmm25, zmm25, zmm25
+	vzero	zmm25
 	ENDM
 
 zr7_fourteen_reals_seven_complex_djbunfft MACRO srcreg,srcinc,d1,screg,scinc,maxrpt,L1pt

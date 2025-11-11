@@ -1,4 +1,4 @@
-; Copyright 2018-2024 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2018-2025 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -1651,7 +1651,7 @@ zr33_eighteen_reals_nine_complex_djbfft_preload MACRO
 	vbroadcastsd zmm31, ZMM_HALF
 	vbroadcastsd zmm30, ZMM_P866
 	vbroadcastsd zmm29, ZMM_ONE
-	vxorpd	zmm0, zmm0, zmm0
+	vzero	zmm0
 	vsubpd	zmm29 {k6}, zmm0, zmm29		;; 1 (7 times)			-1
 	vmulpd	zmm28, zmm29, zmm31		;; 0.5 (7 times)		-0.5
 	ENDM
@@ -1934,7 +1934,7 @@ zr33_eighteen_reals_nine_complex_djbunfft_preload MACRO
 	knotw	k6, k7				;; Set k6 to 00000001b
 	vbroadcastsd zmm31, ZMM_HALF
 	vbroadcastsd zmm30, ZMM_P866
-	vxorpd	zmm29, zmm29, zmm29
+	vzero	zmm29
 	ENDM
 zr33_eighteen_reals_nine_complex_djbunfft MACRO srcreg,srcinc,d1,scIIIreg,scIIIgap,scIIIinc,sc3reg,sc3gap,sc3inc,maxrpt,L1pt,L1pd
 	IF scIIIgap NE 0

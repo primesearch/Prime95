@@ -1,4 +1,4 @@
-; Copyright 2024 Mersenne Research, Inc.  All rights reserved
+; Copyright 2024-2025 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -684,13 +684,13 @@ PROCFL	gwzcopy4kb
 	mov	rdi, DESTARG			; Address of destination
 	mov	al, 4096/256			; Count of 256 byte chunks in 4KB
 z4klp:	vmovapd	zmm0, [rsi]
-	vandpd	zmm0, zmm0, [rcx]
+	vpandq	zmm0, zmm0, [rcx]
 	vmovapd	zmm1, [rsi+64]
-	vandpd	zmm1, zmm1, [rcx+64]
+	vpandq	zmm1, zmm1, [rcx+64]
 	vmovapd	zmm2, [rsi+128]
-	vandpd	zmm2, zmm2, [rcx+128]
+	vpandq	zmm2, zmm2, [rcx+128]
 	vmovapd	zmm3, [rsi+192]
-	vandpd	zmm3, zmm3, [rcx+192]
+	vpandq	zmm3, zmm3, [rcx+192]
 	zstore	[rdi], zmm0			; Store destination data
 	zstore	[rdi+64], zmm1
 	zstore	[rdi+128], zmm2
@@ -1081,7 +1081,7 @@ ttp	mov	r12, compressed_biglits	;; Get pointer to compressed biglit table
 	vmovapd zmm2, zmm30
 	vmovapd zmm3, zmm30
 no ttp	vmovapd zmm4, zmm30
-ttp	vxorpd	zmm4, zmm4, zmm4	;; Remove RNDVAL from high carries for irrational normalization
+ttp	vzero	zmm4			;; Remove RNDVAL from high carries for irrational normalization
 	vmovapd zmm5, zmm4
 	vmovapd zmm6, zmm4
 	vmovapd zmm7, zmm4
