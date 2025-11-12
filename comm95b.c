@@ -68,7 +68,16 @@ void setOsThreadPriority (
 		PowerThrottling.Version = THREAD_POWER_THROTTLING_CURRENT_VERSION;
 		PowerThrottling.ControlMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
 		PowerThrottling.StateMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
-		SetThreadInformation (GetCurrentThread(), ThreadPowerThrottling, &PowerThrottling, sizeof(PowerThrottling));
+		// SetThreadInformation is not available in Windows 7
+		// SetThreadInformation (GetCurrentThread(), ThreadPowerThrottling, &PowerThrottling, sizeof(PowerThrottling));
+		// Use dynamic linking instead
+		HMODULE	hlib = LoadLibrary ("KERNEL32.DLL");
+		if (hlib) {
+			BOOL (__stdcall *proc)(HANDLE, THREAD_INFORMATION_CLASS, LPVOID, DWORD);
+			proc = (BOOL (__stdcall *)(HANDLE, THREAD_INFORMATION_CLASS, LPVOID, DWORD)) GetProcAddress (hlib, "SetThreadInformation");
+			if (proc != NULL) (*proc) (GetCurrentThread(), ThreadPowerThrottling, &PowerThrottling, sizeof(PowerThrottling));
+			FreeLibrary (hlib);
+		}
 	}
 }
 

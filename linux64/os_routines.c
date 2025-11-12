@@ -510,12 +510,24 @@ void mallocFreeForOS () {
 
 // Affinity code courtesy of Mingye Wang
 
+// This new Apple affinity code will not compile for me.
+#if 1
+#ifdef __APPLE__
+int mach_set_thread_cpubind(pthread_t thread, int cpu) {
+	return EINVAL;
+}
+#endif
+#else
+
 #ifdef __APPLE__
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <mach/vm_types.h>
 #include <mach/thread_policy.h>
+#include <mach/thread_act.h>
+#include <errno.h>
 
 /* Alternatively, this can be simplified to set-only without checking core count */
 int32_t pu_per_core = 0;
@@ -524,7 +536,7 @@ int32_t ncore = 0;
 __attribute__((constructor))
 static inline void initialize_pu_per_core() {
     int64_t cacheconfig[32];
-    int32_t *cacheconfig32 = cacheconfig;
+    int32_t *cacheconfig32 = (int32_t *) cacheconfig;
     size_t size = sizeof(cacheconfig);
     sysctlbyname("hw.cacheconfig", &cacheconfig, &size, NULL, 0);
     /* per hwloc, there are 32 and 64-bit configs... */
@@ -544,7 +556,7 @@ static inline void initialize_ncore() {
 }
 
 /* Index is 1-based! 0 means no binding. Return value is positive-errno. Most commonly you get EPFNOSUPPORT (46) on ARM */
-int mach_set_thread_cpubind(thread_t thread, int cpu) {
+int mach_set_thread_cpubind(pthread_t thread, int cpu) {
     if (cpu < 0 || cpu > ncore) {
         return EINVAL;
     }
@@ -555,7 +567,7 @@ int mach_set_thread_cpubind(thread_t thread, int cpu) {
 }
 
 /* Return value is tag or negative-errno */
-int mach_get_thread_cpubind(thread_t thread) {W
+int mach_get_thread_cpubind(pthread_t thread) {
     thread_act_t handle = pthread_mach_thread_np(thread);
     thread_affinity_policy_data_t policy;
     mach_msg_type_number_t count = THREAD_AFFINITY_POLICY_COUNT;
@@ -566,4 +578,6 @@ int mach_get_thread_cpubind(thread_t thread) {W
 
     return policy.affinity_tag;
 }
+#endif
+
 #endif

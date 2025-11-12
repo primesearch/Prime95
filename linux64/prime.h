@@ -88,6 +88,6 @@ void options_cpu (void);
 
 #ifdef __APPLE__
 #include <pthread.h>
-int mach_set_thread_cpubind(thread_t thread, int cpu);
-int mach_get_thread_cpubind(thread_t thread);
+int mach_set_thread_cpubind(pthread_t thread, int cpu);
+int mach_get_thread_cpubind(pthread_t thread);
 #endif

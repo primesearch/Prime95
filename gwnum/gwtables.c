@@ -70,7 +70,7 @@ double *zr4_build_onepass_sincos_table (
 	while (size % 8 == 0) {
 		if (num_eights == 1 && (size == 16 || size == 24)) break;		// For 16K and 24K FFT
 		num_eights++;
-		size = size /= 8;
+		size /= 8;
 	}
 
 /* For the zr4_four_complex_djbfft building block levels, output the sin/cos values.  Be careful, sometimes we prefer to use zr6_six_complex. */

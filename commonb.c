@@ -626,8 +626,14 @@ void SetPriority (
 				sprintf (buf, "Affinity set to cpuset %s\n", str);
 				OutputStr (info->worker_num, buf);
 			}
+		}
+		else {					// This shouldn't happen
+			sprintf (buf, "Error getting hwloc object for core #%d.  Affinity not set.\n", core+1);
+			OutputStr (info->worker_num, buf);
+		}
 #else
-		if (int error = mach_set_thread_cpubind(pthread_self(), core)) {
+		int error = mach_set_thread_cpubind(pthread_self(), core);
+		if (error) {
 			sprintf (buf, "Error setting affinity to affinity-set #%d: %s\n", core+1, strerror (error));
 			OutputStr (info->worker_num, buf);
 		}
@@ -636,11 +642,6 @@ void SetPriority (
 			OutputStr (info->worker_num, buf);
 		}
 #endif
-		}
-		else {					// This shouldn't happen
-			sprintf (buf, "Error getting hwloc object for core #%d.  Affinity not set.\n", core+1);
-			OutputStr (info->worker_num, buf);
-		}
 	}
 
 /* Set affinity for this thread to a specific logical CPU */

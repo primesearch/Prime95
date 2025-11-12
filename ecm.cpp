@@ -6049,11 +6049,6 @@ int ecm_choose_B2 (
 		kruppa (best[2], best[1].i * 5);
 	}
 
-/* There are cases where 
-	
-		ASSERTG (best[1].efficiency >= best[0].efficiency);
-		ASSERTG (best[1].efficiency >= best[2].efficiency);
-
 /* Find the best B2.  We use a binary-like search to speed things up (new in version 30.3b3). */
 
 	for ( ; ; ) {
