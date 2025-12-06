@@ -1,4 +1,4 @@
-; Copyright 2011-2024 - Mersenne Research, Inc.  All rights reserved.
+; Copyright 2011-2025 - Mersenne Research, Inc.  All rights reserved.
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -1768,7 +1768,9 @@ zadd_carry_1d_cleanup_nottp MACRO
 	vaddpd	zmm7, zmm7, zmm30		;; Re-apply RNDVAL
 
 	mov	cl, 8				;; Spread carry over a max of 8 words
-rloop:	mov	rsi, DESTARG				;; Start of first section
+	mov	ebx, 1				;; Only do one AVX double at a time (an oscillating value of 1/2 maxval in eighth word is deadly)
+	kmovw	k7, ebx
+rloop:	mov	rsi, DESTARG			;; Start of first section
 	mov	ebx, addcount1			;; Count of double cache lines in a section
 
 	;; The following rounding code is copied almost verbatim from znorm_1d_noconst_noechk_nottp
@@ -1810,14 +1812,14 @@ cloop:	dec	cl				;; Decrement propagation count
 	vsubpd	zmm14, zmm14, zmm22		; 16-19	;; new value = x+RNDVAL - y+RNDVAL = x - rnd(x/base)*base
 	vsubpd	zmm15, zmm15, zmm23		; 16-19	;; new value = x+RNDVAL - y+RNDVAL = x - rnd(x/base)*base
 
-	zstore	[rsi], zmm8			;; Save value1
-	zstore	[rsi+r13], zmm9			;; Save value2
-	zstore	[rsi+2*r13], zmm10		;; Save value3
-	zstore	[rsi+r14], zmm11		;; Save value4
-	zstore	[rsi+64], zmm12			;; Save value5
-	zstore	[rsi+r13+64], zmm13		;; Save value6
-	zstore	[rsi+2*r13+64], zmm14		;; Save value7
-	zstore	[rsi+r14+64], zmm15		;; Save value8
+	zstore	[rsi]{k7}, zmm8			;; Save value1
+	zstore	[rsi+r13]{k7}, zmm9		;; Save value2
+	zstore	[rsi+2*r13]{k7}, zmm10		;; Save value3
+	zstore	[rsi+r14]{k7}, zmm11		;; Save value4
+	zstore	[rsi+64]{k7}, zmm12		;; Save value5
+	zstore	[rsi+r13+64]{k7}, zmm13		;; Save value6
+	zstore	[rsi+2*r13+64]{k7}, zmm14	;; Save value7
+	zstore	[rsi+r14+64]{k7}, zmm15		;; Save value8
 
 	vcmpneqpd k1, zmm0, zmm30		;; Are any non-zero carries remaining to propagate?
 	vcmpneqpd k2, zmm1, zmm30
@@ -1833,14 +1835,18 @@ cloop:	dec	cl				;; Decrement propagation count
 	korw	k2, k3, k4
 	korw	k3, k5, k6
 	korw	k4, k1, k2
-	kortestw k3, k4
+	korw	k1, k3, k4
+;	ktestw	k1, k7				;; UASM 2.48 bug - this does not compile
+kandw k1, k1, k7
+kortestw k1, k1
 	jz	done				;; If carries not found then we're done
 
 	bump	rsi, 128			;; Next 1st source pointer
 	dec	ebx				;; Test for end of section
 	jnz	cloop				;; Loop to next double cache lines within section
 	zrotate_carries_1d_cleanup
-	jmp	rloop				;; Loop to rotate carries and go back to section start
+	kshiftlw k7, k7, 1			;; Next AVX word
+	jmp	rloop				;; Loop to go back to section start
 
 	;; Do eighth and last iteration without propagating carries out
 
@@ -1861,14 +1867,14 @@ cloop_end:
 	vaddpd	zmm13, zmm13, [rsi+r13+64]	;; Values6 += carry
 	vaddpd	zmm14, zmm14, [rsi+2*r13+64]	;; Values7 += carry
 	vaddpd	zmm15, zmm15, [rsi+r14+64]	;; Values8 += carry
-	zstore	[rsi], zmm8			;; Save value1
-	zstore	[rsi+r13], zmm9			;; Save value2
-	zstore	[rsi+2*r13], zmm10		;; Save value3
-	zstore	[rsi+r14], zmm11		;; Save value4
-	zstore	[rsi+64], zmm12			;; Save value5
-	zstore	[rsi+r13+64], zmm13		;; Save value6
-	zstore	[rsi+2*r13+64], zmm14		;; Save value7
-	zstore	[rsi+r14+64], zmm15		;; Save value8
+	zstore	[rsi]{k7}, zmm8			;; Save value1
+	zstore	[rsi+r13]{k7}, zmm9		;; Save value2
+	zstore	[rsi+2*r13]{k7}, zmm10		;; Save value3
+	zstore	[rsi+r14]{k7}, zmm11		;; Save value4
+	zstore	[rsi+64]{k7}, zmm12		;; Save value5
+	zstore	[rsi+r13+64]{k7}, zmm13		;; Save value6
+	zstore	[rsi+2*r13+64]{k7}, zmm14	;; Save value7
+	zstore	[rsi+r14+64]{k7}, zmm15		;; Save value8
 
 done:	
 	ENDM
@@ -1881,15 +1887,15 @@ zadd_carry_1d_cleanup_ttp MACRO
 	vmulpd	zmm7, zmm7, ZMM_MINUS_C{1to8}	;; Multiply by -c
 	vaddpd	zmm7, zmm7, zmm30		;; Re-apply RNDVAL
 
-	mov	cl, 8				;; Spread carry over a max of 8 words
+	mov	ecx, 1				;; Only do one AVX double at a time (an oscillating value of 1/2 maxval in eighth word is deadly)
 rloop:	mov	rsi, DESTARG			;; Start of first section
 	mov	rdi, norm_biglit_array		;; pointer to big/lit flags
 	;;mov	r12, compressed_biglits		;; pointer to compressed biglit table
 	mov	ebx, addcount1			;; Count of double cache lines in a section
 
 	;; The following rounding code is copied almost verbatim from znorm_1d_noconst_noechk_ttp
-cloop:	dec	cl				;; Decrement propagation count
-	jz	cloop_end			;; Exit carry propagation loop
+cloop:	cmp	ecx, 128			;; Have we reached 8th AVX word?
+	je	cloop_end			;; Yes, exit carry propagation loop
 	movzx	rdx, BYTE PTR [rdi]			;; Load index into compressed biglit table
 	vaddpd	zmm8, zmm7, [rsi]		; 1-4	;; x+RNDVAL = carry+RNDVAL + value
 	vaddpd	zmm9, zmm0, [rsi+r13]		; 1-4	;; x+RNDVAL = carry+RNDVAL + value
@@ -1960,14 +1966,15 @@ cloop:	dec	cl				;; Decrement propagation count
 	vblendmpd zmm24 {k1}, zmm29, zmm27	; 20	;; Create (base) constant used in new value calculation
 	zfnmaddpd zmm15, zmm15, zmm24, zmm23	; 20-23	;; new value = x - y * base
 
-	zstore	[rsi], zmm8			;; Save value1
-	zstore	[rsi+r13], zmm9			;; Save value2
-	zstore	[rsi+2*r13], zmm10		;; Save value3
-	zstore	[rsi+r14], zmm11		;; Save value4
-	zstore	[rsi+64], zmm12			;; Save value5
-	zstore	[rsi+r13+64], zmm13		;; Save value6
-	zstore	[rsi+2*r13+64], zmm14		;; Save value7
-	zstore	[rsi+r14+64], zmm15		;; Save value8
+	kmovw	k7, ecx
+	zstore	[rsi]{k7}, zmm8			;; Save value1
+	zstore	[rsi+r13]{k7}, zmm9		;; Save value2
+	zstore	[rsi+2*r13]{k7}, zmm10		;; Save value3
+	zstore	[rsi+r14]{k7}, zmm11		;; Save value4
+	zstore	[rsi+64]{k7}, zmm12		;; Save value5
+	zstore	[rsi+r13+64]{k7}, zmm13		;; Save value6
+	zstore	[rsi+2*r13+64]{k7}, zmm14	;; Save value7
+	zstore	[rsi+r14+64]{k7}, zmm15		;; Save value8
 
 	vcmpneqpd k1, zmm0, zmm30		;; Are any non-zero carries remaining to propagate?
 	vcmpneqpd k2, zmm1, zmm30
@@ -1983,7 +1990,10 @@ cloop:	dec	cl				;; Decrement propagation count
 	korw	k2, k3, k4
 	korw	k3, k5, k6
 	korw	k4, k1, k2
-	kortestw k3, k4
+	korw	k1, k3, k4
+;	ktestw	k1, k7				;; UASM 2.48 bug - this does not compile
+kandw k1, k1, k7
+kortestw k1, k1
 	jz	done				;; If carries not found then we're done
 
 	bump	rsi, 128			;; Next source pointer
@@ -1991,10 +2001,10 @@ cloop:	dec	cl				;; Decrement propagation count
 	dec	ebx				;; Test for end of section
 	jnz	cloop				;; Loop to next double cache lines within section
 	zrotate_carries_1d_cleanup
-	jmp	rloop				;; Loop to rotate carries and go back to section start
+	shl	ecx, 1				;; Next AVX word
+	jmp	rloop				;; Loop to go back to section start
 
-	;; Do eighth and last iteration without propagating carries out
-
+	;; Do eighth AVX word without propagating carries out
 cloop_end:
 	vsubpd	zmm8, zmm7, zmm30		;; Remove RNDVAL from carries
 	vsubpd	zmm9, zmm0, zmm30
@@ -2012,14 +2022,15 @@ cloop_end:
 	vaddpd	zmm13, zmm13, [rsi+r13+64]	;; Values6 += carry
 	vaddpd	zmm14, zmm14, [rsi+2*r13+64]	;; Values7 += carry
 	vaddpd	zmm15, zmm15, [rsi+r14+64]	;; Values8 += carry
-	zstore	[rsi], zmm8			;; Save value1
-	zstore	[rsi+r13], zmm9			;; Save value2
-	zstore	[rsi+2*r13], zmm10		;; Save value3
-	zstore	[rsi+r14], zmm11		;; Save value4
-	zstore	[rsi+64], zmm12			;; Save value5
-	zstore	[rsi+r13+64], zmm13		;; Save value6
-	zstore	[rsi+2*r13+64], zmm14		;; Save value7
-	zstore	[rsi+r14+64], zmm15		;; Save value8
+	kmovw	k7, ecx
+	zstore	[rsi]{k7}, zmm8			;; Save value1
+	zstore	[rsi+r13]{k7}, zmm9		;; Save value2
+	zstore	[rsi+2*r13]{k7}, zmm10		;; Save value3
+	zstore	[rsi+r14]{k7}, zmm11		;; Save value4
+	zstore	[rsi+64]{k7}, zmm12		;; Save value5
+	zstore	[rsi+r13+64]{k7}, zmm13		;; Save value6
+	zstore	[rsi+2*r13+64]{k7}, zmm14	;; Save value7
+	zstore	[rsi+r14+64]{k7}, zmm15		;; Save value8
 
 done:	
 	ENDM

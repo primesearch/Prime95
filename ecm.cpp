@@ -9934,6 +9934,11 @@ no_more_curves:
 	else sprintf (JSONbuf+strlen(JSONbuf), ", \"N\":\"%s\"", ecmdata.N_short_string_rep);
 	strcat (JSONbuf, ", \"worktype\":\"ECM\"");
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%" PRIu64 ", \"b2\":%" PRIu64, ecmdata.B, ecmdata.average_B2);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"d\":%d", ecmdata.D);
+	if (ecmdata.stage2_type == ECM_STAGE2_POLYMULT) {
+		sprintf (JSONbuf+strlen(JSONbuf), ", \"poly-size\":%" PRIu64, ecmdata.poly_size);
+		sprintf (JSONbuf+strlen(JSONbuf), ", \"stage2-fft-length\":%lu", gwfftlen (&ecmdata.gwdata));
+	}
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"curves\":%u", w->curves_to_do);
 	if (ecmdata.sigma_type == 3) sprintf (JSONbuf+strlen(JSONbuf), ", \"GMP-ECM-param3\":{}");
 	if (ecmdata.sigma_type == 0) sprintf (JSONbuf+strlen(JSONbuf), ", \"Edwards\":{}");
@@ -10048,7 +10053,15 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 	else sprintf (JSONbuf+strlen(JSONbuf), ", \"N\":\"%s\"", ecmdata.N_short_string_rep);
 	strcat (JSONbuf, ", \"worktype\":\"ECM\"");
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"factors\":[\"%s\"]", str);
-	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%" PRIu64 ", \"b2\":%" PRIu64, ecmdata.B, ecmdata.C);
+	sprintf (JSONbuf+strlen(JSONbuf), ", \"b1\":%" PRIu64, ecmdata.B);
+	if (ecmdata.state > ECM_STATE_MIDSTAGE) {
+		sprintf (JSONbuf+strlen(JSONbuf), ", \"b2\":%" PRIu64, ecmdata.C);
+		sprintf (JSONbuf+strlen(JSONbuf), ", \"d\":%d", ecmdata.D);
+		if (ecmdata.stage2_type == ECM_STAGE2_POLYMULT) {
+			sprintf (JSONbuf+strlen(JSONbuf), ", \"poly-size\":%" PRIu64, ecmdata.poly_size);
+			sprintf (JSONbuf+strlen(JSONbuf), ", \"stage2-fft-length\":%lu", gwfftlen (&ecmdata.gwdata));
+		}
+	}
 	if (ecmdata.sigma_type == 3) sprintf (JSONbuf+strlen(JSONbuf), ", \"GMP-ECM-param3\":{\"sigma\":%" PRIu64 "}", ecmdata.sigma);
 	else if (ecmdata.sigma_type == 0) sprintf (JSONbuf+strlen(JSONbuf), ", \"Edwards\":{\"sigma\":%" PRIu64 "}", ecmdata.sigma);
 	else sprintf (JSONbuf+strlen(JSONbuf), ", \"sigma\":%" PRIu64, ecmdata.sigma);

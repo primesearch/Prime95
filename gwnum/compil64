@@ -25,7 +25,7 @@ cl64do=cl /GF /W3 /MTd /DX86_64 /D_CRT_SECURE_NO_DEPRECATE /DGDEBUG /Z7 /O2 /c
 
 # List of all buildables in this makefile
 
-all:	gwnum64.lib gwnum64d.lib polymult64.lib polymult64d.lib linux64\gwnum.a macosx64\gwnum.a amd64\release\ecmstag1.obj amd64\debug\ecmstag1.obj
+all:	gwnum64.lib gwnum64d.lib polymult64.lib polymult64d.lib linux64\gwnum.a macosx64\gwnum.a
 #all:	linux64\gwnum.a
 
 # Make libraries out of the object files
@@ -237,12 +237,6 @@ amd64\release\polymult\polymult_avx512.obj: polymult.c polymult.h gwnum.h
 
 amd64\debug\polymult\polymult_avx512.obj: polymult.c polymult.h gwnum.h
     $(cl64d) /arch:AVX512 /DAVX512 /Foamd64\debug\polymult\polymult_avx512.obj polymult.c
-
-amd64\release\ecmstag1.obj: ecmstag1.c gwnum.h
-    $(cl64) /Ic:\gmp64 /Foamd64\release\ecmstag1.obj ecmstag1.c
-
-amd64\debug\ecmstag1.obj: ecmstag1.c gwnum.h
-    $(cl64d) /Ic:\gmp64 /Foamd64\debug\ecmstag1.obj ecmstag1.c
 
 # Create 64-bit object files
 

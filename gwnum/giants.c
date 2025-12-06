@@ -7,7 +7,7 @@
  *  Massive rewrite by G. Woltman for 32-bit support
  *
  *  c. 1997,1998 Perfectly Scientific, Inc.
- *  c. 1998-2024 Mersenne Research, Inc.
+ *  c. 1998-2025 Mersenne Research, Inc.
  *  All Rights Reserved.
  *
  **************************************************************/
@@ -1471,10 +1471,13 @@ void gtogshiftrightsplit (
 	}
 
 	// Shift the top bits out of lower and into upper
-	if (lower->sign > word && bit != 0) {
-		uint32_t carry = lower->n[lower->sign-1] >> bit;
-		lower->n[lower->sign-1] -= carry << bit;
-		while (lower->sign && lower->n[lower->sign-1] == 0) lower->sign--;
+	if (bit != 0) {
+		uint32_t carry = 0;
+		if (lower->sign > word && bit != 0) {
+			carry = lower->n[lower->sign-1] >> bit;
+			lower->n[lower->sign-1] -= carry << bit;
+			while (lower->sign && lower->n[lower->sign-1] == 0) lower->sign--;
+		}
 		gshiftleft (32 - bit, upper);
 		iaddg (carry, upper);
 	}

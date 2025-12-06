@@ -11,7 +11,7 @@ CPPFLAGS = -I.. -I../qd -std=c++11 -O2 -march=i486 -malign-double
 
 AR = ar
 
-LINUXOBJS = cpuid.o gwnum.o gwtables.o gwthread.o gwini.o gwbench.o gwutil.o gwdbldbl.o giants.o radix.o ecmstag1.o
+LINUXOBJS = cpuid.o gwnum.o gwtables.o gwthread.o gwini.o gwbench.o gwutil.o gwdbldbl.o giants.o radix.o
 POLYOBJS = polymult.o polymult_sse2.o polymult_avx.o polymult_fma.o
 
 LIB = gwnum.a

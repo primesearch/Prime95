@@ -16,7 +16,7 @@ ENDIF
 
 INCLUDE	unravel.mac
 
-VERSION_NUMBER = 3101		;; Version 31.1
+VERSION_NUMBER = 3103		;; Version 31.3
 
 ;
 ; Global variables needed by FFT setup code
@@ -3884,7 +3884,7 @@ yjmptable DD	0
 	PRCSTRT	33375,	1536,	0.000006
 	PRCENTRY2		yfft_r4_1536_op, 45440, I7 + FMA3_64 + RYZEN_64
 	DD			0
-	PRCSTRT	44363,	2048,	0.000008
+	PRCSTRT	44249,	2048,	0.000008						;; 44281 fails with 0.5 roundoff for harlee during ECM (was 44363)
 	PRCENTRY2		yfft_r4_2K_op, 57856, I7 + FMA3_64 + RYZEN_64
 	DD			0
 	PRCSTRT	55153,	2560,	0.000011

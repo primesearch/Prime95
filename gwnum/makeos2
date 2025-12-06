@@ -44,7 +44,7 @@ ASMOBJS3 = xmult2.o xmult2a_core.o xmult2a_k8.o xmult2ax.o xmult3.o xmult3a_core
 ASMOBJS4 = hg_blend.o hg_core.o hg_p4.o hg_p4tp.o hg_k8.o hg_k10.o r4_core.o r4_p4.o r4_p4tp.o r4_k8.o r4_k10.o r4dwpn_core.o r4dwpn_p4.o r4dwpn_p4tp.o r4dwpn_k8.o r4dwpn_k10.o r4delay_p4tp.o r4delay5_p4tp.o r4dwpn3_core.o r4dwpn3_p4.o r4dwpn3_p4tp.o r4dwpn3_k8.o r4dwpn3_k10.o r4dwpn5_core.o r4dwpn5_p4.o r4dwpn5_p4tp.o r4dwpn5_k8.o r4dwpn5_k10.o
 ASMOBJS5 = ymult1ax_core.o yr4_core.o ymult3.o ymult3a_core.o ymult3ax.o yr4dwpn_core.o yr4dwpn3_core.o yr4dwpn4_core.o yr4dwpn5_core.o timeit.o
 
-OS2OBJS  = cpuid.o gwnum.o gwtables.o gwthread.o gwini.o gwbench.o gwutil.o gwdbldbl.o giants.o radix.o ecmstag1.o
+OS2OBJS  = cpuid.o gwnum.o gwtables.o gwthread.o gwini.o gwbench.o gwutil.o gwdbldbl.o giants.o radix.o
 POLYOBJS = polymult.o polymult_sse2.o polymult_avx.o polymult_fma.o
 
 LIB1 = gwnum_1.a

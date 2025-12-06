@@ -21,7 +21,7 @@ objconv=c:\objconv\objconv
 
 # List of all buildables in this makefile
 
-all:	gwnumd.lib gwnum.lib polymult.lib polymultd.lib linux\gwnum.a macosx\gwnum.a release\ecmstag1.obj debug\ecmstag1.obj
+all:	gwnumd.lib gwnum.lib polymult.lib polymultd.lib linux\gwnum.a macosx\gwnum.a
 
 # Make libraries out of the object files
 # Recently removed (empty) object files
@@ -207,12 +207,6 @@ release\polymult\polymult_fma.obj: polymult.c polymult.h gwnum.h
 
 debug\polymult\polymult_fma.obj: polymult.c polymult.h gwnum.h
     $(cld) /arch:AVX2 /DFMA /Fodebug\polymult\polymult_fma.obj polymult.c
-
-release\ecmstag1.obj: ecmstag1.c gwnum.h
-    $(cl)  /Ic:\gmp32 /Forelease\ecmstag1.obj ecmstag1.c
-
-debug\ecmstag1.obj: ecmstag1.c gwnum.h
-    $(cld) /Ic:\gmp32 /Fodebug\ecmstag1.obj ecmstag1.c
 
 # Create 32-bit object files
 

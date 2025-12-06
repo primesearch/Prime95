@@ -18,7 +18,7 @@ CPPFLAGS64D = -I.. -I../qd -g -DGDEBUG -DX86_64 -std=c++11 -m64 -fno-exceptions 
 
 AR = ar
 
-MACOBJS = cpuid.o gwnum.o gwtables.o gwthread.o gwini.o gwbench.o gwutil.o gwdbldbl.o giants.o radix.o ecmstag1.o
+MACOBJS = cpuid.o gwnum.o gwtables.o gwthread.o gwini.o gwbench.o gwutil.o gwdbldbl.o giants.o radix.o
 POLYOBJS = polymult.o polymult_sse2.o polymult_avx.o polymult_fma.o polymult_avx512.o 
 
 LIB = gwnum.a

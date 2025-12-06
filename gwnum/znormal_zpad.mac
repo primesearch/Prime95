@@ -1028,6 +1028,8 @@ zadd_carry_1d_zpad_cleanup_nottp MACRO
 	LOCAL	noncon, rloop, cloop, cloop_end, done
 
 	mov	cl, 8				;; Spread carry over a max of 8 words
+	mov	ebx, 1				;; Only do one AVX double at a time (an oscillating value of 1/2 maxval in eighth word is deadly)
+	kmovw	k7, ebx
 rloop:	mov	rsi, DESTARG			;; Start of first section
 	mov	ebx, addcount1			;; Count of double cache lines in a section
 
@@ -1071,9 +1073,9 @@ cloop:	dec	cl					;; Decrement propagation count
 	vsubpd	zmm10, zmm10, zmm18		; 27-30 ;; new val3 = x3_lo = x3+RNDVAL - tmp7+RNDVAL = x3 - rnd(x3/base)*base = x3%base
 	vsubpd	zmm11, zmm11, zmm19		; 28-31 ;; new val4 = x4_lo = x4+RNDVAL - tmp8+RNDVAL = x4 - rnd(x4/base)*base = x4%base
 
-	zstore	[rsi+r13], zmm9			;; Save new val2
-	zstore	[rsi+2*r13], zmm10		;; Save new val3
-	zstore	[rsi+r14], zmm11		;; Save new val4
+	zstore	[rsi+r13]{k7}, zmm9		;; Save new val2
+	zstore	[rsi+2*r13]{k7}, zmm10		;; Save new val3
+	zstore	[rsi+r14]{k7}, zmm11		;; Save new val4
 
 	vcmpneqpd k1, zmm0, zmm30		;; Are any non-zero carries remaining to propagate?
 	vcmpneqpd k2, zmm1, zmm30
@@ -1085,14 +1087,18 @@ cloop:	dec	cl					;; Decrement propagation count
 	korw	k3, k3, k4
 	korw	k5, k5, k6
 	korw	k1, k1, k3
-	kortestw k1, k5
+	korw	k1, k1, k5
+;	ktestw	k1, k7				;; UASM 2.48 bug - this does not compile
+kandw k1, k1, k7
+kortestw k1, k1
 	jz	done				;; If carries not found then we're done
 
 	bump	rsi, 128			;; Next source pointer
 	dec	ebx				;; Test for end of section
 	jnz	cloop				;; Loop to next double cache lines within section
 	zrotate_carries_1d_zpad_cleanup noexec
-	jmp	rloop				;; Loop to rotate carries and go back to section start
+	kshiftlw k7, k7, 1			;; Next AVX word
+	jmp	rloop				;; Loop to go back to section start
 
 	;; Do eighth and last iteration without propagating carries out.  By now, zmm0-2 are zero.
 cloop_end:
@@ -1102,9 +1108,9 @@ cloop_end:
 	vaddpd	zmm9, zmm9, [rsi+r13]		;; Values2 += carry
 	vaddpd	zmm10, zmm10, [rsi+2*r13]	;; Values3 += carry
 	vaddpd	zmm11, zmm11, [rsi+r14]		;; Values4 += carry
-	zstore	[rsi+r13], zmm9			;; Save value2
-	zstore	[rsi+2*r13], zmm10		;; Save value3
-	zstore	[rsi+r14], zmm11		;; Save value4
+	zstore	[rsi+r13]{k7}, zmm9		;; Save value2
+	zstore	[rsi+2*r13]{k7}, zmm10		;; Save value3
+	zstore	[rsi+r14]{k7}, zmm11		;; Save value4
 
 	;; Mimic two-pass's zprocess_last_two_carries
 done:	mov	rsi, DESTARG			;; Start of first section
@@ -1129,6 +1135,8 @@ zadd_carry_1d_zpad_cleanup_ttp MACRO
 	vsubpd	zmm3, zmm3, zmm30
 
 	mov	cl, 8					;; Spread carry over a max of 8 words
+	mov	ebx, 1					;; Only do one AVX double at a time (an oscillating value of 1/2 maxval in eighth word is deadly)
+	kmovw	k7, ebx
 rloop:	mov	rsi, DESTARG				;; Start of first section
 	mov	rdi, norm_biglit_array			;; pointer to big/lit flags
 	mov	r12, compressed_biglits			;; pointer to compressed biglit table
@@ -1198,11 +1206,11 @@ cloop:	dec	cl					;; Decrement propagation count
 	zfmaddpd zmm5, zmm14, zmm5, zmm18	; 31-34 ;; next carry7 = carry3_lo * k_hi*mulconst/base + next carry7
 	zfmaddpd zmm6, zmm15, zmm6, zmm19	; 32-35 ;; next carry8 = carry4_lo * k_hi*mulconst/base + next carry8
 
-	zstore	[rsi+r13], zmm9				;; Save new val2
-	zstore	[rsi+2*r13], zmm10			;; Save new val3
-	zstore	[rsi+r14], zmm11			;; Save new val4
+	zstore	[rsi+r13]{k7}, zmm9		;; Save new val2
+	zstore	[rsi+2*r13]{k7}, zmm10		;; Save new val3
+	zstore	[rsi+r14]{k7}, zmm11		;; Save new val4
 
-	vcmpneqpd k1, zmm0, zmm22			;; Are any non-zero carries remaining to propagate?
+	vcmpneqpd k1, zmm0, zmm22		;; Are any non-zero carries remaining to propagate?
 	vcmpneqpd k2, zmm1, zmm22
 	vcmpneqpd k3, zmm2, zmm22
 	vcmpneqpd k4, zmm4, zmm22
@@ -1212,7 +1220,10 @@ cloop:	dec	cl					;; Decrement propagation count
 	korw	k3, k3, k4
 	korw	k5, k5, k6
 	korw	k1, k1, k3
-	kortestw k1, k5
+	korw	k1, k1, k5
+;	ktestw	k1, k7				;; UASM 2.48 bug - this does not compile
+kandw k1, k1, k7
+kortestw k1, k1
 	jz	done				;; If carries not found then we're done
 
 	bump	rsi, 128			;; Next source pointer
@@ -1223,16 +1234,17 @@ cloop:	dec	cl					;; Decrement propagation count
 	dec	ebx				;; Test for end of section
 	jnz	cloop				;; Loop to next double cache lines within section
 	zrotate_carries_1d_zpad_cleanup exec
-	jmp	rloop				;; Loop to rotate carries and go back to section start
+	kshiftlw k7, k7, 1			;; Next AVX word
+	jmp	rloop				;; Loop to go back to section start
 
 	;; Do eighth and last iteration without propagating carries out.  By now zmm0-zmm2 are zero.
 cloop_end:
 	vaddpd	zmm9, zmm4, [rsi+r13]		;; carry + val2
 	vaddpd	zmm10, zmm5, [rsi+2*r13]	;; carry + val3
 	vaddpd	zmm11, zmm6, [rsi+r14]		;; carry + val4
-	zstore	[rsi+r13], zmm9			;; Save val2
-	zstore	[rsi+2*r13], zmm10		;; Save val3
-	zstore	[rsi+r14], zmm11		;; Save val4
+	zstore	[rsi+r13]{k7}, zmm9		;; Save val2
+	zstore	[rsi+2*r13]{k7}, zmm10		;; Save val3
+	zstore	[rsi+r14]{k7}, zmm11		;; Save val4
 
 	;; Mimic two-pass's zprocess_last_two_carries
 done:	mov	rsi, DESTARG			;; Start of first section
@@ -1266,6 +1278,8 @@ zadd_carry_op_1d_zpad_cleanup_nottp MACRO
 	LOCAL	rloop, cloop, cloop_end, done
 
 	mov	cl, 8				;; Spread carry over a max of 8 words
+	mov	ebx, 1				;; Only do one AVX double at a time (an oscillating value of 1/2 maxval in eighth word is deadly)
+	kmovw	k7, ebx
 rloop:	mov	rsi, DESTARG			;; Start of first section
 	mov	ebx, addcount1			;; Count of double cache lines in a section
 
@@ -1288,31 +1302,35 @@ cloop:	dec	cl				;; Decrement propagation count
 	zfnmaddpd zmm10, zmm1, zmm29, zmm10	; 23-26 ;; new val3 = x3_lo = x3 - x3_hi * base
 	zfnmaddpd zmm11, zmm2, zmm29, zmm11	; 24-27 ;; new val4 = x4_lo = x4 - x4_hi * base
 
-	zstore	[rsi+r13], zmm9			;; Save value2
-	zstore	[rsi+2*r13], zmm10		;; Save value3
-	zstore	[rsi+r14], zmm11		;; Save value4
+	zstore	[rsi+r13]{k7}, zmm9		;; Save value2
+	zstore	[rsi+2*r13]{k7}, zmm10		;; Save value3
+	zstore	[rsi+r14]{k7}, zmm11		;; Save value4
 
 	vcmpneqpd k1, zmm0, zmm22		;; Are any non-zero carries remaining to propagate?
 	vcmpneqpd k2, zmm1, zmm22
 	vcmpneqpd k3, zmm2, zmm22
 	korw	k1, k1, k2
-	kortestw k1, k3
+	korw	k1, k1, k3
+;	ktestw	k1, k7				;; UASM 2.48 bug - this does not compile
+kandw k1, k1, k7
+kortestw k1, k1
 	jz	done				;; If carries not found then we're done
 
 	bump	rsi, 128			;; Next 1st source pointer
 	dec	ebx				;; Test for end of section
 	jnz	cloop				;; Loop to next double cache lines within section
 	zrotate_carries_op_1d_zpad_cleanup noexec
-	jmp	rloop				;; Loop to rotate carries and go back to section start
+	kshiftlw k7, k7, 1			;; Next AVX word
+	jmp	rloop				;; Loop to go back to section start
 
 	;; Do eighth and last iteration without propagating carries out
 cloop_end:
 	vaddpd	zmm9, zmm0, [rsi+r13]		;; Values2 += carry
 	vaddpd	zmm10, zmm1, [rsi+2*r13]	;; Values3 += carry
 	vaddpd	zmm11, zmm2, [rsi+r14]		;; Values4 += carry
-	zstore	[rsi+r13], zmm9			;; Save value2
-	zstore	[rsi+2*r13], zmm10		;; Save value3
-	zstore	[rsi+r14], zmm11		;; Save value4
+	zstore	[rsi+r13]{k7}, zmm9		;; Save value2
+	zstore	[rsi+2*r13]{k7}, zmm10		;; Save value3
+	zstore	[rsi+r14]{k7}, zmm11		;; Save value4
 
 	;; Mimic two-pass's zprocess_last_two_carries_op_zpad
 done:	mov	rsi, DESTARG			;; Start of first section
@@ -1326,6 +1344,8 @@ zadd_carry_op_1d_zpad_cleanup_ttp MACRO
 	LOCAL	rloop, cloop, cloop_end, done
 
 	mov	cl, 8				;; Spread carry over a max of 8 words
+	mov	ebx, 1				;; Only do one AVX double at a time (an oscillating value of 1/2 maxval in eighth word is deadly)
+	kmovw	k7, ebx
 rloop:	mov	rsi, DESTARG			;; Back to start of first section
 	mov	rdi, norm_biglit_array		;; pointer to big/lit flags
 	mov	r12, compressed_biglits		;; pointer to compressed biglit table
@@ -1365,15 +1385,18 @@ cloop:	dec	cl					;; Decrement propagation count
 	zfnmaddpd zmm10, zmm1, zmm14, zmm10	; 31-34 ;; new val3 = x3_lo = x3 - x3_hi * base = x3 - rnd(x3/base)*base = x3%base
 	zfnmaddpd zmm11, zmm2, zmm15, zmm11	; 32-35 ;; new val4 = x4_lo = x4 - x4_hi * base = x4 - rnd(x4/base)*base = x4%base
 
-	zstore	[rsi+r13], zmm9			;; Save new val2
-	zstore	[rsi+2*r13], zmm10		;; Save new val3
-	zstore	[rsi+r14], zmm11		;; Save new val4
+	zstore	[rsi+r13]{k7}, zmm9		;; Save new val2
+	zstore	[rsi+2*r13]{k7}, zmm10		;; Save new val3
+	zstore	[rsi+r14]{k7}, zmm11		;; Save new val4
 
 	vcmpneqpd k1, zmm0, zmm22		;; Are any non-zero carries remaining to propagate?
 	vcmpneqpd k2, zmm1, zmm22
 	vcmpneqpd k3, zmm2, zmm22
 	korw	k1, k1, k2
-	kortestw k1, k3
+	korw	k1, k1, k3
+;	ktestw	k1, k7				;; UASM 2.48 bug - this does not compile
+kandw k1, k1, k7
+kortestw k1, k1
 	jz	done				;; If carries not found then we're done
 
 	bump	rsi, 128			;; Next source pointer
@@ -1384,16 +1407,17 @@ cloop:	dec	cl					;; Decrement propagation count
 	dec	ebx				;; Test for end of section
 	jnz	cloop				;; Loop to next double cache lines within section
 	zrotate_carries_op_1d_zpad_cleanup exec
-	jmp	rloop				;; Loop to rotate carries and go back to section start
+	kshiftlw k7, k7, 1			;; Next AVX word
+	jmp	rloop				;; Loop to go back to section start
 
 	;; Do eighth and last iteration without propagating carries out
 cloop_end:
 	vaddpd	zmm9, zmm0, [rsi+r13]		;; carry + val2
 	vaddpd	zmm10, zmm1, [rsi+2*r13]	;; carry + val3
 	vaddpd	zmm11, zmm2, [rsi+r14]		;; carry + val4
-	zstore	[rsi+r13], zmm9			;; Save val2
-	zstore	[rsi+2*r13], zmm10		;; Save val3
-	zstore	[rsi+r14], zmm11		;; Save val4
+	zstore	[rsi+r13]{k7}, zmm9		;; Save val2
+	zstore	[rsi+2*r13]{k7}, zmm10		;; Save val3
+	zstore	[rsi+r14]{k7}, zmm11		;; Save val4
 
 	;; Mimic two-pass's zprocess_last_two_carries_op_zpad
 done:	mov	rsi, DESTARG			;; Start of first section
