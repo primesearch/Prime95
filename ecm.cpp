@@ -7900,12 +7900,12 @@ OutputStr (thread_num, buf); }
 				best_fftlen = gwfftlen (&ecmdata.gwdata);
 				best_stage2_type = ecmdata.stage2_type;
 				best_efficiency = efficiency;
-			}
 
-			// Remember the most efficient poly found thusfar
-			if (ecmdata.stage2_type == ECM_STAGE2_POLYMULT && efficiency > best_poly_efficiency) {
-				best_poly_efficiency = efficiency;
-				best_fails = 0;
+				// Remember the most efficient poly found thusfar
+				if (ecmdata.stage2_type == ECM_STAGE2_POLYMULT && efficiency > best_poly_efficiency) {
+					best_poly_efficiency = efficiency;
+					best_fails = 0;
+				}
 			}
 		}
 
@@ -12466,20 +12466,17 @@ OutputStr (thread_num, buf); }
 				best_fftlen = gwfftlen (&pm1data.gwdata);
 				best_stage2_type = pm1data.stage2_type;
 				best_efficiency = efficiency;
-			}
 
-			// Remember the most efficient poly found thusfar
-			if (pm1data.stage2_type == PM1_STAGE2_POLYMULT && efficiency > best_poly_efficiency) {
-				best_poly_efficiency = efficiency;
-				best_fails = 0;
+				// Remember the most efficient poly found thusfar
+				if (pm1data.stage2_type == PM1_STAGE2_POLYMULT && efficiency > best_poly_efficiency) {
+					best_poly_efficiency = efficiency;
+					best_fails = 0;
+				}
 			}
 		}
 
 		// If forced_stage2_type is prime pairing, then we do not need to try larger FFT lengths
 		if (best_fftlen && forced_stage2_type == 0) found_best = TRUE;
-
-		// If we used all (or nearly all) of the available numvals in a poly, then a larger FFT will be worse due to fewer available numvals
-		if (best_poly_efficiency && pm1data.stage2_numvals >= (int) cvt_mem_to_gwnums_adj (&pm1data.gwdata, memory, -10.0)) found_best = TRUE;
 
 		// Small optimization: Skip costing larger FFT lengths if there are less than 60 numvals
 		if (best_fftlen && (double) memory * 1000000.0 / (double) array_gwnum_size (&pm1data.gwdata) < 60.0) found_best = TRUE;
@@ -14292,6 +14289,7 @@ void guess_pminus1_bounds (
 
 	gwhandle gwdata;
 	memset (&gwdata, 0, sizeof (gwdata));
+	gwdata.information_only = TRUE;
 	gwdata.k = k;
 	gwdata.b = b;
 	gwdata.n = n;

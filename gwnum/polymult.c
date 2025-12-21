@@ -5442,10 +5442,12 @@ use_it:		    ASSERTG (best_choice != 0);
 		    // NOTE: No studies have been done regarding a close-to-optimal definition of "very small".
 		    if (will_brute_force) {
 			plan->planpart[i].impl = POLYMULT_IMPL_BRUTE;
+			fft_size = 0;    
 		    }
 		    // Choose Karatsuba
 		    else if (!must_fft && !can_use_circular_fft_size && adjusted_outvec_size < pmdata->FFT_BREAK) {
 			plan->planpart[i].impl = POLYMULT_IMPL_KARATSUBA;
+			fft_size = 0;    
 		    }
 		    // FFT implementation.  There may be several possible FFT sizes to choose from.  We prefer to choose the smallest.
 		    else {

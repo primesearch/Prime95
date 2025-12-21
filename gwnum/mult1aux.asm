@@ -1,4 +1,4 @@
-; Copyright 1995-2024 Mersenne Research, Inc.  All rights reserved
+; Copyright 1995-2025 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -357,7 +357,7 @@ idn:	mov	esi, DESTARG		; Address of squared number
 	sub	eax, eax		; Clear big/lit flag
 	mov	edi, norm_biglit_array	; Big/lit array pointer
 	mov	ebx, norm_col_mults	; Restart the column multipliers
-	norm012_1d noexec
+	norm012_1d
 
 ; Return unnormalized SUMOUT -- no one uses it
 ; FPU stack is now: sumout, maxerr

@@ -9657,7 +9657,7 @@ int gwtogiant (
 /* FFT, then only convert a little more than half of the FFT data words. */
 /* For a DWT, convert all the FFT data. */
 
-	if (gwdata->GENERAL_MOD) limit = gwdata->GW_GEN_MOD_MAX + 3;
+	if (gwdata->GENERAL_MOD) limit = (unsigned long) (gwdata->GW_MODULUS->sign * 32 / (gwdata->avg_num_b_per_word * log2(gwdata->b)) + 3);
 	else if (gwdata->ZERO_PADDED_FFT) limit = gwdata->FFTLEN / 2 + 4;
 	else limit = gwdata->FFTLEN;
 
