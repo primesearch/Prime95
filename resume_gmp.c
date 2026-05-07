@@ -122,20 +122,20 @@ freadstrn (FILE *fd, char *s, char delim, unsigned int len)
 
 void my_mpz_inp_str (mpz_t x, FILE *fd, int base)
 {
-	char *buf = (char *) malloc (4000000);
-	freadstrn (fd, buf, ';', 4000000);
+	char *buf = (char *) malloc (40000000);
+	freadstrn (fd, buf, ';', 40000000);
 	mpz_set_str (x, buf, 0);
 	free (buf);
 }
 
 /* Reads an assignment from a save file. Return 1 if an assignment was successfully read, 0 if there are no more lines to read (at EOF) */
 
-int read_resumefile_line (int thread_num, FILE *fd, mpz_t x, mpz_t n, mpz_t sigma, int *param, double *b1)
+int read_resumefile_line (int thread_num, FILE *fd, mpz_t x, mpz_t n, mpz_t a, mpz_t sigma, int *param, double *b1, char *program)
 {
   int have_method, have_x, have_y, have_z, have_n, have_sigma, have_a, have_b1, have_checksum;
   unsigned int saved_checksum;
   char tag[16], buf[512];
-  mpz_t A, y, z, x0, y0;
+  mpz_t y, z, x0, y0;
 
   while (!feof (fd))
     {
@@ -240,8 +240,7 @@ int read_resumefile_line (int thread_num, FILE *fd, mpz_t x, mpz_t n, mpz_t sigm
             }
           else if (strcmp (tag, "A") == 0)
 	  {
-	      mpz_init (A);	  
-              my_mpz_inp_str (A, fd, 0);
+              my_mpz_inp_str (a, fd, 0);
               have_a = 1;
             }
           else if (strcmp (tag, "B1") == 0)
@@ -251,7 +250,7 @@ int read_resumefile_line (int thread_num, FILE *fd, mpz_t x, mpz_t n, mpz_t sigm
             }
           else if (strcmp (tag, "PROGRAM") == 0)
             {
-              freadstrn (fd, NULL, ';', 255);
+              freadstrn (fd, program, ';', 255);
             }
           else if (strcmp (tag, "WHO") == 0)
             {
@@ -293,7 +292,7 @@ int read_resumefile_line (int thread_num, FILE *fd, mpz_t x, mpz_t n, mpz_t sigm
           mpz_init (checksum);
           mpz_set_d (checksum, *b1);
           if (have_sigma) mpz_mul_ui (checksum, checksum, mpz_fdiv_ui (sigma, CHKSUMMOD));
-          if (have_a) mpz_mul_ui (checksum, checksum, mpz_fdiv_ui (A, CHKSUMMOD));
+          if (have_a) mpz_mul_ui (checksum, checksum, mpz_fdiv_ui (a, CHKSUMMOD));
           mpz_mul_ui (checksum, checksum, mpz_fdiv_ui (n, CHKSUMMOD));
           mpz_mul_ui (checksum, checksum, mpz_fdiv_ui (x, CHKSUMMOD));
           if (have_z) mpz_mul_ui (checksum, checksum, mpz_fdiv_ui (z, CHKSUMMOD));
@@ -325,7 +324,6 @@ int read_resumefile_line (int thread_num, FILE *fd, mpz_t x, mpz_t n, mpz_t sigm
           mpz_clear (z);
         }
 
-      if (have_a) mpz_clear(A);
       if (have_y) mpz_clear(y);
       return 1;
 

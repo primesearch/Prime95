@@ -10,7 +10,7 @@
  *	Other important ideas courtesy of Peter Montgomery, Alex Kruppa, Mihai Preda, Pavel Atnashev.
  *
  *	c. 1997 Perfectly Scientific, Inc.
- *	c. 1998-2025 Mersenne Research, Inc.
+ *	c. 1998-2026 Mersenne Research, Inc.
  *	All Rights Reserved.
  *
  *************************************************************/
@@ -1477,6 +1477,7 @@ typedef struct {
 	int	stage2_threads;	/* Number of threads to use in stage 2 */
 	struct work_unit *w;	/* Worktodo.txt entry */
 	FILE	*gmp_ecm_file;	/* File handle when running stage 2 on GMP-ECM's stage 1 */
+	char	stage1_program[256]; /* Stage 1 program from the GMP-ECM file */
 	uint32_t curve;		/* Curve # starting with 1 */
 	uint32_t state;		/* Curve state defined above */
 	uint64_t sigma;		/* Sigma for the current curve */
@@ -7327,11 +7328,12 @@ restart0:
 /* If running stage 2 using data from a GMP-ECM stage 1 resume file, read in the stage 1 results, go to stage 2. */
 
 	if (w->gmp_ecm_file != NULL) {
-		mpz_t	x, n, sigma;
+		mpz_t	x, n, a, sigma;
 		int	param;
 		double	b1;
-		mpz_inits (x, n, sigma, 0);
-		if (!read_resumefile_line (ecmdata.thread_num, ecmdata.gmp_ecm_file, x, n, sigma, &param, &b1)) {
+		mpz_inits (x, n, a, sigma, 0);
+		strcpy (ecmdata.stage1_program, "GMP-ECM");	/* Default stage 1 program value */
+		if (!read_resumefile_line (ecmdata.thread_num, ecmdata.gmp_ecm_file, x, n, a, sigma, &param, &b1, ecmdata.stage1_program)) {
 			w->curves_to_do = ecmdata.curve - 1;
 			goto no_more_curves;
 		}
@@ -7350,7 +7352,7 @@ restart0:
 		ecmdata.Qx_binary = allocgiant (((int) ecmdata.gwdata.bit_length >> 5) + 10);
 		if (ecmdata.Qx_binary == NULL) goto oom;
 		mpztog (x, ecmdata.Qx_binary);
-		mpz_clears (x, n, sigma, 0);
+		mpz_clears (x, n, a, sigma, 0);
 		curve_start_msg (&ecmdata);
 		stop_reason = init_curve (&ecmdata);
 		if (stop_reason) goto exit;
@@ -9944,7 +9946,7 @@ no_more_curves:
 	if (ecmdata.sigma_type == 0) sprintf (JSONbuf+strlen(JSONbuf), ", \"Edwards\":{}");
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", ecmdata.stage1_fftlen);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, ecmdata.B, ecmdata.average_B2));
-	if (w->gmp_ecm_file != NULL) sprintf (JSONbuf+strlen(JSONbuf), ", \"program-stage1\":\"GMP-ECM\"");
+	if (w->gmp_ecm_file != NULL) sprintf (JSONbuf+strlen(JSONbuf), ", \"program-stage1\":\"%s\"", ecmdata.stage1_program);
 	JSONaddProgramTimestamp (JSONbuf);
 	JSONaddExponentKnownFactors (JSONbuf, w);
 	JSONaddUserComputerAID (JSONbuf, w);
@@ -10070,6 +10072,7 @@ bingo:	stage = (ecmdata.state > ECM_STATE_MIDSTAGE) ? 2 : (ecmdata.state > ECM_S
 	if (ecmdata.optimal_B2 && ecmdata.average_B2 != ecmdata.C) sprintf (JSONbuf+strlen(JSONbuf), ", \"average-b2\":%" PRIu64, ecmdata.average_B2);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"fft-length\":%lu", ecmdata.stage1_fftlen);
 	sprintf (JSONbuf+strlen(JSONbuf), ", \"security-code\":\"%08lX\"", SEC5 (w->n, ecmdata.B, ecmdata.C));
+	if (w->gmp_ecm_file != NULL) sprintf (JSONbuf+strlen(JSONbuf), ", \"program-stage1\":\"%s\"", ecmdata.stage1_program);
 	JSONaddProgramTimestamp (JSONbuf);
 	JSONaddExponentKnownFactors (JSONbuf, w);
 	JSONaddUserComputerAID (JSONbuf, w);

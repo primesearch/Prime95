@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2025 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2026 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -7965,7 +7965,8 @@ void tortureTestDefaultSizes (
 		max_adjusted_L3_cache_size = CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES / min_workers_per_L3_cache;
 		min_adjusted_L3_cache_size = CPU_TOTAL_L3_CACHE_SIZE / CPU_NUM_L3_CACHES / max_workers_per_L3_cache;
 
-		if (CPU_L3_CACHE_INCLUSIVE == 0) {
+		// Assume L3 cache is not inclusive if the L3 cache is smaller than the L2 cache
+		if (CPU_L3_CACHE_INCLUSIVE == 0 || max_adjusted_L3_cache_size < max_adjusted_L2_cache_size) {
 			max_adjusted_L3_cache_size += max_adjusted_L2_cache_size;
 			min_adjusted_L3_cache_size += min_adjusted_L2_cache_size;
 		}
@@ -7981,7 +7982,8 @@ void tortureTestDefaultSizes (
 		max_adjusted_L4_cache_size = CPU_TOTAL_L4_CACHE_SIZE / CPU_NUM_L4_CACHES / min_workers_per_L4_cache;
 		min_adjusted_L4_cache_size = CPU_TOTAL_L4_CACHE_SIZE / CPU_NUM_L4_CACHES / max_workers_per_L4_cache;
 
-		if (CPU_L4_CACHE_INCLUSIVE == 0) {
+		// Assume L4 cache is not inclusive if the L4 cache is smaller than the L3 cache
+		if (CPU_L4_CACHE_INCLUSIVE == 0 || max_adjusted_L4_cache_size < max_adjusted_L3_cache_size) {
 			max_adjusted_L4_cache_size += max_adjusted_L3_cache_size;
 			min_adjusted_L4_cache_size += min_adjusted_L3_cache_size;
 		}
@@ -8010,6 +8012,8 @@ void tortureTestDefaultSizes (
 		*minfft = 4;
 		*maxfft = (CPU_TOTAL_L4_CACHE_SIZE ? 32768 : 8192);
 	}
+	// Make sure the FFT range is reasonable (contains at least a few FFT sizes)
+	if (*minfft > *maxfft / 2) *minfft = *maxfft / 2;
 }
 
 /* Execute a torture test */

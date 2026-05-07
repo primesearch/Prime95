@@ -294,6 +294,10 @@ in advancing the ECM "T-level".  However, the program may be better able to put 
 amounts of memory to good use with larger B1 values.  WARNING: changing this setting
 in the middle of a set of ECM curves will delete the ECM save file.
 
+To reduce the amount of back and forth communication with the server, ECM assignments will be
+at least 50 curves.  You can reduce the number of ECM curves run with this prime.txt setting:
+	MaxECMCurves=n			(default is no maximum)
+
 For P-1 and ECM you can increase the number of cores used in stage 2 vs. stage 1.
 In prime.txt, set:
 	Stage2ExtraThreads=n	(default is zero)

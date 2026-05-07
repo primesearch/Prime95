@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2025 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2026 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines and global variables that are common for
 | all operating systems the program has been ported to.  It is included
@@ -11,7 +11,7 @@
 | Commonc contains information used during setup and execution
 +---------------------------------------------------------------------*/
 
-static const char JUNK[]="Copyright 1996-2025 Mersenne Research, Inc. All rights reserved";
+static const char JUNK[]="Copyright 1996-2026 Mersenne Research, Inc. All rights reserved";
 
 char	INI_FILE[260] = {0};
 char	WORKTODO_FILE[260] = {0};
@@ -6755,6 +6755,10 @@ retry:
 			w.B1 = pkt1.B1;
 			w.B2 = pkt1.B2;
 			w.curves_to_do = pkt1.curves;
+			{
+				unsigned int max_curves = IniGetInt (INI_FILE, "MaxECMCurves", 0);
+				if (max_curves && w.curves_to_do > max_curves) w.curves_to_do = max_curves;
+			}
 			break;
 		case PRIMENET_WORK_TYPE_PRP:
 			w.work_type = WORK_PRP;

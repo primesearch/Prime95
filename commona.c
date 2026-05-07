@@ -30,8 +30,8 @@ void sanitizeString (
 /* Create a status report message from the work-to-do file */
 
 #define STAT0 "Below is a report on the work you have queued and any expected completion dates.\n"
-#define STAT1 "The chance that one of the %d exponents you are testing will yield a %sprime is about 1 in %lld. "
-#define STAT1a "The chance that the exponent you are testing will yield a %sprime is about 1 in %lld. "
+#define STAT1 "The chance that one of the %d exponents you are testing will yield a %sprime is about 1 in %lld."
+#define STAT1a "The chance that the exponent you are testing will yield a %sprime is about 1 in %lld."
 #define STAT3 "No work queued up.\n"
 
 void rangeStatusMessage (
@@ -42,6 +42,9 @@ void rangeStatusMessage (
 	int	mersennes;		/* TRUE if only testing Mersenne numbers */
 	double	prob, est;
 	char	*orig_buf;
+
+// Reserve 120 characters to output final summary message
+#define room_in_buf_for(count)		(buflen - (unsigned int)(buf - orig_buf) > count + 120)
 
 /* Just in case the user hand added work to the worktodo file, reread it now if the workers and communication thread are not active. */
 
@@ -73,8 +76,10 @@ void rangeStatusMessage (
 /* Output worker num */
 
 	    if (NUM_WORKERS > 1) {
-		sprintf (buf, "[Worker #%d]\n", tnum+1);
-		buf += strlen (buf);
+		if (room_in_buf_for (15)) {
+		    sprintf (buf, "[Worker #%d]\n", tnum+1);
+		    buf += strlen (buf);
+		}
 		lines_output++;
 	    }
 
@@ -126,10 +131,12 @@ void rangeStatusMessage (
 
 /* Stop adding worktodo lines if buffer is full.  We must still loop through the worktodo lines to decrement the in-use counters. */
 
-		if ((unsigned int) (buf - orig_buf) >= buflen - 200 || lines_output >= lines_per_worker-1) {
+		if (!room_in_buf_for (80) || lines_output >= lines_per_worker-1) {
 			if (! truncated_status_msg) {
-				strcpy (buf, "More...\n");
-				buf += strlen (buf);
+				if (room_in_buf_for (10)) {
+					strcpy (buf, "More...\n");
+					buf += strlen (buf);
+				}
 				truncated_status_msg = TRUE;
 			}
 			continue;
