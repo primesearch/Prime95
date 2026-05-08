@@ -977,9 +977,9 @@ int gwinfo (			/* Return zero-padded fft flag or error code */
 	int	num_b_in_big_word, num_small_words, num_big_words;
 	double	b_per_input_word, bits_per_output_word;
 	double	weighted_bits_per_output_word;
-	unsigned long max_exp;
+	unsigned long minimum_fftlen, max_exp;
 	char	buf[20];
-	int	larger_fftlen_count, qa_nth_fft, desired_bif;
+	int	qa_nth_fft, desired_bif;
 	void	*prev_proc_ptrs[5];
 	uint32_t flags;
 	float	safety_margin;
@@ -1016,10 +1016,10 @@ int gwinfo (			/* Return zero-padded fft flag or error code */
 /* loop as we're sure to find an IBDWT that will do the job. Also skip if called from */
 /* gwmap_fftlen_to_max_exponent (n = 0) or we are QAing IBDWT FFTs (qa_pick_nth_fft >= 1000) */
 
+	minimum_fftlen = gwdata->minimum_fftlen;
 again:	zpad_jmptab = NULL;
 	generic_jmptab = NULL;
 	if (! gwdata->force_general_mod && (k > 1.0 || (n > 0 && n < 500) || labs (c) > 1) && gwdata->qa_pick_nth_fft < 1000) {
-		larger_fftlen_count = gwdata->larger_fftlen_count;
 
 /* Use the proper 2^N-1 jmptable */
 
@@ -1046,7 +1046,7 @@ again:	zpad_jmptab = NULL;
 /* Do a quick check on the suitability of this FFT */
 
 			if ((double) (n + n) * log2b / (double) zpad_jmptab->fftlen > 27.0 - 0.25 * log2 (zpad_jmptab->fftlen)) goto next1;
-			if (zpad_jmptab->fftlen < gwdata->minimum_fftlen) goto next1;
+			if (zpad_jmptab->fftlen < minimum_fftlen) goto next1;
 
 /* Don't bother looking at this FFT length if the generic reduction would be faster */
 
@@ -1126,17 +1126,9 @@ again:	zpad_jmptab = NULL;
 			    bits_per_output_word + log2k + log2maxmulbyconst <= floor (7.0 * b_per_input_word) * log2b &&
 
 /* The high part of upper result words are multiplied by c and the mul-by-const.  This must not exceed 51 bits. */
+/* Otherwise, we can use this FFT.  Look for a non-zero-padded FFT that might be even faster. */
 
-			    bits_per_output_word - floor (b_per_input_word) * log2b + log2c + log2maxmulbyconst <= 51.0) {
-
-/* This FFT could work, but see if the user requested a larger than normal FFT size */
-
-				if (larger_fftlen_count--) goto next1;
-
-/* We can use this FFT.  Look for a non-zero-padded FFT that might be even faster. */
-
-				break;
-			}
+			    bits_per_output_word - floor (b_per_input_word) * log2b + log2c + log2maxmulbyconst <= 51.0) break;
 
 /* Move past procedure entries and counts to next jmptable entry */
 
@@ -1184,13 +1176,12 @@ next1:			zpad_jmptab = NEXT_SET_OF_JMPTABS (zpad_jmptab);
 /* Find the table entry using either the specified fft length or */
 /* the smallest FFT length that can handle the k,b,n,c being tested. */
 
-	larger_fftlen_count = gwdata->larger_fftlen_count;
 	while ((max_exp = adjusted_max_exponent (gwdata, jmptab)) != 0) {
 
 /* Do a quick check on the suitability of this FFT */
 
 		if ((double) n * log2b / (double) jmptab->fftlen > 26.0 - 0.25 * log2 (jmptab->fftlen)) goto next2;
-		if (jmptab->fftlen < gwdata->minimum_fftlen) goto next2;
+		if (jmptab->fftlen < minimum_fftlen) goto next2;
 
 /* Top carry adjust can only handle k values of 34 bits or less */
 
@@ -1415,10 +1406,6 @@ next1:			zpad_jmptab = NEXT_SET_OF_JMPTABS (zpad_jmptab);
 				goto next2;
 			}
 
-/* This FFT could work, but see if the user requested a larger than normal FFT size */
-
-			if (larger_fftlen_count--) goto next2;
-
 /* We've found an FFT length to use */
 
 			break;
@@ -1451,6 +1438,14 @@ next2:		jmptab = NEXT_SET_OF_JMPTABS (jmptab);
 
 	else
 		return (GWERROR_TOO_LARGE);
+
+/* We've found a useful "jump" table entry, see if we should skip it because caller wants a larger fftlen */
+
+	if (gwdata->smaller_fftlen_count < gwdata->larger_fftlen_count) {
+		gwdata->smaller_fftlen_count++;
+		minimum_fftlen = jmptab->fftlen + 1;
+		goto again;
+	}
 
 /* We've found the right "jump" table entry, save the pointer and FFT length */
 
@@ -2201,6 +2196,7 @@ int gwsetup (
 	setup_completed = FALSE;
 	orig_k = k;
 	orig_n = n;
+	gwdata->smaller_fftlen_count = 0;
 
 /* Our code fails if k is a power of b.  For example, 3481*59^805-1 which */
 /* equals 59^807-1.  I think this is because gwfft_base(FFTLEN) is off by one */
@@ -2299,6 +2295,7 @@ int gwsetup_general_mod (
 	tmp.sign = arraylen;
 	tmp.n = (uint32_t *) array;
 	while (tmp.sign && tmp.n[tmp.sign-1] == 0) tmp.sign--;
+	gwdata->smaller_fftlen_count = 0;
 	return (gwsetup_general_mod_giant (gwdata, &tmp));
 }
 
@@ -2311,6 +2308,7 @@ int gwsetup_general_mod_64 (
 	tmp.sign = (int) arraylen * 2;
 	tmp.n = (uint32_t *) array;
 	while (tmp.sign && tmp.n[tmp.sign-1] == 0) tmp.sign--;
+	gwdata->smaller_fftlen_count = 0;
 	return (gwsetup_general_mod_giant (gwdata, &tmp));
 }
 
@@ -2613,12 +2611,14 @@ int gwsetup_general_mod_giant (
 /* n values, but unless the modulus has small factors the GCD will not fail and the first test case we try will be acceptable. */
 
 	gwdata->use_benchmarks = FALSE;					// Benchmarking MMGW generic reduction is not supported
+	int larger_fftlen_count = gwdata->larger_fftlen_count - gwdata->smaller_fftlen_count;	// Counter to handle larger fft length within the loop below
+									// For PFGW, take into account how many FFT lengths we've already skipped over
 	float saved_safety_margin = gwdata->safety_margin;		// save the safety margin
 	int saved_cpu_flags = gwdata->cpu_flags;			// gwinfo sometimes alters cpu_flags (like stripping AVX512F flag for FFT length 32)
 	int saved_minimum_fftlen = gwdata->minimum_fftlen;		// though not necessary, remember this option
 	int saved_larger_fftlen_count = gwdata->larger_fftlen_count;	// though not necessary, remember this option
-	int larger_fftlen_count = saved_larger_fftlen_count;		// Counter to handle larger fft length within the loop below
 	gwdata->larger_fftlen_count = 0;
+	gwdata->smaller_fftlen_count = 0;
 	for ( ; ; ) {							// Loop until larger_fftlen_count is satisfied
 	    // Find a workable FFT length.  Try several FFT lengths before giving up -- the modulus must be highly composite.
 	    for (int fft_lengths_tried = 0; fft_lengths_tried < 7; fft_lengths_tried++, gwdata->minimum_fftlen = fftlen + 1) {
@@ -2722,6 +2722,7 @@ int gwsetup_general_mod_giant (
 
 	    // Check larger_fftlen_count here.  If zero, we've found our desired fft length
 	    if (larger_fftlen_count == 0) break;
+	    gwdata->minimum_fftlen++;
 	    larger_fftlen_count--;
 	    free (Np), Np = NULL;
 	    free (R), R = NULL;
@@ -2869,6 +2870,7 @@ int gwsetup_without_mod (
 /* Call gwinfo and have it figure out the FFT length we will use.  Since the user must zero the upper half of FFT input data, the FFT */
 /* outputs will be smaller.  This lets us get about another 0.15 bits per input word (data from Pavel Atnashev's primorial search). */
 
+	gwdata->smaller_fftlen_count = 0;
 	gwdata->safety_margin -= 0.15f;
 	error_code = gwinfo (gwdata, 1.0, 2, n, -1);
 	gwdata->safety_margin += 0.15f;

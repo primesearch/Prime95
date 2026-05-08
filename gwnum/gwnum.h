@@ -55,9 +55,9 @@ typedef gwnum *gwarray;
 /* are new prime95 versions without any changes in the gwnum code.  This version number is also embedded in the assembly code and */
 /* gwsetup verifies that the version numbers match.  This prevents bugs from accidentally linking in the wrong gwnum library. */
 
-#define GWNUM_VERSION		"31.4"
+#define GWNUM_VERSION		"31.5"
 #define GWNUM_MAJOR_VERSION	31
-#define GWNUM_MINOR_VERSION	4
+#define GWNUM_MINOR_VERSION	5
 
 /* Error codes returned by the three gwsetup routines */
 
@@ -986,6 +986,7 @@ struct gwhandle_struct {
 	char	GLOBAL_MULBYCONST;	/* Internal flag used to support deprecated gwsetnormroutine c parameter.  Use GWMUL_MULBYCONST instead. */ 
 	char	GLOBAL_POSTFFT;		/* Internal flag used to support deprecated gwstartnextfft routine.  Use GWMUL_STARTNEXTFFT instead. */ 
 	char	POSTFFT;		/* Internal flag indicating the current multiply operation should start the forward FFT on the result */
+	char	smaller_fftlen_count;	/* Internal count of skipped smaller FFT lengths.  Used in implementing larger_fftlen_count. */
 	int	FFT_TYPE;		/* Home-grown, Radix-4, etc. */
 	int	ARCH;			/* Architecture.  Which CPU type the FFT is optimized for. */
 	void	(*GWPROCPTRS[15])(void*); /* Ptrs to assembly routines */

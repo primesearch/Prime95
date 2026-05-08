@@ -6867,6 +6867,7 @@ restart:
 			stop_reason = STOP_FILE_IO_ERROR;
 			goto exit;
 		}
+		strcpy (ecmdata.stage1_program, "GMP-ECM");	/* Default stage 1 program value */
 		// If requested, skip N lines from the GMP-ECM resume file
 		for (i = 0; i < (int) w->skip_curves; i++) skip_resumefile_line (ecmdata.gmp_ecm_file);
 	}
@@ -7332,7 +7333,6 @@ restart0:
 		int	param;
 		double	b1;
 		mpz_inits (x, n, a, sigma, 0);
-		strcpy (ecmdata.stage1_program, "GMP-ECM");	/* Default stage 1 program value */
 		if (!read_resumefile_line (ecmdata.thread_num, ecmdata.gmp_ecm_file, x, n, a, sigma, &param, &b1, ecmdata.stage1_program)) {
 			w->curves_to_do = ecmdata.curve - 1;
 			goto no_more_curves;
