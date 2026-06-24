@@ -8,7 +8,7 @@
 | NOTE:  These routines only work if you open no more than 10 ini files.  Also,
 | you must not change the working directory at any time during program execution.
 |
-| Copyright 2016-2023 Mersenne Research, Inc.  All rights reserved
+| Copyright 2016-2026 Mersenne Research, Inc.  All rights reserved
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -138,16 +138,11 @@ void writeIniFile (			/* Write a changed INI file to disk */
 	fd = _open (p->filename, _O_CREAT | _O_TRUNC | _O_WRONLY | _O_TEXT, CREATE_FILE_ACCESS);
 	if (fd < 0) return;
 	for (j = 0; j < p->num_lines; j++) {
-		if (p->lines[j]->line_type == INI_LINE_COMMENT) {
-			strcpy (buf, p->lines[j]->value);
-		} else if (p->lines[j]->line_type == INI_LINE_HEADER) {
-			strcpy (buf, p->lines[j]->value);
+		if (p->lines[j]->line_type == INI_LINE_COMMENT || p->lines[j]->line_type == INI_LINE_HEADER) {
+			snprintf (buf, sizeof (buf), "%s\n", p->lines[j]->value);
 		} else {
-			strcpy (buf, p->lines[j]->keyword);
-			strcat (buf, "=");
-			strcat (buf, p->lines[j]->value);
+			snprintf (buf, sizeof (buf), "%s=%s\n", p->lines[j]->keyword, p->lines[j]->value);
 		}
-		strcat (buf, "\n");
 		(void) _write (fd, buf, (unsigned int) strlen (buf));
 	}
 	p->dirty = 0;
@@ -817,7 +812,7 @@ static	struct IniCache *cache[10] = {0};
 	if (fd == NULL) return (p);
 
 	while (fgets (line, sizeof (line), fd)) {
-		if (line[strlen(line)-1] == '\n') line[strlen(line)-1] = 0;
+		if (line[0] && line[strlen(line)-1] == '\n') line[strlen(line)-1] = 0;
 		if (line[0] && line[strlen(line)-1] == '\r') line[strlen(line)-1] = 0;
 
 /* Allocate and fill in a new line structure */

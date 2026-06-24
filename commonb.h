@@ -147,7 +147,7 @@ typedef struct read_save_file_state {
 	int	num_original_bad_files;
 	int	num_save_files_renamed;
 	char	base_filename[80];
-	char	current_filename[80];
+	char	current_filename[96];	/* holds base_filename + an appended suffix (.bu%d/.bad%d) */
 } readSaveFileState;
 
 void readSaveFileStateInit (readSaveFileState *state, int thread_num, char *filename);

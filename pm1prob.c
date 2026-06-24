@@ -75,9 +75,9 @@ double rho(double x) {
   x -= 2;
   ASSERTG (x >= 0);
   x *= 20;
-  int pos = (int) x;
+  unsigned int pos = (unsigned int) x;
   if (pos + 1 >= sizeof(rhotab)/sizeof(rhotab[0])) { return 0; }
-  
+
   // linear interpolation between rhotab[pos] and rhotab[pos+1]
   return rhotab[pos] + (x - pos) * (rhotab[pos + 1] - rhotab[pos]);
 }

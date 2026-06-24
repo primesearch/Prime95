@@ -120,12 +120,14 @@ freadstrn (FILE *fd, char *s, char delim, unsigned int len)
 /* Alternative implementation of mpz_inp_str.  I'm getting weird behavior using GMP's version.  Perhaps because the GMP library built with MinGW */
 /* use of FILE streams is incompatible with Windows library FILE streams. */
 
-void my_mpz_inp_str (mpz_t x, FILE *fd, int base)
+int my_mpz_inp_str (mpz_t x, FILE *fd, int base)
 {
 	char *buf = (char *) malloc (40000000);
+	if (buf == NULL) return 0;
 	freadstrn (fd, buf, ';', 40000000);
 	mpz_set_str (x, buf, 0);
 	free (buf);
+	return 1;
 }
 
 /* Reads an assignment from a save file. Return 1 if an assignment was successfully read, 0 if there are no more lines to read (at EOF) */
@@ -184,31 +186,31 @@ int read_resumefile_line (int thread_num, FILE *fd, mpz_t x, mpz_t n, mpz_t a, m
             }
           else if (strcmp (tag, "X") == 0)
             {
-              my_mpz_inp_str (x, fd, 0);
+              if (!my_mpz_inp_str (x, fd, 0)) goto error;
               have_x = 1;
             }
           else if (strcmp (tag, "Y") == 0)
             {
               mpz_init (y);
-              my_mpz_inp_str (y, fd, 0);
               have_y = 1;
+              if (!my_mpz_inp_str (y, fd, 0)) goto error;
             }
           else if (strcmp (tag, "Z") == 0)
             {
               mpz_init (z);
-              my_mpz_inp_str (z, fd, 0);
               have_z = 1;
+              if (!my_mpz_inp_str (z, fd, 0)) goto error;
             }
           else if (strcmp (tag, "X0") == 0)
             {
               mpz_init (x0);
-              my_mpz_inp_str (x0, fd, 0);
+              if (!my_mpz_inp_str (x0, fd, 0)) { mpz_clear (x0); goto error; }
               mpz_clear (x0);
             }
           else if (strcmp (tag, "Y0") == 0)
             {
               mpz_init (y0);
-              my_mpz_inp_str (y0, fd, 0);
+              if (!my_mpz_inp_str (y0, fd, 0)) { mpz_clear (y0); goto error; }
               mpz_clear (y0);
             }
           else if (strcmp (tag, "CHECKSUM") == 0)
@@ -226,7 +228,7 @@ int read_resumefile_line (int thread_num, FILE *fd, mpz_t x, mpz_t n, mpz_t a, m
             }
           else if (strcmp (tag, "SIGMA") == 0)
             {
-              my_mpz_inp_str (sigma, fd, 0);
+              if (!my_mpz_inp_str (sigma, fd, 0)) goto error;
               have_sigma = 1;
             }
           else if (strcmp (tag, "PARAM") == 0)
@@ -240,7 +242,7 @@ int read_resumefile_line (int thread_num, FILE *fd, mpz_t x, mpz_t n, mpz_t a, m
             }
           else if (strcmp (tag, "A") == 0)
 	  {
-              my_mpz_inp_str (a, fd, 0);
+              if (!my_mpz_inp_str (a, fd, 0)) goto error;
               have_a = 1;
             }
           else if (strcmp (tag, "B1") == 0)
@@ -282,6 +284,8 @@ int read_resumefile_line (int thread_num, FILE *fd, mpz_t x, mpz_t n, mpz_t a, m
       if (!have_method || !have_x || !have_sigma || !have_b1)
         {
 	  OutputStr (thread_num, "Save file line lacks fields\n");
+          if (have_y) mpz_clear (y);
+          if (have_z) mpz_clear (z);
           continue;
         }
 
@@ -302,6 +306,8 @@ int read_resumefile_line (int thread_num, FILE *fd, mpz_t x, mpz_t n, mpz_t a, m
 	      sprintf (buf, "GMP Resume file line has bad checksum %u, expected %lu\n", saved_checksum, mpz_fdiv_ui (checksum, CHKSUMMOD));
 	      OutputStr (thread_num, buf);
               mpz_clear (checksum);
+              if (have_y) mpz_clear (y);
+              if (have_z) mpz_clear (z);
               continue;
             }
           mpz_clear (checksum);
@@ -328,6 +334,8 @@ int read_resumefile_line (int thread_num, FILE *fd, mpz_t x, mpz_t n, mpz_t a, m
       return 1;
 
 error:
+      if (have_y) mpz_clear (y);
+      if (have_z) mpz_clear (z);
       /* This can occur when reading Prime95 resume files,
          or files that have comment lines in them,
          or files that have a problem with the save line */
@@ -372,7 +380,7 @@ int peek_resumefile_line (FILE *fd, mpz_t n)
 	freadstrn (fd, tag, '=', 16);				// Get next tag
         facceptstr (fd, "=");
 	if (strcmp (tag, "N") == 0) {
-		my_mpz_inp_str (n, fd, 0);
+		if (!my_mpz_inp_str (n, fd, 0)) { fsetpos (fd, &pos); return 0; }
 		fsetpos (fd, &pos);
 		return 1;
 	}

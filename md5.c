@@ -363,6 +363,7 @@ void md5_digest_file_from_offset (
 	MD5Init (&context);
 
 	f = fopen (filename, "rb");
+	if (f == NULL) { MD5Final (digest, &context); return; }
 	if (offset) _fseeki64 (f, offset, SEEK_SET);
 	for ( ; ; ) {
 		i = (int) fread (&buf, 1, sizeof (buf), f);

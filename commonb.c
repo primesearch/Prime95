@@ -560,7 +560,7 @@ void SetPriority (
 			if (end_char) {
 				p = strchr (start, end_char);
 				if (p == NULL) {
-					sprintf (buf, "Error parsing affinity string: %s\n", logical_CPU_string);
+					snprintf (buf, sizeof(buf), "Error parsing affinity string: %s\n", logical_CPU_string);
 					OutputStr (info->worker_num, buf);
 					return;
 				}
@@ -587,12 +587,12 @@ void SetPriority (
 		else if (info->aux_polymult) sprintf (buf, "Setting affinity to run polymult helper thread on ");
 		else if (info->aux_thread_num == 0) strcpy (buf, "Setting affinity to run worker on ");
 		else sprintf (buf, "Setting affinity to run helper thread %d on ", info->aux_thread_num);
-		if (bind_type == 0) sprintf (buf+strlen(buf), "CPU core #%d\n", core+1);
+		if (bind_type == 0) snprintf (buf+strlen(buf), sizeof(buf)-strlen(buf), "CPU core #%d\n", core+1);
 #ifdef BIND_TYPE_1_USED
-		else if (bind_type == 1) sprintf (buf+strlen(buf), "logical CPU #%d (zero-based)\n", logical_CPU);
+		else if (bind_type == 1) snprintf (buf+strlen(buf), sizeof(buf)-strlen(buf), "logical CPU #%d (zero-based)\n", logical_CPU);
 #endif
-		else if (bind_type == 3) sprintf (buf+strlen(buf), "any performance core\n");
-		else sprintf (buf+strlen(buf), "logical CPU%s %s (zero-based)\n", strchr (logical_CPU_substring, ',') == NULL ? "" : "s", logical_CPU_substring);
+		else if (bind_type == 3) snprintf (buf+strlen(buf), sizeof(buf)-strlen(buf), "any performance core\n");
+		else snprintf (buf+strlen(buf), sizeof(buf)-strlen(buf), "logical CPU%s %s (zero-based)\n", strchr (logical_CPU_substring, ',') == NULL ? "" : "s", logical_CPU_substring);
 		OutputStr (info->worker_num, buf);
 	}
 
@@ -3698,7 +3698,7 @@ void saveFileBad (
 		sprintf (filename, "%s.bad1", state->base_filename);
 		_unlink (filename);
 		for (i = 2; i <= maxbad; i++) {
-			char	oldname[80];
+			char	oldname[96];	/* base_filename is [80]; leave room for the appended suffix */
 			sprintf (filename, "%s.bad%d", state->base_filename, i-1);
 			sprintf (oldname, "%s.bad%d", state->base_filename, i);
 			rename (oldname, filename);
@@ -3736,7 +3736,7 @@ void writeSaveFileStateInit (
 int openWriteSaveFile (
 	writeSaveFileState *state)
 {
-	char	output_filename[32];
+	char	output_filename[96];	/* base_filename is [80]; leave room for the appended suffix */
 	int	fd;
 
 /* If we are allowed to create multiple intermediate files, then use a .write extension */
@@ -3764,7 +3764,7 @@ void closeWriteSaveFile (
 	writeSaveFileState *state,
 	int	fd)
 {
-	char	dest_filename[32], src_filename[32];
+	char	dest_filename[96], src_filename[96];	/* base_filename is [80]; leave room for the appended suffix */
 	int	rename_count;
 
 /* Flush data to disk and close the save file. */
@@ -3819,7 +3819,7 @@ void deleteWriteSaveFile (
 	writeSaveFileState *state,
 	int	fd)
 {
-	char	output_filename[32];
+	char	output_filename[96];	/* base_filename is [80]; leave room for the appended suffix */
 
 /* Close and delete the save file */
 
@@ -3837,7 +3837,7 @@ void unlinkSaveFiles (
 	writeSaveFileState *state)
 {
 	int	i, maxbad;
-	char	unlink_filename[80];
+	char	unlink_filename[96];	/* base_filename is [80]; leave room for the appended suffix */
 
 	maxbad = IniGetInt (INI_FILE, "MaxBadSaveFiles", 10);
 	for (i = 1; i <= maxbad; i++) {
@@ -5324,6 +5324,13 @@ int primeFactor (
 	char	filename[32];
 	char	buf[200], JSONbuf[4000], str[80];
 	double	timers[2];
+
+/* AI whined that asm code has a bug for exponents below 32.  We're certainly not going to fix that!  Instead refuse to TF small exponents as it is a waste of time. */
+
+	if (w->n < 1000000) {
+		OutputBoth (thread_num, "Trial factoring small exponents is a waste of time.  Use ECM to find new factors.\n");
+		return (STOP_WORK_UNIT_COMPLETE);
+	}
 
 /* Init */
 
@@ -8300,12 +8307,12 @@ int lucas_QA (
 
 		p = 0;
 		if (type != 5) {
-			(void) fscanf (fd, "%lu,%lu,%lu,%lu,%s\n", &p, &fftlen, &iters, &units_bit, res);
+			(void) fscanf (fd, "%lu,%lu,%lu,%lu,%79s\n", &p, &fftlen, &iters, &units_bit, res);
 			k = 1; b = 2;
 			c = (fftlen & 1) ? 1 : -1;
 			fftlen &= ~1;
 		} else
-			(void) fscanf (fd, "%lu,%lu,%lu,%d,%lu,%lu,%lu,%s\n", &k, &b, &p, &c, &fftlen, &iters, &units_bit, res);
+			(void) fscanf (fd, "%lu,%lu,%lu,%d,%lu,%lu,%lu,%79s\n", &k, &b, &p, &c, &fftlen, &iters, &units_bit, res);
 		if (p == 0) break;
 
 /* Now run a replica of lucasSetup but able to handle any k,b,n,c */
@@ -8474,7 +8481,7 @@ int primeSieveTest (
 
 /* What is the factor? */
 
-		(void) fscanf (fd, "%s", fac);
+		(void) fscanf (fd, "%479s", fac);
 		fachi = facmid = faclo = 0;
 		for (f = fac; *f; f++) {
 			if (*f < '0' || *f > '9') continue;
@@ -10860,7 +10867,7 @@ int generateProofFile (
 		if (ps->num_emergency_allocs == 0 || ps->first_emergency_residue_number != 1) {
 			fd = _open (ps->residues_filename, _O_BINARY | _O_RDONLY);
 			if (fd < 0) {
-				sprintf (buf, "Cannot open PRP proof interim residues file: %s\n", ps->residues_filename);
+				snprintf (buf, sizeof (buf), "Cannot open PRP proof interim residues file: %s\n", ps->residues_filename);
 				OutputBoth (ps->thread_num, buf);
 				OutputBothErrno (ps->thread_num);
 				goto pfail;
@@ -10869,7 +10876,7 @@ int generateProofFile (
 		if (proof_number == 1) fdout = _open (tmp_proof_filename, _O_BINARY | _O_WRONLY | _O_CREAT, CREATE_FILE_ACCESS);
 		else fdout = _open (tmp_proof_filename, _O_BINARY | _O_WRONLY);
 		if (fdout < 0) {
-			sprintf (buf, "Cannot %s PRP proof file: %s\n", proof_number == 1 ? "create" : "open", tmp_proof_filename);
+			snprintf (buf, sizeof (buf), "Cannot %s PRP proof file: %s\n", proof_number == 1 ? "create" : "open", tmp_proof_filename);
 			OutputBoth (ps->thread_num, buf);
 			OutputBothErrno (ps->thread_num);
 			goto pfail;
@@ -10936,7 +10943,7 @@ int generateProofFile (
 			_close (fd);
 			_close (fdout);
 			gwfree (gwdata, M);
-			sprintf (buf, "Proof has already been written to %s.\n", tmp_proof_filename);
+			snprintf (buf, sizeof (buf), "Proof has already been written to %s.\n", tmp_proof_filename);
 			OutputBoth (ps->thread_num, buf);
 			break;
 		}
@@ -11080,7 +11087,7 @@ pfail:		if (fd >= 0) _close (fd);
 			OutputStr (ps->thread_num, buf);
 			_unlink (proof_filename);
 			if (rename (tmp_proof_filename, proof_filename)) {
-				sprintf (buf, "Error renaming from %s to %s\n", tmp_proof_filename, proof_filename);
+				snprintf (buf, sizeof (buf), "Error renaming from %s to %s\n", tmp_proof_filename, proof_filename);
 				OutputBoth (ps->thread_num, buf);
 			}
 			_unlink (ps->residues_filename);

@@ -1,5 +1,5 @@
 /*---------------------------------------------------------------------------------
-| Copyright 2020-2023 Mersenne Research, Inc.  All rights reserved
+| Copyright 2020-2026 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines to get proof initial residue from the Primenet server
 +--------------------------------------------------------------------------------*/
@@ -8,8 +8,8 @@
 
 struct GetDataArg {
 	void	*buf;
-	int	bufsize;
-	int	received;
+	size_t	bufsize;
+	size_t	received;
 	char	*MD5;		// Buffer for the MD5 hash of the residue - first 32 bytes of the result
 };
 
@@ -28,22 +28,19 @@ size_t GetDataWriteMemoryCallback (
 	if (info->received < 32) {
 		size_t len = (info->received + bytes_to_copy > 32) ? 32 - info->received : bytes_to_copy;
 		memcpy ((char *) info->MD5 + info->received, ptr, len);
-		info->received += (int) len;
+		info->received += len;
 		ptr = (char *) ptr + len;
-		bytes_to_copy -= (int) len;
+		bytes_to_copy -= len;
 	}
 
 /* If there are more bytes to copy, fill the write buffer. */
 /* Truncate response to fit in our buffer (even though should not be necessary) */
 
 	if (bytes_to_copy) {
-		size_t	buf_received = info->received - 32;
-		if ((int) buf_received + (int) bytes_to_copy <= info->bufsize) {
-			memcpy ((char *) info->buf + buf_received, ptr, bytes_to_copy);
-		} else {
-			memcpy ((char *) info->buf + buf_received, ptr, info->bufsize - buf_received);
-		}
-		info->received += (int) bytes_to_copy;
+		size_t buf_received = info->received - 32;
+		if (buf_received + bytes_to_copy > info->bufsize) bytes_to_copy = info->bufsize - buf_received;
+		memcpy ((char *) info->buf + buf_received, ptr, bytes_to_copy);
+		info->received += bytes_to_copy;
 	}
 	return realsize;
 }

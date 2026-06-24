@@ -55,7 +55,7 @@
 #define IDD_MANUAL_COMM                 149
 #define IDD_ECM                         150
 #define IDD_PMINUS1                     152
-#define IDI_YELLOW_ICON                 153
+#define IDI_RED_ICON                    153
 #define IDD_WELCOME                     153
 #define IDD_UNRESERVE                   154
 #define IDD_TORTURE                     155

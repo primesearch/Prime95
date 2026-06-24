@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------------
-| Copyright 2020-2024 Mersenne Research, Inc.  All rights reserved
+| Copyright 2020-2026 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines to upload one proof file to the Primenet server
 +--------------------------------------------------------------------------*/
@@ -60,8 +60,8 @@ void archiveOrDelete (FILE **fd, char *filename, char fileMD5[33])
 
 struct UploadArg {
 	void	*buf;
-	int	bufsize;
-	int	received;
+	size_t	bufsize;
+	size_t	received;
 };
 
 size_t UploadWriteMemoryCallback (
@@ -75,12 +75,9 @@ size_t UploadWriteMemoryCallback (
 
 /* Truncate response to fit in our buffer (even though should not be necessary) */
 
-	if (info->received + (int) realsize <= info->bufsize) {
-		memcpy ((char *) info->buf + info->received, ptr, realsize);
-	} else {
-		memcpy ((char *) info->buf + info->received, ptr, info->bufsize - info->received);
-	}
-	info->received += (int) realsize;
+	size_t bytes_to_copy = (info->received + realsize <= info->bufsize) ? realsize : info->bufsize - info->received;
+	memcpy ((char *) info->buf + info->received, ptr, bytes_to_copy);
+	info->received += bytes_to_copy;
 	((char *)info->buf)[info->received] = 0;
 	return realsize;
 }
@@ -98,12 +95,9 @@ size_t UploadReadMemoryCallback (
 
 /* Truncate response to fit in our buffer (even though should not be necessary) */
 
-	if (info->received + (int) realsize <= info->bufsize) {
-		memcpy ((char *) info->buf + info->received, ptr, realsize);
-	} else {
-		memcpy ((char *) info->buf + info->received, ptr, info->bufsize - info->received);
-	}
-	info->received += (int) realsize;
+	size_t bytes_to_copy = (info->received + realsize <= info->bufsize) ? realsize : info->bufsize - info->received;
+	memcpy ((char *) info->buf + info->received, ptr, bytes_to_copy);
+	info->received += bytes_to_copy;
 	((char *)info->buf)[info->received] = 0;
 	return realsize;
 }
@@ -302,8 +296,15 @@ void ProofUpload (char *filename)
 		OutputBoth (COMM_THREAD_NUM, buf);
 		goto end;
 	}
-	strcpy (base_url, cJSON_GetStringValue (item));
-
+	{
+		const char *url_to_use = cJSON_GetStringValue (item);
+		if (url_to_use == NULL) {
+			sprintf (buf, "For proof %s, URLToUse is not a string: %s\n", filename, curlbuf);
+			OutputBoth (COMM_THREAD_NUM, buf);
+			goto end;
+		}
+		snprintf (base_url, sizeof (base_url), "%s", url_to_use);
+	}
 	item = cJSON_GetObjectItem (json, "need");
 	if (item == NULL) {
 		sprintf (buf, "For proof %s, server response missing need list: %s\n", filename, curlbuf);
@@ -311,13 +312,13 @@ void ProofUpload (char *filename)
 		goto end;
 	}
 	item = cJSON_GetArrayItem (item, 0);
-	if (sscanf (item->string, "%" PRIu64, &chunk_start) != 1) {
+	if (item == NULL || item->string == NULL || sscanf (item->string, "%" PRIu64, &chunk_start) != 1) {
 		sprintf (buf, "For proof %s, error parsing first need list entry: %s\n", filename, curlbuf);
 		goto end;
 	}
 	chunk_end = (uint64_t) cJSON_GetNumberValue(item);
 	if (chunk_start > chunk_end || chunk_end >= filesize) {
-		printf ("For proof %s, need list entry bad: %s\n", filename, curlbuf);
+		sprintf (buf, "For proof %s, need list entry bad: %s\n", filename, curlbuf);
 		OutputBoth (COMM_THREAD_NUM, buf);
 		goto end;
 	}
@@ -365,7 +366,7 @@ void ProofUpload (char *filename)
 		md5_hexdigest_buffer (chunkMD5, chunk, datasize);
 
 		// Create the upload chunk URL
-		sprintf (url, "%s&FileMD5=%s&DataOffset=%" PRIu64 "&DataSize=%d&DataMD5=%s", base_url, fileMD5, chunk_start, datasize, chunkMD5);
+		snprintf (url, sizeof (url), "%s&FileMD5=%s&DataOffset=%" PRIu64 "&DataSize=%d&DataMD5=%s", base_url, fileMD5, chunk_start, datasize, chunkMD5);
 		curl_easy_setopt (curl, CURLOPT_URL, url);
 		curl_easy_setopt (curl, CURLOPT_SSL_VERIFYPEER, FALSE);
 		if (debug) {
@@ -461,7 +462,7 @@ void ProofUpload (char *filename)
 		item = cJSON_GetArrayItem (item, 0);
 		{
 			uint64_t new_chunk_start;
-			if (sscanf (item->string, "%" PRIu64, &new_chunk_start) != 1) {
+			if (item == NULL || item->string == NULL || sscanf (item->string, "%" PRIu64, &new_chunk_start) != 1) {
 				sprintf (buf, "For proof %s, error parsing first need list entry: %s\n", filename, curlbuf);
 				OutputBoth (COMM_THREAD_NUM, buf);
 				goto end;

@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 2020-2022 Mersenne Research, Inc.  All rights reserved
+| Copyright 2020-2026 Mersenne Research, Inc.  All rights reserved
 |
 | Auxiliary routines to exponentiate gwnums
 +---------------------------------------------------------------------*/
@@ -144,6 +144,7 @@ void exponentiate_windowed (gwhandle *gwdata, gwnum x, uint64_t *power, int bitl
 	// Allocate space for array of temporaries
 	max_mult = num_temps * 2 - 1;
 	xm = (gwnum *) malloc ((max_mult + 1) * sizeof (gwnum));
+	if (xm == NULL) return;  // AI suggested change.  Frankly, crashing may be better than returning an incorrect result
 
 	// Allocate space for temporaries
 	for (int i = 1; i <= max_mult; i += 2) {
@@ -153,6 +154,7 @@ void exponentiate_windowed (gwhandle *gwdata, gwnum x, uint64_t *power, int bitl
 			break;
 		}
 	}
+	if (max_mult < 1) { free (xm); return; }  // AI suggested change.  Frankly, crashing may be better than returning an incorrect result
 
 	// Pre-compute x^1, x^3, x^5, ... x^max_mult
 	gwfft (gwdata, x, xm[1]);
@@ -282,6 +284,7 @@ void exponentiate_mpz_limited_temps (gwhandle *gwdata, gwnum x, mpz_t power, int
 	size_t	len;
 
 	array = (uint64_t *) malloc (divide_rounding_up (mpz_sizeinbase (power, 2), 64) * sizeof (uint64_t));
+	if (array == NULL) return;  // AI suggested change.  Frankly, crashing may be better than returning an incorrect result
 	mpz_export (array, &len, -1, sizeof (uint64_t), 0, 0, power);
 	exponentiate_array (gwdata, x, array, (int) len, num_temps);
 	free (array);

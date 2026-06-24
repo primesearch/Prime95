@@ -4933,7 +4933,7 @@ uint32_t NAF_best_size (	// Return the best size for the dictionary
 void curve_start_msg (
 	ecmhandle *ecmdata)
 {
-	char	buf[120];
+	char	buf[256];
 
 	// Replace gwnum's "A n-bit number" text with something a bit more meaningful
 	if (ecmdata->N_short_string_rep == NULL) {
@@ -5167,7 +5167,7 @@ int mQ_next (
 				// Allocate memory for nextQm2
 				nextQm2.x = ecmdata->mQx[i+ecmdata->E/2];
 				nextQm2.z = gwalloc (&ecmdata->gwdata);
-				if (nextQm.z == NULL) return (OutOfMemory (ecmdata->thread_num));
+				if (nextQm2.z == NULL) return (OutOfMemory (ecmdata->thread_num));
 
 				// Calc next mQx[i+E/2] = next mQx[i] + QD*E/2, diff mQx[i+E/2]
 				ell_add_xz_2norm (ecmdata, &nextQm, ecmdata->QD_Eover2.x, ecmdata->mQx[i+ecmdata->E/2], &nextQm2);
@@ -6260,7 +6260,11 @@ void ecm_save (
 
 /* Write the stage-specific data */
 
-	if (ecmdata->state == ECM_STATE_STAGE1) {
+	if (ecmdata->state == ECM_STATE_STAGE1_INIT) {
+		// Save nothing.  In fact, we didn't need to save much of the info in the header.
+	}
+
+	else if (ecmdata->state == ECM_STATE_STAGE1) {
 		if (ecmdata->montg_stage1) {
 			if (! write_uint64 (fd, ecmdata->stage1_prime, &sum)) goto writeerr;
 			if (! write_gwnum (fd, &ecmdata->gwdata, ecmdata->xz.x, &sum)) goto writeerr;
@@ -6459,7 +6463,7 @@ int ecm_restore (			/* For version 30.4 and later save files */
 		if (! read_uint32 (fd, &tmp, &sum)) goto readerr;
 		ecmdata->montg_stage1 = tmp;
 	}
-		
+
 /* Handle the case where we have a save file with a smaller bound #1 than the bound #1 we are presently working on. */
 /* Restart the curve (and curve counts) from scratch. */
 
@@ -6481,7 +6485,10 @@ int ecm_restore (			/* For version 30.4 and later save files */
 
 /* Read state dependent data */
 
-	if (ecmdata->state == ECM_STATE_STAGE1) {
+	if (ecmdata->state == ECM_STATE_STAGE1_INIT) {
+	}
+
+	else if (ecmdata->state == ECM_STATE_STAGE1) {
 		if (ecmdata->montg_stage1) {
 			if (! read_uint64 (fd, &ecmdata->stage1_prime, &sum)) goto readerr;
 			if (! alloc_xz (ecmdata, &ecmdata->xz)) goto readerr;
@@ -7286,6 +7293,12 @@ if (w->n == 604) {
 
 		curve_start_msg (&ecmdata);
 
+/* Continue at the start of stage 1 */
+
+		if (ecmdata.state == ECM_STATE_STAGE1_INIT) {
+			goto restart0;
+		}
+
 /* Continue in the middle of stage 1 */
 
 		if (ecmdata.state == ECM_STATE_STAGE1) {
@@ -7326,6 +7339,12 @@ if (w->n == 604) {
 
 restart0:
 
+/* This cures a bug reported by axn.  He reported prime95 got a roundoff error in curve 7 stage 1.  Prime95 rolled back to the last save file */
+/* which was written before curve 6 stage 2.  Thus, stage 2 was re-run. */
+
+	ecmdata.state = ECM_STATE_STAGE1_INIT;
+	if (ecmdata.curve > 1 && IniGetInt (INI_FILE, "SaveBeforeStage1", 1)) ecm_save (&ecmdata);
+
 /* If running stage 2 using data from a GMP-ECM stage 1 resume file, read in the stage 1 results, go to stage 2. */
 
 	if (w->gmp_ecm_file != NULL) {
@@ -7364,7 +7383,6 @@ restart0:
 
 /* Init for stage 1 */
 
-	ecmdata.state = ECM_STATE_STAGE1_INIT;
 	ecmdata.C_done = 0;
 	ecmdata.pct_mem_to_use = 1.0;				// Use as much memory as we can unless we get allocation errors
 	ecm_stage1_memory_usage (thread_num, &ecmdata);
@@ -10234,7 +10252,7 @@ int ecm_QA (
 /* Read a line from the file */
 
 		n = 0;
-		(void) fscanf (fd, "%lf,%lu,%lu,%ld,%" PRIu64 ",%lu,%lu,%s\n", &k, &b, &n, &c, &sigma, &B1, &B2, fac_str);
+		(void) fscanf (fd, "%lf,%lu,%lu,%ld,%" PRIu64 ",%lu,%lu,%79s\n", &k, &b, &n, &c, &sigma, &B1, &B2, fac_str);
 		if (n == 0) break;
 
 /* If b is 1, set QA_TYPE */
@@ -14014,7 +14032,7 @@ int pminus1_QA (
 /* Read a line from the file */
 
 		n = 0;
-		(void) fscanf (fd, "%lf,%lu,%lu,%ld,%lu,%lu,%s\n", &k, &b, &n, &c, &B1, &B2, fac_str);
+		(void) fscanf (fd, "%lf,%lu,%lu,%ld,%lu,%lu,%79s\n", &k, &b, &n, &c, &B1, &B2, fac_str);
 		if (n == 0) break;
 
 /* If p is 1, set QA_TYPE */
@@ -16771,7 +16789,7 @@ int pplus1_QA (
 /* Read a line from the file */
 
 		n = 0;
-		(void) fscanf (fd, "%lf,%lu,%lu,%ld,%lu,%lu,%lu,%s\n", &k, &b, &n, &c, &B1, &B2, &start, fac_str);
+		(void) fscanf (fd, "%lf,%lu,%lu,%ld,%lu,%lu,%lu,%79s\n", &k, &b, &n, &c, &B1, &B2, &start, fac_str);
 		if (n == 0) break;
 
 /* If p is 1, set QA_TYPE */

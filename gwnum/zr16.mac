@@ -1,4 +1,4 @@
-; Copyright 2018 - Mersenne Research, Inc.  All rights reserved
+; Copyright 2018-2026 - Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -353,7 +353,7 @@ bcast	vbroadcastsd zmm20, Q [screg+1*16]	;; sine for R3/I3 and R15/I15
 	zfnmaddpd zmm13, zmm13, zmm23, zmm4	;;  r5-- = (r5-r13) - .707(r3-+)			; 50-53		n 73
 
 no bcast vmovapd zmm23, [screg+5*128]		;; sine for R7/I7 and R11/I11 (w^6)
-bcast	vbroadcastsd zmm23, Q [screg+3*16]	;; sine for R7/I7 and R11/I11
+bcast	vbroadcastsd zmm23, Q [screg+5*16]	;; sine for R7/I7 and R11/I11
 	vmulpd	zmm25, zmm25, zmm23		;; (r3+--) * sine7B	 				; 51-54		n 56
 	vmulpd	zmm14, zmm14, zmm23		;; (r1+--) * sine7B					; 51-54		n 57
 
@@ -390,7 +390,7 @@ bcast	vbroadcastsd zmm20, Q [screg+1*16+8]	;; cosine/sine for R3/I3 and R15/I15
 	zfmaddpd zmm10, zmm24, zmm0, zmm26	;; R13s * cosine/sine + I13s (final R13)		; 59-62
 	zfmsubpd zmm26, zmm26, zmm0, zmm24	;; I13s * cosine/sine - R13s (final I13)		; 59-62
 no bcast vmovapd zmm0, [screg+5*128+64]		;; cosine/sine for R7/I7 and R11/I11 (w^6)
-bcast	vbroadcastsd zmm0, Q [screg+3*16+8]	;; cosine/sine for R7/I7 and R11/I11
+bcast	vbroadcastsd zmm0, Q [screg+5*16+8]	;; cosine/sine for R7/I7 and R11/I11
 
 	zfmsubpd zmm24, zmm31, zmm20, zmm15	;; R3s * cosine/sine - I3s (final R3)			; 60-63
 	zfmaddpd zmm15, zmm15, zmm20, zmm31	;; I3s * cosine/sine + R3s (final I3)			; 60-63
@@ -2401,7 +2401,7 @@ bcast	vbroadcastsd zmm22, Q [bcIVreg+1*bcsz]	;;IV0 Sine							n 43
 	vmulpd	zmm30, zmm30, zmm22		;;IV0 B2 = B2 * sine (final I2)			; 43-46
 	zstore	[srcreg+d2], zmm15		;;IV0 Save R3					; 45
 
-no bcast vmovapd zmm15, [screg+0*sc4gap+0*128]	;;40 Sine
+no bcast vmovapd zmm15, [sc4reg+0*sc4gap+0*128]	;;40 Sine
 bcast	vbroadcastsd zmm15, Q [bc4reg+0*sc4gap+0*bcsz] ;;40 Sine						n 44
 	vmulpd	zmm1, zmm1, zmm15		;;40 R3s = R3 * sine				; 44-47		n 48
 	vmulpd	zmm17, zmm17, zmm15		;;40 I3s = I3 * sine				; 44-47		n 49

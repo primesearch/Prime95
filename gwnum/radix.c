@@ -4,7 +4,7 @@
 | This file contains the C routines for radix conversion when required
 | by gianttogw or gwtogiant.
 | 
-|  Copyright 2020-2024 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2020-2026 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -845,8 +845,10 @@ int nonbase2_gwtogiant (	/* Returns an error code or zero for success */
 					outval = (uint32_t) tmp;
 					outcarry = tmp >> 32;
 				} else {
-					uint64_t tmp = (uint64_t) outval * (uint64_t) klo + outcarry;
-					outcarry = (tmp >> 32) + (uint64_t) outval * (uint64_t) khi;
+					uint64_t tmp = (uint64_t) outval * (uint64_t) klo;
+					uint64_t next_outcarry = tmp >> 32;
+					tmp = (tmp & 0xFFFFFFFFULL) + outcarry;
+					outcarry = next_outcarry + (tmp >> 32) + (uint64_t) outval * (uint64_t) khi;
 					outval = (uint32_t) tmp;
 				}
 			}

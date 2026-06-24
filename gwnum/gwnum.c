@@ -5,7 +5,7 @@
 | in the multi-precision arithmetic routines.  That is, all routines
 | that deal with the gwnum data type.
 | 
-|  Copyright 2002-2024 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2002-2026 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files and a forward declaration! */
@@ -2771,7 +2771,7 @@ int gwsetup_general_mod_giant (
 	gwdata->GENERAL_MMGW_MOD = TRUE;		// Set flag indicating general-purpose MMGW modulo operations are in force
 	gwdata->GENERAL_MOD = FALSE;
 	gwdata->FFTLEN = cyclic_gwdata->FFTLEN;
-	gwdata->RATIONAL_FFT = TRUE; ASSERTG ((gwdata->cpu_flags & CPU_AVX512F) || (cyclic_gwdata->RATIONAL_FFT && negacyclic_gwdata->RATIONAL_FFT));
+	gwdata->RATIONAL_FFT = cyclic_gwdata->RATIONAL_FFT; ASSERTG ((gwdata->cpu_flags & CPU_AVX512F) || (cyclic_gwdata->RATIONAL_FFT && negacyclic_gwdata->RATIONAL_FFT));
 	gwdata->avg_num_b_per_word = cyclic_gwdata->avg_num_b_per_word;
 	gwdata->NUM_B_PER_SMALL_WORD = cyclic_gwdata->NUM_B_PER_SMALL_WORD;
 	gwdata->fft_max_bits_per_word = negacyclic_gwdata->fft_max_bits_per_word;
@@ -9741,8 +9741,10 @@ int gwtogiant (
 					outval = (uint32_t) tmp;
 					outcarry = tmp >> 32;
 				} else {
-					uint64_t tmp = (uint64_t) outval * (uint64_t) klo + outcarry;
-					outcarry = (tmp >> 32) + (uint64_t) outval * (uint64_t) khi;
+					uint64_t tmp = (uint64_t) outval * (uint64_t) klo;
+					uint64_t next_outcarry = tmp >> 32;
+					tmp = (tmp & 0xFFFFFFFFULL) + outcarry;
+					outcarry = next_outcarry + (tmp >> 32) + (uint64_t) outval * (uint64_t) khi;
 					outval = (uint32_t) tmp;
 				}
 			}
@@ -12258,9 +12260,8 @@ void multithread_op (
 /* Handle gwcopy for all architectures */
 
 	if (asm_proc == NULL && s2 == NULL) {
-		int	size;
+		size_t size = 7 * sizeof (uint32_t) + gwnum_datasize (gwdata);
 
-		size = 7 * sizeof (uint32_t) + gwnum_datasize (gwdata);
 		data.s1 = (gwnum) ((char *) &(((uint32_t *) data.s1)[-7]));
 		data.d1 = (gwnum) ((char *) &(((uint32_t *) data.d1)[-7]));
 
@@ -12274,18 +12275,18 @@ void multithread_op (
 		}
 
 		// Calculate number of 4KB blocks
-		data.num_blks = size >> 12;
+		data.num_blks = (int) (size >> 12);
 
 		// Copy any bytes after last 4KB block
 		if (size & 4095) {
-			memcpy ((char *) data.d1 + data.num_blks * 4096, (char *) data.s1 + data.num_blks * 4096, size & 4095);
+			memcpy ((char *) data.d1 + (size_t) data.num_blks * 4096, (char *) data.s1 + (size_t) data.num_blks * 4096, size & 4095);
 		}
 	}
 
 /* Handle gwcopy_with_mask for all architectures */
 
 	else if (asm_proc == NULL) {
-		int size = gwnum_datasize (gwdata);
+		size_t size = gwnum_datasize (gwdata);
 
 		// Copy and mask any bytes before a 128-byte boundary
 		if ((intptr_t) data.s1 & 127) {
@@ -12298,11 +12299,11 @@ void multithread_op (
 		}
 
 		// Calculate number of 4KB blocks
-		data.num_blks = size >> 12;
+		data.num_blks = (int) (size >> 12);
 
 		// Copy and mask any bytes after last 4KB block
 		if (size & 4095) {
-			memmask ((char *) data.d1 + data.num_blks * 4096, (char *) data.s1 + data.num_blks * 4096, (char *) data.s2 + data.num_blks * 4096, size & 4095);
+			memmask ((char *) data.d1 + (size_t) data.num_blks * 4096, (char *) data.s1 + (size_t) data.num_blks * 4096, (char *) data.s2 + (size_t) data.num_blks * 4096, size & 4095);
 		}
 	}
 
@@ -12424,12 +12425,12 @@ void do_multithread_op_work (
 
 			if (addr_gw_copy4kb (gwdata) != NULL) {
 				//BUG/OPT Is it worth writing a 4kb asm routine that does copy only (without masking)
-				asm_data->SRCARG = asm_data->SRC2ARG = (char *) data->s1 + i * 4096;
-				asm_data->DESTARG = (char *) data->d1 + i * 4096;
+				asm_data->SRCARG = asm_data->SRC2ARG = (char *) data->s1 + (size_t) i * 4096;
+				asm_data->DESTARG = (char *) data->d1 + (size_t) i * 4096;
 				gw_copy4kb (gwdata, asm_data);
 			}
 			else
-				memcpy ((char *) data->d1 + i * 4096, (char *) data->s1 + i * 4096, 4096);
+				memcpy ((char *) data->d1 + (size_t) i * 4096, (char *) data->s1 + (size_t) i * 4096, 4096);
 		}
 	}
 
@@ -12446,13 +12447,13 @@ void do_multithread_op_work (
 /* Copy and mask a 4KB block */
 
 			if (addr_gw_copy4kb (gwdata) != NULL) {
-				asm_data->SRCARG = (char *) data->s1 + i * 4096;
-				asm_data->SRC2ARG = (char *) data->s2 + i * 4096;
-				asm_data->DESTARG = (char *) data->d1 + i * 4096;
+				asm_data->SRCARG = (char *) data->s1 + (size_t) i * 4096;
+				asm_data->SRC2ARG = (char *) data->s2 + (size_t) i * 4096;
+				asm_data->DESTARG = (char *) data->d1 + (size_t) i * 4096;
 				gw_copy4kb (gwdata, asm_data);
 			}
 			else
-				memmask ((char *) data->d1 + i * 4096, (char *) data->s1 + i * 4096, (char *) data->s2 + i * 4096, 4096);
+				memmask ((char *) data->d1 + (size_t) i * 4096, (char *) data->s1 + (size_t) i * 4096, (char *) data->s2 + (size_t) i * 4096, 4096);
 		}
 	}
 

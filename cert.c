@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 2020-2024 Mersenne Research, Inc.  All rights reserved
+| Copyright 2020-2026 Mersenne Research, Inc.  All rights reserved
 |
 | This file contains routines to certify a PRP proof.
 +---------------------------------------------------------------------*/
@@ -283,6 +283,10 @@ int cert (
 		residue_size = divide_rounding_up ((int) ceil(cs.gwdata.bit_length), 8);
 		arraylen = divide_rounding_up (residue_size, 4);
 		array = (uint32_t *) malloc (arraylen * sizeof(uint32_t));
+		if (array == NULL) {
+			OutputBoth (thread_num, "Error allocating memory for CERT starting value.\n");
+			goto retry_work;
+		}
 		array[arraylen-1] = 0;		// Zero-pad the top few bytes
 
 /* Contact PrimeNet for the starting residue */

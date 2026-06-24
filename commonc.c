@@ -836,22 +836,22 @@ void topology_print_children (
 	hwloc_obj_t obj,
         int depth)
 {
-	char type[32], attr[1024], cpuset[256], buf[1500];
+	char type[32], attr[1024], cpuset[4096], buf[8192];
 	unsigned int i;
 	if (obj == NULL) return;  // Shouldn't happen
 	hwloc_obj_type_snprintf (type, sizeof(type), obj, 0);
-	sprintf (buf, "%*s%s", 2*depth, " ", type);
+	snprintf (buf, sizeof(buf), "%*s%s", 2*depth, " ", type);
 	if (obj->os_index != (unsigned) -1)
-		sprintf (buf+strlen(buf), "#%u", obj->os_index);
+		snprintf (buf+strlen(buf), sizeof(buf)-strlen(buf), "#%u", obj->os_index);
 	hwloc_obj_attr_snprintf (attr, sizeof(attr), obj, ", ", 1 /* verbose */);
 	if (obj->type == HWLOC_OBJ_CORE || obj->type == HWLOC_OBJ_PU)
 		hwloc_bitmap_snprintf (cpuset, sizeof(cpuset), obj->cpuset);
 	else
 		cpuset[0] = 0;
-	if (attr[0] && cpuset[0]) sprintf (buf+strlen(buf), " (%s, cpuset: %s)", attr, cpuset);
-	else if (attr[0]) sprintf (buf+strlen(buf), " (%s)", attr);
-	else if (cpuset[0]) sprintf (buf+strlen(buf), " (cpuset: %s)", cpuset);
-	strcat (buf, "\n");
+	if (attr[0] && cpuset[0]) snprintf (buf+strlen(buf), sizeof(buf)-strlen(buf), " (%s, cpuset: %s)", attr, cpuset);
+	else if (attr[0]) snprintf (buf+strlen(buf), sizeof(buf)-strlen(buf), " (%s)", attr);
+	else if (cpuset[0]) snprintf (buf+strlen(buf), sizeof(buf)-strlen(buf), " (cpuset: %s)", cpuset);
+	snprintf (buf+strlen(buf), sizeof(buf)-strlen(buf), "\n");
 	writeResultsBench (buf);
 	for (i = 0; i < obj->arity; i++) {
 		topology_print_children (obj->children[i], depth + 1);
@@ -1389,12 +1389,12 @@ void nameAndReadIniFiles (
 			section[0] = 0;
 			IniDelayWrites (INI_FILE);
 			while (fgets (line, sizeof (line), fd)) {
-				if (line[strlen(line)-1] == '\n') line[strlen(line)-1] = 0;
+				if (line[0] && line[strlen(line)-1] == '\n') line[strlen(line)-1] = 0;
 				if (line[0] && line[strlen(line)-1] == '\r') line[strlen(line)-1] = 0;
 				if (line[0] == 0) continue;
 				// Locate section headers
 				if (line[0] == '[') {
-					strcpy (section, line+1);
+					snprintf (section, sizeof (section), "%s", line+1);
 					if (strchr (section, ']') != NULL) *strchr (section, ']') = 0;
 					continue;
 				}
@@ -1939,7 +1939,7 @@ int readIniFiles (void)
 
 int addFileExists (void)
 {
-	char	filename[80];
+	char	filename[280];
 	char	*dot;
 
 	strcpy (filename, INI_FILE);
@@ -1957,7 +1957,7 @@ int addFileExists (void)
 
 void incorporateIniAddFiles (void)
 {
-	char	filename[80];
+	char	filename[280];
 	char	*dot;
 
 /* Merge additions to prime.txt */
@@ -1979,7 +1979,7 @@ void incorporateIniAddFiles (void)
 int incorporateWorkToDoAddFile (void)
 {
 static	int	worktodo_add_disabled = FALSE;
-	char	filename[80];
+	char	filename[280];
 	char	*dot;
 	int	rc;
 	FILE	*fd;
@@ -2018,7 +2018,7 @@ static	int	worktodo_add_disabled = FALSE;
 
 /* Remove trailing CRLFs */
 
-		if (line[strlen(line)-1] == '\n') line[strlen(line)-1] = 0;
+		if (line[0] && line[strlen(line)-1] == '\n') line[strlen(line)-1] = 0;
 		if (line[0] && line[strlen(line)-1] == '\r') line[strlen(line)-1] = 0;
 		if (line[0] == 0) continue;
 
@@ -2287,7 +2287,7 @@ static	int	last_char_out_was_newline = TRUE;
 			_write (fd, buf, (unsigned int) strlen (buf));
 			_close (fd);
 		}
-		last_char_out_was_newline = (buf[strlen(buf)-1] == '\n');
+		if (buf[0]) last_char_out_was_newline = (buf[strlen(buf)-1] == '\n');
 	}
 }
 
@@ -2449,12 +2449,12 @@ void JSONaddExponentKnownFactors (
 		fac_string[0] = 0;
 		// Copy known factors changing commas to quote-comma-quote
 		for (in = w->known_factors, out = fac_string; ; in++) {
-			if (*in == ',') {
-				strcpy (out, "\",\"");
-				out += 3;
-			} else if (out - fac_string > 1200) {
+			if (out - fac_string > 1200) {
 				strcpy (out, "...");
 				break;
+			} else if (*in == ',') {
+				strcpy (out, "\",\"");
+				out += 3;
 			} else
 				*out++ = *in;
 			if (*in == 0) break;
@@ -3294,7 +3294,7 @@ int readWorkToDoFile (void)
 
 /* Remove trailing CRLFs */
 
-	    if (line[strlen(line)-1] == '\n') line[strlen(line)-1] = 0;
+	    if (line[0] && line[strlen(line)-1] == '\n') line[strlen(line)-1] = 0;
 	    if (line[0] && line[strlen(line)-1] == '\r') line[strlen(line)-1] = 0;
 	    linenum++;
 
@@ -4917,6 +4917,7 @@ int read_footer (
 	if (!read_array (fd, magic, 16, NULL)) return (TRUE);
 	if (memcmp (magic, "MOREINFOJSONDATA", 16) != 0) return (FALSE);
 	if (!read_uint32 (fd, &chunk_size, NULL)) return (FALSE);
+	if (chunk_size < 8) return (FALSE);	// A valid footer always emits chunk_size = strlen(json) + 8 >= 8; reject underflow
 	if (!read_uint32 (fd, &version, NULL)) return (FALSE);
 	if (version != 1) return (FALSE);
 	if (!read_uint32 (fd, &crc32, NULL)) return (FALSE);
@@ -6829,7 +6830,7 @@ retry:
 
 /* Set some ini flags after we've successfully quit gimps.  It may take a while to get all the proof files sent. */
 
-	char	proof_files[50][255];		// We can send up to 50 proof files
+	char	proof_files[50][512];		// We can send up to 50 proof files
 	if ((header_words[1] & HEADER_FLAG_QUIT_GIMPS && USE_PRIMENET) ||
 	    (IniGetInt (INI_FILE, KEY_QuitGIMPS, 0) && WORKTODO_COUNT == 0 && ProofFileNames (proof_files) == 0)) {
 		USE_PRIMENET = 0;
@@ -7329,7 +7330,7 @@ int inUploadWindow (int *minutes_to_start)
 
 void proofUploader (void *arg)
 {
-	char	proof_files[50][255];		// We can send up to 50 proof files
+	char	proof_files[50][512];		// We can send up to 50 proof files
 	int	i, minutes_to_wait, minutes_to_start, num_proof_files;
 
 /* Init event that triggers proof uploads without waiting for next hourly check */

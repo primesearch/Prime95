@@ -2,7 +2,7 @@
 /* so that they can be included in both the command-line mprime version as */
 /* well as the Mac OS X GUI version. */
 
-/* Copyright 1995-2025 Mersenne Research, Inc. */
+/* Copyright 1995-2026 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -68,9 +68,10 @@ double get_load_average (void)
 
 	fd = open ("/proc/loadavg", O_RDONLY);
 	if (fd == -1) return (-1.0);
-	count = read (fd, ldavgbuf, 40);
+	count = read (fd, ldavgbuf, sizeof (ldavgbuf) - 1);
 	(void) close (fd);
 	if (count <= 0) return (-1.0);
+	ldavgbuf[count] = 0;
 	count = sscanf (ldavgbuf, "%lf", &load_avg);
 	if (count < 1) return (-1.0);
 	return (load_avg);
@@ -415,6 +416,7 @@ int LoadPrimeNet (void)
 	}
 	/* The old code for testing an Internet connection is below */
 	else {
+		buffer[0] = 0;
 		(void) fgets(buffer, 199, fd);
 		(void) fgets(buffer, 199, fd);
 		while (!feof(fd)) {
@@ -468,7 +470,7 @@ void checkPauseListCallback (void)
 
 /* Get list of file names from the current working directory ending in .proof */
 
-int ProofFileNames (char filenames[50][255])	// Returns number of matching filenames
+int ProofFileNames (char filenames[50][512])	// Returns number of matching filenames
 {
 	int	num_files;
 	DIR	*dir;				/* pointer to the scanned directory */

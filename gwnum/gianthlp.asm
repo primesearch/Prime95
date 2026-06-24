@@ -1,4 +1,4 @@
-; Copyright 1995-2007 Mersenne Research, Inc.  All rights reserved
+; Copyright 1995-2026 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -605,11 +605,9 @@ ENDIF
 	cmp	rcx, r8			; Load top V word if U and V same len
 	jne	short noload
 	mov	r15d, [r9][rcx*4-4]	; V[Ulen-1]
-
-	cmp	ecx, 1			; Are there more words to shift
+noload:	cmp	ecx, 1			; Are there more words to shift
 	je	simple			; bits from?
-
-noload:	shl	r14, 32
+	shl	r14, 32
 	shl	r15, 32
 	mov	eax, [rdx][rcx*4-8]	; U[Ulen-2]
 	mov	ebx, [r9][rcx*4-8]	; V[Ulen-2]

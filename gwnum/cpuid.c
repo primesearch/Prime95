@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------
-| Copyright 1995-2025 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2026 Mersenne Research, Inc.  All rights reserved
 | Author:  George Woltman
 | Email: woltman@alum.mit.edu
 |
@@ -304,7 +304,7 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 			"Mobile Intel(R) Celeron(R) processor",
 			"Intel(R) Celeron(R) processor",
 			"Mobile Intel(R) processor",
-			"Intel(R) Pentium(R) M processor"
+			"Intel(R) Pentium(R) M processor",
 			"Mobile Intel(R) Celeron(R) processor"
 	};
 #define NUM_BRAND_NAMES	(sizeof (BRAND_NAMES) / sizeof (char *))
@@ -598,7 +598,7 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 			Cpuid (11, &reg);
 		}
 		if (max_cpuid_value >= 11 && reg.EBX != 0) {
-			unsigned int i, cores;
+			unsigned int i, cores = 0;
 			CPU_HYPERTHREADS = reg.EBX & 0xFFFF;
 			for (i = 1; i < 5; i++) {
 				reg.ECX = i;

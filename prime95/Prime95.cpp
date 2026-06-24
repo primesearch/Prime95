@@ -336,7 +336,7 @@ simple_mutex:	 	g_hMutexInst = CreateMutex (
 
 /* Cache icon handles to work around Windows deadlocking bug */
 
-	ICON_IDLE = LoadIcon (IDI_YELLOW_ICON);
+	ICON_IDLE = LoadIcon (IDI_RED_ICON);
 	ICON_WORKING = LoadIcon (IDR_MAINFRAME);
 
 /* Name and read the INI files.  Perform some other startup initializations. */

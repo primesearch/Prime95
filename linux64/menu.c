@@ -22,6 +22,7 @@ void sigterm_handler(int);
 /* Global variables */
 
 jmp_buf	MENU_JMPBUF;				// Jmpbuf to abort program if a signal is encountered while in the menus or dialogs.
+int	MENU_JMPBUF_ARMED = 0;			// TRUE only while main_menu's setjmp context is valid (see get_line)
 
 /* Get line from the user (stdin) */
 
@@ -31,7 +32,10 @@ void get_line (
 	int	len;
 	buf[0] = 0;
 	if (fgets (buf, 80, stdin) == NULL) sigterm_handler (SIGTERM);	// Treat EOF the same as a termination signal
-	if (KILL_MENUS) longjmp (MENU_JMPBUF, 1); // If a signal occurred while waiting for user input, longjmp to exit menus
+	if (KILL_MENUS) {				// A signal occurred while waiting for user input
+		if (MENU_JMPBUF_ARMED) longjmp (MENU_JMPBUF, 1);	// Inside the menus: longjmp to exit them
+		exit (0);				// Outside menu context (e.g. first-run welcome / -s): just terminate
+	}
 	len = strlen (buf);
 	if (len > 0 && buf[len-1] == '\n') buf[len-1] = 0;
 }
@@ -233,9 +237,9 @@ void askStr (
 	char	*val,
 	unsigned long maxlen)
 {
-	char	buf[256], default_val[256];
+	char	buf[256], default_val[512];
 
-	strcpy (default_val, val);
+	snprintf (default_val, sizeof (default_val), "%s", val);
 	for ( ; ; ) {
 		if (default_val[0])
 			printf ("%s (%s): ", str, default_val);
@@ -247,8 +251,8 @@ void askStr (
 		buf[maxlen] = 0;
 		strcpy (default_val, buf);
 	}
-	if (buf[0] == 0) strcpy (val, default_val);
-	else strcpy (val, buf);
+	if (buf[0] == 0) snprintf (val, maxlen+1, "%s", default_val);
+	else snprintf (val, maxlen+1, "%s", buf);
 }
 
 /* Wait for user input - gives the user time to read the screen */
@@ -1377,7 +1381,8 @@ void main_menu (void)
 {
 	unsigned long choice;
 
-	if (setjmp (MENU_JMPBUF)) return;		// Exit menus if a signal received while in the menus
+	if (setjmp (MENU_JMPBUF)) { MENU_JMPBUF_ARMED = 0; return; }	// Exit menus if a signal received while in the menus
+	MENU_JMPBUF_ARMED = 1;				// MENU_JMPBUF is now a valid longjmp target
 	
 	for ( ; ; ) {
 
@@ -1466,6 +1471,7 @@ void main_menu (void)
 			Sleep (50);
 		}
 		}
+		MENU_JMPBUF_ARMED = 0;
 		return;
 
 /* Advanced/Test dialog */

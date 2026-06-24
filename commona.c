@@ -8,7 +8,7 @@
 | Commonb contains information used only during execution
 | Commonc contains information used during setup and execution
 |
-| Copyright 1995-2025 Mersenne Research, Inc.  All rights reserved
+| Copyright 1995-2026 Mersenne Research, Inc.  All rights reserved
 +---------------------------------------------------------------------*/
 
 /* Routine to eliminate odd puctuation characters from user ID */
@@ -156,7 +156,7 @@ void rangeStatusMessage (
 		}
 
 		if (w->work_type == WORK_ECM) {
-			if (w->gmp_ecm_file) sprintf (buf, "ECM stage 2 on file %s", w->gmp_ecm_file);
+			if (w->gmp_ecm_file) snprintf (buf, buflen - (size_t) (buf - orig_buf), "ECM stage 2 on file %s", w->gmp_ecm_file);
 			else sprintf (buf, "ECM %d curve%s B1=%" PRIu64, w->curves_to_do, w->curves_to_do == 1 ? "" : "s",
 				      w->B1 * IniGetInt (INI_FILE, "ECMBoundsMultiplier", 1));
 		}

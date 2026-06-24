@@ -1,4 +1,4 @@
-; Copyright 2018 Mersenne Research, Inc.  All rights reserved
+; Copyright 2018-2026 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -34,11 +34,11 @@ _TEXT SEGMENT
 
 PROCL	prefetchL2
 IFNDEF X86_64
-	mov	edi, [esp+4]		; Load addr
+	mov	edx, [esp+4]		; Load addr
 	mov	ecx, [esp+8]		; Load count
-pfloop:	prefetcht1 [edi]		; Prefetch a 64-byte cache line
+pfloop:	prefetcht1 [edx]		; Prefetch a 64-byte cache line
 ;;BUG?	pause				; Pause between prefetches
-	bump	edi, 64			; Next cache line
+	bump	edx, 64			; Next cache line
 	dec	ecx			; Test count
 	jnz	short pfloop
 ENDIF

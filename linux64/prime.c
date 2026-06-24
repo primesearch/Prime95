@@ -1,4 +1,4 @@
-/* Copyright 1995-2023 Mersenne Research, Inc. */
+/* Copyright 1995-2026 Mersenne Research, Inc. */
 /* Author:  George Woltman */
 /* Email: woltman@alum.mit.edu */
 
@@ -192,7 +192,7 @@ int main (
 /* NOTE:  This only changes the working directory if the user typed */
 /* in a full path to the executable (as opposed to finding it on the PATH) */
 
-	strcpy (buf, argv[0]);
+	snprintf (buf, sizeof (buf), "%s", argv[0]);
 	p = strrchr (buf, '/');
 	if (p != NULL) {
 		*p = 0;
@@ -274,7 +274,7 @@ int main (
 
 		case 'P':
 		case 'p':
-			strcpy (pidfile, p);
+			snprintf (pidfile, sizeof (pidfile), "%s", p);
 			break; 
 
 /* -S - status */
@@ -501,7 +501,7 @@ static	int	last_char_out_was_newline = TRUE;
 				printf ("] %s", buf);
 		} else
 			printf ("%s", buf);
-		last_char_out_was_newline = (buf[strlen(buf)-1] == '\n');
+		if (buf[0] != 0) last_char_out_was_newline = (buf[strlen(buf)-1] == '\n');
 	}
 }
 

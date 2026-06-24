@@ -4,7 +4,7 @@
 | This file contains various utility routines that may be used by gwnum
 | routines, prime95, or other consumers of gwnum.
 | 
-|  Copyright 2004-2020 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2004-2026 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -258,6 +258,7 @@ void truncated_strcpy_with_len (
 	const char *val,
 	unsigned int valsize)
 {
+	if (bufsize == 0) return;
 	if (valsize >= bufsize) valsize = bufsize - 1;
 	memcpy (buf, val, valsize);
 	buf[valsize] = 0;

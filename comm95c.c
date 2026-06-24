@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2020 Mersenne Research, Inc.  All rights reserved
+ * Copyright 1995-2026 Mersenne Research, Inc.  All rights reserved
  *
  * Common routines and variables used by Prime95 and NTPrime
  *
@@ -281,28 +281,30 @@ void getWindowsSID (
 	//
 	// Now, get the descriptor of HKLM\SOFTWARE and apply this to SECURITY
 	//
-	newSecDesc = GetRegSecDesc( HKEY_LOCAL_MACHINE, "SOFTWARE",
-					DACL_SECURITY_INFORMATION );
+	newSecDesc = GetRegSecDesc( HKEY_LOCAL_MACHINE, "SOFTWARE", DACL_SECURITY_INFORMATION );
 
 	//
 	// Read the last subauthority of the current computer SID
 	//
-	if( RegOpenKey( HKEY_LOCAL_MACHINE, "SECURITY\\SAM\\Domains\\Account", 
-			&hKey) != ERROR_SUCCESS ) {
+	if( RegOpenKey( HKEY_LOCAL_MACHINE, "SECURITY\\SAM\\Domains\\Account", &hKey) != ERROR_SUCCESS ) {
 		free (newSecDesc);
 		return;
 	}
 	oldSecDesc = GetRegAccess( hKey );
-	SetRegAccess( HKEY_LOCAL_MACHINE, "SECURITY\\SAM\\Domains\\Account", 
-		newSecDesc, &hKey );
+	SetRegAccess( HKEY_LOCAL_MACHINE, "SECURITY\\SAM\\Domains\\Account", newSecDesc, &hKey );
 	nb = 0;
 	vData = NULL;
-	RegQueryValueEx( hKey, "V", NULL, &valType, vData, &nb );
+	if (RegQueryValueEx( hKey, "V", NULL, &valType, vData, &nb ) != ERROR_SUCCESS || nb == 0) {
+		SetRegAccess( HKEY_LOCAL_MACHINE, "SECURITY\\SAM\\Domains\\Account", oldSecDesc, &hKey );
+		free (vData);
+		free (oldSecDesc);
+		free (newSecDesc);
+		return;
+	}
 	vData = (PBYTE) malloc( nb );
 	Status = RegQueryValueEx( hKey, "V", NULL, &valType, vData, &nb );
 	if( Status != ERROR_SUCCESS ) {
-		SetRegAccess( HKEY_LOCAL_MACHINE, "SECURITY\\SAM\\Domains\\Account",
-				oldSecDesc, &hKey );
+		SetRegAccess( HKEY_LOCAL_MACHINE, "SECURITY\\SAM\\Domains\\Account", oldSecDesc, &hKey );
 		free (vData);
 		free (oldSecDesc);
 		free (newSecDesc);
@@ -453,7 +455,7 @@ int OnBattery (void)
 
 /* Get list of file names from the current working directory ending in .proof */
 
-int ProofFileNames (char filenames[50][255])	// Returns number of matching filenames
+int ProofFileNames (char filenames[50][512])	// Returns number of matching filenames
 {
 	HANDLE hFind;
 	WIN32_FIND_DATA FindFileData;

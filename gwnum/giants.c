@@ -7,7 +7,7 @@
  *  Massive rewrite by G. Woltman for 32-bit support
  *
  *  c. 1997,1998 Perfectly Scientific, Inc.
- *  c. 1998-2025 Mersenne Research, Inc.
+ *  c. 1998-2026 Mersenne Research, Inc.
  *  All Rights Reserved.
  *
  **************************************************************/
@@ -136,13 +136,14 @@ int (*StopCheckRoutine)(int) = NULL;
 giant allocgiant (		/* Create a new giant */
 	int 	count)
 {
-	int 	size;
+	size_t 	size;
 	giant 	thegiant;
 
 	ASSERTG (count > 0);
 
-	size = sizeof (giantstruct) + count * sizeof (uint32_t);
+	size = sizeof (giantstruct) + (size_t) count * sizeof (uint32_t);
 	thegiant = (giant) malloc (size);
+	if (thegiant == NULL) return (NULL);
 	thegiant->sign = 0;
 	thegiant->n = (uint32_t *) ((char *) thegiant + sizeof (giantstruct));
 	setmaxsize (thegiant, count);

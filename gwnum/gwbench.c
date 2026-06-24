@@ -10,7 +10,7 @@
 | on the end user machine looking for an FFT implementation that is faster than the
 | default selection.
 |
-| Copyright 2017-2024 Mersenne Research, Inc.  All rights reserved.
+| Copyright 2017-2026 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -318,7 +318,7 @@ void gwbench_write_data (void)
 		bench_length = sqlite3_column_int (sql_stmt, 6);
 		throughput = sqlite3_column_double (sql_stmt, 7);
 
-		sprintf (bench_data, "%d%s,%d,%d,%d,%08X,%s,%d,%.2f",
+		snprintf (bench_data, sizeof (bench_data), "%d%s,%d,%d,%d,%08X,%s,%d,%.2f",
 			 (fftlen & 0x3FF) ? fftlen : fftlen >> 10, (fftlen & 0x3FF) ? "" : "K",
 			 num_cores, num_workers, num_hyperthreads, impl_id, bench_date, bench_length, throughput);
 
@@ -682,7 +682,7 @@ void gwbench_get_num_benchmarks (
 {
 	gwhandle gwdata;			/* Temporary gwnum handle */
 	sqlite3_stmt *sql_stmt;
-	int	errcode, impl_bits, count, impls;
+	int	errcode, impl_bits, count = 0, impls = 0;
 
 /* Return dummy data if we cannot get the number of benchmarks */
 

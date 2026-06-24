@@ -4,7 +4,7 @@
 | This file contains the C++ routines and global variables that are used
 | to implement atomics, multi-threading, mutexes, and locking.
 | 
-|  Copyright 2006-2023 Mersenne Research, Inc.  All rights reserved.
+|  Copyright 2006-2026 Mersenne Research, Inc.  All rights reserved.
 +---------------------------------------------------------------------*/
 
 /* Include files */
@@ -88,11 +88,11 @@ void gwmutex_init (
 {
 #ifdef _WIN32
 	*mutex = (gwmutex) malloc (sizeof (CRITICAL_SECTION));
-//bug	if (*mutex == NULL) do something! ;
+	if (*mutex == NULL) return;
 	InitializeCriticalSection ((LPCRITICAL_SECTION) *mutex);
 #else
 	*mutex = (gwmutex) malloc (sizeof (pthread_mutex_t));
-//bug	if (*mutex == NULL) do something! ;
+	if (*mutex == NULL) return;
 	pthread_mutex_init ((pthread_mutex_t *) *mutex, NULL);
 #endif
 }

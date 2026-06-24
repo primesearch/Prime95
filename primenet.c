@@ -9,7 +9,7 @@
 // THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
 // PARTICULAR PURPOSE.
 //
-// Copyright (c) 1997-2024 Mersenne Research, Inc. All Rights Reserved.
+// Copyright (c) 1997-2026 Mersenne Research, Inc. All Rights Reserved.
 //
 //  MODULE:   primenet.c
 //
@@ -75,7 +75,7 @@ void scramble (char *s)
 	char	*p = s, *z = out;
 	unsigned int i, c = (unsigned int) strlen (SCRAMBLE_STRING);
 
-	for (i = 0; i < strlen (s); i++) {
+	for (i = 0; i < strlen (s) && z + 2 < out + sizeof (out); i++) {
 		int b = (unsigned char) *p++ ^ SCRAMBLE_STRING[i % c];
 		*z++ = hx[b >> 4];
 		*z++ = hx[b % 16];
@@ -90,7 +90,7 @@ void unscramble (char *s)
 	char	*q = s, *z = out;
 	unsigned int i, c = (unsigned int) strlen (SCRAMBLE_STRING);
 
-	for (i = 0; i < strlen (s) >> 1; i++) {
+	for (i = 0; i < strlen (s) >> 1 && z + 1 < out + sizeof (out); i++) {
 		*z = (char) (strchr (hx, *q++) - hx) * 16;
 		*z += (char) (strchr (hx, *q++) - hx);
 		*z++ ^= SCRAMBLE_STRING[i % c];

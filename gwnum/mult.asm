@@ -1,4 +1,4 @@
-; Copyright 1995-2025 Mersenne Research, Inc.  All rights reserved
+; Copyright 1995-2026 Mersenne Research, Inc.  All rights reserved
 ; Author:  George Woltman
 ; Email: woltman@alum.mit.edu
 ;
@@ -16,7 +16,7 @@ ENDIF
 
 INCLUDE	unravel.mac
 
-VERSION_NUMBER = 3105		;; Version 31.5
+VERSION_NUMBER = 3106		;; Version 31.6
 
 ;
 ; Global variables needed by FFT setup code
