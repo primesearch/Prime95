@@ -5325,13 +5325,6 @@ int primeFactor (
 	char	buf[200], JSONbuf[4000], str[80];
 	double	timers[2];
 
-/* AI whined that asm code has a bug for exponents below 32.  We're certainly not going to fix that!  Instead refuse to TF small exponents as it is a waste of time. */
-
-	if (w->n < 1000000) {
-		OutputBoth (thread_num, "Trial factoring small exponents is a waste of time.  Use ECM to find new factors.\n");
-		return (STOP_WORK_UNIT_COMPLETE);
-	}
-
 /* Init */
 
 begin:	factor_found = 0;
@@ -5361,6 +5354,13 @@ begin:	factor_found = 0;
 			return (STOP_WORK_UNIT_COMPLETE);
 		}
 		return (0);
+	}
+
+/* AI whined that asm code has a bug for exponents below 32.  We're certainly not going to fix that!  Instead refuse to TF small exponents as it is a waste of time. */
+
+	if (w->n < 1000000) {
+		OutputBoth (thread_num, "Trial factoring small exponents is a waste of time.  Use ECM to find new factors.\n");
+		return (STOP_WORK_UNIT_COMPLETE);
 	}
 
 /* Setup the factoring code */

@@ -17,8 +17,9 @@
 #include "gwutil.h"
 #include "radix.h"
 
-// IDEAS: Use libdivide library to increase BRUTE_WORDS to 4
+// IDEAS: Use libdivide library to increase BRUTE_FORCE_WORDS to 4
 //	Handle larger giants with brute force -- maybe 4 or 8 or 16 words?
+//	Use gwiter to reduce calls to addr()
 
 /* Forward declarations */
 
@@ -77,8 +78,11 @@ int nonbase2_gianttogw (	/* Returns an error code or zero for success */
 		if (work_gwdata == NULL) goto oom;
 
 		// Calc how big each partial result is in radix-b (with no borrow from next result)
-		// This is the number of bits in a multiplication result plus one to avoid borrow divided by bits in radix b.
-		b_per_mult = (int) ceil ((double) (2 * BRUTE_FORCE_WORDS * 32 + 1) / log2 (gwdata->b));
+		// The maximum result is (2^(BRUTE_FORCE_WORDS * 32)) ^ 2.  To avoid a carry out of the top word, we need to handle results twice that size.
+		// Furthermore, there can be a carry out of the penultimate top word.  This scales the maximum result by 1/2 * 1/b^NUM_B_PER_SMALL_WORD.
+		// Finally, convert to base b.
+		b_per_mult = (int) ceil (log (pow(2.0, 2 * BRUTE_FORCE_WORDS * 32 + 1) * (1.0 + 0.5 * pow (gwdata->b, - (double) gwdata->NUM_B_PER_SMALL_WORD))) / log (gwdata->b));
+
 		// Calc number of chunks and pairs.  Allow for 32 extra bits so final result can't wrap-around carry.
 		num_chunks = (int) ceil ((gwdata->bit_length + 32.0) / (BRUTE_FORCE_WORDS * 32));	// Total num chunks
 		num_pairs = (num_chunks + 1) / 2;							// Number of pairs
@@ -213,6 +217,9 @@ int nonbase2_gianttogw (	/* Returns an error code or zero for success */
 
 	gwmul (work_gwdata, pow2_multiplier, t1);		// Multiply the upper halves by the power of two multiplier
 	gwaddquick (work_gwdata, t3, t1);			// Add the lower halves to the multiplied upper halves
+#ifdef GDEBUG
+	for(int h=0;h<(int)work_gwdata->FFTLEN;h+=fft_words_per_mult)ASSERTG(*addr(work_gwdata, t1, fft_words_per_mult-1) >= 0.0);
+#endif
 
 // Now we take our gwnum (t1) holding data converted to radix b and combine lower / upper pairs until we
 // get down to just one fully radix-converted value.
@@ -250,6 +257,9 @@ int nonbase2_gianttogw (	/* Returns an error code or zero for success */
 		gwmul (work_gwdata, pow2_multiplier, t3);		// Apply the power of two multiplier to the upper halves
 		gwaddquick (work_gwdata, t3, t1);			// Add the multiplied upper and the lower
 		fft_words_per_mult = fft_words_per_mult * 2;
+#ifdef GDEBUG
+		for(int h=0;h<(int)work_gwdata->FFTLEN;h+=fft_words_per_mult)ASSERTG(*addr(work_gwdata, t1, fft_words_per_mult-1) >= 0.0);
+#endif
 	}
 	ASSERTG (gw_get_maxerr(work_gwdata) < 0.43);
 

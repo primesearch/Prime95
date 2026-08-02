@@ -58,7 +58,7 @@ on your upload rate limit.  Slow uploads are done 1MB at a time, fast uploads us
 larger chunks.  Rate limiting the downloads is available but I don't see the need
 to ever use this as certification downloads are only around a dozen megabytes.
 
-The program strives to use proof power 8 for large prime tests.  This keeps certification
+The program strives to use at least proof power 8 for large prime tests.  This keeps certification
 workload low.  If temporary disk space resource limit will not let the program use proof
 power 8, the program may simulate a higher proof power by creating a larger proof file.
 For example, doing a power=7 proof on the first half of a PRP test and a second power=7
@@ -676,6 +676,7 @@ window, 8 = log main window, 16 = no prefix on output lines.
 You can control the maximum prime.log file size.  The default is 2MB.  Add
 this line to prime.txt to change the default:
 	MaxLogFileSize=n
+Where n is the number of bytes.  The minimum allowed value for n is 250000.
 
 You can use the old sockets communication code instead of the robust CURL library.
 Add this line to the [PrimeNet] section of prime.txt:

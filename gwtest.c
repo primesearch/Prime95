@@ -252,6 +252,18 @@ void gen_data (gwhandle *gwdata, gwnum x, giant g)
 	mpz_clear (__N);
 #endif
 
+	fd = _open ("foo1", _O_BINARY | _O_RDONLY);
+	if (fd > 0) {
+		char buf[10000];
+		mpz_t	__N;
+		_read (fd, buf, 10000);
+		*strchr(buf, '\r') = 0;
+		mpz_init_set_str (__N, buf, 10);
+		mpztog (__N, g);
+		mpz_clear (__N);
+//		gianttogw (gwdata, g, x);
+//		if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x, g, "foo1");
+	}
 // Convert to gwnum
 
 	specialmodg (gwdata, g);
@@ -750,6 +762,38 @@ void test_it (
 
 /* Test square and mul carefully */
 
+	int fd = _open ("foo1", _O_BINARY | _O_RDONLY);
+	if (fd > 0) {
+		char buf[10000];
+		mpz_t	__N;
+		_read (fd, buf, 10000);
+		*strchr(buf, '\r') = 0;
+		mpz_init_set_str (__N, buf, 10);
+		mpztog (__N, g);
+		mpz_clear (__N);
+		gianttogw (gwdata, g, x);
+		if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x, g, "foo1");
+	}
+
+	fd = _open ("foo2", _O_BINARY | _O_RDONLY);
+	if (fd > 0) {
+		char buf[10000];
+		mpz_t	__N;
+		_read (fd, buf, 10000); 
+		*strchr(buf, '\r') = 0;
+		mpz_init_set_str (__N, buf, 10);
+		mpztog (__N, g2);
+		mpz_clear (__N);
+		gianttogw (gwdata, g2, x2);
+		if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x2, g2, "foo2");
+	}
+	gwmul3 (gwdata, x, x2, x, 0); mulgi (&gwdata->gdata, g2, g); specialmodg (gwdata, g);
+	if (CHECK_OFTEN) compare_with_text (thread_num, gwdata, x, g, "mul foo");
+
+
+
+
+	
 	gwfree (gwdata, x3); gwfree (gwdata, x4);
 	gwsetaddin (gwdata, -42);
 	gwsquare_carefully (gwdata, x);

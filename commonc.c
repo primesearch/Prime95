@@ -42,7 +42,7 @@ int	HYPERTHREAD_TF = 1;		/* TRUE if trial factoring should use hyperthreads */
 int	HYPERTHREAD_LL = 0;		/* TRUE if FFTs (LL, P-1, ECM, PRP) should use hyperthreads */
 int	MANUAL_COMM = 0;
 int	this_is_a_manual_comm = FALSE;	/* Ugly hack to let comm thread know it was triggered by a user's manual comm */
-float volatile CPU_WORKER_DISK_SPACE = 6.0;
+float volatile CPU_WORKER_DISK_SPACE = 12.0;
 unsigned int volatile CPU_HOURS = 0;
 int	CLASSIC_OUTPUT = 0;
 int	OUTPUT_ROUNDOFF = 0;
@@ -1774,7 +1774,7 @@ int readIniFiles (void)
 	DAYS_OF_WORK = (unsigned int) IniGetInt (INI_FILE, "DaysOfWork", 3);
 	if (DAYS_OF_WORK > 180) DAYS_OF_WORK = 180;
 
-	CPU_WORKER_DISK_SPACE = IniGetFloat (INI_FILE, "WorkerDiskSpace", 10.0);
+	CPU_WORKER_DISK_SPACE = IniGetFloat (INI_FILE, "WorkerDiskSpace", 12.0);
 	if (CPU_WORKER_DISK_SPACE < 0.0) CPU_WORKER_DISK_SPACE = 0.0;
 	if (CPU_WORKER_DISK_SPACE > 1000.0) CPU_WORKER_DISK_SPACE = 1000.0;
 
@@ -5460,7 +5460,7 @@ void LogMsg (
 	const char *str)
 {
 	int	fd;
-	unsigned long filelen;
+	unsigned long filelen, maxlogfilesize;
 static	time_t	last_time = 0;
 	time_t	this_time;
 
@@ -5481,7 +5481,9 @@ static	time_t	last_time = 0;
 
 /* If the log file has grown too big, lose the first 100,000 bytes */
 
-	if (filelen > (unsigned long) IniGetInt (INI_FILE, "MaxLogFileSize", 2000000)) {
+	maxlogfilesize = IniGetInt (INI_FILE, "MaxLogFileSize", 2000000);
+	if (maxlogfilesize < 250000) maxlogfilesize = 250000;
+	if (filelen > maxlogfilesize) {
 		char	*buf, *p;
 		int	bytes_read;
 
