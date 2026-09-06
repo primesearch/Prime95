@@ -212,6 +212,7 @@ void stop_worker_for_abort (int);
 /* Routines dealing with day/night memory settings */
 
 void mem_settings_have_changed (void);
+void recheck_memory_restarts (void);
 unsigned long max_mem (int);
 int avail_mem (int, unsigned long, unsigned long, unsigned int *);
 #define MEM_USAGE_NOT_SET 0x1		/* The mem_in_use value is just a guess as the work unit for the thread has not started yet or is restarting. */

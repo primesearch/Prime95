@@ -7240,6 +7240,10 @@ void timed_events_scheduler (void *arg)
 				timed_events[i].time_to_fire = this_time + TE_PRIORITY_WORK_FREQ;
 				check_for_priority_work ();
 				break;
+			case TE_MEM_RESCAN:	/* Retry a deferred memory restart check */
+				timed_events[i].active = FALSE;
+				recheck_memory_restarts ();
+				break;
 			case TE_COMPLETION_DATES:	/* Send expected completion dates event */
 				timed_events[i].active = FALSE;
 				UpdateEndDates ();

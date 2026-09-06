@@ -12,7 +12,7 @@ extern "C" {
 /* Constants */
 
 #define VERSION		"31.7"
-#define BUILD_NUM	"1"
+#define BUILD_NUM	"2"
 /* The list of assigned OS ports follows: */
 /* Win9x (prime95) #1 */
 /* Linux (mprime)  #2 */
@@ -584,8 +584,9 @@ void mallocFreeForOS ();
 #define TE_LOAD_AVERAGE		13	/* Linux/FreeBSD/Apple load average check */
 #define TE_BENCH		14	/* Generate benchmark data for best FFT selection */
 #define TE_JACOBI		15	/* Trigger a Jacobi error check */
+#define TE_MEM_RESCAN		16	/* Retry a memory restart check that could not be made when memory became available */
 
-#define MAX_TIMED_EVENTS	16	/* Maximum number of timed events */
+#define MAX_TIMED_EVENTS	17	/* Maximum number of timed events */
 
 void init_timed_event_handler (void);
 
@@ -607,6 +608,7 @@ time_t timed_event_fire_time (
 #define TE_THROTTLE_FREQ	 5	/* Throttle every 5 sec. */
 #define TE_ROLLING_AVERAGE_FREQ	 12*60*60 /* Adjust rolling every 12 hr. */
 #define TE_BENCH_FREQ		 21*60*60 /* Generate auto-benchmark data every 21 hrs. */
+#define TE_MEM_RESCAN_FREQ	 10	/* Retry a deferred memory restart check every 10 seconds. */
 
 #ifdef __cplusplus
 }
